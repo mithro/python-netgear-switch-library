@@ -3,7 +3,7 @@
 **Date:** 2026-07-15
 **Status:** Approved (design), pending spec review
 **Project:** Python Netgear Switch Interface Library
-**Distribution:** `python-netgear-switch-library` · **Import:** `netgear_switch_library` · **CLI:** `ngsw`
+**Distribution:** `python-netgear-switch-library` · **Import:** `netgear_switch` · **CLI:** `ngsw`
 **Repo:** `github.com/mithro/netgear-stupid-control` (git repo directory name differs from the project name)
 
 ## 1. Purpose
@@ -68,7 +68,7 @@ without writing everything twice — is that all protocol *knowledge* lives in p
 I/O-free code, and only the actual byte I/O is duplicated per sync/async transport.
 
 ```
-netgear_switch_library/
+netgear_switch/
   models.py        Frozen dataclasses (public return types): SwitchData, PortStatus,
                    VLANInfo, PoEStatus, Sensor, LLDPNeighbor, MacEntry. Shared by
                    both APIs; both APIs return identical instances.
@@ -195,14 +195,14 @@ protected_ports = [9, 10]        # refuse disruptive writes without --force
 
 ## 7. Virtual switch (integration testing)
 
-A shipped subpackage, `netgear_switch_library.virtual`, available under a
+A shipped subpackage, `netgear_switch.virtual`, available under a
 `[testing]` optional-dependency extra so `gdoc2netcfg` and `sensors2mqtt` can also
 test their own switch code against it. It is a **stateful, model-parameterized**
 device simulator: one authoritative mutable state with three protocol faces bound
 to it, so a write on one protocol is immediately visible on the others.
 
 ```
-netgear_switch_library/virtual/
+netgear_switch/virtual/
   state.py       VirtualSwitchState — one source of truth: ports (link/speed/admin),
                  PoE (admin/detect/mW), VLANs + egress/untagged bitmaps, PVIDs,
                  sensors (fan/temp/PSU), MAC/FDB table, LLDP neighbors,
@@ -248,7 +248,7 @@ netgear_switch_library/virtual/
 
 - `uv` + `hatchling`; **Apache 2.0**; Python ≥ 3.11.
 - Distribution name `python-netgear-switch-library`; import name
-  `netgear_switch_library`. CLI command **`ngsw`** (subcommands: `ngsw ports`,
+  `netgear_switch`. CLI command **`ngsw`** (subcommands: `ngsw ports`,
   `ngsw poe`, `ngsw vlan`, `ngsw lldp`, `ngsw macs`, `ngsw sensors`, `ngsw
   capture`, …). Any future companion tools share the `ngsw` prefix.
 - Optional-dependency extras so consumers install only what they need:
@@ -289,5 +289,3 @@ netgear_switch_library/virtual/
 1. **M4300 SNMP VLAN write** — trusting owner experience over the handoff doc.
 2. **v1 write scope** — full read+write with the §6 rails; confirm not too large
    for the first cut.
-3. **Import name** — `netgear_switch_library` matches the distribution; confirm you
-   don't prefer a shorter import (e.g. `netgear_switch`).
