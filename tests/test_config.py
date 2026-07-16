@@ -156,3 +156,41 @@ def test_protected_ports_rejects_booleans(tmp_path):
     )
     with pytest.raises(errors.ConfigError):
         load_inventory(p, env={})
+
+
+def test_env_only_secret_does_not_require_secure_permissions(tmp_path):
+    # A 0644 file whose only secret is a ${ENV} ref must load fine — the
+    # permission gate applies only to LITERAL secrets.
+    p = _write(
+        tmp_path,
+        """
+        [switches.sw]
+        model = "gsm7252ps"
+        host = "10.1.5.20"
+        snmp.write_community = "${WC}"
+        """,
+        mode=0o644,
+    )
+    inv = load_inventory(p, env={"WC": "w"})
+    assert inv["sw"].snmp_write_community(env={"WC": "w"}) == "w"
+
+
+def test_absent_secret_specs_resolve_to_none(tmp_path):
+    p = _write(
+        tmp_path,
+        """
+        [switches.sw]
+        model = "gsm7252ps"
+        host = "10.1.5.20"
+        """,
+    )
+    cfg = load_inventory(p, env={})["sw"]
+    assert cfg.snmp_write_community(env={}) is None
+    assert cfg.http_password(env={}) is None
+
+
+def test_models_mapping_is_read_only():
+    from netgear_switch.registry import MODELS, get_model
+
+    with pytest.raises(TypeError):
+        MODELS["x"] = get_model("gsm7252ps")  # type: ignore[index]

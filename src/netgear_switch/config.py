@@ -14,6 +14,8 @@ from .registry import SwitchModel, get_model
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
+_SECRET_COMMAND_TIMEOUT = 10
+
 
 def resolve_secret(
     spec: str | None,
@@ -35,8 +37,10 @@ def resolve_secret(
         if not args:
             raise CredentialError("empty command in secret spec")
         try:
-            result = runner(args, capture_output=True, text=True)
-        except OSError as exc:
+            result = runner(
+                args, capture_output=True, text=True, timeout=_SECRET_COMMAND_TIMEOUT
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
             raise CredentialError(
                 f"secret command {args!r} could not be run: {exc}"
             ) from exc
