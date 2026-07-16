@@ -44,6 +44,11 @@ def test_resolve_secret_command_failure_raises():
         resolve_secret("!false", env={}, runner=failing)
 
 
+def test_resolve_secret_missing_binary_raises_credential_error():
+    with pytest.raises(errors.CredentialError):
+        resolve_secret("!definitely-not-a-real-binary-xyzzy --flag", env={})
+
+
 def _write(tmp_path, body, mode=0o600):
     p = tmp_path / "inv.toml"
     p.write_text(textwrap.dedent(body))
@@ -122,3 +127,32 @@ def test_ensure_secure_file_rejects_world_readable(tmp_path):
     os.chmod(p, stat.S_IRUSR | stat.S_IWUSR | stat.S_IROTH)
     with pytest.raises(errors.ConfigError):
         ensure_secure_file(p)
+
+
+def test_non_string_secret_is_config_error_not_silent(tmp_path):
+    p = _write(
+        tmp_path,
+        """
+        [switches.sw]
+        model = "gsm7252ps"
+        host = "10.1.5.20"
+        snmp.write_community = 12345
+        """,
+        mode=0o644,
+    )
+    with pytest.raises(errors.ConfigError):
+        load_inventory(p, env={})
+
+
+def test_protected_ports_rejects_booleans(tmp_path):
+    p = _write(
+        tmp_path,
+        """
+        [switches.sw]
+        model = "gsm7252ps"
+        host = "10.1.5.20"
+        protected_ports = [true, 9]
+        """,
+    )
+    with pytest.raises(errors.ConfigError):
+        load_inventory(p, env={})

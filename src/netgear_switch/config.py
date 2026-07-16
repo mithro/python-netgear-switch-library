@@ -34,7 +34,12 @@ def resolve_secret(
         args = shlex.split(spec[1:])
         if not args:
             raise CredentialError("empty command in secret spec")
-        result = runner(args, capture_output=True, text=True)
+        try:
+            result = runner(args, capture_output=True, text=True)
+        except OSError as exc:
+            raise CredentialError(
+                f"secret command {args!r} could not be run: {exc}"
+            ) from exc
         if result.returncode != 0:
             raise CredentialError(
                 f"secret command {args!r} failed "
@@ -108,16 +113,25 @@ def _switch_from_table(
         raise ConfigError(f"switch {name!r}: snmp/http/nsdp must be tables")
 
     ports = table.get("protected_ports", [])
-    if not isinstance(ports, list) or not all(isinstance(p, int) for p in ports):
+    if not isinstance(ports, list) or not all(
+        isinstance(p, int) and not isinstance(p, bool) for p in ports
+    ):
         raise ConfigError(f"switch {name!r}: protected_ports must be a list of ints")
+
+    for label, value in (
+        ("snmp.community", snmp.get("community")),
+        ("snmp.write_community", snmp.get("write_community")),
+        ("http.password", http.get("password")),
+        ("nsdp.interface", nsdp.get("interface")),
+    ):
+        if value is not None and not isinstance(value, str):
+            raise ConfigError(f"switch {name!r}: {label} must be a string")
 
     secret_specs = [
         snmp.get("write_community"),
         http.get("password"),
     ]
-    literals = [
-        s for s in secret_specs if _is_literal(s if isinstance(s, str) else None)
-    ]
+    literals = [s for s in secret_specs if _is_literal(s)]
 
     cfg = SwitchConfig(
         name=name,
