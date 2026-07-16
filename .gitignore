@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+
+# Project-local scratch
+tmp/
+
+# Claude Code local config and subagent-driven-development scratch
+/.claude/
+/.superpowers/
+
+# Overlay-mount character-device dotfiles present in this repo's working tree —
+# never track these.
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.idea
+/.mcp.json
+/.profile
+/.ripgreprc
+/.vscode
+/.zprofile
+/.zshrc
