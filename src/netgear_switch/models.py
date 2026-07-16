@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import enum
-from collections.abc import Mapping
-from dataclasses import dataclass, field
-from types import MappingProxyType
+from dataclasses import dataclass
 
 
 class PoEDetect(enum.Enum):
@@ -75,9 +73,6 @@ class Sensor:
     unit: str
 
 
-_EMPTY_PVIDS: Mapping[int, int] = MappingProxyType({})
-
-
 @dataclass(frozen=True)
 class SwitchData:
     model: str
@@ -85,7 +80,7 @@ class SwitchData:
     ports: tuple[PortStatus, ...] = ()
     poe: tuple[PoEStatus, ...] = ()
     vlans: tuple[VLANInfo, ...] = ()
-    pvids: Mapping[int, int] = field(default=_EMPTY_PVIDS)
+    pvids: tuple[tuple[int, int], ...] = ()
     lldp: tuple[LLDPNeighbor, ...] = ()
     macs: tuple[MacEntry, ...] = ()
     sensors: tuple[Sensor, ...] = ()

@@ -79,4 +79,12 @@ def test_vlan_and_neighbor_and_sensor_and_mac():
 def test_switchdata_defaults_empty():
     sd = SwitchData(model="m4300-24x", host="10.1.5.19")
     assert sd.ports == ()
-    assert sd.pvids == {}
+    assert sd.pvids == ()
+
+
+def test_switchdata_is_hashable_and_equatable():
+    a = SwitchData(model="m4300-24x", host="10.1.5.19", pvids=((1, 10), (2, 20)))
+    b = SwitchData(model="m4300-24x", host="10.1.5.19", pvids=((1, 10), (2, 20)))
+    assert a == b
+    assert hash(a) == hash(b)  # SwitchData must be hashable
+    assert hash(SwitchData(model="m", host="h")) is not None  # default too
