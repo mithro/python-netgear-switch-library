@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from netgear_switch.aio_api import AsyncSwitch
+from netgear_switch.config import SwitchConfig
 from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpRow
@@ -63,3 +64,43 @@ def test_snapshot_on_plus_model_raises() -> None:
     sw = AsyncSwitch(get_model("gs305ep"), "host")
     with pytest.raises(UnsupportedCapabilityError):
         asyncio.run(sw.snapshot())
+
+
+def test_from_config_builds_facade_without_touching_network() -> None:
+    """Async from_config mirrors sync test: builds facade without network access."""
+    cfg = SwitchConfig(
+        name="core",
+        model=get_model("gsm7252ps"),
+        host="10.0.0.9",
+        snmp_community="public",
+        snmp_write_community_spec=None,
+        http_password_spec=None,
+        nsdp_interface=None,
+        protected_ports=frozenset(),
+    )
+    sw = AsyncSwitch.from_config(cfg)
+    assert sw.host == "10.0.0.9"
+    assert sw.model.key == "gsm7252ps"
+
+
+def test_reader_builds_default_client_when_not_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When no client injected, _reader() calls builder; verify the default branch."""
+    build_calls: list[tuple[str, str | None]] = []
+
+    def fake_build(host: str, community: str | None) -> FakeAsyncClient:
+        build_calls.append((host, community))
+        return FakeAsyncClient(_ports_tables())
+
+    monkeypatch.setattr(
+        "netgear_switch.aio_api.build_async_snmp_client", fake_build
+    )
+
+    sw = AsyncSwitch(get_model("gsm7252ps"), "10.0.0.5")
+    ports = asyncio.run(sw.get_ports())
+
+    assert len(build_calls) == 1
+    assert build_calls[0] == ("10.0.0.5", None)
+    assert len(ports) > 0
+    assert ports[0].port == 1
