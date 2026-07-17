@@ -52,13 +52,24 @@ def encode_port_bitmap(ports: Iterable[int], width_bytes: int = 8) -> bytes:
 
 
 def set_port_bit(current: bytes | str, port: int, present: bool) -> bytes:
-    """Read-modify-write one port's bit in a VLAN bitmap; all others preserved."""
+    """Read-modify-write one port's bit in a VLAN bitmap; all others preserved.
+
+    Preserves the input bitmap's byte width to avoid wire-length mismatches on
+    SET for >64-port switches. The result is at least 8 bytes and at least as
+    wide as the input.
+    """
+    # Compute the current bitmap's width in bytes
+    if isinstance(current, bytes):
+        current_width = len(current)
+    else:
+        current_width = len(current.encode("latin-1"))
+
     ports = set(decode_port_bitmap(current))
     if present:
         ports.add(port)
     else:
         ports.discard(port)
-    return encode_port_bitmap(ports)
+    return encode_port_bitmap(ports, width_bytes=max(8, current_width))
 
 
 def membership_bitmaps(

@@ -54,3 +54,45 @@ def test_membership_bitmaps_untagged_tagged_excluded():
     )
     assert decode_port_bitmap(e) == frozenset({2})
     assert decode_port_bitmap(u) == frozenset()
+
+
+def test_encode_decode_large_port_set():
+    """Round-trip test for >64-port switches (requires buffer growth)."""
+    ports = {1, 65, 100}
+    encoded = encode_port_bitmap(ports)
+    assert decode_port_bitmap(encoded) == frozenset(ports)
+    # Verify the buffer grew beyond 8 bytes to accommodate port 100
+    assert len(encoded) > 8
+
+
+def test_set_port_bit_preserves_str_input():
+    """set_port_bit on str input (latin-1) yields same result as bytes input."""
+    # Create a reference bytes bitmap
+    bytes_bitmap = encode_port_bitmap({1, 10, 48})
+    # Encode it to str (latin-1) to simulate transport normalization
+    str_bitmap = bytes_bitmap.decode("latin-1")
+
+    # Modify both with set_port_bit
+    bytes_result = set_port_bit(bytes_bitmap, 25, present=True)
+    str_result = set_port_bit(str_bitmap, 25, present=True)
+
+    # Both should decode to the same port set
+    assert decode_port_bitmap(bytes_result) == decode_port_bitmap(str_result)
+    assert decode_port_bitmap(bytes_result) == frozenset({1, 10, 25, 48})
+
+
+def test_set_port_bit_preserves_width():
+    """set_port_bit preserves input bitmap width and rounds up to 8-byte min."""
+    # Test 1: 16-byte input stays 16 bytes
+    bitmap_16 = encode_port_bitmap({1}, width_bytes=16)
+    assert len(bitmap_16) == 16
+    result = set_port_bit(bitmap_16, 2, present=True)
+    assert len(result) == 16
+    assert decode_port_bitmap(result) == frozenset({1, 2})
+
+    # Test 2: 8-byte input stays at least 8 bytes
+    bitmap_8 = encode_port_bitmap({1}, width_bytes=8)
+    assert len(bitmap_8) == 8
+    result = set_port_bit(bitmap_8, 2, present=True)
+    assert len(result) >= 8
+    assert decode_port_bitmap(result) == frozenset({1, 2})
