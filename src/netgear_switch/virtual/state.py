@@ -17,17 +17,14 @@ from ..registry import get_model
 def encode_port_bitmap(ports: set[int], width_bytes: int = 8) -> str:
     """Inverse of ``parse.decode_port_bitmap``: a port set -> a latin-1 bitmap.
 
-    Bit 7 (MSB) of byte 0 is port 1, matching the decode side. The result is
-    grown past ``width_bytes`` if a port number requires it, so callers never
-    need to pre-size the buffer for the actual port count.
+    Delegates to the canonical bytes encoder in
+    ``protocols/snmp/write.encode_port_bitmap`` (single source of truth for the
+    MSB-first bit-packing) and decodes to the latin-1 ``str`` this module's
+    callers expect.
     """
-    data = bytearray(width_bytes)
-    for p in ports:
-        byte_idx, bit = divmod(p - 1, 8)
-        while byte_idx >= len(data):
-            data.append(0)
-        data[byte_idx] |= 0x80 >> bit
-    return data.decode("latin-1")
+    from ..protocols.snmp.write import encode_port_bitmap as _encode_bytes
+
+    return _encode_bytes(ports, width_bytes).decode("latin-1")
 
 
 @dataclass

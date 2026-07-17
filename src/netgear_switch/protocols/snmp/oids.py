@@ -31,6 +31,9 @@ DOT1Q_VLAN_STATIC_NAME = "1.3.6.1.2.1.17.7.1.4.3.1.1"
 DOT1Q_VLAN_STATIC_EGRESS = "1.3.6.1.2.1.17.7.1.4.3.1.2"
 DOT1Q_VLAN_STATIC_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.3.1.4"
 DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"
+DOT1Q_VLAN_STATIC_ROW_STATUS = "1.3.6.1.2.1.17.7.1.4.3.1.5"  # dot1qVlanStaticRowStatus
+ROW_STATUS_CREATE_AND_GO = 4  # RowStatus createAndGo
+ROW_STATUS_DESTROY = 6        # RowStatus destroy
 # columns 5=chassis,7=portId,8=portDesc,9=sysName
 LLDP_REM_TABLE = "1.0.8802.1.1.2.1.4.1"
 # RFC3621; col3=admin, col6=detect
@@ -74,6 +77,14 @@ class VendorOids:
     """The ONE symbol every call site uses for the DHCP-mode OID. See
     DHCP_MODE_OID_SUFFIX above — UNVERIFIED, best-effort read only. No call site
     may hard-code a ``.99.1`` literal; they all reference this field."""
+    mgmt_write_addr_unverified: str
+    mgmt_write_netmask_unverified: str
+    mgmt_write_gateway_unverified: str
+    """UNVERIFIED writable management-IP OIDs — placeholders pending Slice 7
+    hardware capture. They are NEVER trusted on real hardware (set_mgmt_ip is
+    force-gated and documented UNVERIFIED); they exist so the mutable mock and
+    the writer agree under test, mirroring the ``dhcp_mode_unverified``
+    precedent above. No call site may hard-code these literals."""
 
 
 def vendor_oids(model: SwitchModel) -> VendorOids:
@@ -100,4 +111,7 @@ def vendor_oids(model: SwitchModel) -> VendorOids:
         box_psu_power=f"{base}.43.1.8.1.5",
         box_temp=f"{base}.43.1.15.1.3",
         dhcp_mode_unverified=f"{base}.{DHCP_MODE_OID_SUFFIX}",
+        mgmt_write_addr_unverified=f"{base}.98.1",
+        mgmt_write_netmask_unverified=f"{base}.98.2",
+        mgmt_write_gateway_unverified=f"{base}.98.3",
     )
