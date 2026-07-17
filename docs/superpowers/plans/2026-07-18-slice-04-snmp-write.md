@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-Python ≥3.11; import `netgear_switch`; uv (pysnmp/mock tests `--extra testing`, net-snmp CLI system dep for sync incl. `snmpset`); frozen/hashable public return types; strict ruff + mypy --strict + coverage≥90 ENFORCED, green locally; no blanket mypy ignores (pysnmp untyped via existing importlib seam); errors surfaced early (typed errors incl. WriteVerificationError with before/after; commitFailed → SnmpError; NEVER silently succeed on a failed write); write community required for writes; protected_ports enforced; never `git add -A` (overlay char-device dotfiles); no flaky tests (ephemeral ports, injectable cycle timeouts, clean VirtualSwitch teardown, pass under `-W error::ResourceWarning`); sync and async writes MUST produce identical mock state (write-equivalence harness enforces this); SNMP is the v1 write path for ALL managed models incl. M4300 (owner-confirmed; verify-after-write surfaces any real commitFailed).
+Python ≥3.11; import `netgear_switch`; uv (pysnmp/mock tests `--extra testing`, net-snmp CLI system dep for sync incl. `snmpset`); frozen/hashable public return types; strict ruff + mypy --strict + coverage≥90 ENFORCED, green locally; no blanket mypy ignores (pysnmp untyped via existing importlib seam); errors surfaced early (typed errors incl. WriteVerificationError with before/after — raised ONLY when a SET was attempted and the read-back diverged, never for a pure precondition like a missing VLAN, which is an SnmpError; verify-after-write compares EVERY column the op wrote — both egress+untagged for VLAN membership, all of address+netmask+gateway for mgmt-IP; commitFailed → SnmpError; NEVER silently succeed on a failed write); write community required for writes but resolved LAZILY on first write (never eagerly in from_config, so read-only construction with an unresolvable write-community spec never raises); protected_ports enforced on every disruptive op incl. VLAN delete (any protected member port refuses without force); never `git add -A` (overlay char-device dotfiles); no flaky tests (ephemeral ports, injectable cycle timeouts, clean VirtualSwitch teardown, pass under `-W error::ResourceWarning`); sync and async writes MUST produce identical mock state (write-equivalence harness enforces this); SNMP is the v1 write path for ALL managed models incl. M4300 (owner-confirmed; verify-after-write surfaces any real commitFailed).
 
 ---
 
@@ -47,6 +47,7 @@ Python ≥3.11; import `netgear_switch`; uv (pysnmp/mock tests `--extra testing`
 **Files:**
 - Create: `src/netgear_switch/protocols/snmp/write.py`
 - Modify: `src/netgear_switch/protocols/snmp/oids.py`
+- Modify: `src/netgear_switch/virtual/state.py` (make its `encode_port_bitmap` delegate to the new canonical bytes encoder — single source of truth for the bit-packing)
 - Test: `tests/protocols/snmp/test_write_encode.py`
 
 **Interfaces:**
@@ -54,7 +55,7 @@ Python ≥3.11; import `netgear_switch`; uv (pysnmp/mock tests `--extra testing`
 - Produces:
   - `SetVarbind(oid: str, value: int | str | bytes, type_letter: str)` — frozen dataclass; `type_letter` ∈ `{"i","u","s","x","a"}`; raises `ValueError` on any other letter.
   - `SET_TYPE_LETTERS: frozenset[str]`
-  - `encode_port_bitmap(ports: Iterable[int], width_bytes: int = 8) -> bytes` (MSB-first, port 1 = bit 7 of byte 0)
+  - `encode_port_bitmap(ports: Iterable[int], width_bytes: int = 8) -> bytes` (MSB-first, port 1 = bit 7 of byte 0) — the CANONICAL bit-packing; `virtual/state.encode_port_bitmap` is refactored to delegate to it (no second copy of the algorithm).
   - `set_port_bit(current: bytes | str, port: int, present: bool) -> bytes`
   - `membership_bitmaps(*, mode: VlanMode, port: int, egress: bytes | str, untagged: bytes | str) -> tuple[bytes, bytes]`
   - In `oids.py`: `DOT1Q_VLAN_STATIC_ROW_STATUS = "1.3.6.1.2.1.17.7.1.4.3.1.5"`, `ROW_STATUS_CREATE_AND_GO = 4`, `ROW_STATUS_DESTROY = 6`; `VendorOids` fields `mgmt_write_addr_unverified`, `mgmt_write_netmask_unverified`, `mgmt_write_gateway_unverified`.
@@ -235,6 +236,24 @@ And populate them in `vendor_oids()` (inside the returned `VendorOids(...)`, aft
         mgmt_write_gateway_unverified=f"{base}.98.3",
 ```
 
+Finally, de-duplicate the bit-packing so there is ONE source of truth. `src/netgear_switch/virtual/state.py` already defines its own `encode_port_bitmap` (returning a latin-1 `str`) with the identical MSB-first algorithm; leaving two independent copies risks a future off-by-one desync between what the writer computes and what the mock projects. Make the state helper delegate to the new canonical bytes encoder and just decode to `str`. Replace the body of `encode_port_bitmap` in `state.py` (keep its `-> str` signature and docstring intact for its callers):
+
+```python
+def encode_port_bitmap(ports: set[int], width_bytes: int = 8) -> str:
+    """Inverse of ``parse.decode_port_bitmap``: a port set -> a latin-1 bitmap.
+
+    Delegates to the canonical bytes encoder in
+    ``protocols/snmp/write.encode_port_bitmap`` (single source of truth for the
+    MSB-first bit-packing) and decodes to the latin-1 ``str`` this module's
+    callers expect.
+    """
+    from ..protocols.snmp.write import encode_port_bitmap as _encode_bytes
+
+    return _encode_bytes(ports, width_bytes).decode("latin-1")
+```
+
+(`write.encode_port_bitmap` takes any `Iterable[int]`, so the `set[int]` argument is accepted unchanged. The import is function-local to avoid a package import cycle at module load.)
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run --extra testing pytest tests/protocols/snmp/test_write_encode.py -v`
@@ -243,8 +262,8 @@ Expected: PASS (4 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/netgear_switch/protocols/snmp/write.py src/netgear_switch/protocols/snmp/oids.py tests/protocols/snmp/test_write_encode.py
-git commit -m "feat(snmp): pure write encoding helpers + write OID constants"
+git add src/netgear_switch/protocols/snmp/write.py src/netgear_switch/protocols/snmp/oids.py src/netgear_switch/virtual/state.py tests/protocols/snmp/test_write_encode.py
+git commit -m "feat(snmp): pure write encoding helpers + write OID constants (single bitmap encoder)"
 ```
 
 ---
@@ -580,7 +599,7 @@ git commit -m "feat(snmp): async pysnmp set_cmd transport with SMI value mapping
 - Produces:
   - `VirtualSwitchState.apply_write(oid: str, value: int | bytes | str) -> None` — mutates state with coherence (PoE admin off → detect=1 + link down; on → detect=3).
   - `StateMibView.rebuild() -> None` and `StateMibView.apply_write(oid, value) -> None` (mutate state then rebuild).
-  - `_StateInstrum.write_variables(*var_binds, **context)` and a `SetCommandResponder` bound in `_run`; `writeSubTree=(1, 3, 6, 1)` VACM.
+  - `_StateInstrum.write_variables(*var_binds, **context)` (guards each `apply_write`, mapping any unexpected exception to a pysnmp `WrongValueError` so it never leaks into the dispatcher) and a `SetCommandResponder` bound in `_run`; `writeSubTree=(1, 3, 6, 1)` VACM.
 
 - [ ] **Step 1: Write the failing test** (pure state-level, no pysnmp)
 
@@ -793,17 +812,48 @@ def _from_smi_value(value: Any) -> int | bytes | str:
     return str(value.prettyPrint())
 ```
 
-Add `write_variables` to `_StateInstrum` (after `read_next_variables`):
+Add a lazy seam for the pysnmp SMI error module (next to `_pysnmp_rfc1905`):
+
+```python
+def _pysnmp_smi_error() -> Any:
+    return importlib.import_module("pysnmp.smi.error")
+```
+
+Extend `_StateInstrum.__init__` to also capture the SMI error class used to signal a failed SET (keep the existing NoSuchInstance/EndOfMibView capture):
+
+```python
+    def __init__(self, view: StateMibView) -> None:
+        self._view = view
+        rfc1905 = _pysnmp_rfc1905()
+        self._no_such_instance = rfc1905.noSuchInstance
+        self._end_of_mib_view = rfc1905.endOfMibView
+        self._write_error = _pysnmp_smi_error().WrongValueError
+```
+
+Add `write_variables` to `_StateInstrum` (after `read_next_variables`). Each varbind's `apply_write` is wrapped so any unexpected exception (e.g. a malformed bitmap or bad value type) is mapped to a proper pysnmp SMI error — which the command responder turns into a clean SNMP error-status — instead of propagating into the asyncio dispatcher (which would surface to the client as a *timeout*, i.e. a flaky failure). The read paths' NoSuchObject/NoSuchInstance handling above is unchanged:
 
 ```python
     def write_variables(
         self, *var_binds: tuple[Any, Any], **_context: Any
     ) -> list[tuple[Any, Any]]:
-        """Answer a SET: mutate state per varbind, echo the written varbinds."""
+        """Answer a SET: mutate state per varbind, echo the written varbinds.
+
+        A failure in ``apply_write`` (malformed value, unexpected type, ...) is
+        converted to a pysnmp ``WrongValueError`` so the responder returns a
+        clean SNMP error-status; it is never allowed to escape into the
+        dispatcher (which the client would observe as a timeout = flaky test).
+        """
         out: list[tuple[Any, Any]] = []
         for name, val in var_binds:
             oid = ".".join(str(x) for x in tuple(name))
-            self._view.apply_write(oid, _from_smi_value(val))
+            try:
+                self._view.apply_write(oid, _from_smi_value(val))
+            except Exception as exc:  # noqa: BLE001 - map to SMI error, never leak
+                # A pysnmp MibOperationError subclass carries name/idx kwargs and
+                # is turned into a clean SNMP error-status by the responder. (If
+                # the pysnmp v7 kwargs differ, adjust here — same duck-typing risk
+                # noted for write_variables in the Self-Review Notes.)
+                raise self._write_error(name=name, idx=None) from exc
             out.append((name, val))
         return out
 ```
@@ -1128,7 +1178,7 @@ git commit -m "feat(write): SnmpWriter/AsyncSnmpWriter core with verify + protec
 - Consumes: `write.encode_port_bitmap`, `write.membership_bitmaps`; `models.VlanMode`, `models.VLANInfo`; `SnmpReader.get_vlans` / `get_pvids`.
 - Produces:
   - `SnmpWriter.set_pvid(port: int, vlan: int, *, force: bool = False) -> None`
-  - `SnmpWriter.set_vlan_membership(vlan: int, port: int, mode: VlanMode, *, force: bool = False) -> None` (RMW egress+untagged, one atomic `set_many`, other ports preserved)
+  - `SnmpWriter.set_vlan_membership(vlan: int, port: int, mode: VlanMode, *, force: bool = False) -> None` (RMW egress+untagged, one atomic `set_many`, other ports preserved; verify-after-write checks BOTH the egress `member_ports` and the `untagged_ports` columns; a missing VLAN is an `SnmpError` precondition, not a `WriteVerificationError`)
   - `AsyncSnmpWriter` mirrors.
 
 - [ ] **Step 1: Write the failing test**
@@ -1191,6 +1241,41 @@ class ApplyingVlanClient(FakeWriteClient):
 
 Use `ApplyingVlanClient(_vlan_tables(...))` in both new tests instead of `FakeWriteClient`.
 
+Also append these two tests. The first proves the verify-after-write catches a device/mock that accepts the egress SET but silently drops the untagged SET (review item 1); the second proves a genuine precondition ("VLAN does not exist") raises `SnmpError`, NOT `WriteVerificationError` (review item 9):
+
+```python
+from netgear_switch.protocols.snmp.client import SnmpError
+
+
+class EgressOnlyVlanClient(FakeWriteClient):
+    """Applies the egress SET but IGNORES the untagged SET (buggy device)."""
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS):
+                self._tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")]
+            # untagged column deliberately not applied
+
+
+def test_set_vlan_membership_catches_dropped_untagged_write():
+    # UNTAGGED mode sets both egress AND untagged; the client drops untagged.
+    client = EgressOnlyVlanClient(_vlan_tables(member=(1, 2, 10), untagged=(1, 2)))
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        w.set_vlan_membership(90, 25, VlanMode.UNTAGGED, force=True)
+    assert "untagged" in str(exc.value)
+
+
+def test_set_vlan_membership_missing_vlan_is_precondition_not_verify_error():
+    client = ApplyingVlanClient({})  # no VLAN 90 present
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(SnmpError):
+        w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True)
+    assert client.sets == []  # precondition failed before any SET
+```
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `uv run --extra testing pytest tests/test_snmp_write.py -k "pvid or membership" -v`
@@ -1201,9 +1286,12 @@ Expected: FAIL with `AttributeError: 'SnmpWriter' object has no attribute 'set_p
 Add imports at the top of `src/netgear_switch/snmp_write.py`:
 
 ```python
+from .protocols.snmp.client import SnmpError
 from .protocols.snmp.parse import decode_port_bitmap
 from .protocols.snmp.write import encode_port_bitmap, membership_bitmaps
 ```
+
+`SnmpError` (runtime import) is raised for a genuine device/SNMP-level *precondition* discovered before any SET is attempted (e.g. "VLAN does not exist"). It is deliberately distinct from `WriteVerificationError`, which means a SET *was* issued and the read-back diverged — so `WriteVerificationError` is never raised with `before=None, after=None` (review item 9).
 
 and under `TYPE_CHECKING` add `VLANInfo`, `VlanMode`:
 
@@ -1234,9 +1322,9 @@ Add to `SnmpWriter` a VLAN lookup helper and the two methods:
         self._guard(port, force)
         before = self._vlan(vlan)
         if before is None:
-            raise WriteVerificationError(
-                f"VLAN {vlan} does not exist", before=None, after=None
-            )
+            # Precondition failure: no SET has been attempted, so this is NOT a
+            # verification divergence (review item 9).
+            raise SnmpError(f"VLAN {vlan} does not exist")
         new_egress, new_untagged = membership_bitmaps(
             mode=mode, port=port,
             egress=encode_port_bitmap(before.member_ports),
@@ -1247,10 +1335,26 @@ Add to `SnmpWriter` a VLAN lookup helper and the two methods:
             SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"),
         ])
         after = self._vlan(vlan)
-        want = frozenset(decode_port_bitmap(new_egress))
-        if after is None or after.member_ports != want:
+        # Verify BOTH columns this op wrote: egress membership AND the untagged
+        # set. A mock/device that accepts the egress SET but silently drops the
+        # untagged SET must be caught (review item 1).
+        want_egress = frozenset(decode_port_bitmap(new_egress))
+        want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if after is None:
             raise WriteVerificationError(
-                f"VLAN {vlan} membership for port {port} did not verify",
+                f"VLAN {vlan} disappeared while setting membership for port {port}",
+                before=before, after=after,
+            )
+        if after.member_ports != want_egress:
+            raise WriteVerificationError(
+                f"VLAN {vlan} egress (member_ports) for port {port} did not "
+                f"verify: wanted {sorted(want_egress)}, got {sorted(after.member_ports)}",
+                before=before, after=after,
+            )
+        if after.untagged_ports != want_untagged:
+            raise WriteVerificationError(
+                f"VLAN {vlan} untagged_ports for port {port} did not verify: "
+                f"wanted {sorted(want_untagged)}, got {sorted(after.untagged_ports)}",
                 before=before, after=after,
             )
 ```
@@ -1278,9 +1382,8 @@ Add the async mirror to `AsyncSnmpWriter`:
         self._guard(port, force)
         before = await self._vlan(vlan)
         if before is None:
-            raise WriteVerificationError(
-                f"VLAN {vlan} does not exist", before=None, after=None
-            )
+            # Precondition failure (review item 9): no SET attempted.
+            raise SnmpError(f"VLAN {vlan} does not exist")
         new_egress, new_untagged = membership_bitmaps(
             mode=mode, port=port,
             egress=encode_port_bitmap(before.member_ports),
@@ -1291,10 +1394,24 @@ Add the async mirror to `AsyncSnmpWriter`:
             SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"),
         ])
         after = await self._vlan(vlan)
-        want = frozenset(decode_port_bitmap(new_egress))
-        if after is None or after.member_ports != want:
+        # Verify BOTH written columns (egress AND untagged) — review item 1.
+        want_egress = frozenset(decode_port_bitmap(new_egress))
+        want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if after is None:
             raise WriteVerificationError(
-                f"VLAN {vlan} membership for port {port} did not verify",
+                f"VLAN {vlan} disappeared while setting membership for port {port}",
+                before=before, after=after,
+            )
+        if after.member_ports != want_egress:
+            raise WriteVerificationError(
+                f"VLAN {vlan} egress (member_ports) for port {port} did not "
+                f"verify: wanted {sorted(want_egress)}, got {sorted(after.member_ports)}",
+                before=before, after=after,
+            )
+        if after.untagged_ports != want_untagged:
+            raise WriteVerificationError(
+                f"VLAN {vlan} untagged_ports for port {port} did not verify: "
+                f"wanted {sorted(want_untagged)}, got {sorted(after.untagged_ports)}",
                 before=before, after=after,
             )
 ```
@@ -1302,7 +1419,7 @@ Add the async mirror to `AsyncSnmpWriter`:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run --extra testing pytest tests/test_snmp_write.py -v`
-Expected: PASS (6 tests)
+Expected: PASS (8 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1322,8 +1439,8 @@ git commit -m "feat(write): set_pvid + read-modify-write set_vlan_membership"
 **Interfaces:**
 - Consumes: `oids.DOT1Q_VLAN_STATIC_ROW_STATUS`, `oids.ROW_STATUS_CREATE_AND_GO`, `oids.ROW_STATUS_DESTROY`; `SnmpReader.get_vlans`.
 - Produces:
-  - `SnmpWriter.create_vlan(vlan: int, name: str) -> None` (createAndGo=4 + name; verify present with name)
-  - `SnmpWriter.delete_vlan(vlan: int) -> None` (destroy=6; verify absent)
+  - `SnmpWriter.create_vlan(vlan: int, name: str, *, force: bool = False) -> None` (createAndGo=4 + name; verify present with name; creating an empty VLAN is non-disruptive so `force` is accepted only for signature symmetry with `delete_vlan`)
+  - `SnmpWriter.delete_vlan(vlan: int, *, force: bool = False) -> None` (destroy=6; verify absent; guarded — refuses with `ProtectedPortError` if any current member port is in `protected_ports` unless `force=True`)
   - `AsyncSnmpWriter` mirrors.
 
 - [ ] **Step 1: Write the failing test**
@@ -1370,7 +1487,21 @@ def test_delete_vlan_destroys_and_verifies_absent():
     w = SnmpWriter(client, get_model("gsm7252ps"))
     w.delete_vlan(200)
     assert client.sets == [SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.200", oids.ROW_STATUS_DESTROY, "i")]
+
+
+def test_delete_vlan_protected_member_requires_force():
+    # VLAN 90 has member ports {1, 2, 10}; port 1 is protected. Deleting it would
+    # strip membership from the protected port (review item 3).
+    client = ApplyingRowStatusClient(_vlan_tables(vid=90, member=(1, 2, 10), untagged=(1, 2)))
+    w = SnmpWriter(client, get_model("gsm7252ps"), protected_ports=frozenset({1}))
+    with pytest.raises(ProtectedPortError):
+        w.delete_vlan(90)
+    assert client.sets == []           # nothing sent when the guard fires
+    w.delete_vlan(90, force=True)      # force bypasses the guard
+    assert any(s.oid == f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.90" for s in client.sets)
 ```
+
+(`_vlan_tables` is defined in the Task 6 test additions and projects `member_ports` from the egress column, so `before.member_ports` sees `{1, 2, 10}`. `ApplyingRowStatusClient`'s destroy removes the name row, so `get_vlans` reports VLAN 90 absent and the force path's verify passes.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1382,7 +1513,10 @@ Expected: FAIL with `AttributeError: 'SnmpWriter' object has no attribute 'creat
 Add to `SnmpWriter`:
 
 ```python
-    def create_vlan(self, vlan: int, name: str) -> None:
+    def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        # Creating an EMPTY VLAN adds no port membership, so it is
+        # non-disruptive and does NOT require force. ``force`` exists only for
+        # signature symmetry with delete_vlan (review item 3).
         before = self._vlan(vlan)
         self.client.set_many([
             SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
@@ -1396,8 +1530,17 @@ Add to `SnmpWriter`:
                 before=before, after=after,
             )
 
-    def delete_vlan(self, vlan: int) -> None:
+    def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
         before = self._vlan(vlan)
+        # Destroying a VLAN strips membership from EVERY member port; if any is a
+        # protected (uplink/mgmt) port, refuse without force (review item 3).
+        if before is not None and not force:
+            clash = before.member_ports & self.protected_ports
+            if clash:
+                raise ProtectedPortError(
+                    f"VLAN {vlan} includes protected port(s) {sorted(clash)}; "
+                    f"pass force=True to delete it anyway"
+                )
         self.client.set(SetVarbind(
             f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}", oids.ROW_STATUS_DESTROY, "i"))
         after = self._vlan(vlan)
@@ -1409,7 +1552,8 @@ Add to `SnmpWriter`:
 Add to `AsyncSnmpWriter`:
 
 ```python
-    async def create_vlan(self, vlan: int, name: str) -> None:
+    async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        # Empty VLAN creation is non-disruptive; force is for symmetry only.
         before = await self._vlan(vlan)
         await self.client.set_many([
             SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
@@ -1423,8 +1567,16 @@ Add to `AsyncSnmpWriter`:
                 before=before, after=after,
             )
 
-    async def delete_vlan(self, vlan: int) -> None:
+    async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
         before = await self._vlan(vlan)
+        # Refuse if a member port is protected, unless force (review item 3).
+        if before is not None and not force:
+            clash = before.member_ports & self.protected_ports
+            if clash:
+                raise ProtectedPortError(
+                    f"VLAN {vlan} includes protected port(s) {sorted(clash)}; "
+                    f"pass force=True to delete it anyway"
+                )
         await self.client.set(SetVarbind(
             f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}", oids.ROW_STATUS_DESTROY, "i"))
         after = await self._vlan(vlan)
@@ -1436,13 +1588,13 @@ Add to `AsyncSnmpWriter`:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run --extra testing pytest tests/test_snmp_write.py -v`
-Expected: PASS (8 tests)
+Expected: PASS (11 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/netgear_switch/snmp_write.py tests/test_snmp_write.py
-git commit -m "feat(write): create_vlan/delete_vlan via dot1q RowStatus"
+git commit -m "feat(write): create_vlan/delete_vlan via dot1q RowStatus (+protected-port guard)"
 ```
 
 ---
@@ -1458,8 +1610,8 @@ git commit -m "feat(write): create_vlan/delete_vlan via dot1q RowStatus"
 - Produces:
   - `PoeCycleTimeouts(off_timeout: float = 30.0, on_timeout: float = 60.0, poll_interval: float = 2.0)` frozen dataclass (exported from `snmp_write`).
   - `SnmpWriter.cycle_poe(port, *, force=False, timeouts=PoeCycleTimeouts(), sleep=time.sleep, clock=time.monotonic) -> None`
-  - `SnmpWriter.clear_poe_fault(port, *, force=False) -> None`
-  - `AsyncSnmpWriter.cycle_poe(port, *, force=False, timeouts=..., sleep=asyncio.sleep, clock=time.monotonic)` and `clear_poe_fault` (async).
+  - `SnmpWriter.clear_poe_fault(port, *, force=False, timeouts=PoeCycleTimeouts(), sleep=time.sleep, clock=time.monotonic) -> None` — same injectable poll/timeout structure as `cycle_poe`; polls for detect to leave FAULT (return to delivering/searching) before verifying, because real detect transitions take seconds (review item 5).
+  - `AsyncSnmpWriter.cycle_poe(port, *, force=False, timeouts=..., sleep=asyncio.sleep, clock=time.monotonic)` and `clear_poe_fault(port, *, force=False, timeouts=..., sleep=asyncio.sleep, clock=time.monotonic)` (async).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1519,7 +1671,10 @@ def test_clear_poe_fault_recovers_detect():
     ]
     client = CoherentPoeClient(tables)
     w = SnmpWriter(client, get_model("gsm7252ps"))
-    w.clear_poe_fault(5, force=True)
+    calls: list[float] = []
+    w.clear_poe_fault(5, force=True,
+                      timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+                      sleep=calls.append)
     detect = next(p.detect for p in w._reader.get_poe() if p.port == 5)
     assert detect is not PoEDetect.FAULT
 ```
@@ -1570,6 +1725,14 @@ def _poe_is_off(status: PoEStatus | None, port_up: bool) -> bool:
         and status.detect in (PoEDetect.DISABLED, PoEDetect.SEARCHING)
         and not port_up
     )
+
+
+def _poe_recovered(status: PoEStatus | None) -> bool:
+    """True once detect has left FAULT and settled to delivering/searching."""
+    return status is not None and status.detect in (
+        PoEDetect.DELIVERING,
+        PoEDetect.SEARCHING,
+    )
 ```
 
 Add to `SnmpWriter`:
@@ -1606,19 +1769,33 @@ Add to `SnmpWriter`:
                     before=before, after=self._poe_status(port))
             sleep(timeouts.poll_interval)
 
-    def clear_poe_fault(self, port: int, *, force: bool = False) -> None:
+    def clear_poe_fault(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts = PoeCycleTimeouts(),
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._guard(port, force)
         before = self._poe_status(port)
-        # Re-arm detection: disable then enable, verify no longer FAULT.
+        # Re-arm detection: disable then enable, then POLL for detect to leave
+        # FAULT. An immediate single re-read false-negatives on real hardware
+        # because detect transitions take seconds (review item 5); tests inject
+        # tiny timeouts so this is fast against the coherent mock.
         self.client.set_many([
             SetVarbind(_poe_admin_oid(port), 2, "i"),
             SetVarbind(_poe_admin_oid(port), 1, "i"),
         ])
-        after = self._poe_status(port)
-        if after is None or after.detect is PoEDetect.FAULT:
-            raise WriteVerificationError(
-                f"PoE port {port} still in FAULT after clear",
-                before=before, after=after)
+        deadline = clock() + timeouts.on_timeout
+        while not _poe_recovered(self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} still in FAULT after clear within "
+                    f"{timeouts.on_timeout}s",
+                    before=before, after=self._poe_status(port))
+            sleep(timeouts.poll_interval)
 
     def _port_up(self, port: int) -> bool:
         status = self._port_status(port)
@@ -1664,24 +1841,36 @@ Add to `AsyncSnmpWriter`:
                     before=before, after=st)
             await sleep(timeouts.poll_interval)
 
-    async def clear_poe_fault(self, port: int, *, force: bool = False) -> None:
+    async def clear_poe_fault(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts = PoeCycleTimeouts(),
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._guard(port, force)
         before = await self._poe_status(port)
+        # Poll for detect to leave FAULT (review item 5); tiny timeouts in tests.
         await self.client.set_many([
             SetVarbind(_poe_admin_oid(port), 2, "i"),
             SetVarbind(_poe_admin_oid(port), 1, "i"),
         ])
-        after = await self._poe_status(port)
-        if after is None or after.detect is PoEDetect.FAULT:
-            raise WriteVerificationError(
-                f"PoE port {port} still in FAULT after clear",
-                before=before, after=after)
+        deadline = clock() + timeouts.on_timeout
+        while not _poe_recovered(await self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} still in FAULT after clear within "
+                    f"{timeouts.on_timeout}s",
+                    before=before, after=await self._poe_status(port))
+            await sleep(timeouts.poll_interval)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run --extra testing pytest tests/test_snmp_write.py -v`
-Expected: PASS (10 tests)
+Expected: PASS (13 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1701,7 +1890,7 @@ git commit -m "feat(write): PoE cycle state machine + clear-fault (injectable ti
 **Interfaces:**
 - Consumes: `oids.vendor_oids(model).mgmt_write_{addr,netmask,gateway}_unverified`; `SnmpReader.get_mgmt_ip`.
 - Produces:
-  - `SnmpWriter.set_mgmt_ip(address: str, netmask: str, gateway: str, *, force: bool = False) -> None` — one atomic `set_many` of three IpAddress (`a`) SETs; verify via `get_mgmt_ip`. Raises `ProtectedPortError` unless `force=True` (strand risk). DHCP-mode switching is intentionally NOT offered (out-of-scope-until-verified).
+  - `SnmpWriter.set_mgmt_ip(address: str, netmask: str, gateway: str, *, force: bool = False) -> None` — one atomic `set_many` of three IpAddress (`a`) SETs; verify via `get_mgmt_ip` compares ALL three fields (address, netmask, gateway), naming whichever diverged (highest strand-risk op). Raises `ProtectedPortError` unless `force=True` (strand risk). DHCP-mode switching is intentionally NOT offered (out-of-scope-until-verified).
   - `AsyncSnmpWriter.set_mgmt_ip` mirror.
 
 - [ ] **Step 1: Write the failing test**
@@ -1729,25 +1918,51 @@ def test_set_mgmt_ip_requires_force():
     assert client.sets == []
 
 
+class _MgmtApply(FakeWriteClient):
+    """Applies all three mgmt-IP write OIDs into the read projection.
+
+    Optionally skips one field (``skip``) to simulate a device that accepts the
+    address but silently drops the netmask/gateway write.
+    """
+
+    def __init__(self, tables, *, skip=None):
+        super().__init__(tables)
+        self._vo = oids.vendor_oids(get_model("gsm7252ps"))
+        self._skip = skip
+        self._addr = "10.1.5.20"  # current mgmt address key for the ip tables
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            val = str(vb.value)
+            if vb.oid == self._vo.mgmt_write_addr_unverified and self._skip != "address":
+                self._addr = val
+                self._tables[oids.IP_ADENT_ADDR] = [SnmpRow(f"{oids.IP_ADENT_ADDR}.{val}", val, "IpAddress")]
+            elif vb.oid == self._vo.mgmt_write_netmask_unverified and self._skip != "netmask":
+                self._tables[oids.IP_ADENT_NETMASK] = [SnmpRow(f"{oids.IP_ADENT_NETMASK}.{self._addr}", val, "IpAddress")]
+            elif vb.oid == self._vo.mgmt_write_gateway_unverified and self._skip != "gateway":
+                self._tables[oids.IP_ROUTE_NEXTHOP] = [SnmpRow(f"{oids.IP_ROUTE_NEXTHOP}.0.0.0.0", val, "IpAddress")]
+
+
 def test_set_mgmt_ip_emits_three_ipaddress_sets():
     vo = oids.vendor_oids(get_model("gsm7252ps"))
-
-    class MgmtApply(FakeWriteClient):
-        def set_many(self, vbs):
-            self.sets.extend(vbs)
-            for vb in vbs:
-                if vb.oid == vo.mgmt_write_addr_unverified:
-                    addr = str(vb.value)
-                    self._tables[oids.IP_ADENT_ADDR] = [SnmpRow(f"{oids.IP_ADENT_ADDR}.{addr}", addr, "IpAddress")]
-                    self._tables[oids.IP_ADENT_NETMASK] = [SnmpRow(f"{oids.IP_ADENT_NETMASK}.{addr}", "255.255.255.0", "IpAddress")]
-
-    client = MgmtApply(_mgmt_tables())
+    client = _MgmtApply(_mgmt_tables())
     w = SnmpWriter(client, get_model("gsm7252ps"))
     w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True)
     letters = {(s.oid, s.type_letter) for s in client.sets}
     assert (vo.mgmt_write_addr_unverified, "a") in letters
     assert (vo.mgmt_write_netmask_unverified, "a") in letters
     assert (vo.mgmt_write_gateway_unverified, "a") in letters
+
+
+def test_set_mgmt_ip_verifies_gateway_not_just_address():
+    # Device accepts address+netmask but drops the gateway write; verify must
+    # catch it and name the gateway field (review item 2).
+    client = _MgmtApply(_mgmt_tables(), skip="gateway")
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True)
+    assert "gateway" in str(exc.value)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1784,10 +1999,17 @@ Add to `SnmpWriter`:
             SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
         ])
         after = self._reader.get_mgmt_ip()
-        if after.address != address:
-            raise WriteVerificationError(
-                f"management address did not read back as {address}",
-                before=before, after=after)
+        # Highest strand-risk op: verify EVERY field written (address, netmask,
+        # AND gateway), naming whichever diverged (review item 2).
+        for field, want, got in (
+            ("address", address, after.address),
+            ("netmask", netmask, after.netmask),
+            ("gateway", gateway, after.gateway),
+        ):
+            if got != want:
+                raise WriteVerificationError(
+                    f"management {field} did not read back as {want!r} (got {got!r})",
+                    before=before, after=after)
 ```
 
 Add to `AsyncSnmpWriter`:
@@ -1809,16 +2031,22 @@ Add to `AsyncSnmpWriter`:
             SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
         ])
         after = await self._reader.get_mgmt_ip()
-        if after.address != address:
-            raise WriteVerificationError(
-                f"management address did not read back as {address}",
-                before=before, after=after)
+        # Verify EVERY field written (address, netmask, AND gateway) — item 2.
+        for field, want, got in (
+            ("address", address, after.address),
+            ("netmask", netmask, after.netmask),
+            ("gateway", gateway, after.gateway),
+        ):
+            if got != want:
+                raise WriteVerificationError(
+                    f"management {field} did not read back as {want!r} (got {got!r})",
+                    before=before, after=after)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run --extra testing pytest tests/test_snmp_write.py -v`
-Expected: PASS (12 tests)
+Expected: PASS (16 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1845,7 +2073,7 @@ git commit -m "feat(write): force-gated UNVERIFIED set_mgmt_ip"
   - `SyncSwitch.__init__(..., snmp_write_community=None, snmp_write_client=None, protected_ports=frozenset())`
   - `SyncSwitch` write methods: `set_poe`, `set_port_enabled`, `set_pvid`, `set_vlan_membership`, `create_vlan`, `delete_vlan`, `cycle_poe`, `clear_poe_fault`, `set_mgmt_ip`.
   - `AsyncSwitch` identical (async) surface.
-  - `from_config(cfg, *, env=...)` resolves the write community via `cfg.snmp_write_community(env=env or os.environ)` and passes `cfg.protected_ports`.
+  - `from_config(cfg, *, env=...)` stashes a LAZY write-community resolver closure (`cfg.snmp_write_community(env=env or os.environ)` called only on first write) and passes `cfg.protected_ports`. It performs NO eager write-community resolution, so read-only construction of a config with an unresolvable write-community spec never raises.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1892,9 +2120,41 @@ def test_sync_switch_set_port_enabled_delegates_to_writer():
     sw = SyncSwitch(get_model("gsm7252ps"), "host", snmp_write_client=client)
     sw.set_port_enabled(1, enabled=False, force=True)
     assert client.sets == [SetVarbind(f"{oids.IF_ADMIN_STATUS}.1", 2, "i")]
+
+
+def test_from_config_write_community_resolves_lazily_not_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read-only consumer with an unresolvable write-community spec must still
+    construct and read; only the first write resolves it and raises (item 4)."""
+    from netgear_switch.errors import CredentialError
+
+    cfg = SwitchConfig(
+        name="core",
+        model=get_model("gsm7252ps"),
+        host="10.0.0.9",
+        snmp_community="public",
+        snmp_write_community_spec="${NETGEAR_WRITE_UNSET}",  # unresolvable
+        http_password_spec=None,
+        nsdp_interface=None,
+        protected_ports=frozenset(),
+    )
+    monkeypatch.delenv("NETGEAR_WRITE_UNSET", raising=False)
+    monkeypatch.setattr(
+        "netgear_switch.sync_api.build_sync_snmp_client",
+        lambda host, community: FakeClient(_ports_tables()),
+    )
+
+    # Construction resolves nothing -> no CredentialError here.
+    sw = SyncSwitch.from_config(cfg)
+    # Read ops still work.
+    assert sw.get_ports()[0].port == 1
+    # First write resolves the spec lazily -> now it raises.
+    with pytest.raises(CredentialError):
+        sw.set_port_enabled(1, enabled=False, force=True)
 ```
 
-Append to `tests/test_aio_api.py` an analogous async test (mirror the sync one, `await sw.set_port_enabled(...)` via `asyncio.run`). Follow the existing async-test style in that file.
+Append to `tests/test_aio_api.py` an analogous async test (mirror the sync one, `await sw.set_port_enabled(...)` via `asyncio.run`), plus an async mirror of `test_from_config_write_community_resolves_lazily_not_at_construction` (patch `netgear_switch.aio_api.build_async_snmp_client`, construct via `AsyncSwitch.from_config`, assert an awaited read works and the first awaited write raises `CredentialError`). Follow the existing async-test style in that file.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1981,6 +2241,7 @@ Extend `__init__`:
         snmp_client: SnmpClient | None = None,
         snmp_write_community: str | None = None,
         snmp_write_client: SnmpWriteClient | None = None,
+        snmp_write_community_resolver: Callable[[], str | None] | None = None,
         protected_ports: frozenset[int] = frozenset(),
     ) -> None:
         self.model = model
@@ -1989,8 +2250,14 @@ Extend `__init__`:
         self._snmp_client = snmp_client
         self._snmp_write_community = snmp_write_community
         self._snmp_write_client = snmp_write_client
+        # Deferred write-community resolution: from_config stashes a closure here
+        # instead of resolving eagerly, so read-only construction never raises a
+        # CredentialError for an unresolvable write-community spec (review item 4).
+        self._snmp_write_community_resolver = snmp_write_community_resolver
         self.protected_ports = protected_ports
 ```
+
+Add `Callable` to the `TYPE_CHECKING` imports in `sync_api.py` (e.g. `from collections.abc import Callable, Mapping`).
 
 Replace `from_config`:
 
@@ -1999,15 +2266,18 @@ Replace `from_config`:
     def from_config(
         cls, cfg: SwitchConfig, *, env: Mapping[str, str] | None = None
     ) -> SyncSwitch:
-        # Writes need the SNMP write community resolved from a secret spec; env
-        # (falling back to the process environment) drives that resolution. A
-        # None spec resolves to None with no env access, so read-only use of a
-        # config without a write community never raises here.
-        resolve_env = env if env is not None else os.environ
+        # Resolve the SNMP write community LAZILY (on first write), never here.
+        # A read-only consumer whose env lacks a resolvable write-community spec
+        # (e.g. ``${UNSET_VAR}``) must still be able to construct the facade and
+        # read; only an actual write attempt may raise CredentialError/ConfigError
+        # (review item 4). We stash a closure that reads the spec + env on demand.
+        def _resolve_write_community() -> str | None:
+            return cfg.snmp_write_community(env=env if env is not None else os.environ)
+
         return cls(
             cfg.model, cfg.host,
             snmp_community=cfg.snmp_community,
-            snmp_write_community=cfg.snmp_write_community(env=resolve_env),
+            snmp_write_community_resolver=_resolve_write_community,
             protected_ports=cfg.protected_ports,
         )
 ```
@@ -2015,11 +2285,20 @@ Replace `from_config`:
 Add the writer accessor and write methods (after `snapshot`):
 
 ```python
+    def _resolve_write_community(self) -> str | None:
+        # First write triggers resolution; an explicit community wins, else the
+        # stashed from_config resolver runs now (may raise), else None.
+        if self._snmp_write_community is not None:
+            return self._snmp_write_community
+        if self._snmp_write_community_resolver is not None:
+            return self._snmp_write_community_resolver()
+        return None
+
     def _writer(self) -> SnmpWriter:
         require_snmp_backend(self.model)
         client = self._snmp_write_client
         if client is None:
-            client = build_sync_snmp_write_client(self.host, self._snmp_write_community)
+            client = build_sync_snmp_write_client(self.host, self._resolve_write_community())
         return SnmpWriter(client, self.model, protected_ports=self.protected_ports)
 
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
@@ -2036,11 +2315,11 @@ Add the writer accessor and write methods (after `snapshot`):
     ) -> None:
         self._writer().set_vlan_membership(vlan, port, mode, force=force)
 
-    def create_vlan(self, vlan: int, name: str) -> None:
-        self._writer().create_vlan(vlan, name)
+    def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        self._writer().create_vlan(vlan, name, force=force)
 
-    def delete_vlan(self, vlan: int) -> None:
-        self._writer().delete_vlan(vlan)
+    def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        self._writer().delete_vlan(vlan, force=force)
 
     def cycle_poe(
         self, port: int, *, force: bool = False,
@@ -2048,8 +2327,11 @@ Add the writer accessor and write methods (after `snapshot`):
     ) -> None:
         self._writer().cycle_poe(port, force=force, timeouts=timeouts)
 
-    def clear_poe_fault(self, port: int, *, force: bool = False) -> None:
-        self._writer().clear_poe_fault(port, force=force)
+    def clear_poe_fault(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts = PoeCycleTimeouts(),
+    ) -> None:
+        self._writer().clear_poe_fault(port, force=force, timeouts=timeouts)
 
     def set_mgmt_ip(
         self, address: str, netmask: str, gateway: str, *, force: bool = False
@@ -2060,11 +2342,18 @@ Add the writer accessor and write methods (after `snapshot`):
 Mirror all of the above in `src/netgear_switch/aio_api.py` (async `def`, `await self._writer_client()...`). Use an `AsyncSnmpWriter` accessor:
 
 ```python
+    def _resolve_write_community(self) -> str | None:
+        if self._snmp_write_community is not None:
+            return self._snmp_write_community
+        if self._snmp_write_community_resolver is not None:
+            return self._snmp_write_community_resolver()
+        return None
+
     def _writer(self) -> AsyncSnmpWriter:
         require_snmp_backend(self.model)
         client = self._snmp_write_client
         if client is None:
-            client = build_async_snmp_write_client(self.host, self._snmp_write_community)
+            client = build_async_snmp_write_client(self.host, self._resolve_write_community())
         return AsyncSnmpWriter(client, self.model, protected_ports=self.protected_ports)
 
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
@@ -2081,11 +2370,11 @@ Mirror all of the above in `src/netgear_switch/aio_api.py` (async `def`, `await 
     ) -> None:
         await self._writer().set_vlan_membership(vlan, port, mode, force=force)
 
-    async def create_vlan(self, vlan: int, name: str) -> None:
-        await self._writer().create_vlan(vlan, name)
+    async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        await self._writer().create_vlan(vlan, name, force=force)
 
-    async def delete_vlan(self, vlan: int) -> None:
-        await self._writer().delete_vlan(vlan)
+    async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        await self._writer().delete_vlan(vlan, force=force)
 
     async def cycle_poe(
         self, port: int, *, force: bool = False,
@@ -2093,8 +2382,11 @@ Mirror all of the above in `src/netgear_switch/aio_api.py` (async `def`, `await 
     ) -> None:
         await self._writer().cycle_poe(port, force=force, timeouts=timeouts)
 
-    async def clear_poe_fault(self, port: int, *, force: bool = False) -> None:
-        await self._writer().clear_poe_fault(port, force=force)
+    async def clear_poe_fault(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts = PoeCycleTimeouts(),
+    ) -> None:
+        await self._writer().clear_poe_fault(port, force=force, timeouts=timeouts)
 
     async def set_mgmt_ip(
         self, address: str, netmask: str, gateway: str, *, force: bool = False
@@ -2102,7 +2394,7 @@ Mirror all of the above in `src/netgear_switch/aio_api.py` (async `def`, `await 
         await self._writer().set_mgmt_ip(address, netmask, gateway, force=force)
 ```
 
-with the matching `__init__`/`from_config` changes and imports (`build_async_snmp_write_client`, `AsyncSnmpWriter`, `PoeCycleTimeouts`, `os`, `VlanMode`, `AsyncSnmpWriteClient`).
+with the matching `__init__`/`from_config` changes and imports (`build_async_snmp_write_client`, `AsyncSnmpWriter`, `PoeCycleTimeouts`, `os`, `Callable`, `VlanMode`, `AsyncSnmpWriteClient`). In particular the async `__init__` gains the same `snmp_write_community_resolver` parameter and `from_config` stashes the same lazy closure (write community resolved only on first write, never at construction — review item 4).
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2291,7 +2583,7 @@ git commit -m "test(write): sync/async write-equivalence against live mutable mo
 
 **1. Spec coverage:**
 - §3.1 write surface (`set_poe`, `cycle_poe`, `set_port_enabled`, `set_pvid`, `set_vlan_membership`) — Tasks 5, 6, 8, 10. `clear_poe_fault` (§11.1) — Task 8. `create_vlan`/`delete_vlan` (§11.1) — Task 7. `set_mgmt_ip` (§11.1) — Task 9.
-- §6 write safety: RMW bitmaps (Tasks 1, 6), PVID as Gauge32 `u` (Task 6), verify-after-write → `WriteVerificationError(before, after)` (every writer method), PoE cycle state machine (Task 8), `protected_ports` refuse-without-force (Tasks 5-9). CLI dry-run/confirm is explicitly a LATER slice (7) and out of scope here.
+- §6 write safety: RMW bitmaps (Tasks 1, 6) with a SINGLE canonical bitmap encoder (`write.encode_port_bitmap`; `state.encode_port_bitmap` delegates — Task 1), PVID as Gauge32 `u` (Task 6), verify-after-write → `WriteVerificationError(before, after)` comparing every written column (Task 6 egress+untagged, Task 9 address+netmask+gateway) with genuine preconditions raised as `SnmpError` (Task 6), PoE cycle state machine + polled `clear_poe_fault` with injectable timeouts (Task 8), `protected_ports` refuse-without-force on every disruptive op incl. VLAN create/delete (Tasks 5-9). CLI dry-run/confirm is explicitly a LATER slice (7) and out of scope here.
 - §1 SET transport with type letters `i/u/s/x/a`, commitFailed → `SnmpError` — Tasks 2, 3. Sync/async symmetry — Tasks 2, 3, 11.
 - §7 mutable virtual mock (writes visible on read-back) — Task 4. §11.2 sync/async identical device-state effects — Task 11.
 - Global constraints: write community required (`_dispatch` builders, Task 10), `-W error::ResourceWarning` (Tasks 4, 11 fixtures + `gc.collect`), injectable cycle timeouts (Task 8), no blanket mypy ignores (pysnmp stays behind the existing importlib seam; the new `_to_set_value`/`_from_smi_value` take `Any` from that seam).
@@ -2302,8 +2594,10 @@ git commit -m "test(write): sync/async write-equivalence against live mutable mo
 
 **Design decisions & risks for the controller:**
 - **Writer as a separate class** (`snmp_write.py`), parallel to `snmp_read.py`, rather than methods on the reader: the reader is read-only and read-community-scoped; the writer needs a write-capable client and constructs an internal `SnmpReader`/`AsyncSnmpReader` from that same client for verify-after-write. A single RW write community reads and writes, so one client instance is both the read and write client (documented; mirrored in `facades_for`).
-- **pysnmp face SET:** `_StateInstrum.write_variables` mutates `VirtualSwitchState.apply_write` then `StateMibView.rebuild()` reprojects the OID map, so subsequent GET/GETNEXT reflect the write. A `SetCommandResponder` is registered and VACM gains `writeSubTree`. Risk: pysnmp v7 callback name is `write_variables` (assumed by symmetry with the confirmed `read_variables`/`read_next_variables`); if it differs, Task 4 must adjust the duck-typed method name (verify against `pysnmp.entity.rfc3413.cmdrsp.SetCommandResponder`).
+- **pysnmp face SET:** `_StateInstrum.write_variables` mutates `VirtualSwitchState.apply_write` then `StateMibView.rebuild()` reprojects the OID map, so subsequent GET/GETNEXT reflect the write. A `SetCommandResponder` is registered and VACM gains `writeSubTree`. Each per-varbind `apply_write` is wrapped so an unexpected exception (malformed bitmap/value) is mapped to a pysnmp `WrongValueError` (clean SNMP error-status) rather than escaping into the asyncio dispatcher — where it would surface to the client as a timeout = flaky test (review item 8); the read paths' NoSuchObject/NoSuchInstance handling is unchanged. Risk: pysnmp v7 callback name is `write_variables` (assumed by symmetry with the confirmed `read_variables`/`read_next_variables`); if it differs, Task 4 must adjust the duck-typed method name (verify against `pysnmp.entity.rfc3413.cmdrsp.SetCommandResponder`).
 - **VLAN RowStatus in the mock:** create (createAndGo=4) adds an empty `VlanSim`; destroy (6) pops it; name SET fills/creates the name. The mock never emits a RowStatus read column (real agents show active=1), which is fine because no read path queries RowStatus — verification uses `get_vlans` (name/egress/untagged) only.
-- **mgmt-IP set honesty:** address/netmask/gateway are written to UNVERIFIED vendor OIDs (`.98.1/.2/.3`, mirroring the existing `.99.1` `dhcp_mode_unverified` placeholder precedent), force-gated because a wrong write can strand the switch, and the mock coherently updates `MgmtSim` so the standard read projection verifies. DHCP-mode switching is deliberately NOT implemented (out-of-scope-until-verified) since even its read OID is unverified — no fabricated write. Slice 7's capture utility must confirm the real OIDs before these are trusted on hardware.
-- **PoE coherence & cycle termination:** the mock applies admin-off → detect=1 + data-port link-down and admin-on → detect=3, so `cycle_poe` terminates immediately against the mock; timeouts are injected tiny in tests. Risk: real hardware detect transitions take seconds — the default 30/60s timeouts (spec §6) cover that in production.
+- **mgmt-IP set honesty & verify:** address/netmask/gateway are written to UNVERIFIED vendor OIDs (`.98.1/.2/.3`, mirroring the existing `.99.1` `dhcp_mode_unverified` placeholder precedent), force-gated because a wrong write can strand the switch, and the mock coherently updates `MgmtSim` so the standard read projection verifies. As the highest strand-risk op, verify-after-write compares ALL THREE fields (address, netmask, gateway) and names whichever diverged (review item 2). DHCP-mode switching is deliberately NOT implemented (out-of-scope-until-verified) since even its read OID is unverified — no fabricated write. Slice 7's capture utility must confirm the real OIDs before these are trusted on hardware.
+- **Lazy write-community resolution:** `from_config` stashes a resolver closure (spec + env) and resolves the write community only inside `_writer()` on the first write, so a read-only consumer whose env lacks a resolvable write-community spec (`${UNSET_VAR}`) constructs and reads fine; a missing/unresolvable write community raises `CredentialError`/`ConfigError` only when a write is actually attempted (review item 4). The `_dispatch` write-client builders still require a non-None community (raising `CredentialError`), but that check now fires at write time, not construction.
+- **VLAN create/delete protected-port guard:** `delete_vlan` looks up the VLAN's current member ports via the internal reader and refuses with `ProtectedPortError` if any is in `protected_ports` unless `force=True` (it strips membership from every member port, possibly an uplink/mgmt port). `create_vlan` gains a `force` parameter for signature symmetry only — creating an empty VLAN touches no existing membership and is non-disruptive, so it does not require force (review item 3).
+- **PoE coherence & cycle termination:** the mock applies admin-off → detect=1 + data-port link-down and admin-on → detect=3, so `cycle_poe` terminates immediately against the mock; timeouts are injected tiny in tests. `clear_poe_fault` uses the SAME injectable timeout/poll structure (review item 5) — it polls for detect to leave FAULT (return to delivering/searching) rather than doing a single immediate re-read, which would false-negative on real hardware where detect transitions take seconds. Risk: real hardware detect transitions take seconds — the default 30/60s timeouts (spec §6) cover that in production.
 - **Write-equivalence** uses two independent fresh mocks (not one shared) so sync and async each apply the write once from an identical seed, then compares full `snapshot()`s — proving identical device-state effects without double-application.
