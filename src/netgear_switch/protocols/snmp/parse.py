@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...models import (
+    IpMode,
     LLDPNeighbor,
     MacEntry,
+    MgmtIpConfig,
     PoEDetect,
     PoEStatus,
     PortStats,
@@ -448,3 +450,78 @@ def parse_box_sensors(
                         value=float(value), unit=unit)
             )
     return result
+
+
+def _ip_str(row: SnmpRow) -> str:
+    """Return an IP-valued row's value as ``str``.
+
+    Both transports normalize IpAddress varbinds to ``str`` (see SnmpRow's
+    docstring); a row present under an address/netmask/gateway column whose
+    value is NOT a str is table drift / a malformed reply, not absence, and
+    raises SnmpError naming the offending OID.
+    """
+    if not isinstance(row.value, str):
+        raise SnmpError(f"non-IP value {row.value!r} at {row.oid}")
+    return row.value
+
+
+def parse_mgmt_ip(
+    addr: Sequence[SnmpRow],
+    netmask: Sequence[SnmpRow],
+    route_dest: Sequence[SnmpRow],
+    route_nexthop: Sequence[SnmpRow],
+    dhcp_mode: Sequence[SnmpRow],
+) -> MgmtIpConfig:
+    """Build the management-IP config from ipAddrTable/ipRouteTable + vendor mode.
+
+    Address/netmask/gateway come from the standard MIBs (ipAddrTable,
+    ipRouteTable) and are trustworthy. The DHCP-vs-static mode is UNVERIFIED
+    (see oids.VendorOids.dhcp_mode_unverified): it is read best-effort and
+    ``IpMode.UNKNOWN`` is returned whenever the mode OID is absent/unset —
+    never a guessed dhcp/static. Only a recognized present value ("1"/"2")
+    maps to DHCP/STATIC; any other present value also yields UNKNOWN.
+    """
+    from . import oids
+
+    ip: str | None = None
+    ip_index: str | None = None
+    aprefix = oids.IP_ADENT_ADDR + "."
+    for row in addr:
+        if not row.oid.startswith(aprefix):
+            continue
+        if row.value == "127.0.0.1":
+            continue
+        ip = _ip_str(row)
+        ip_index = row.oid[len(aprefix):]
+        break
+
+    mask: str | None = None
+    if ip_index is not None:
+        want = oids.IP_ADENT_NETMASK + "." + ip_index
+        for r in netmask:
+            if r.oid == want:
+                mask = _ip_str(r)
+                break
+
+    dest_rows = {
+        r.oid[len(oids.IP_ROUTE_DEST) + 1:]: r.value for r in route_dest
+    }
+    gateway: str | None = None
+    nprefix = oids.IP_ROUTE_NEXTHOP + "."
+    for row in route_nexthop:
+        if not row.oid.startswith(nprefix):
+            continue
+        idx = row.oid[len(nprefix):]
+        if dest_rows.get(idx) == "0.0.0.0":
+            gateway = _ip_str(row)
+            break
+
+    mode = IpMode.UNKNOWN
+    for row in dhcp_mode:
+        if row.value == "1":
+            mode = IpMode.DHCP
+        elif row.value == "2":
+            mode = IpMode.STATIC
+        break
+
+    return MgmtIpConfig(mode=mode, address=ip, netmask=mask, gateway=gateway)
