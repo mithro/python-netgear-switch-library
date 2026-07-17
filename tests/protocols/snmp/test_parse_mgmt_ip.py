@@ -24,7 +24,9 @@ def test_parse_mgmt_ip_static_with_gateway():
     ]
     route_dest = [SnmpRow("1.3.6.1.2.1.4.21.1.1.0.0.0.0", "0.0.0.0", "IPADDR")]
     route_next = [SnmpRow("1.3.6.1.2.1.4.21.1.7.0.0.0.0", "10.1.5.1", "IPADDR")]
-    dhcp = [SnmpRow(_DHCP_MODE_OID, "2", "INTEGER")]  # static
+    # INTEGER OIDs are normalized to Python int by both transports (see
+    # SnmpRow's docstring) -- never the str the real transports never produce.
+    dhcp = [SnmpRow(_DHCP_MODE_OID, 2, "INTEGER")]  # static
 
     cfg = parse.parse_mgmt_ip(addr, netmask, route_dest, route_next, dhcp)
     assert cfg.address == "10.1.5.20"
@@ -37,7 +39,7 @@ def test_parse_mgmt_ip_dhcp_and_unknown_default():
     addr = [SnmpRow("1.3.6.1.2.1.4.20.1.1.10.1.5.20", "10.1.5.20", "IPADDR")]
     cfg = parse.parse_mgmt_ip(
         addr, [], [], [],
-        [SnmpRow(_DHCP_MODE_OID, "1", "INTEGER")],
+        [SnmpRow(_DHCP_MODE_OID, 1, "INTEGER")],
     )
     assert cfg.mode is IpMode.DHCP
     # Mode OID absent -> UNKNOWN (never a guessed dhcp/static), gateway None.
@@ -48,7 +50,18 @@ def test_parse_mgmt_ip_dhcp_and_unknown_default():
 
 def test_parse_mgmt_ip_unrecognized_dhcp_mode_value_is_unknown():
     addr = [SnmpRow("1.3.6.1.2.1.4.20.1.1.10.1.5.20", "10.1.5.20", "IPADDR")]
-    dhcp = [SnmpRow(_DHCP_MODE_OID, "3", "INTEGER")]  # unrecognized value
+    dhcp = [SnmpRow(_DHCP_MODE_OID, 3, "INTEGER")]  # unrecognized value
+    cfg = parse.parse_mgmt_ip(addr, [], [], [], dhcp)
+    assert cfg.mode is IpMode.UNKNOWN
+
+
+def test_parse_mgmt_ip_non_int_coercible_dhcp_mode_value_is_unknown():
+    # This OID is explicitly UNVERIFIED/best-effort (see
+    # oids.VendorOids.dhcp_mode_unverified) -- a genuinely non-int-coercible
+    # value (e.g. non-digit bytes, which real transports never produce for an
+    # INTEGER OID) must degrade to UNKNOWN, never raise.
+    addr = [SnmpRow("1.3.6.1.2.1.4.20.1.1.10.1.5.20", "10.1.5.20", "IPADDR")]
+    dhcp = [SnmpRow(_DHCP_MODE_OID, b"\xc0\x00", "INTEGER")]
     cfg = parse.parse_mgmt_ip(addr, [], [], [], dhcp)
     assert cfg.mode is IpMode.UNKNOWN
 

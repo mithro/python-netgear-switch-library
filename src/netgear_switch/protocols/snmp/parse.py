@@ -117,6 +117,7 @@ def parse_port_status(
                 name=name_map.get(p) or None,
                 admin_enabled=admin_map.get(p) == 1,
                 link_up=oper_map.get(p) == 1,
+                # ifHighSpeed 0 (link down) intentionally maps to None, not 0.
                 speed_mbps=mbps if mbps else None,
             )
         )
@@ -490,8 +491,12 @@ def parse_mgmt_ip(
     ipRouteTable) and are trustworthy. The DHCP-vs-static mode is UNVERIFIED
     (see oids.VendorOids.dhcp_mode_unverified): it is read best-effort and
     ``IpMode.UNKNOWN`` is returned whenever the mode OID is absent/unset —
-    never a guessed dhcp/static. Only a recognized present value ("1"/"2")
-    maps to DHCP/STATIC; any other present value also yields UNKNOWN.
+    never a guessed dhcp/static. The mode OID is INTEGER-typed, so both
+    transports normalize its value to a Python ``int`` (see ``SnmpRow``'s
+    docstring); only a recognized present value (``1``/``2``) maps to
+    DHCP/STATIC, any other present value -- including one that cannot be
+    coerced to ``int`` at all -- also yields UNKNOWN rather than raising,
+    since this OID is explicitly best-effort.
     """
     from . import oids
 
@@ -530,9 +535,13 @@ def parse_mgmt_ip(
 
     mode = IpMode.UNKNOWN
     for row in dhcp_mode:
-        if row.value == "1":
+        try:
+            raw_mode = int(row.value)
+        except (TypeError, ValueError):
+            break
+        if raw_mode == 1:
             mode = IpMode.DHCP
-        elif row.value == "2":
+        elif raw_mode == 2:
             mode = IpMode.STATIC
         break
 

@@ -54,6 +54,24 @@ class IpAddress:
         return self._text
 
 
+class TimeTicks:
+    """Stands in for pysnmp's TimeTicks: int()-convertible, like Integer."""
+
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    def __int__(self) -> int:
+        return self._value
+
+
+class ObjectIdentifier:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def prettyPrint(self):  # noqa: N802
+        return self._text
+
+
 def _sync_value(line: str):
     rows = parse_netsnmp_lines(f"{_OID} = {line}")
     assert len(rows) == 1
@@ -94,4 +112,19 @@ def test_ip_address_value_parity():
     _oid, async_value, _typ = _normalize_varbind(_OID, IpAddress("10.1.5.20"))
     sync_value = _sync_value("IpAddress: 10.1.5.20")
     assert async_value == sync_value == "10.1.5.20"
+    assert type(async_value) is type(sync_value) is str
+
+
+def test_timeticks_value_parity():
+    _oid, async_value, _typ = _normalize_varbind(_OID, TimeTicks(123_456))
+    sync_value = _sync_value("Timeticks: (123456) 0:20:34.56")
+    assert async_value == sync_value == 123_456
+    assert type(async_value) is type(sync_value) is int
+
+
+def test_oid_value_parity():
+    oid_text = "1.3.6.1.2.1.2.2.1.8"
+    _oid, async_value, _typ = _normalize_varbind(_OID, ObjectIdentifier(oid_text))
+    sync_value = _sync_value(f"OID: {oid_text}")
+    assert async_value == sync_value == oid_text
     assert type(async_value) is type(sync_value) is str
