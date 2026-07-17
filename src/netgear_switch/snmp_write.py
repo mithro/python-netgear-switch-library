@@ -303,6 +303,42 @@ class SnmpWriter:
                 f"VLAN {vlan} still exists after destroy", before=before, after=after,
             )
 
+    def set_mgmt_ip(
+        self, address: str, netmask: str, gateway: str, *, force: bool = False
+    ) -> None:
+        """Set the switch's own management IP (address/netmask/gateway).
+
+        UNVERIFIED write path (see oids.VendorOids mgmt_write_* fields): the
+        exact writable OIDs are placeholders pending Slice 7 hardware capture,
+        so this is force-gated (a wrong mgmt-IP write can strand the switch —
+        design spec §11.1). DHCP-mode switching is intentionally NOT offered
+        here because even its read OID is unverified; do not fabricate it.
+        """
+        if not force:
+            raise ProtectedPortError(
+                "set_mgmt_ip can strand the switch and uses UNVERIFIED OIDs; "
+                "pass force=True to proceed"
+            )
+        vo = oids.vendor_oids(self.model)
+        before = self._reader.get_mgmt_ip()
+        self.client.set_many([
+            SetVarbind(vo.mgmt_write_addr_unverified, address, "a"),
+            SetVarbind(vo.mgmt_write_netmask_unverified, netmask, "a"),
+            SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
+        ])
+        after = self._reader.get_mgmt_ip()
+        # Highest strand-risk op: verify EVERY field written (address, netmask,
+        # AND gateway), naming whichever diverged (review item 2).
+        for field, want, got in (
+            ("address", address, after.address),
+            ("netmask", netmask, after.netmask),
+            ("gateway", gateway, after.gateway),
+        ):
+            if got != want:
+                raise WriteVerificationError(
+                    f"management {field} did not read back as {want!r} (got {got!r})",
+                    before=before, after=after)
+
 
 class AsyncSnmpWriter:
     """Asynchronous SNMP write facade (mirror of SnmpWriter)."""
@@ -516,3 +552,38 @@ class AsyncSnmpWriter:
             raise WriteVerificationError(
                 f"VLAN {vlan} still exists after destroy", before=before, after=after,
             )
+
+    async def set_mgmt_ip(
+        self, address: str, netmask: str, gateway: str, *, force: bool = False
+    ) -> None:
+        """Set the switch's own management IP (address/netmask/gateway).
+
+        UNVERIFIED write path (see oids.VendorOids mgmt_write_* fields): the
+        exact writable OIDs are placeholders pending Slice 7 hardware capture,
+        so this is force-gated (a wrong mgmt-IP write can strand the switch —
+        design spec §11.1). DHCP-mode switching is intentionally NOT offered
+        here because even its read OID is unverified; do not fabricate it.
+        """
+        if not force:
+            raise ProtectedPortError(
+                "set_mgmt_ip can strand the switch and uses UNVERIFIED OIDs; "
+                "pass force=True to proceed"
+            )
+        vo = oids.vendor_oids(self.model)
+        before = await self._reader.get_mgmt_ip()
+        await self.client.set_many([
+            SetVarbind(vo.mgmt_write_addr_unverified, address, "a"),
+            SetVarbind(vo.mgmt_write_netmask_unverified, netmask, "a"),
+            SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
+        ])
+        after = await self._reader.get_mgmt_ip()
+        # Verify EVERY field written (address, netmask, AND gateway) — item 2.
+        for field, want, got in (
+            ("address", address, after.address),
+            ("netmask", netmask, after.netmask),
+            ("gateway", gateway, after.gateway),
+        ):
+            if got != want:
+                raise WriteVerificationError(
+                    f"management {field} did not read back as {want!r} (got {got!r})",
+                    before=before, after=after)

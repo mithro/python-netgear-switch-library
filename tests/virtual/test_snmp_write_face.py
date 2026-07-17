@@ -589,6 +589,66 @@ def test_async_snmp_writer_cycle_poe_live_off_then_on():
         sw.stop()
 
 
+def test_snmp_writer_set_mgmt_ip_live_reflects_all_three_fields():
+    """Drives ``SnmpWriter.set_mgmt_ip`` (force-gated, UNVERIFIED write OIDs,
+    verify-after-write covering address/netmask/gateway) against a live
+    ``VirtualSwitch`` over the sync (net-snmp CLI) transport. Without
+    force=True it must refuse and issue no SET; with force=True, all three
+    fields must show up in ``get_mgmt_ip``."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model)
+        reader = SnmpReader(client, model)
+
+        before = reader.get_mgmt_ip()
+        assert before.address == "10.1.5.20"
+
+        with pytest.raises(ProtectedPortError):
+            writer.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1")
+        assert reader.get_mgmt_ip().address == before.address  # untouched
+
+        writer.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True)
+
+        after = reader.get_mgmt_ip()
+        assert after.address == "10.9.9.9"
+        assert after.netmask == "255.255.255.0"
+        assert after.gateway == "10.9.9.1"
+    finally:
+        sw.stop()
+
+
+def test_async_snmp_writer_set_mgmt_ip_live_reflects_all_three_fields():
+    """Async mirror of the above over the pysnmp transport, proving parity."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        writer = AsyncSnmpWriter(client, model)
+        reader = AsyncSnmpReader(client, model)
+
+        before = asyncio.run(reader.get_mgmt_ip())
+        assert before.address == "10.1.5.20"
+
+        with pytest.raises(ProtectedPortError):
+            asyncio.run(writer.set_mgmt_ip("10.9.9.8", "255.255.255.0", "10.9.9.1"))
+        assert asyncio.run(reader.get_mgmt_ip()).address == before.address  # untouched
+
+        asyncio.run(
+            writer.set_mgmt_ip("10.9.9.8", "255.255.255.0", "10.9.9.1", force=True)
+        )
+
+        after = asyncio.run(reader.get_mgmt_ip())
+        assert after.address == "10.9.9.8"
+        assert after.netmask == "255.255.255.0"
+        assert after.gateway == "10.9.9.1"
+    finally:
+        sw.stop()
+
+
 def test_async_snmp_writer_clear_poe_fault_live_recovers_detect():
     """Async mirror of ``test_snmp_writer_clear_poe_fault_live_recovers_detect``
     over the pysnmp transport, proving sync/async parity."""

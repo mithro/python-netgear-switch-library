@@ -774,3 +774,157 @@ def test_async_clear_poe_fault_protected_port_requires_force():
     assert client.sets == []  # nothing sent without force
     asyncio.run(w.clear_poe_fault(5, force=True))  # force bypasses the guard
     assert client.sets
+
+
+_PPE = ProtectedPortError  # alias for clarity in the mgmt-IP tests below
+
+
+def _mgmt_tables(addr="10.1.5.20", mask="255.255.255.0", gw="10.1.5.1"):
+    return {
+        oids.IP_ADENT_ADDR: [
+            SnmpRow(f"{oids.IP_ADENT_ADDR}.{addr}", addr, "IpAddress")
+        ],
+        oids.IP_ADENT_NETMASK: [
+            SnmpRow(f"{oids.IP_ADENT_NETMASK}.{addr}", mask, "IpAddress")
+        ],
+        oids.IP_ROUTE_DEST: [
+            SnmpRow(f"{oids.IP_ROUTE_DEST}.0.0.0.0", "0.0.0.0", "IpAddress")
+        ],
+        oids.IP_ROUTE_NEXTHOP: [
+            SnmpRow(f"{oids.IP_ROUTE_NEXTHOP}.0.0.0.0", gw, "IpAddress")
+        ],
+    }
+
+
+def test_set_mgmt_ip_requires_force():
+    client = FakeWriteClient(_mgmt_tables())
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(_PPE):
+        w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1")
+    assert client.sets == []
+
+
+class _MgmtApply(FakeWriteClient):
+    """Applies all three mgmt-IP write OIDs into the read projection.
+
+    Optionally skips one field (``skip``) to simulate a device that accepts the
+    address but silently drops the netmask/gateway write.
+    """
+
+    def __init__(self, tables, *, skip=None):
+        super().__init__(tables)
+        self._vo = oids.vendor_oids(get_model("gsm7252ps"))
+        self._skip = skip
+        self._addr = "10.1.5.20"  # current mgmt address key for the ip tables
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            val = str(vb.value)
+            if (
+                vb.oid == self._vo.mgmt_write_addr_unverified
+                and self._skip != "address"
+            ):
+                self._addr = val
+                self._tables[oids.IP_ADENT_ADDR] = [
+                    SnmpRow(f"{oids.IP_ADENT_ADDR}.{val}", val, "IpAddress")
+                ]
+            elif (
+                vb.oid == self._vo.mgmt_write_netmask_unverified
+                and self._skip != "netmask"
+            ):
+                self._tables[oids.IP_ADENT_NETMASK] = [
+                    SnmpRow(f"{oids.IP_ADENT_NETMASK}.{self._addr}", val, "IpAddress")
+                ]
+            elif (
+                vb.oid == self._vo.mgmt_write_gateway_unverified
+                and self._skip != "gateway"
+            ):
+                self._tables[oids.IP_ROUTE_NEXTHOP] = [
+                    SnmpRow(f"{oids.IP_ROUTE_NEXTHOP}.0.0.0.0", val, "IpAddress")
+                ]
+
+
+def test_set_mgmt_ip_emits_three_ipaddress_sets():
+    vo = oids.vendor_oids(get_model("gsm7252ps"))
+    client = _MgmtApply(_mgmt_tables())
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True)
+    letters = {(s.oid, s.type_letter) for s in client.sets}
+    assert (vo.mgmt_write_addr_unverified, "a") in letters
+    assert (vo.mgmt_write_netmask_unverified, "a") in letters
+    assert (vo.mgmt_write_gateway_unverified, "a") in letters
+
+
+def test_set_mgmt_ip_verifies_gateway_not_just_address():
+    # Device accepts address+netmask but drops the gateway write; verify must
+    # catch it and name the gateway field (review item 2).
+    client = _MgmtApply(_mgmt_tables(), skip="gateway")
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True)
+    assert "gateway" in str(exc.value)
+
+
+class _AsyncMgmtApply(FakeAsyncWriteClient):
+    """Async twin of ``_MgmtApply``."""
+
+    def __init__(self, tables, *, skip=None):
+        super().__init__(tables)
+        self._vo = oids.vendor_oids(get_model("gsm7252ps"))
+        self._skip = skip
+        self._addr = "10.1.5.20"
+
+    async def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            val = str(vb.value)
+            if (
+                vb.oid == self._vo.mgmt_write_addr_unverified
+                and self._skip != "address"
+            ):
+                self._addr = val
+                self._tables[oids.IP_ADENT_ADDR] = [
+                    SnmpRow(f"{oids.IP_ADENT_ADDR}.{val}", val, "IpAddress")
+                ]
+            elif (
+                vb.oid == self._vo.mgmt_write_netmask_unverified
+                and self._skip != "netmask"
+            ):
+                self._tables[oids.IP_ADENT_NETMASK] = [
+                    SnmpRow(f"{oids.IP_ADENT_NETMASK}.{self._addr}", val, "IpAddress")
+                ]
+            elif (
+                vb.oid == self._vo.mgmt_write_gateway_unverified
+                and self._skip != "gateway"
+            ):
+                self._tables[oids.IP_ROUTE_NEXTHOP] = [
+                    SnmpRow(f"{oids.IP_ROUTE_NEXTHOP}.0.0.0.0", val, "IpAddress")
+                ]
+
+
+def test_async_set_mgmt_ip_requires_force():
+    client = FakeAsyncWriteClient(_mgmt_tables())
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(_PPE):
+        asyncio.run(w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1"))
+    assert client.sets == []
+
+
+def test_async_set_mgmt_ip_emits_three_ipaddress_sets():
+    vo = oids.vendor_oids(get_model("gsm7252ps"))
+    client = _AsyncMgmtApply(_mgmt_tables())
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    asyncio.run(w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True))
+    letters = {(s.oid, s.type_letter) for s in client.sets}
+    assert (vo.mgmt_write_addr_unverified, "a") in letters
+    assert (vo.mgmt_write_netmask_unverified, "a") in letters
+    assert (vo.mgmt_write_gateway_unverified, "a") in letters
+
+
+def test_async_set_mgmt_ip_verifies_gateway_not_just_address():
+    client = _AsyncMgmtApply(_mgmt_tables(), skip="gateway")
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        asyncio.run(w.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True))
+    assert "gateway" in str(exc.value)
