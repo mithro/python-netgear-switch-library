@@ -19,7 +19,7 @@ class UnknownModelError(NetgearSwitchError):
     """A switch references a model key that is not in the registry."""
 
 
-class UnsupportedCapability(NetgearSwitchError):
+class UnsupportedCapabilityError(NetgearSwitchError):
     """The requested operation is not available on this model/backend."""
 
 
