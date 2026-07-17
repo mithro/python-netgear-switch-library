@@ -10,7 +10,9 @@ from netgear_switch.protocols.snmp.write import (
     encode_port_bitmap,
     membership_bitmaps,
     set_port_bit,
+    vlan_bitmap_width,
 )
+from netgear_switch.registry import Backend, SwitchClass, SwitchModel, get_model
 
 
 def test_set_varbind_rejects_unknown_type_letter():
@@ -96,3 +98,55 @@ def test_set_port_bit_preserves_width():
     result = set_port_bit(bitmap_8, 2, present=True)
     assert len(result) >= 8
     assert decode_port_bitmap(result) == frozenset({1, 2})
+
+
+def test_vlan_bitmap_width_52_port_model_is_8():
+    assert vlan_bitmap_width(get_model("gsm7252ps")) == 8
+
+
+def test_vlan_bitmap_width_synthetic_96_port_model_is_12():
+    # A hypothetical >64-port model, WITHOUT touching the production registry
+    # (constructed directly here, never added to MODELS).
+    synthetic = SwitchModel(
+        key="synthetic-96port",
+        display_name="Synthetic 96-port test model",
+        switch_class=SwitchClass.FULLY_MANAGED,
+        port_count=96,
+        poe_port_count=0,
+        backends=frozenset({Backend.SNMP}),
+        snmp_vendor_base=None,
+    )
+    assert vlan_bitmap_width(synthetic) == 12
+
+
+def test_set_port_bit_widens_to_requested_width_bytes():
+    """width_bytes widens the result even when the input bitmap is narrower."""
+    base = encode_port_bitmap({1})  # 8 bytes
+    result = set_port_bit(base, 2, present=True, width_bytes=12)
+    assert len(result) == 12
+    assert decode_port_bitmap(result) == frozenset({1, 2})
+
+
+def test_set_port_bit_width_bytes_never_narrows_below_input_or_8():
+    """The result is max(8, input width, width_bytes) -- never narrower than
+    what was read, and never narrower than the requested model width."""
+    wide = encode_port_bitmap({1}, width_bytes=16)
+    result = set_port_bit(wide, 2, present=True, width_bytes=12)
+    assert len(result) == 16  # wider input wins over the smaller requested width
+
+    narrow = encode_port_bitmap({1}, width_bytes=8)
+    result = set_port_bit(narrow, 2, present=True, width_bytes=None)
+    assert len(result) == 8  # default (no model width given) stays 8
+
+
+def test_membership_bitmaps_forwards_width_bytes():
+    egress = encode_port_bitmap({1})
+    untagged = encode_port_bitmap({1})
+    e, u = membership_bitmaps(
+        mode=VlanMode.UNTAGGED, port=5, egress=egress, untagged=untagged,
+        width_bytes=12,
+    )
+    assert len(e) == 12
+    assert len(u) == 12
+    assert decode_port_bitmap(e) == frozenset({1, 5})
+    assert decode_port_bitmap(u) == frozenset({1, 5})

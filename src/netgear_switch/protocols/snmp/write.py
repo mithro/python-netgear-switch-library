@@ -17,6 +17,8 @@ from .parse import decode_port_bitmap
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from ...registry import SwitchModel
+
 SET_TYPE_LETTERS: frozenset[str] = frozenset({"i", "u", "s", "x", "a"})
 
 
@@ -51,12 +53,15 @@ def encode_port_bitmap(ports: Iterable[int], width_bytes: int = 8) -> bytes:
     return bytes(data)
 
 
-def set_port_bit(current: bytes | str, port: int, present: bool) -> bytes:
+def set_port_bit(
+    current: bytes | str, port: int, present: bool, *, width_bytes: int | None = None
+) -> bytes:
     """Read-modify-write one port's bit in a VLAN bitmap; all others preserved.
 
     Preserves the input bitmap's byte width to avoid wire-length mismatches on
-    SET for >64-port switches. The result is at least 8 bytes and at least as
-    wide as the input.
+    SET for >64-port switches. ``width_bytes``, if given (e.g. a model-derived
+    width from ``vlan_bitmap_width``), is honoured too: the result is at least
+    8 bytes, at least as wide as the input, and at least ``width_bytes`` wide.
     """
     # Compute the current bitmap's width in bytes
     if isinstance(current, bytes):
@@ -69,21 +74,39 @@ def set_port_bit(current: bytes | str, port: int, present: bool) -> bytes:
         ports.add(port)
     else:
         ports.discard(port)
-    return encode_port_bitmap(ports, width_bytes=max(8, current_width))
+    target_width = max(8, current_width, width_bytes or 0)
+    return encode_port_bitmap(ports, width_bytes=target_width)
 
 
 def membership_bitmaps(
-    *, mode: VlanMode, port: int, egress: bytes | str, untagged: bytes | str
+    *,
+    mode: VlanMode,
+    port: int,
+    egress: bytes | str,
+    untagged: bytes | str,
+    width_bytes: int | None = None,
 ) -> tuple[bytes, bytes]:
     """Compute (new_egress, new_untagged) for one port's VLAN membership change.
 
     UNTAGGED -> egress bit on + untagged bit on; TAGGED -> egress on, untagged
     off; EXCLUDED -> both off. Read-modify-write on the current bitmaps, so
-    every other port's membership is preserved.
+    every other port's membership is preserved. ``width_bytes`` is forwarded to
+    ``set_port_bit`` for both columns (see ``vlan_bitmap_width``).
     """
     in_egress = mode in (VlanMode.UNTAGGED, VlanMode.TAGGED)
     in_untagged = mode is VlanMode.UNTAGGED
     return (
-        set_port_bit(egress, port, in_egress),
-        set_port_bit(untagged, port, in_untagged),
+        set_port_bit(egress, port, in_egress, width_bytes=width_bytes),
+        set_port_bit(untagged, port, in_untagged, width_bytes=width_bytes),
     )
+
+
+def vlan_bitmap_width(model: SwitchModel) -> int:
+    """Wire byte-width of ``model``'s dot1q VLAN egress/untagged bitmaps.
+
+    ``dot1qVlanStaticEgressPorts``/``UntaggedPorts`` are packed 8 ports/byte,
+    MSB-first (port 1 = bit 7 of byte 0). The Q-BRIDGE MIB's own default
+    PortList width is 8 bytes (64 ports); a model with more ports needs a
+    wider bitmap or the SET's wire length won't match what the device expects.
+    """
+    return max(8, (model.port_count + 7) // 8)

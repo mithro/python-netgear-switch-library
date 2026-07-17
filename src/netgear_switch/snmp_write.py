@@ -18,7 +18,12 @@ from .errors import (
 from .protocols.snmp import oids
 from .protocols.snmp.client import SnmpError
 from .protocols.snmp.parse import decode_port_bitmap
-from .protocols.snmp.write import SetVarbind, encode_port_bitmap, membership_bitmaps
+from .protocols.snmp.write import (
+    SetVarbind,
+    encode_port_bitmap,
+    membership_bitmaps,
+    vlan_bitmap_width,
+)
 from .registry import Backend
 from .snmp_read import AsyncSnmpReader, SnmpReader
 
@@ -120,6 +125,7 @@ class SnmpWriter:
             mode=mode, port=port,
             egress=encode_port_bitmap(before.member_ports),
             untagged=encode_port_bitmap(before.untagged_ports),
+            width_bytes=vlan_bitmap_width(self.model),
         )
         self.client.set_many([
             SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),
@@ -234,6 +240,7 @@ class AsyncSnmpWriter:
             mode=mode, port=port,
             egress=encode_port_bitmap(before.member_ports),
             untagged=encode_port_bitmap(before.untagged_ports),
+            width_bytes=vlan_bitmap_width(self.model),
         )
         await self.client.set_many([
             SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from netgear_switch.errors import ProtectedPortError, WriteVerificationError
@@ -9,7 +11,7 @@ from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
 from netgear_switch.protocols.snmp.parse import decode_port_bitmap
 from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
 from netgear_switch.registry import get_model
-from netgear_switch.snmp_write import SnmpWriter
+from netgear_switch.snmp_write import AsyncSnmpWriter, SnmpWriter
 
 
 class FakeWriteClient:
@@ -38,6 +40,41 @@ class FakeWriteClient:
             # (tables can have multi-component index suffixes, e.g. the PoE
             # table's <col>.<group>.<port>) rather than assuming the leaf's
             # immediate parent is the table's walk key.
+            base = next(
+                (k for k in self._tables if vb.oid.startswith(f"{k}.")), None
+            )
+            if base is None:
+                base, _, _ = vb.oid.rpartition(".")
+            self._tables.setdefault(base, [])
+            self._tables[base] = [r for r in self._tables[base] if r.oid != vb.oid]
+            self._tables[base].append(SnmpRow(vb.oid, int(vb.value), "INTEGER"))
+
+
+class FakeAsyncWriteClient:
+    """Async twin of FakeWriteClient: identical table lookup/apply, async I/O."""
+
+    def __init__(self, tables=None, apply=True):
+        self._tables = tables or {}
+        self.sets: list[SetVarbind] = []
+        self._apply = apply
+
+    async def get(self, oids_):
+        rows = []
+        for oid in oids_:
+            rows.extend(await self.walk(oid))
+        return rows
+
+    async def walk(self, base_oid):
+        return list(self._tables.get(base_oid, []))
+
+    async def set(self, vb):
+        await self.set_many([vb])
+
+    async def set_many(self, vbs):
+        self.sets.extend(vbs)
+        if not self._apply:
+            return
+        for vb in vbs:
             base = next(
                 (k for k in self._tables if vb.oid.startswith(f"{k}.")), None
             )
@@ -133,6 +170,52 @@ class ApplyingVlanClient(FakeWriteClient):
                 ]
 
 
+class ApplyingVlanAsyncClient(FakeAsyncWriteClient):
+    """Async twin of ApplyingVlanClient: applies bitmap/pvid SETs so verify passes."""
+
+    async def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS):
+                self._tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")
+                ]
+            elif vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_UNTAGGED):
+                self._tables[oids.DOT1Q_VLAN_STATIC_UNTAGGED] = [
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")
+                ]
+            elif vb.oid.startswith(oids.DOT1Q_PVID):
+                self._tables[oids.DOT1Q_PVID] = [
+                    SnmpRow(vb.oid, int(vb.value), "Gauge32")
+                ]
+
+
+class EgressOnlyVlanAsyncClient(FakeAsyncWriteClient):
+    """Async twin of EgressOnlyVlanClient: drops the untagged SET (buggy device)."""
+
+    async def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS):
+                self._tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")]
+            # untagged column deliberately not applied
+
+
+class VlanDisappearsClient(FakeWriteClient):
+    """Applies the SET, but the VLAN row vanishes from every column afterward
+    (simulates the VLAN being concurrently deleted mid-write)."""
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for base in (
+            oids.DOT1Q_VLAN_STATIC_NAME,
+            oids.DOT1Q_VLAN_STATIC_EGRESS,
+            oids.DOT1Q_VLAN_STATIC_UNTAGGED,
+        ):
+            self._tables[base] = []
+
+
 def test_set_pvid_sets_gauge32():
     client = ApplyingVlanClient(_vlan_tables())
     w = SnmpWriter(client, get_model("gsm7252ps"))
@@ -141,6 +224,36 @@ def test_set_pvid_sets_gauge32():
     assert sv.oid == f"{oids.DOT1Q_PVID}.10"
     assert sv.type_letter == "u"
     assert sv.value == 90
+
+
+def test_set_pvid_verification_failure_raises():
+    # apply=False: the SET is recorded but never lands in the read tables, so
+    # the post-write PVID read-back still shows the pre-write value.
+    client = FakeWriteClient(_vlan_tables(), apply=False)
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        w.set_pvid(10, 90, force=True)
+    assert exc.value.after is not None
+    assert (10, 90) not in exc.value.after
+
+
+def test_async_set_pvid_happy_path():
+    client = ApplyingVlanAsyncClient(_vlan_tables())
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    asyncio.run(w.set_pvid(10, 90, force=True))
+    sv = client.sets[0]
+    assert sv.oid == f"{oids.DOT1Q_PVID}.10"
+    assert sv.type_letter == "u"
+    assert sv.value == 90
+
+
+def test_async_set_pvid_verification_failure_raises():
+    client = FakeAsyncWriteClient(_vlan_tables(), apply=False)
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        asyncio.run(w.set_pvid(10, 90, force=True))
+    assert exc.value.after is not None
+    assert (10, 90) not in exc.value.after
 
 
 def test_set_vlan_membership_rmw_preserves_other_ports():
@@ -182,4 +295,62 @@ def test_set_vlan_membership_missing_vlan_is_precondition_not_verify_error():
     w = SnmpWriter(client, get_model("gsm7252ps"))
     with pytest.raises(SnmpError):
         w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True)
+    assert client.sets == []  # precondition failed before any SET
+
+
+def test_set_vlan_membership_vlan_disappears_after_write_raises_verification_error():
+    # after is None: the "VLAN/port disappeared from the walk" branch.
+    client = VlanDisappearsClient(_vlan_tables(member=(1, 2, 10), untagged=(1, 2)))
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True)
+    assert "disappeared" in str(exc.value)
+    assert exc.value.after is None
+
+
+def test_set_vlan_membership_bitmaps_are_8_bytes_for_52_port_model():
+    # Width-preservation (Fix 2): a real 52-port model's re-encoded bitmaps
+    # must stay 8 bytes wide, unchanged from before the width-threading fix.
+    client = ApplyingVlanClient(_vlan_tables(member=(1, 2, 10), untagged=(1, 2)))
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True)
+    egress_sv = next(
+        s for s in client.sets if s.oid == f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90"
+    )
+    untagged_sv = next(
+        s for s in client.sets if s.oid == f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.90"
+    )
+    assert len(egress_sv.value) == 8
+    assert len(untagged_sv.value) == 8
+
+
+def test_async_set_vlan_membership_rmw_preserves_other_ports():
+    client = ApplyingVlanAsyncClient(_vlan_tables(member=(1, 2, 10), untagged=(1, 2)))
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    asyncio.run(w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True))
+    egress_oid = f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90"
+    egress_sv = next(s for s in client.sets if s.oid == egress_oid)
+    assert egress_sv.type_letter == "x"
+    assert decode_port_bitmap(egress_sv.value) == frozenset({1, 2, 10, 25})  # kept
+    untagged_oid = f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.90"
+    untag_sv = next(s for s in client.sets if s.oid == untagged_oid)
+    assert decode_port_bitmap(untag_sv.value) == frozenset({1, 2})  # 25 tagged only
+
+
+def test_async_set_vlan_membership_catches_dropped_untagged_write():
+    # UNTAGGED mode sets both egress AND untagged; the client drops untagged.
+    client = EgressOnlyVlanAsyncClient(
+        _vlan_tables(member=(1, 2, 10), untagged=(1, 2))
+    )
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        asyncio.run(w.set_vlan_membership(90, 25, VlanMode.UNTAGGED, force=True))
+    assert "untagged" in str(exc.value)
+
+
+def test_async_set_vlan_membership_missing_vlan_is_precondition_not_verify_error():
+    client = ApplyingVlanAsyncClient({})  # no VLAN 90 present
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(SnmpError):
+        asyncio.run(w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True))
     assert client.sets == []  # precondition failed before any SET

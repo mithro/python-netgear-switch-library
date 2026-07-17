@@ -144,8 +144,11 @@ class VirtualSwitchState:
         the seeded state from what the face returns.
         """
         from ..protocols.snmp import oids
+        from ..protocols.snmp.write import vlan_bitmap_width
 
-        v = oids.vendor_oids(get_model(self.model_key))
+        model = get_model(self.model_key)
+        v = oids.vendor_oids(model)
+        vlan_width = vlan_bitmap_width(model)
         m: dict[str, tuple[str, str]] = {}
 
         for port, sim in self.ports.items():
@@ -171,9 +174,9 @@ class VirtualSwitchState:
         for vid, vsim in self.vlans.items():
             m[f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"] = ("OCTETSTR", vsim.name)
             m[f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"] = (
-                "OCTETSTR", encode_port_bitmap(vsim.member))
+                "OCTETSTR", encode_port_bitmap(vsim.member, width_bytes=vlan_width))
             m[f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}"] = (
-                "OCTETSTR", encode_port_bitmap(vsim.untagged))
+                "OCTETSTR", encode_port_bitmap(vsim.untagged, width_bytes=vlan_width))
 
         for port, pv in self.pvids.items():
             m[f"{oids.DOT1Q_PVID}.{port}"] = ("Gauge32", str(pv))
