@@ -16,6 +16,15 @@ from .snmp_write import AsyncSnmpWriter, PoeCycleTimeouts
 
 _DEFAULT_POE_TIMEOUTS = PoeCycleTimeouts()
 
+
+class _Unset:
+    """Sentinel type for "write community not yet resolved" (see
+    AsyncSwitch._resolved_write_community): a resolved value of None (no
+    community configured) must stay distinguishable from "never resolved"."""
+
+
+_UNSET = _Unset()
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
@@ -60,6 +69,9 @@ class AsyncSwitch:
         # instead of resolving eagerly, so read-only construction never raises a
         # CredentialError for an unresolvable write-community spec (review item 4).
         self._snmp_write_community_resolver = snmp_write_community_resolver
+        # Sentinel meaning "not yet resolved"; distinct from a resolved value
+        # of None (no community configured) so we only ever resolve once.
+        self._resolved_write_community: str | None | _Unset = _UNSET
         self.protected_ports = protected_ports
 
     @classmethod
@@ -133,11 +145,22 @@ class AsyncSwitch:
         )
 
     def _resolve_write_community(self) -> str | None:
+        # Resolved once on first write, then cached: an explicit community
+        # wins, else the stashed from_config resolver runs now (may raise),
+        # else None. Every subsequent write reuses the cached result instead
+        # of re-invoking the resolver (e.g. a ``!command`` spec must not
+        # re-exec its subprocess on every single write).
+        if not isinstance(self._resolved_write_community, _Unset):
+            return self._resolved_write_community
+        resolved: str | None
         if self._snmp_write_community is not None:
-            return self._snmp_write_community
-        if self._snmp_write_community_resolver is not None:
-            return self._snmp_write_community_resolver()
-        return None
+            resolved = self._snmp_write_community
+        elif self._snmp_write_community_resolver is not None:
+            resolved = self._snmp_write_community_resolver()
+        else:
+            resolved = None
+        self._resolved_write_community = resolved
+        return resolved
 
     def _writer(self) -> AsyncSnmpWriter:
         require_snmp_backend(self.model)
