@@ -16,12 +16,13 @@ import warnings
 
 import pytest
 
-from netgear_switch.models import IpMode
+from netgear_switch.models import IpMode, VlanMode
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
 from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
 from netgear_switch.registry import get_model
-from netgear_switch.snmp_read import AsyncSnmpReader
+from netgear_switch.snmp_read import AsyncSnmpReader, SnmpReader
+from netgear_switch.snmp_write import AsyncSnmpWriter, SnmpWriter
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 from netgear_switch.virtual.server import VirtualSwitch
@@ -317,3 +318,98 @@ def test_set_get_stop_lifecycle_emits_no_resource_warning():
         gc.collect()
     resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
     assert resource_warnings == []
+
+
+def test_snmp_writer_set_vlan_membership_live_preserves_other_ports():
+    """Drive ``SnmpWriter.set_vlan_membership`` (RMW + atomic set_many +
+    dual-column verify) through the real SET path against a live
+    ``VirtualSwitch``, over the sync (net-snmp CLI) transport. Proves port 25
+    joins VLAN 90 tagged while the seeded members {1, 2, 10} and the untagged
+    set {1, 2} are preserved untouched."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model)
+        reader = SnmpReader(client, model)
+        vid = 90
+
+        before = next(v for v in reader.get_vlans() if v.vlan_id == vid)
+        assert before.member_ports == frozenset({1, 2, 10})
+        assert before.untagged_ports == frozenset({1, 2})
+
+        writer.set_vlan_membership(vid, 25, VlanMode.TAGGED)
+
+        after = next(v for v in reader.get_vlans() if v.vlan_id == vid)
+        assert after.member_ports == frozenset({1, 2, 10, 25})  # 25 joined
+        assert after.untagged_ports == frozenset({1, 2})        # untouched, tagged only
+    finally:
+        sw.stop()
+
+
+def test_async_snmp_writer_set_vlan_membership_live_preserves_other_ports():
+    """Async mirror of the above over the pysnmp transport, proving parity."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        writer = AsyncSnmpWriter(client, model)
+        reader = AsyncSnmpReader(client, model)
+        vid = 90
+
+        before = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
+        assert before.member_ports == frozenset({1, 2, 10})
+        assert before.untagged_ports == frozenset({1, 2})
+
+        asyncio.run(writer.set_vlan_membership(vid, 25, VlanMode.UNTAGGED))
+
+        after = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
+        assert after.member_ports == frozenset({1, 2, 10, 25})    # 25 joined
+        assert after.untagged_ports == frozenset({1, 2, 25})      # 25 untagged too
+    finally:
+        sw.stop()
+
+
+def test_snmp_writer_set_pvid_live_preserves_other_ports():
+    """Drive ``SnmpWriter.set_pvid`` (Gauge32 SET + verify) against a live
+    ``VirtualSwitch``. Proves port 5's PVID moves to the existing VLAN 90
+    while the seeded PVIDs for ports 1 and 2 (also 90, but set independently)
+    and port 6 (default VLAN 1) are left untouched."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model)
+        reader = SnmpReader(client, model)
+
+        before = dict(reader.get_pvids())
+        assert before[5] == 1
+        assert before[6] == 1
+
+        writer.set_pvid(5, 90)
+
+        after = dict(reader.get_pvids())
+        assert after[5] == 90        # changed
+        assert after[6] == before[6]  # other port preserved
+        assert after[1] == before[1]  # other port preserved
+    finally:
+        sw.stop()
+
+
+def test_snmp_writer_set_vlan_membership_missing_vlan_raises_snmperror_live():
+    """The precondition check (VLAN must exist) surfaces as ``SnmpError``,
+    not a ``WriteVerificationError``, and issues no SET at all against the
+    live mock."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model)
+        with pytest.raises(SnmpError):
+            writer.set_vlan_membership(777, 25, VlanMode.TAGGED)
+    finally:
+        sw.stop()

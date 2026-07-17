@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 
 from netgear_switch.errors import ProtectedPortError, WriteVerificationError
+from netgear_switch.models import VlanMode
 from netgear_switch.protocols.snmp import oids
-from netgear_switch.protocols.snmp.client import SnmpRow
-from netgear_switch.protocols.snmp.write import SetVarbind
+from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
+from netgear_switch.protocols.snmp.parse import decode_port_bitmap
+from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
 from netgear_switch.registry import get_model
 from netgear_switch.snmp_write import SnmpWriter
 
@@ -91,3 +93,93 @@ def test_set_port_enabled_disable_sets_ifadmin_2():
     w = SnmpWriter(client, get_model("gsm7252ps"))
     w.set_port_enabled(5, enabled=False, force=True)
     assert client.sets == [SetVarbind(f"{oids.IF_ADMIN_STATUS}.5", 2, "i")]
+
+
+def _vlan_tables(vid=90, member=(1, 2, 10), untagged=(1, 2)):
+    name_oid = oids.DOT1Q_VLAN_STATIC_NAME
+    egress_oid = oids.DOT1Q_VLAN_STATIC_EGRESS
+    untagged_oid = oids.DOT1Q_VLAN_STATIC_UNTAGGED
+    return {
+        name_oid: [SnmpRow(f"{name_oid}.{vid}", "iot", "STRING")],
+        egress_oid: [
+            SnmpRow(f"{egress_oid}.{vid}", encode_port_bitmap(member), "Hex-STRING")
+        ],
+        untagged_oid: [
+            SnmpRow(
+                f"{untagged_oid}.{vid}", encode_port_bitmap(untagged), "Hex-STRING"
+            )
+        ],
+        oids.DOT1Q_PVID: [SnmpRow(f"{oids.DOT1Q_PVID}.10", 1, "Gauge32")],
+    }
+
+
+class ApplyingVlanClient(FakeWriteClient):
+    """Applies bitmap/pvid SETs into the read tables so verify passes."""
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS):
+                self._tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")
+                ]
+            elif vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_UNTAGGED):
+                self._tables[oids.DOT1Q_VLAN_STATIC_UNTAGGED] = [
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")
+                ]
+            elif vb.oid.startswith(oids.DOT1Q_PVID):
+                self._tables[oids.DOT1Q_PVID] = [
+                    SnmpRow(vb.oid, int(vb.value), "Gauge32")
+                ]
+
+
+def test_set_pvid_sets_gauge32():
+    client = ApplyingVlanClient(_vlan_tables())
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.set_pvid(10, 90, force=True)
+    sv = client.sets[0]
+    assert sv.oid == f"{oids.DOT1Q_PVID}.10"
+    assert sv.type_letter == "u"
+    assert sv.value == 90
+
+
+def test_set_vlan_membership_rmw_preserves_other_ports():
+    client = ApplyingVlanClient(_vlan_tables(member=(1, 2, 10), untagged=(1, 2)))
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True)
+    egress_oid = f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90"
+    egress_sv = next(s for s in client.sets if s.oid == egress_oid)
+    assert egress_sv.type_letter == "x"
+    assert decode_port_bitmap(egress_sv.value) == frozenset({1, 2, 10, 25})  # kept
+    untagged_oid = f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.90"
+    untag_sv = next(s for s in client.sets if s.oid == untagged_oid)
+    assert decode_port_bitmap(untag_sv.value) == frozenset({1, 2})  # 25 tagged only
+
+
+class EgressOnlyVlanClient(FakeWriteClient):
+    """Applies the egress SET but IGNORES the untagged SET (buggy device)."""
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS):
+                self._tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")]
+            # untagged column deliberately not applied
+
+
+def test_set_vlan_membership_catches_dropped_untagged_write():
+    # UNTAGGED mode sets both egress AND untagged; the client drops untagged.
+    client = EgressOnlyVlanClient(_vlan_tables(member=(1, 2, 10), untagged=(1, 2)))
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(WriteVerificationError) as exc:
+        w.set_vlan_membership(90, 25, VlanMode.UNTAGGED, force=True)
+    assert "untagged" in str(exc.value)
+
+
+def test_set_vlan_membership_missing_vlan_is_precondition_not_verify_error():
+    client = ApplyingVlanClient({})  # no VLAN 90 present
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(SnmpError):
+        w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True)
+    assert client.sets == []  # precondition failed before any SET

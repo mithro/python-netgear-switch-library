@@ -16,12 +16,14 @@ from .errors import (
     WriteVerificationError,
 )
 from .protocols.snmp import oids
-from .protocols.snmp.write import SetVarbind
+from .protocols.snmp.client import SnmpError
+from .protocols.snmp.parse import decode_port_bitmap
+from .protocols.snmp.write import SetVarbind, encode_port_bitmap, membership_bitmaps
 from .registry import Backend
 from .snmp_read import AsyncSnmpReader, SnmpReader
 
 if TYPE_CHECKING:
-    from .models import PoEStatus, PortStatus
+    from .models import PoEStatus, PortStatus, VLANInfo, VlanMode
     from .protocols.snmp.client import AsyncSnmpWriteClient, SnmpWriteClient
     from .registry import SwitchModel
 
@@ -63,6 +65,9 @@ class SnmpWriter:
     def _port_status(self, port: int) -> PortStatus | None:
         return next((p for p in self._reader.get_ports() if p.port == port), None)
 
+    def _vlan(self, vlan: int) -> VLANInfo | None:
+        return next((v for v in self._reader.get_vlans() if v.vlan_id == vlan), None)
+
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
             self._guard(port, force)  # turning PoE off is disruptive
@@ -88,6 +93,60 @@ class SnmpWriter:
         if after is None or after.admin_enabled != enabled:
             raise WriteVerificationError(
                 f"admin state for port {port} did not read back as {enabled}",
+                before=before, after=after,
+            )
+
+    def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
+        self._guard(port, force)  # changing a port's PVID is disruptive
+        before = self._reader.get_pvids()
+        self.client.set(SetVarbind(f"{oids.DOT1Q_PVID}.{port}", vlan, "u"))
+        after = self._reader.get_pvids()
+        if (port, vlan) not in after:
+            raise WriteVerificationError(
+                f"PVID for port {port} did not read back as {vlan}",
+                before=before, after=after,
+            )
+
+    def set_vlan_membership(
+        self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
+    ) -> None:
+        self._guard(port, force)
+        before = self._vlan(vlan)
+        if before is None:
+            # Precondition failure: no SET has been attempted, so this is NOT a
+            # verification divergence (review item 9).
+            raise SnmpError(f"VLAN {vlan} does not exist")
+        new_egress, new_untagged = membership_bitmaps(
+            mode=mode, port=port,
+            egress=encode_port_bitmap(before.member_ports),
+            untagged=encode_port_bitmap(before.untagged_ports),
+        )
+        self.client.set_many([
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"),
+        ])
+        after = self._vlan(vlan)
+        # Verify BOTH columns this op wrote: egress membership AND the untagged
+        # set. A mock/device that accepts the egress SET but silently drops the
+        # untagged SET must be caught (review item 1).
+        want_egress = frozenset(decode_port_bitmap(new_egress))
+        want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if after is None:
+            raise WriteVerificationError(
+                f"VLAN {vlan} disappeared while setting membership for port {port}",
+                before=before, after=after,
+            )
+        if after.member_ports != want_egress:
+            raise WriteVerificationError(
+                f"VLAN {vlan} egress (member_ports) for port {port} did not "
+                f"verify: wanted {sorted(want_egress)}, "
+                f"got {sorted(after.member_ports)}",
+                before=before, after=after,
+            )
+        if after.untagged_ports != want_untagged:
+            raise WriteVerificationError(
+                f"VLAN {vlan} untagged_ports for port {port} did not verify: "
+                f"wanted {sorted(want_untagged)}, got {sorted(after.untagged_ports)}",
                 before=before, after=after,
             )
 
@@ -120,6 +179,10 @@ class AsyncSnmpWriter:
     async def _port_status(self, port: int) -> PortStatus | None:
         return next((p for p in await self._reader.get_ports() if p.port == port), None)
 
+    async def _vlan(self, vlan: int) -> VLANInfo | None:
+        vlans = await self._reader.get_vlans()
+        return next((v for v in vlans if v.vlan_id == vlan), None)
+
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
             self._guard(port, force)
@@ -145,5 +208,56 @@ class AsyncSnmpWriter:
         if after is None or after.admin_enabled != enabled:
             raise WriteVerificationError(
                 f"admin state for port {port} did not read back as {enabled}",
+                before=before, after=after,
+            )
+
+    async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
+        self._guard(port, force)
+        before = await self._reader.get_pvids()
+        await self.client.set(SetVarbind(f"{oids.DOT1Q_PVID}.{port}", vlan, "u"))
+        after = await self._reader.get_pvids()
+        if (port, vlan) not in after:
+            raise WriteVerificationError(
+                f"PVID for port {port} did not read back as {vlan}",
+                before=before, after=after,
+            )
+
+    async def set_vlan_membership(
+        self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
+    ) -> None:
+        self._guard(port, force)
+        before = await self._vlan(vlan)
+        if before is None:
+            # Precondition failure (review item 9): no SET attempted.
+            raise SnmpError(f"VLAN {vlan} does not exist")
+        new_egress, new_untagged = membership_bitmaps(
+            mode=mode, port=port,
+            egress=encode_port_bitmap(before.member_ports),
+            untagged=encode_port_bitmap(before.untagged_ports),
+        )
+        await self.client.set_many([
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"),
+        ])
+        after = await self._vlan(vlan)
+        # Verify BOTH written columns (egress AND untagged) — review item 1.
+        want_egress = frozenset(decode_port_bitmap(new_egress))
+        want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if after is None:
+            raise WriteVerificationError(
+                f"VLAN {vlan} disappeared while setting membership for port {port}",
+                before=before, after=after,
+            )
+        if after.member_ports != want_egress:
+            raise WriteVerificationError(
+                f"VLAN {vlan} egress (member_ports) for port {port} did not "
+                f"verify: wanted {sorted(want_egress)}, "
+                f"got {sorted(after.member_ports)}",
+                before=before, after=after,
+            )
+        if after.untagged_ports != want_untagged:
+            raise WriteVerificationError(
+                f"VLAN {vlan} untagged_ports for port {port} did not verify: "
+                f"wanted {sorted(want_untagged)}, got {sorted(after.untagged_ports)}",
                 before=before, after=after,
             )
