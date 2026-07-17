@@ -65,6 +65,50 @@ def test_parse_no_such_instance_raises():
         parse_netsnmp_lines(".1.3.6.1.2.1.2.2.1.8.99 = No Such Instance\n")
 
 
+def test_parse_walk_end_of_mib_terminator_is_not_an_error():
+    # snmpbulkwalk appends this benign line once it reaches the end of the
+    # agent's MIB tree. It must not discard the rows already parsed.
+    text = (
+        ".1.3.6.1.2.1.2.2.1.8.1 = INTEGER: 1\n"
+        ".1.3.6.1.2.1.2.2.1.8.2 = INTEGER: 2\n"
+        ".1.3.6.1.6.3.16.1.5.2.1.6.6.1.5.4.1.2 = "
+        "No more variables left in this MIB View "
+        "(It is past the end of the MIB tree)\n"
+    )
+    rows = parse_netsnmp_lines(text)
+    assert rows == [
+        SnmpRow("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER"),
+        SnmpRow("1.3.6.1.2.1.2.2.1.8.2", 2, "INTEGER"),
+    ]
+
+
+def test_parse_no_such_object_names_oid_in_error():
+    with pytest.raises(SnmpError, match=r"1\.3\.6\.1\.2\.1\.99"):
+        parse_netsnmp_lines(
+            ".1.3.6.1.2.1.99 = No Such Object available on this agent at this OID\n"
+        )
+
+
+def test_parse_no_such_instance_at_oid_raises():
+    with pytest.raises(SnmpError):
+        parse_netsnmp_lines(
+            ".1.3.6.1.2.1.2.2.1.8.99 = "
+            "No Such Instance currently exists at this OID\n"
+        )
+
+
+def test_parse_string_containing_marker_words_is_not_an_error():
+    # A legitimate STRING value that merely contains the words "no such
+    # object" must be parsed normally, not mistaken for the absent marker.
+    text = '.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: "port no such object test"\n'
+    rows = parse_netsnmp_lines(text)
+    assert rows == [
+        SnmpRow(
+            "1.3.6.1.2.1.31.1.1.1.1.1", "port no such object test", "STRING"
+        )
+    ]
+
+
 @dataclass
 class _FakeProc:
     returncode: int

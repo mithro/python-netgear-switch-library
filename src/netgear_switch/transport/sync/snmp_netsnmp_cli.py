@@ -36,7 +36,14 @@ _INT_TYPES = frozenset(
 _ABSENT_MARKERS = (
     "no such object",
     "no such instance",
-    "no more variables",
+)
+
+# Benign terminator snmpbulkwalk appends once a walk reaches the end of the
+# agent's MIB tree. Not an error: skip the line and return the rows already
+# parsed so far.
+_END_OF_MIB_MARKERS = (
+    "no more variables left in this mib view",
+    "past the end of the mib tree",
 )
 
 _TIMETICKS_RE = re.compile(r"\((\d+)\)")
@@ -84,12 +91,32 @@ def _normalize(snmp_type: str, value: str) -> int | str | bytes:
     return value
 
 
+def _split_typed(rest: str) -> tuple[str, str] | None:
+    """If `rest` looks like `<TYPE>: <value>` (or `<TYPE>:` with no value),
+    return `(snmp_type, value)`. Otherwise return None.
+
+    This is checked *before* any marker text so a STRING value that merely
+    contains marker words (e.g. `STRING: "no such object test"`) is always
+    parsed as a normal typed value, never mistaken for a marker line.
+    """
+    if ": " in rest:
+        snmp_type, value = rest.split(": ", 1)
+        return snmp_type.strip(), value.strip()
+    if rest.endswith(":"):
+        return rest[:-1].strip(), ""
+    return None
+
+
 def parse_netsnmp_lines(text: str) -> list[SnmpRow]:
     """Parse `snmpget`/`snmpbulkwalk` output (-On -Oe -OU -Ln) into SnmpRows.
 
     Raises SnmpError on a "No Such Object/Instance" line — an absent OID is
-    surfaced early, never returned as an empty/None row. Multi-line Hex-STRING
-    continuations are joined into one bytes value.
+    surfaced early, never returned as an empty/None row. The benign
+    "No more variables left in this MIB View .../ past the end of the MIB
+    tree" terminator that snmpbulkwalk appends at the end of a successful
+    walk is skipped rather than treated as an error, so previously parsed
+    rows are still returned. Multi-line Hex-STRING continuations are joined
+    into one bytes value.
     """
     rows: list[SnmpRow] = []
     pending_oid: str | None = None
@@ -116,25 +143,24 @@ def parse_netsnmp_lines(text: str) -> list[SnmpRow]:
         oid_part, rest = raw.split(" = ", 1)
         oid = oid_part.strip().lstrip(".")
         rest = rest.strip()
-        if any(marker in rest.lower() for marker in _ABSENT_MARKERS):
-            raise SnmpError(f"absent OID in net-snmp output: {oid} = {rest}")
         if rest in ('""', ""):
             rows.append(SnmpRow(oid, "", "STRING"))
             continue
-        if ": " in rest:
-            snmp_type, value = rest.split(": ", 1)
-        elif rest.endswith(":"):
-            snmp_type, value = rest[:-1], ""
-        else:
-            rows.append(SnmpRow(oid, rest, "STRING"))
+        typed = _split_typed(rest)
+        if typed is not None:
+            snmp_type, value = typed
+            if snmp_type == "Hex-STRING":
+                pending_oid = oid
+                pending_hex = [value]
+                continue
+            rows.append(SnmpRow(oid, _normalize(snmp_type, value), snmp_type))
             continue
-        snmp_type = snmp_type.strip()
-        value = value.strip()
-        if snmp_type == "Hex-STRING":
-            pending_oid = oid
-            pending_hex = [value]
+        rest_lower = rest.lower()
+        if any(marker in rest_lower for marker in _END_OF_MIB_MARKERS):
             continue
-        rows.append(SnmpRow(oid, _normalize(snmp_type, value), snmp_type))
+        if any(marker in rest_lower for marker in _ABSENT_MARKERS):
+            raise SnmpError(f"absent OID in net-snmp output: {oid} = {rest}")
+        raise SnmpError(f"unrecognized net-snmp output line: {oid} = {rest}")
     flush_hex()
     return rows
 
