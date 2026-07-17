@@ -260,7 +260,7 @@ def parse_lldp(rows: Sequence[SnmpRow]) -> list[LLDPNeighbor]:
         if not row.oid.startswith(prefix):
             continue
         parts = row.oid[len(prefix):].split(".")
-        if len(parts) < 4:
+        if len(parts) != 4:
             raise SnmpError(f"malformed LLDP index at {row.oid}")
         try:
             column = int(parts[0])
@@ -320,11 +320,13 @@ def parse_macs(
             continue
         parts = row.oid[len(prefix):].split(".")
         if len(parts) != 7:  # <vlan>.<6 MAC bytes>
-            continue
+            raise SnmpError(f"malformed FDB index at {row.oid}")
         try:
             vlan_id = int(parts[0])
-        except ValueError:
-            continue
+        except ValueError as exc:
+            raise SnmpError(
+                f"non-integer VLAN index {parts[0]!r} at {row.oid}"
+            ) from exc
         try:
             bridge_port = int(row.value)
         except ValueError as exc:
