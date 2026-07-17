@@ -16,6 +16,8 @@ from ...protocols.snmp.client import SnmpError, SnmpRow
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from ...protocols.snmp.write import SetVarbind
+
 # -On numeric OIDs, -Oe enums-as-numbers, -OU no units, -Ln no stderr logging.
 _OUTPUT_FLAGS = ("-On", "-Oe", "-OU", "-Ln")
 
@@ -47,6 +49,22 @@ _END_OF_MIB_MARKERS = (
 )
 
 _TIMETICKS_RE = re.compile(r"\((\d+)\)")
+
+
+def _format_set_value(vb: SetVarbind) -> str:
+    """Render a SetVarbind value as the string snmpset expects for its type.
+
+    ``x`` (hex/octets) is emitted as lowercase hex digits; every other type is
+    stringified directly (net-snmp parses ``i``/``u``/``s``/``a`` from text).
+    """
+    if vb.type_letter == "x":
+        data = (
+            vb.value
+            if isinstance(vb.value, bytes)
+            else str(vb.value).encode("latin-1")
+        )
+        return data.hex()
+    return str(vb.value)
 
 
 class _CompletedProcess(Protocol):
@@ -205,6 +223,20 @@ class NetsnmpCliClient:
     def walk(self, base_oid: str) -> list[SnmpRow]:
         argv = [*self._base_args("snmpbulkwalk"), self.host, base_oid]
         return self._invoke(argv)
+
+    def set(self, varbind: SetVarbind) -> None:
+        self.set_many([varbind])
+
+    def set_many(self, varbinds: list[SetVarbind]) -> None:
+        if not varbinds:
+            return
+        triples: list[str] = []
+        for vb in varbinds:
+            triples += [vb.oid, vb.type_letter, _format_set_value(vb)]
+        argv = [*self._base_args("snmpset"), self.host, *triples]
+        # _invoke raises SnmpError on non-zero exit or any stderr (commitFailed,
+        # noSuchName, wrong type). The echoed varbinds it parses are discarded.
+        self._invoke(argv)
 
     def _invoke(self, argv: Sequence[str]) -> list[SnmpRow]:
         kwargs: dict[str, Any] = {
