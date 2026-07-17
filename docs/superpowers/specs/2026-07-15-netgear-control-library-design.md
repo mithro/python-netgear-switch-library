@@ -289,3 +289,105 @@ netgear_switch/virtual/
 1. **M4300 SNMP VLAN write** — trusting owner experience over the handoff doc.
 2. **v1 write scope** — full read+write with the §6 rails; confirm not too large
    for the first cut.
+
+## 11. Expanded scope (goal of 2026-07-17)
+
+The project goal expands v1 to the full production library. Everything below is
+in scope for the shipped product; nothing here is deferred except where an item
+is explicitly marked v2.
+
+### 11.1 Functional surface (additions/clarifications to §1)
+
+- **VLAN lifecycle:** not just per-port membership + PVID, but **create and delete
+  VLANs** themselves (SNMP `dot1qVlanStaticTable` row creation/destruction via
+  `RowStatus`; NSDP VLAN engine + members; HTTP CGI). Naming a VLAN.
+- **Port status & stats:** link up/down, negotiated link type & speed (incl. the
+  `TEN_GIGABIT`/0xFF GS110EMX case), and **RX/TX counters** — packets and bytes
+  (SNMP HC octet + packet counters; NSDP 49-byte port-statistics; HTTP stats page).
+- **PoE:** full per-port status (admin, delivering/searching/fault, negotiated PoE
+  protocol/class, **power draw in mW/W**, voltage/current where exposed) and full
+  control: **on/off, cycle, and clear-fault**.
+- **LLDP / neighbour queries:** local + remote neighbour tables across backends.
+- **MAC address tables:** per-port (SNMP/managed only — Plus switches have none).
+- **Sensors:** temperature, voltage, power, fan speed — every sensor a model exposes.
+- **Management interface DHCP/IP config:** **query and set** the switch's own
+  management IP configuration — static vs DHCP mode, address/netmask/gateway
+  (SNMP ip/interface groups + Netgear private OIDs; NSDP IP/NETMASK/GATEWAY/
+  DHCP_MODE write TLVs; HTTP). This is a control operation with the strongest
+  safety rails (a wrong write can strand the switch — see §6; a mgmt-IP change is
+  always confirm-gated and never touched by a bulk operation).
+
+### 11.2 Testing (strengthens §4, §7)
+
+- **Mock models:** the virtual switch must provide a **complete mock of every
+  switch model**, exercising **all** functionality the library can drive (every
+  read and every write path, per backend that model supports).
+- **Dual-target testing:** every capability is tested against **both** the mock
+  model **and** real hardware. Real-hardware tests are opt-in (marked, off in CI),
+  driven by the inventory; mock tests are the CI default and must cover everything.
+- **Sync/async equivalence:** a dedicated suite asserts the sync and async APIs are
+  **functionally equivalent** — identical returned dataclasses and identical
+  device-state effects for every operation — run against the mock.
+
+### 11.3 Quality, CI & delivery (new)
+
+- **Quality gates:** strict linting (ruff, including type-aware rules) and static
+  typing (mypy or pyright, strict) as enforced gates; enforced **test coverage**
+  threshold. No skips, no xfails papering over real failures, **no flaky tests**.
+- **Local == CI:** everything passing locally must pass in **GitHub Actions CI**,
+  and vice-versa. CI runs the mock test suite, lint, type-check, and coverage on
+  supported Python versions.
+- **Errors surfaced early:** invalid/unexpected switch responses, out-of-range
+  ports, unknown models, unsupported-capability-per-model, and failed writes are
+  raised as typed errors (§ errors hierarchy) at the earliest possible point —
+  never silently swallowed or returned as empty/`None`.
+- **Packaging — PyPI:** build config and an automated publish workflow ready for
+  final credential setup (trusted publishing). The library ships typed (`py.typed`).
+- **Packaging — Debian:** proper `.deb` packages for **Debian trixie and sid**,
+  published to a **GitHub Pages apt repository** in the same style as the other
+  mithro repos (e.g. `ten64-microcontroller-utility`, the nginx-mod repos).
+- **Rolling release, no version numbers/tags:** every mergeable change to `main`
+  produces new packages automatically. Versioning is **derived** (e.g. date +
+  commit height via `hatch-vcs`/`setuptools-scm`-style), not hand-bumped; there is
+  **no manual tagging** and no semantic version gatekeeping. "Mergeable ⇒ released."
+- **Merge discipline:** proper **merge commits** (`--no-ff`) per slice/feature;
+  `main` always green.
+
+### 11.4 Downstream ports (new)
+
+For each existing tool that reimplements this functionality, create a **branch and
+worktree** that ports it onto this library, preserving all existing behaviour:
+
+- **`sensors2mqtt`** — replace its `collector/snmp.py` + `snmp_control.py` (and the
+  `native-snmp-library` `SnmpClient` seam) with this library; keep identical MQTT/HA
+  output and PoE control behaviour.
+- **`gdoc2netcfg`** — replace its `src/nsdp` package and `supplements/bridge.py`/
+  `snmp.py` switch-communication with this library; keep identical enrichment output.
+- Any other tool found to duplicate this functionality.
+
+Each port is validated against that tool's own tests before its branch is offered
+for merge.
+
+### 11.5 Revised slice sequence (supersedes the 8-slice note in the plan/memory)
+
+1. **Foundation** — DONE, merged (models, registry, config, errors).
+2. **SNMP read core** — sync (ezsnmp) + async (pysnmp) SNMP transport; OID tables +
+   pure parsers for port status/stats, VLANs, PVID, LLDP, MAC, PoE status, sensors,
+   mgmt-IP; **SNMP virtual-switch face** (pysnmp agent over device state) so it is
+   testable against the mock from the start.
+3. **Dual read APIs + equivalence harness** — `SyncSwitch`/`AsyncSwitch` read
+   methods over the SNMP core; sync/async equivalence suite against the mock.
+4. **SNMP write/control** — PoE on/off/cycle/clear-fault; VLAN membership/PVID/
+   create/delete; mgmt-IP/DHCP set; write safety rails; mock write behaviour + state.
+5. **NSDP backend** — read + write TLV path (incl. auth) + NSDP virtual face.
+6. **HTTP web-scraping backend** — native httpx login + CGI/form scraping + HTTP
+   virtual face.
+7. **CLI tools** — `ngsw` subcommands + capture utility + `--dry-run`/confirm rails.
+8. **Packaging, CI & release** — ruff/type/coverage gates; GitHub Actions; PyPI
+   publish workflow; Debian trixie/sid `.deb` + GitHub Pages apt repo; derived-version
+   rolling release.
+9. **Downstream ports** — `sensors2mqtt`, `gdoc2netcfg` branches/worktrees onto the
+   library, validated against their own tests.
+
+Real-hardware validation threads through slices 2–7 (opt-in) and is a release gate
+where hardware is available.
