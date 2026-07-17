@@ -128,10 +128,18 @@ VLAN through NSDP or HTTP; a managed switch routes through SNMP.
 
 Both APIs are first-class and provide identical functionality:
 
-- **Sync API** — transport via **ezsnmp** (net-snmp C binding; apt-installable and
-  uniform across the Debian fleet, per the `sensors2mqtt` native-snmp-library
-  decision), NSDP via stdlib sockets, HTTP via httpx (sync mode). Parallelism via
-  threads. This is what the CLI uses.
+- **Sync API** — SNMP transport via the **net-snmp command-line tools**
+  (`snmpget`/`snmpbulkwalk`/`snmpset` as subprocesses), NSDP via stdlib sockets,
+  HTTP via httpx (sync mode). Parallelism via threads. This is what the CLI uses.
+  *Transport decision (2026-07-17):* the sync SNMP transport was intended to use
+  **ezsnmp**, but ezsnmp fails to build in a uv/pip venv on arm64 (net-snmp
+  `struct session_list` redefinition; no arm64 wheel), which would make local and
+  CI environments diverge — unacceptable per the goal's "works locally and in CI,
+  no flaky" bar. net-snmp CLI is already installed locally and `apt`-installable in
+  CI, needs no Python build, and — being a wholly different stack from pysnmp —
+  makes the sync/async cross-check stronger than ezsnmp (also net-snmp-based) would.
+  The transport seam keeps ezsnmp (or another binding) addable later as an optional
+  accelerated sync backend without changing the public API.
 - **Async API** — transport via **pysnmp v7** (asyncio), NSDP via asyncio
   datagram endpoints, HTTP via httpx (async mode). Matches `gdoc2netcfg`.
 

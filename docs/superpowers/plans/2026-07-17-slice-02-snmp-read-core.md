@@ -4,9 +4,9 @@
 
 **Goal:** Build a pure-logic + transport SNMP **read** core (OID tables, pure parsers, sync/async clients, model-driven read operations) plus an SNMP **virtual-switch face** (a pysnmp agent over authoritative device state), so every read capability is testable against a mock with no real hardware.
 
-**Architecture:** All SNMP *knowledge* lives in I/O-free pure code — `protocols/snmp/oids.py` (OID constants + per-model tables) and `protocols/snmp/parse.py` (SNMP rows → frozen `models.py` objects). Only byte I/O is duplicated per sync/async transport (`transport/sync/snmp_ezsnmp.py` on ezsnmp, `transport/aio/snmp_pysnmp.py` on pysnmp v7), behind a shared `SnmpRow`/`SnmpError`/`SnmpClient` seam. A thin `SnmpReader`/`AsyncSnmpReader` orchestrates client walks through the parsers. The `virtual/` subpackage holds one authoritative `VirtualSwitchState`, a hand-authored `gsm7252ps` seed, and a pysnmp command-responder face that serves GET/GETNEXT/BULK from that state — a *different* SNMP stack than the ezsnmp client under test, so the cross-check is not a mirror.
+**Architecture:** All SNMP *knowledge* lives in I/O-free pure code — `protocols/snmp/oids.py` (OID constants + per-model tables) and `protocols/snmp/parse.py` (SNMP rows → frozen `models.py` objects). Only byte I/O is duplicated per sync/async transport (`transport/sync/snmp_netsnmp_cli.py` shelling out to the net-snmp CLI tools, `transport/aio/snmp_pysnmp.py` on pysnmp v7), behind a shared, transport-agnostic `SnmpRow`/`SnmpError`/`SnmpClient` seam. Both transports normalize `SnmpRow.value` to the same plain Python types (int/str/bytes) so they are interchangeable. A thin `SnmpReader`/`AsyncSnmpReader` orchestrates client walks through the parsers. The `virtual/` subpackage holds one authoritative `VirtualSwitchState`, a hand-authored `gsm7252ps` seed, and a pysnmp command-responder face that serves GET/GETNEXT/BULK from that state — a *different* SNMP stack than the net-snmp CLI client under test, so the cross-check is not a mirror.
 
-**Tech Stack:** Python ≥3.11, `uv`, hatchling. ezsnmp (sync SNMP), pysnmp v7 (async SNMP + agent engine). pytest, pytest-cov, ruff, mypy (strict).
+**Tech Stack:** Python ≥3.11, `uv`, hatchling. net-snmp CLI tools (sync SNMP, via subprocess — a **system requirement**, `apt-get install -y snmp`; no Python SNMP package), pysnmp v7 (async SNMP + agent engine). pytest, pytest-cov, ruff, mypy (strict).
 
 ## Global Constraints
 
@@ -17,7 +17,7 @@
 - **Public return types are frozen and hashable** — `@dataclass(frozen=True)`, fields are scalars / `enum.Enum` / `tuple` / `frozenset` (never `list`/`dict`/`set`). Both APIs return identical instances.
 - **Quality gates are enforced and must stay green after every task:** `ruff check`, `mypy --strict` on `src/`, and `pytest` with `--cov-fail-under=90`. No skips, no xfails papering over real failures, no flaky tests.
 - **Errors surfaced early:** invalid/unexpected switch responses, unknown models, unsupported-capability-per-model, and out-of-range values raise typed errors from `netgear_switch.errors` — never silently swallowed or returned as empty/`None`. (A counter a device genuinely does not expose is a legitimate `None`, distinct from an error.)
-- **Lazy-import heavy deps:** `ezsnmp` and `pysnmp` are imported *inside* functions/methods, never at module top level, so the pure layer and unit tests never load a C extension or the async engine. These lazy imports and the deliberately broad `except Exception` in the transports carry **no `# noqa`** — the rules that would flag them (`PLC0415`, `BLE001`) are not in the Task 1 ruff `select` list, and because `RUF` *is* selected, `RUF100` (unused-noqa) would fail the "ruff clean" gate on any such dead directive. Never suppress a rule that is not enabled.
+- **Lazy-import heavy deps:** `pysnmp` is imported *inside* functions/methods, never at module top level, so the pure layer and unit tests never load the async engine. The sync transport uses the net-snmp CLI via `subprocess` — no Python SNMP import at all — and its PATH/`_which` guard runs only at `get`/`walk` call time, so importing the module never requires the binaries. These lazy imports and the deliberately broad `except Exception` in the transports carry **no `# noqa`** — the rules that would flag them (`PLC0415`, `BLE001`) are not in the Task 1 ruff `select` list, and because `RUF` *is* selected, `RUF100` (unused-noqa) would fail the "ruff clean" gate on any such dead directive. Never suppress a rule that is not enabled.
 - **Local == CI:** everything green locally must be green in GitHub Actions and vice-versa.
 
 ---
@@ -32,7 +32,7 @@
 - `src/netgear_switch/protocols/snmp/parse.py` — pure functions: SNMP rows → `models.py` objects.
 - `src/netgear_switch/transport/__init__.py` — namespace package marker.
 - `src/netgear_switch/transport/sync/__init__.py` — namespace package marker.
-- `src/netgear_switch/transport/sync/snmp_ezsnmp.py` — sync `SnmpClient` on ezsnmp (lazy import).
+- `src/netgear_switch/transport/sync/snmp_netsnmp_cli.py` — sync `SnmpClient` shelling out to the net-snmp CLI tools (`snmpget`/`snmpbulkwalk`) via `subprocess`; no Python SNMP package. Requires the system `snmp` package on PATH.
 - `src/netgear_switch/transport/aio/__init__.py` — namespace package marker.
 - `src/netgear_switch/transport/aio/snmp_pysnmp.py` — async `SnmpClient` on pysnmp v7 (lazy import).
 - `src/netgear_switch/snmp_read.py` — `SnmpReader` (sync) + `AsyncSnmpReader`: client + model → model objects.
@@ -43,18 +43,24 @@
 - `src/netgear_switch/virtual/faces/mibview.py` — pure `StateMibView` OID responder (GET/GETNEXT via `bisect` over the sorted OID map); no network, no pysnmp.
 - `src/netgear_switch/virtual/faces/snmp.py` — pysnmp command-responder MIB controller wiring `StateMibView` onto the agent engine.
 - `src/netgear_switch/virtual/server.py` — `VirtualSwitch(model=...)`: binds the SNMP face to an ephemeral UDP port.
-- Tests: `tests/protocols/snmp/test_oids.py`, `test_parse_ports.py`, `test_parse_vlans.py`, `test_parse_lldp_macs.py`, `test_parse_poe_sensors.py`, `test_parse_mgmt_ip.py`; `tests/transport/test_snmp_ezsnmp.py`, `test_snmp_pysnmp.py`; `tests/test_snmp_read.py`; `tests/virtual/test_state_seed.py`, `test_mibview.py`, `test_virtual_snmp_face.py`; `tests/test_snmp_integration.py`; `tests/fixtures/snmp/*.txt` (hand-copied walk fixtures).
+- Tests: `tests/protocols/snmp/test_oids.py`, `test_parse_ports.py`, `test_parse_vlans.py`, `test_parse_lldp_macs.py`, `test_parse_poe_sensors.py`, `test_parse_mgmt_ip.py`; `tests/transport/test_snmp_netsnmp_cli.py`, `test_snmp_pysnmp.py`; `tests/test_snmp_read.py`; `tests/virtual/test_state_seed.py`, `test_mibview.py`, `test_virtual_snmp_face.py`; `tests/test_snmp_integration.py`; `tests/fixtures/snmp/*.txt` (hand-copied walk fixtures).
 
 **Modified:**
 - `src/netgear_switch/models.py` — add `PortStats`, `MgmtIpConfig`, `IpMode`; extend `SwitchData`.
-- `pyproject.toml` — ruff rule expansion, mypy strict config, pytest-cov config, dev deps.
+- `pyproject.toml` — ruff rule expansion, mypy strict config, pytest-cov config, dev deps; make the `sync` optional-dependency extra **empty** (no `ezsnmp`) since the sync transport uses the net-snmp CLI, not a Python SNMP package.
 - `tests/test_public_api.py` — assert the new public model names are exported (only if it already checks exports).
+
+**System requirement (not a Python dependency):** the net-snmp CLI tools (`snmpget`/`snmpbulkwalk`/`snmpset`) must be on `PATH` for the sync transport and integration tests. Install the OS `snmp` package (`apt-get install -y snmp`); the CI slice (Slice 8) adds that install step.
 
 ---
 
 ### Task 1: Quality tooling gates + dependency wiring
 
-Adopt strict lint, strict typing, and a coverage floor as enforced gates **first**, so every later task keeps them green. Confirm ezsnmp actually imports in this environment; if it did not, this task would be the documented blocker. (Verified during planning: `python3 -c "import ezsnmp"` succeeds — the net-snmp C binding is present. pysnmp is not in the base interpreter but is declared under the `async`/`testing` extras and loaded via `uv run`.)
+Adopt strict lint, strict typing, and a coverage floor as enforced gates **first**, so every later task keeps them green.
+
+**Sync SNMP transport decision — net-snmp CLI, NOT ezsnmp.** The sync transport does **not** depend on any Python SNMP package. `ezsnmp` cannot build in a `uv`/`pip` venv on arm64 (net-snmp `struct session_list` redefinition; no arm64 wheel), so depending on it would make local and CI environments diverge. Decision: the sync SNMP transport shells out to the **net-snmp command-line tools** (`snmpget`, `snmpbulkwalk`, `snmpset`) via `subprocess` (Task 10). The async transport stays on **pysnmp** (Task 11). The `SnmpRow`/`SnmpError`/client-protocol seam is unchanged, so the swap is localized to the sync transport module.
+
+**System requirement (documented):** the net-snmp CLI binaries must be present on any machine that runs the sync transport or the integration tests — locally and in CI. They come from the OS `snmp` package (`apt-get install -y snmp` on Debian/Ubuntu; already installed on this workstation). The CI slice (Slice 8) wires up an `apt-get install -y snmp` step; this plan assumes `snmpget`/`snmpbulkwalk` are on `PATH`. There is **no** Python SNMP dependency for the sync path. (pysnmp is not in the base interpreter but is declared under the `async`/`testing` extras and loaded via `uv run`.)
 
 **Files:**
 - Modify: `pyproject.toml`
@@ -135,7 +141,19 @@ packages = ["netgear_switch"]
 strict = true
 python_version = "3.11"
 ```
-(Keep existing `[tool.ruff]` `target-version`/`src`. The `async`/`testing` extras already list `pysnmp>=7.0`; the `sync` extra already lists `ezsnmp~=1.1` — leave them.)
+Also fix the **`sync` optional-dependency extra**: it must **not** depend on `ezsnmp` (or any Python SNMP package). The sync SNMP transport shells out to the net-snmp CLI binaries (Task 10) and needs no Python SNMP runtime dependency. If the `sync` extra currently reads `sync = ["ezsnmp~=1.1"]`, change it to an empty list (`sync = []`) — `httpx` belongs to the `http` extra, not here — and record the net-snmp CLI as a **system requirement** in a comment:
+```toml
+[project.optional-dependencies]
+# The sync SNMP transport shells out to the net-snmp CLI tools
+# (snmpget/snmpbulkwalk/snmpset) via subprocess; it needs NO Python SNMP
+# package. System requirement: install the OS `snmp` package
+# (`apt-get install -y snmp`) so those binaries are on PATH. See Task 10.
+sync = []
+async = ["pysnmp>=7.0"]
+```
+(Keep existing `[tool.ruff]` `target-version`/`src`, and the `http`/`testing` extras as they are. The `async`/`testing` extras already list `pysnmp>=7.0` — leave those.)
+
+**Note on the `UnsupportedCapabilityError` exception:** it is named `UnsupportedCapabilityError` (Error suffix) so it satisfies ruff `N818`; do **not** add a `# noqa: N818` anywhere for it — the correct fix is the name, not a suppression.
 
 - [ ] **Step 4: Run tests + all gates to verify green**
 
@@ -263,7 +281,7 @@ git commit -m "feat(models): add PortStats, MgmtIpConfig, IpMode read types"
 
 ### Task 3: SNMP transport seam — `SnmpRow`, `SnmpError`, client protocols
 
-Define the shared, pure seam every parser and transport uses. `SnmpRow` and the `Protocol`s carry no I/O, so they live in the pure `protocols/snmp` layer; the ezsnmp/pysnmp implementations (later tasks) import from here.
+Define the shared, pure, **transport-agnostic** seam every parser and transport uses. `SnmpRow` and the `Protocol`s carry no I/O, so they live in the pure `protocols/snmp` layer; the net-snmp CLI (sync) and pysnmp (async) implementations (later tasks) import from here. No transport-specific types leak into this seam.
 
 **Files:**
 - Create: `src/netgear_switch/protocols/snmp/client.py`
@@ -272,12 +290,12 @@ Define the shared, pure seam every parser and transport uses. `SnmpRow` and the 
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `SnmpRow(oid:str, value:str, snmp_type:str)` frozen dataclass. `oid` is the full dotted-decimal numeric OID (no leading dot); `value` is the string form; `snmp_type` is the agent-reported type token (e.g. `"INTEGER"`, `"Gauge32"`, `"OCTETSTR"`).
+  - `SnmpRow(oid: str, value, snmp_type: str)` frozen dataclass. `oid` is the full dotted-decimal numeric OID (no leading dot); `value` is a **normalized Python value** — `int` for integer-family types, `str` for text/OID/IP, `bytes` for raw octet strings (see Task 10's parity note); `snmp_type` is the type token (e.g. `"INTEGER"`, `"Gauge32"`, `"STRING"`, `"Hex-STRING"`). Both the sync and async clients MUST produce equal `SnmpRow` values (same Python types) for the same OID — Task 16's equivalence test enforces it.
   - `class SnmpError(NetgearSwitchError)` — raised on transport failure (import from `..errors`? No — see note). Defined here inheriting from `netgear_switch.errors.NetgearSwitchError`.
   - `ABSENT_TYPES: frozenset[str]` = `{"NOSUCHOBJECT", "NOSUCHINSTANCE", "ENDOFMIBVIEW"}`.
-  - `full_oid(oid:str, oid_index:str) -> str` helper (rejoins ezsnmp's split; strips leading dot).
-  - `class SnmpClient(Protocol)`: `def get(self, oid:str) -> SnmpRow | None`; `def walk(self, oid:str) -> list[SnmpRow]`.
-  - `class AsyncSnmpClient(Protocol)`: `async def get(...) -> SnmpRow | None`; `async def walk(...) -> list[SnmpRow]`.
+  - `full_oid(oid: str, oid_index: str) -> str` helper (joins an optional index onto a base OID; strips leading dot). Transport-agnostic.
+  - `class SnmpClient(Protocol)`: `def get(self, oids: list[str]) -> list[SnmpRow]`; `def walk(self, base_oid: str) -> list[SnmpRow]`.
+  - `class AsyncSnmpClient(Protocol)`: `async def get(self, oids: list[str]) -> list[SnmpRow]`; `async def walk(self, base_oid: str) -> list[SnmpRow]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -325,8 +343,9 @@ Expected: FAIL — module `netgear_switch.protocols.snmp.client` not found. (Cre
 # src/netgear_switch/protocols/snmp/client.py
 """Shared SNMP transport seam: row type, error, and client protocols.
 
-Pure and I/O-free. The ezsnmp (sync) and pysnmp (async) transports both
-implement these protocols and return SnmpRow instances the parsers consume.
+Pure and I/O-free, and transport-agnostic. The net-snmp CLI (sync) and pysnmp
+(async) transports both implement these protocols and return SnmpRow instances
+the parsers consume. No transport-specific types appear here.
 """
 from __future__ import annotations
 
@@ -343,10 +362,17 @@ ABSENT_TYPES: frozenset[str] = frozenset(
 
 @dataclass(frozen=True)
 class SnmpRow:
-    """One SNMP varbind: full numeric OID, value string, agent type token."""
+    """One SNMP varbind: full numeric OID, normalized value, type token.
+
+    ``value`` is a normalized Python value so the sync (net-snmp CLI) and async
+    (pysnmp) clients are interchangeable: ``int`` for integer-family types
+    (INTEGER/Gauge32/Counter32/Counter64/Timeticks-numeric), ``str`` for text,
+    OID and IP-address values, ``bytes`` for raw octet strings (Hex-STRING).
+    Both clients MUST yield equal values for the same OID (Task 16 enforces it).
+    """
 
     oid: str
-    value: str
+    value: int | str | bytes
     snmp_type: str
 
 
@@ -355,11 +381,11 @@ class SnmpError(NetgearSwitchError):
 
 
 def full_oid(oid: str, oid_index: str) -> str:
-    """Rejoin ezsnmp's (oid, oid_index) split into a full numeric OID.
+    """Join an optional instance index onto a base OID as a full numeric OID.
 
-    ezsnmp may return the whole numeric OID in ``oid`` with an empty
-    ``oid_index``, or split the instance into ``oid_index``. Joining both
-    and stripping any leading dot is correct either way.
+    A transport may hand back the whole numeric OID in ``oid`` with an empty
+    ``oid_index``, or split the instance into ``oid_index``. Joining both and
+    stripping any leading dot is correct either way.
     """
     oid = oid.lstrip(".")
     return f"{oid}.{oid_index}" if oid_index else oid
@@ -368,17 +394,17 @@ def full_oid(oid: str, oid_index: str) -> str:
 class SnmpClient(Protocol):
     """Synchronous SNMP v2c read client for a single switch."""
 
-    def get(self, oid: str) -> SnmpRow | None: ...
+    def get(self, oids: list[str]) -> list[SnmpRow]: ...
 
-    def walk(self, oid: str) -> list[SnmpRow]: ...
+    def walk(self, base_oid: str) -> list[SnmpRow]: ...
 
 
 class AsyncSnmpClient(Protocol):
     """Asynchronous SNMP v2c read client for a single switch."""
 
-    async def get(self, oid: str) -> SnmpRow | None: ...
+    async def get(self, oids: list[str]) -> list[SnmpRow]: ...
 
-    async def walk(self, oid: str) -> list[SnmpRow]: ...
+    async def walk(self, base_oid: str) -> list[SnmpRow]: ...
 ```
 
 - [ ] **Step 4: Run test + gates**
@@ -480,9 +506,9 @@ def test_vendor_oids_use_registry_base_smart_managed():
 def test_vendor_oids_rejects_model_without_base():
     import pytest
 
-    from netgear_switch.errors import UnsupportedCapability
+    from netgear_switch.errors import UnsupportedCapabilityError
 
-    with pytest.raises(UnsupportedCapability):
+    with pytest.raises(UnsupportedCapabilityError):
         oids.vendor_oids(get_model("gs110emx"))  # Plus, no SNMP
 
 
@@ -505,7 +531,7 @@ The module begins with its docstring and `from __future__ import annotations`
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ...errors import UnsupportedCapability
+from ...errors import UnsupportedCapabilityError
 
 if TYPE_CHECKING:
     # Imported only for the vendor_oids() type annotation; keep it behind
@@ -539,7 +565,7 @@ class VendorOids:
 def vendor_oids(model: SwitchModel) -> VendorOids:
     base = model.snmp_vendor_base
     if base is None:
-        raise UnsupportedCapability(
+        raise UnsupportedCapabilityError(
             f"model {model.key!r} has no SNMP vendor OID subtree"
         )
     return VendorOids(
@@ -812,7 +838,7 @@ Add VLAN parsing (name + egress/untagged bitmaps → `VLANInfo`) and PVID parsin
   - `parse_vlans(names, egress, untagged) -> list[VLANInfo]` — each `Sequence[SnmpRow]`; sorted by vlan_id; `member_ports` from egress, `untagged_ports` from untagged, `tagged_ports = member − untagged`.
   - `parse_pvids(rows) -> list[tuple[int, int]]` — `(port, vlan_id)` sorted by port.
 
-Note on bitmap value form: ezsnmp and the pysnmp face both surface OCTET STRING bitmaps as a str whose chars are the byte values (latin-1). `decode_port_bitmap` encodes back via `bitmap.encode("latin-1")`.
+Note on bitmap value form: VLAN egress/untagged bitmaps are non-printable OCTET STRINGs, so both transports normalize them to the same `bytes` value (net-snmp renders them as `Hex-STRING` → `bytes`; the pysnmp client's `_octet_value` returns `bytes` for non-printable octets — see the Task 10/11 value-parity notes). `decode_port_bitmap` therefore consumes the raw `bytes` directly (iterate over the byte values; no `latin-1` round-trip needed). If a bitmap ever arrives as a printable `str`, encode it via `bitmap.encode("latin-1")` first.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1456,122 +1482,315 @@ git commit -m "feat(snmp): management-IP config parser"
 
 ---
 
-### Task 10: Sync SNMP client on ezsnmp
+### Task 10: Sync SNMP client on the net-snmp CLI tools
 
-Implement the sync `SnmpClient` on ezsnmp, lifted from the `native-snmp-library` `snmp_client.py` seam, adapted to the shared `SnmpRow`/`SnmpError`/`full_oid` and read-only (`get`/`walk`). ezsnmp is lazy-imported inside the session factory; a test injects a fake session so the C extension never loads on the unit path.
+Implement the sync `SnmpClient` by shelling out to the **net-snmp command-line tools** (`snmpget`, `snmpbulkwalk`) via `subprocess.run` — **no ezsnmp, no Python SNMP package**. This avoids ezsnmp's arm64 build failure (see Task 1) and keeps local == CI. Args are passed as a **list** (never `shell=True`). The binaries are a **system requirement** (`apt-get install -y snmp`); a `_which()` guard raises a clear `SnmpError` if they are missing. Importing the module never runs a binary — only `get`/`walk` do (lazy at call time).
+
+**Value-parity requirement (CRITICAL):** the `SnmpRow.value` produced here MUST equal the value the pysnmp async client (Task 11) produces for the same OID — same Python types (`int` for integer-family, `str` for text/OID/IP, `bytes` for Hex-STRING). The shared parsers and the sync/async equivalence integration test (Task 16) compare these values directly, so any divergence fails Task 16. Task 11 carries the mirror of this note.
 
 **Files:**
 - Create: `src/netgear_switch/transport/__init__.py`, `src/netgear_switch/transport/sync/__init__.py`, `src/netgear_switch/transport/aio/__init__.py`
-- Create: `src/netgear_switch/transport/sync/snmp_ezsnmp.py`
-- Test: `tests/transport/test_snmp_ezsnmp.py`
+- Create: `src/netgear_switch/transport/sync/snmp_netsnmp_cli.py`
+- Test: `tests/transport/test_snmp_netsnmp_cli.py`
 
 **Interfaces:**
-- Consumes: `SnmpRow`, `SnmpError`, `full_oid`, `ABSENT_TYPES`.
+- Consumes: `SnmpRow`, `SnmpError`; stdlib `subprocess`, `shutil`, `re`.
 - Produces:
-  - `class EzsnmpClient` implementing `SnmpClient`: `__init__(self, host, community, *, timeout=10, retries=1, session_factory=_default_session_factory)`; `get(oid)`; `walk(oid)`.
-  - `_default_session_factory(host, community, timeout, retries)` — lazy `import ezsnmp`.
-  - A fake session shape for tests: object with `.get(oid)` / `.walk(oid)` returning objects having `.oid`, `.oid_index`, `.value`, `.snmp_type`.
+  - `parse_netsnmp_lines(text: str) -> list[SnmpRow]` — pure parser of net-snmp `-On -Oe -OU -Ln` output; normalizes values by type; raises `SnmpError` on a "No Such Object/Instance" line.
+  - `_which(binary: str) -> str` — PATH guard raising `SnmpError` with an install hint if `binary` is absent.
+  - `class NetsnmpCliClient` implementing `SnmpClient`: `__init__(self, host, community, *, timeout=10, retries=1, runner=subprocess.run)`; `get(oids: list[str]) -> list[SnmpRow]`; `walk(base_oid: str) -> list[SnmpRow]`. `runner` is injectable so tests never spawn a real process.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-# tests/transport/test_snmp_ezsnmp.py
+# tests/transport/test_snmp_netsnmp_cli.py
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import pytest
 
-from netgear_switch.protocols.snmp.client import SnmpError
-from netgear_switch.transport.sync.snmp_ezsnmp import EzsnmpClient
+from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
+from netgear_switch.transport.sync.snmp_netsnmp_cli import (
+    NetsnmpCliClient,
+    parse_netsnmp_lines,
+)
+
+_WHICH = "netgear_switch.transport.sync.snmp_netsnmp_cli._which"
+
+
+def test_parse_integer_gauge_counter():
+    text = (
+        ".1.3.6.1.2.1.2.2.1.8.1 = INTEGER: 1\n"
+        ".1.3.6.1.2.1.31.1.1.1.15.1 = Gauge32: 1000\n"
+        ".1.3.6.1.2.1.31.1.1.1.6.1 = Counter64: 12345\n"
+    )
+    rows = parse_netsnmp_lines(text)
+    assert rows[0] == SnmpRow("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")
+    assert rows[1] == SnmpRow("1.3.6.1.2.1.31.1.1.1.15.1", 1000, "Gauge32")
+    assert rows[2] == SnmpRow("1.3.6.1.2.1.31.1.1.1.6.1", 12345, "Counter64")
+
+
+def test_parse_string_ip_oid_timeticks():
+    text = (
+        '.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: "eth1"\n'
+        ".1.3.6.1.2.1.4.20.1.1.10.1.5.20 = IpAddress: 10.1.5.20\n"
+        ".1.3.6.1.2.1.1.2.0 = OID: .1.3.6.1.4.1.4526\n"
+        ".1.3.6.1.2.1.1.3.0 = Timeticks: (12345) 0:02:03.45\n"
+    )
+    rows = parse_netsnmp_lines(text)
+    assert rows[0] == SnmpRow("1.3.6.1.2.1.31.1.1.1.1.1", "eth1", "STRING")
+    assert rows[1] == SnmpRow(
+        "1.3.6.1.2.1.4.20.1.1.10.1.5.20", "10.1.5.20", "IpAddress"
+    )
+    assert rows[2].value == "1.3.6.1.4.1.4526" and rows[2].snmp_type == "OID"
+    assert rows[3] == SnmpRow("1.3.6.1.2.1.1.3.0", 12345, "Timeticks")
+
+
+def test_parse_hex_string_multiline():
+    text = (
+        ".1.3.6.1.2.1.17.7.1.4.3.1.2.5 = Hex-STRING: C0 00 00 00\n"
+        "00 00 00 01\n"
+    )
+    rows = parse_netsnmp_lines(text)
+    assert len(rows) == 1
+    assert rows[0].snmp_type == "Hex-STRING"
+    assert rows[0].value == bytes([0xC0, 0, 0, 0, 0, 0, 0, 1])
+
+
+def test_parse_no_such_object_raises():
+    with pytest.raises(SnmpError):
+        parse_netsnmp_lines(
+            ".1.3.6.1.2.1.99 = No Such Object available on this agent at this OID\n"
+        )
+
+
+def test_parse_no_such_instance_raises():
+    with pytest.raises(SnmpError):
+        parse_netsnmp_lines(".1.3.6.1.2.1.2.2.1.8.99 = No Such Instance\n")
 
 
 @dataclass
-class _Var:
-    oid: str
-    oid_index: str
-    value: str
-    snmp_type: str
+class _FakeProc:
+    returncode: int
+    stdout: str
+    stderr: str = ""
 
 
-class _FakeSession:
-    def __init__(self, *_a, **_k):
-        pass
+def test_get_builds_argv_and_parses(monkeypatch):
+    captured: dict[str, list[str]] = {}
 
-    def get(self, oid):
-        return _Var("1.3.6.1.2.1.2.2.1.8", "1", "1", "INTEGER")
+    def fake_runner(argv, **_kw):
+        captured["argv"] = argv
+        return _FakeProc(0, ".1.3.6.1.2.1.2.2.1.8.1 = INTEGER: 1\n")
 
-    def walk(self, oid):
-        return [
-            _Var("1.3.6.1.2.1.2.2.1.8", "1", "1", "INTEGER"),
-            _Var("1.3.6.1.2.1.2.2.1.8", "2", "2", "INTEGER"),
-            _Var("1.3.6.1.2.1.2.2.1.8", "3", "", "NOSUCHINSTANCE"),
-        ]
-
-
-def test_get_reconstructs_full_oid():
-    c = EzsnmpClient("h", "public", session_factory=_FakeSession)
-    row = c.get("1.3.6.1.2.1.2.2.1.8.1")
-    assert row is not None and row.oid == "1.3.6.1.2.1.2.2.1.8.1"
-    assert row.value == "1"
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.1.5.20", "public", runner=fake_runner)
+    rows = c.get(["1.3.6.1.2.1.2.2.1.8.1"])
+    assert rows == [SnmpRow("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")]
+    argv = captured["argv"]
+    assert argv[0] == "/usr/bin/snmpget"
+    assert "-v2c" in argv and "-c" in argv and "public" in argv
+    for flag in ("-On", "-Oe", "-OU", "-Ln"):
+        assert flag in argv
+    assert "10.1.5.20" in argv
+    assert argv[-1] == "1.3.6.1.2.1.2.2.1.8.1"
 
 
-def test_walk_filters_absent_types():
-    c = EzsnmpClient("h", "public", session_factory=_FakeSession)
+def test_walk_builds_bulkwalk_argv(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_runner(argv, **_kw):
+        captured["argv"] = argv
+        return _FakeProc(
+            0,
+            ".1.3.6.1.2.1.2.2.1.8.1 = INTEGER: 1\n"
+            ".1.3.6.1.2.1.2.2.1.8.2 = INTEGER: 2\n",
+        )
+
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.1.5.20", "public", runner=fake_runner)
     rows = c.walk("1.3.6.1.2.1.2.2.1.8")
-    assert [r.oid for r in rows] == [
-        "1.3.6.1.2.1.2.2.1.8.1",
-        "1.3.6.1.2.1.2.2.1.8.2",
-    ]
+    assert captured["argv"][0] == "/usr/bin/snmpbulkwalk"
+    assert captured["argv"][-1] == "1.3.6.1.2.1.2.2.1.8"
+    assert [r.value for r in rows] == [1, 2]
 
 
-def test_errors_wrap_as_snmp_error():
-    class _Boom(_FakeSession):
-        def get(self, oid):
-            raise RuntimeError("timeout")
+def test_nonzero_exit_raises_with_stderr(monkeypatch):
+    def fake_runner(argv, **_kw):
+        return _FakeProc(1, "", "Timeout: No Response from 10.1.5.20")
 
-    c = EzsnmpClient("h", "public", session_factory=_Boom)
-    with pytest.raises(SnmpError):
-        c.get("1.3.6.1.2.1.2.2.1.8.1")
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.1.5.20", "public", runner=fake_runner)
+    with pytest.raises(SnmpError, match="Timeout"):
+        c.walk("1.3.6.1.2.1.2.2.1.8")
 
 
-def test_ezsnmp_imports_in_this_environment():
-    # Blocker guard: the sync backend's C dependency must be importable.
-    import ezsnmp  # noqa: F401
+def test_which_guard_raises_when_binary_missing(monkeypatch):
+    import netgear_switch.transport.sync.snmp_netsnmp_cli as mod
+
+    monkeypatch.setattr(mod.shutil, "which", lambda _b: None)
+    c = mod.NetsnmpCliClient("10.1.5.20", "public")
+    with pytest.raises(SnmpError, match="net-snmp not installed"):
+        c.get(["1.3.6.1.2.1.2.2.1.8.1"])
+
+
+def test_import_does_not_require_binaries():
+    # Importing the module must not shell out or need net-snmp on PATH.
+    import netgear_switch.transport.sync.snmp_netsnmp_cli  # noqa: F401
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run pytest tests/transport/test_snmp_ezsnmp.py -v`
-Expected: FAIL — module `snmp_ezsnmp` not found.
+Run: `uv run pytest tests/transport/test_snmp_netsnmp_cli.py -v`
+Expected: FAIL — module `snmp_netsnmp_cli` not found.
 
-- [ ] **Step 3: Implement the ezsnmp client**
+- [ ] **Step 3: Implement the net-snmp CLI client**
 
 Create the three `transport` marker `__init__.py` files (docstring only). Then:
 ```python
-# src/netgear_switch/transport/sync/snmp_ezsnmp.py
-"""Synchronous SNMP v2c client on ezsnmp. ezsnmp is imported lazily."""
+# src/netgear_switch/transport/sync/snmp_netsnmp_cli.py
+"""Synchronous SNMP v2c client over the net-snmp CLI tools (subprocess).
+
+No Python SNMP package is used. The net-snmp binaries (snmpget/snmpbulkwalk)
+are a system requirement — install the OS `snmp` package
+(`apt-get install -y snmp`). Args are passed as a list; shell is never used.
+"""
 from __future__ import annotations
 
-from collections.abc import Callable
+import re
+import shutil
+import subprocess
+from collections.abc import Callable, Sequence
+from typing import Any, Protocol
 
-from ...protocols.snmp.client import ABSENT_TYPES, SnmpError, SnmpRow, full_oid
+from ...protocols.snmp.client import SnmpError, SnmpRow
+
+# -On numeric OIDs, -Oe enums-as-numbers, -OU no units, -Ln no stderr logging.
+_OUTPUT_FLAGS = ("-On", "-Oe", "-OU", "-Ln")
+
+# Type tokens net-snmp prints for integer-family values.
+_INT_TYPES = frozenset(
+    {
+        "INTEGER",
+        "Integer32",
+        "Gauge32",
+        "Gauge",
+        "Unsigned32",
+        "Counter32",
+        "Counter64",
+        "Counter",
+    }
+)
+
+_ABSENT_MARKERS = (
+    "no such object",
+    "no such instance",
+    "no more variables",
+)
+
+_TIMETICKS_RE = re.compile(r"\((\d+)\)")
 
 
-def _default_session_factory(
-    host: str, community: str, timeout: int, retries: int
-) -> object:
-    import ezsnmp
-
-    return ezsnmp.Session(
-        hostname=host, community=community, version=2,
-        timeout=timeout, retries=retries,
-        use_numeric=True, use_long_names=True,
-    )
+class _CompletedProcess(Protocol):
+    returncode: int
+    stdout: str
+    stderr: str
 
 
-class EzsnmpClient:
-    """Read-only sync SNMP client. A fresh session is created per call."""
+def _which(binary: str) -> str:
+    """Return the resolved path to a net-snmp binary or raise SnmpError."""
+    path = shutil.which(binary)
+    if path is None:
+        raise SnmpError(
+            f"net-snmp not installed: {binary!r} is not on PATH. "
+            "Install the `snmp` package (e.g. `apt-get install -y snmp`)."
+        )
+    return path
+
+
+def _normalize(snmp_type: str, value: str) -> int | str | bytes:
+    """Normalize one net-snmp scalar value to a plain Python value.
+
+    Mirrors the pysnmp client (Task 11) so SnmpRow values are transport-equal.
+    """
+    if snmp_type in _INT_TYPES:
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise SnmpError(f"non-integer {snmp_type} value {value!r}") from exc
+    if snmp_type == "Timeticks":
+        m = _TIMETICKS_RE.search(value)
+        if m is None:
+            raise SnmpError(f"unparsable Timeticks value {value!r}")
+        return int(m.group(1))
+    if snmp_type == "STRING":
+        if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+            return value[1:-1]
+        return value
+    if snmp_type == "OID":
+        return value.lstrip(".")
+    # IpAddress and any other textual type: plain string.
+    return value
+
+
+def parse_netsnmp_lines(text: str) -> list[SnmpRow]:
+    """Parse `snmpget`/`snmpbulkwalk` output (-On -Oe -OU -Ln) into SnmpRows.
+
+    Raises SnmpError on a "No Such Object/Instance" line — an absent OID is
+    surfaced early, never returned as an empty/None row. Multi-line Hex-STRING
+    continuations are joined into one bytes value.
+    """
+    rows: list[SnmpRow] = []
+    pending_oid: str | None = None
+    pending_hex: list[str] = []
+
+    def flush_hex() -> None:
+        nonlocal pending_oid
+        if pending_oid is not None:
+            data = bytes(
+                int(tok, 16) for chunk in pending_hex for tok in chunk.split()
+            )
+            rows.append(SnmpRow(pending_oid, data, "Hex-STRING"))
+            pending_oid = None
+            pending_hex.clear()
+
+    for raw in text.splitlines():
+        if not raw.strip():
+            continue
+        if " = " not in raw:
+            if pending_oid is not None:  # Hex-STRING continuation line
+                pending_hex.append(raw.strip())
+            continue
+        flush_hex()
+        oid_part, rest = raw.split(" = ", 1)
+        oid = oid_part.strip().lstrip(".")
+        rest = rest.strip()
+        if any(marker in rest.lower() for marker in _ABSENT_MARKERS):
+            raise SnmpError(f"absent OID in net-snmp output: {oid} = {rest}")
+        if rest in ('""', ""):
+            rows.append(SnmpRow(oid, "", "STRING"))
+            continue
+        if ": " in rest:
+            snmp_type, value = rest.split(": ", 1)
+        elif rest.endswith(":"):
+            snmp_type, value = rest[:-1], ""
+        else:
+            rows.append(SnmpRow(oid, rest, "STRING"))
+            continue
+        snmp_type = snmp_type.strip()
+        value = value.strip()
+        if snmp_type == "Hex-STRING":
+            pending_oid = oid
+            pending_hex = [value]
+            continue
+        rows.append(SnmpRow(oid, _normalize(snmp_type, value), snmp_type))
+    flush_hex()
+    return rows
+
+
+class NetsnmpCliClient:
+    """Read-only sync SNMP client shelling out to net-snmp CLI tools."""
 
     def __init__(
         self,
@@ -1580,44 +1799,60 @@ class EzsnmpClient:
         *,
         timeout: int = 10,
         retries: int = 1,
-        session_factory: Callable[..., object] = _default_session_factory,
+        runner: Callable[..., _CompletedProcess] = subprocess.run,
     ) -> None:
         self.host = host
         self.community = community
         self.timeout = timeout
         self.retries = retries
-        self._session_factory = session_factory
+        self._runner = runner
 
-    def _session(self) -> object:
-        return self._session_factory(
-            self.host, self.community, self.timeout, self.retries
-        )
-
-    def get(self, oid: str) -> SnmpRow | None:
-        try:
-            v = self._session().get(oid)  # type: ignore[attr-defined]
-        except Exception as exc:
-            raise SnmpError(f"GET {oid} on {self.host} failed: {exc}") from exc
-        if v.snmp_type in ABSENT_TYPES:
-            return None
-        return SnmpRow(full_oid(v.oid, v.oid_index), v.value, v.snmp_type)
-
-    def walk(self, oid: str) -> list[SnmpRow]:
-        try:
-            variables = self._session().walk(oid)  # type: ignore[attr-defined]
-        except Exception as exc:
-            raise SnmpError(f"WALK {oid} on {self.host} failed: {exc}") from exc
+    def _base_args(self, binary: str) -> list[str]:
         return [
-            SnmpRow(full_oid(v.oid, v.oid_index), v.value, v.snmp_type)
-            for v in variables
-            if v.snmp_type not in ABSENT_TYPES
+            _which(binary),
+            "-v2c",
+            "-c",
+            self.community,
+            *_OUTPUT_FLAGS,
+            "-t",
+            str(self.timeout),
+            "-r",
+            str(self.retries),
         ]
+
+    def get(self, oids: list[str]) -> list[SnmpRow]:
+        if not oids:
+            return []
+        argv = [*self._base_args("snmpget"), self.host, *oids]
+        return self._invoke(argv)
+
+    def walk(self, base_oid: str) -> list[SnmpRow]:
+        argv = [*self._base_args("snmpbulkwalk"), self.host, base_oid]
+        return self._invoke(argv)
+
+    def _invoke(self, argv: Sequence[str]) -> list[SnmpRow]:
+        kwargs: dict[str, Any] = {
+            "capture_output": True,
+            "text": True,
+            "check": False,
+        }
+        try:
+            proc = self._runner(list(argv), **kwargs)
+        except OSError as exc:  # binary vanished between _which and run
+            raise SnmpError(f"failed to run {argv[0]!r}: {exc}") from exc
+        stderr = (proc.stderr or "").strip()
+        if proc.returncode != 0 or stderr:
+            raise SnmpError(
+                f"{argv[0]} exited {proc.returncode} for {self.host}: "
+                f"{stderr or 'unknown error'}"
+            )
+        return parse_netsnmp_lines(proc.stdout)
 ```
 
 - [ ] **Step 4: Run test + gates**
 
-Run: `uv run pytest tests/transport/test_snmp_ezsnmp.py -v && uv run mypy --strict src && uv run ruff check`
-Expected: PASS; clean.
+Run: `uv run pytest tests/transport/test_snmp_netsnmp_cli.py -v && uv run mypy --strict src && uv run ruff check`
+Expected: PASS; clean. The unit tests inject a fake `runner` and monkeypatch `_which`, so no real binary or network is touched. (A live smoke against the virtual face happens in Task 16.)
 
 - [ ] **Step 5: Commit**
 
@@ -1625,9 +1860,9 @@ Expected: PASS; clean.
 git add src/netgear_switch/transport/__init__.py \
   src/netgear_switch/transport/sync/__init__.py \
   src/netgear_switch/transport/aio/__init__.py \
-  src/netgear_switch/transport/sync/snmp_ezsnmp.py \
-  tests/transport/test_snmp_ezsnmp.py
-git commit -m "feat(transport): sync SNMP read client on ezsnmp"
+  src/netgear_switch/transport/sync/snmp_netsnmp_cli.py \
+  tests/transport/test_snmp_netsnmp_cli.py
+git commit -m "feat(transport): sync SNMP read client on net-snmp CLI tools"
 ```
 
 ---
@@ -1636,6 +1871,8 @@ git commit -m "feat(transport): sync SNMP read client on ezsnmp"
 
 Implement the async `SnmpClient` on pysnmp v7 (asyncio), modelled on `gdoc2netcfg/supplements/snmp_common.py` (`get_cmd` / `bulk_walk_cmd`, `close_dispatcher` in `finally`). pysnmp is lazy-imported. Unit tests inject a fake engine/command layer via a small seam so the async engine never loads on the unit path; a real end-to-end exercise happens in Task 16 against the virtual face.
 
+**Value-parity requirement (CRITICAL):** pysnmp returns typed SMI wrappers (`Integer32`, `OctetString`, `IpAddress`, …). This client MUST **normalize** each value to the SAME plain Python type the net-snmp CLI client (Task 10) produces — `int` for integer-family, `str` for text/OID/IP, `bytes` for non-printable octet strings (Hex-STRING). The two clients must yield equal `SnmpRow` values for the same OID; the sync/async equivalence integration test (Task 16) compares them directly and fails on any divergence. Task 10 carries the mirror of this note. Do the printable-vs-hex decision the same way net-snmp does (all-printable octets → `STRING`/`str`, otherwise → `Hex-STRING`/`bytes`).
+
 **Files:**
 - Create: `src/netgear_switch/transport/aio/snmp_pysnmp.py`
 - Test: `tests/transport/test_snmp_pysnmp.py`
@@ -1643,8 +1880,9 @@ Implement the async `SnmpClient` on pysnmp v7 (asyncio), modelled on `gdoc2netcf
 **Interfaces:**
 - Consumes: `SnmpRow`, `SnmpError`, `ABSENT_TYPES`.
 - Produces:
-  - `class PysnmpClient` implementing `AsyncSnmpClient`: `__init__(self, host, community, *, port=161, timeout=2.0, retries=1)`; `async get(oid)`; `async walk(oid)`.
-  - A private `async def _do_get(self, oid) -> tuple[str, str, str] | None` and `async def _do_walk(self, oid) -> list[tuple[str, str, str]]` that own all pysnmp calls; the public methods wrap them into `SnmpRow`/`SnmpError`. Tests monkeypatch `_do_get`/`_do_walk` to avoid importing pysnmp.
+  - `class PysnmpClient` implementing `AsyncSnmpClient`: `__init__(self, host, community, *, port=161, timeout=2.0, retries=1)`; `async get(oids: list[str])`; `async walk(base_oid: str)`.
+  - A private `async def _do_get(self, oids) -> list[tuple[str, int|str|bytes, str]]` and `async def _do_walk(self, base_oid) -> list[tuple[str, int|str|bytes, str]]` that own all pysnmp calls and return **already-normalized** value triples; the public methods filter absent rows and wrap into `SnmpRow`/`SnmpError`. Tests monkeypatch `_do_get`/`_do_walk` to avoid importing pysnmp.
+  - Module-level `_octet_value(raw: bytes) -> tuple[str|bytes, str]` and `_normalize_varbind(name, value)` helpers implementing the parity normalization; `_octet_value` is unit-tested directly.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1656,44 +1894,52 @@ import asyncio
 
 import pytest
 
-from netgear_switch.protocols.snmp.client import SnmpError
-from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
+from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
+from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient, _octet_value
 
 
-def test_get_wraps_tuple_into_row(monkeypatch):
+def test_get_wraps_normalized_tuples_into_rows(monkeypatch):
     c = PysnmpClient("h", "public")
 
-    async def fake_do_get(oid):
-        return ("1.3.6.1.2.1.2.2.1.8.1", "1", "INTEGER")
+    async def fake_do_get(oids):
+        # _do_get returns already-normalized (oid, value, token) triples.
+        return [("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")]
 
     monkeypatch.setattr(c, "_do_get", fake_do_get)
-    row = asyncio.run(c.get("1.3.6.1.2.1.2.2.1.8.1"))
-    assert row is not None and row.oid.endswith(".8.1") and row.value == "1"
+    rows = asyncio.run(c.get(["1.3.6.1.2.1.2.2.1.8.1"]))
+    assert rows == [SnmpRow("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")]
 
 
 def test_walk_filters_absent_and_wraps(monkeypatch):
     c = PysnmpClient("h", "public")
 
-    async def fake_do_walk(oid):
+    async def fake_do_walk(base_oid):
         return [
-            ("1.3.6.1.2.1.2.2.1.8.1", "1", "INTEGER"),
+            ("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER"),
             ("1.3.6.1.2.1.2.2.1.8.2", "", "ENDOFMIBVIEW"),
         ]
 
     monkeypatch.setattr(c, "_do_walk", fake_do_walk)
     rows = asyncio.run(c.walk("1.3.6.1.2.1.2.2.1.8"))
-    assert [r.oid for r in rows] == ["1.3.6.1.2.1.2.2.1.8.1"]
+    assert rows == [SnmpRow("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")]
 
 
 def test_get_error_wraps(monkeypatch):
     c = PysnmpClient("h", "public")
 
-    async def boom(oid):
+    async def boom(oids):
         raise RuntimeError("engine down")
 
     monkeypatch.setattr(c, "_do_get", boom)
     with pytest.raises(SnmpError):
-        asyncio.run(c.get("1.3.6.1.2.1.2.2.1.8.1"))
+        asyncio.run(c.get(["1.3.6.1.2.1.2.2.1.8.1"]))
+
+
+def test_octet_value_parity_with_netsnmp_cli():
+    # Parity: printable octets -> STRING/str; non-printable -> Hex-STRING/bytes,
+    # exactly what the net-snmp CLI client (Task 10) renders.
+    assert _octet_value(b"1/0/1") == ("1/0/1", "STRING")
+    assert _octet_value(bytes([0xC0, 0x00])) == (bytes([0xC0, 0x00]), "Hex-STRING")
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1705,10 +1951,64 @@ Expected: FAIL — module `snmp_pysnmp` not found.
 
 ```python
 # src/netgear_switch/transport/aio/snmp_pysnmp.py
-"""Asynchronous SNMP v2c client on pysnmp v7. pysnmp is imported lazily."""
+"""Asynchronous SNMP v2c client on pysnmp v7. pysnmp is imported lazily.
+
+Value parity: each pysnmp SMI value is normalized to the SAME plain Python type
+the net-snmp CLI client (Task 10) produces — int for integer-family, str for
+text/OID/IP, bytes for non-printable octet strings (Hex-STRING). Task 16's
+sync/async equivalence test compares these values, so they must match.
+"""
 from __future__ import annotations
 
+from typing import Any
+
 from ...protocols.snmp.client import ABSENT_TYPES, SnmpError, SnmpRow
+
+# pysnmp class name -> net-snmp-style type token (parity with the CLI client).
+_TOKEN = {
+    "Integer": "INTEGER",
+    "Integer32": "INTEGER",
+    "Gauge32": "Gauge32",
+    "Unsigned32": "Gauge32",
+    "Counter32": "Counter32",
+    "Counter64": "Counter64",
+    "TimeTicks": "Timeticks",
+    "IpAddress": "IpAddress",
+    "ObjectIdentifier": "OID",
+    "ObjectIdentity": "OID",
+}
+_INT_CLASSES = frozenset(
+    {"Integer", "Integer32", "Gauge32", "Unsigned32", "Counter32",
+     "Counter64", "TimeTicks"}
+)
+_ABSENT_CLASSES = frozenset({"NoSuchObject", "NoSuchInstance", "EndOfMibView"})
+
+Triple = tuple[str, int | str | bytes, str]
+
+
+def _octet_value(raw: bytes) -> tuple[str | bytes, str]:
+    """Render an octet string as net-snmp does: printable -> STRING, else Hex."""
+    if raw == b"" or all(0x20 <= b < 0x7F for b in raw):
+        return raw.decode("ascii"), "STRING"
+    return raw, "Hex-STRING"
+
+
+def _normalize_varbind(name: Any, value: Any) -> Triple:
+    """Convert a pysnmp (name, value) varbind into a normalized SnmpRow triple."""
+    oid = str(name).lstrip(".")
+    cls = value.__class__.__name__
+    if cls in _ABSENT_CLASSES:
+        return oid, "", cls.upper()  # e.g. "NOSUCHOBJECT" ∈ ABSENT_TYPES
+    if cls in _INT_CLASSES:
+        return oid, int(value), _TOKEN[cls]
+    if cls == "OctetString":
+        norm, token = _octet_value(bytes(value.asOctets()))
+        return oid, norm, token
+    if cls in ("ObjectIdentifier", "ObjectIdentity"):
+        return oid, value.prettyPrint().lstrip("."), "OID"
+    if cls == "IpAddress":
+        return oid, value.prettyPrint(), "IpAddress"
+    return oid, value.prettyPrint(), cls  # textual fallback
 
 
 class PysnmpClient:
@@ -1729,7 +2029,7 @@ class PysnmpClient:
         self.timeout = timeout
         self.retries = retries
 
-    async def _do_get(self, oid: str) -> tuple[str, str, str] | None:
+    async def _do_get(self, oids: list[str]) -> list[Triple]:
         from pysnmp.hlapi.v3arch.asyncio import (
             CommunityData,
             ContextData,
@@ -1747,16 +2047,15 @@ class PysnmpClient:
             )
             err_ind, err_stat, _idx, binds = await get_cmd(
                 engine, CommunityData(self.community), target, ContextData(),
-                ObjectType(ObjectIdentity(oid)),
+                *[ObjectType(ObjectIdentity(o)) for o in oids],
             )
             if err_ind or err_stat:
-                raise SnmpError(f"GET {oid} on {self.host}: {err_ind or err_stat}")
-            vb = binds[0]
-            return (str(vb[0]), vb[1].prettyPrint(), vb[1].__class__.__name__)
+                raise SnmpError(f"GET {oids} on {self.host}: {err_ind or err_stat}")
+            return [_normalize_varbind(vb[0], vb[1]) for vb in binds]
         finally:
             engine.close_dispatcher()
 
-    async def _do_walk(self, oid: str) -> list[tuple[str, str, str]]:
+    async def _do_walk(self, base_oid: str) -> list[Triple]:
         from pysnmp.hlapi.v3arch.asyncio import (
             CommunityData,
             ContextData,
@@ -1768,48 +2067,48 @@ class PysnmpClient:
         )
 
         engine = SnmpEngine()
-        rows: list[tuple[str, str, str]] = []
+        rows: list[Triple] = []
         try:
             target = await UdpTransportTarget.create(
                 (self.host, self.port), timeout=self.timeout, retries=self.retries
             )
             async for err_ind, err_stat, _idx, binds in bulk_walk_cmd(
                 engine, CommunityData(self.community), target, ContextData(),
-                0, 25, ObjectType(ObjectIdentity(oid)), lexicographicMode=False,
+                0, 25, ObjectType(ObjectIdentity(base_oid)), lexicographicMode=False,
             ):
                 if err_ind or err_stat:
                     break
-                for vb in binds:
-                    rows.append(
-                        (str(vb[0]), vb[1].prettyPrint(), vb[1].__class__.__name__)
-                    )
+                rows.extend(_normalize_varbind(vb[0], vb[1]) for vb in binds)
             return rows
         finally:
             engine.close_dispatcher()
 
-    async def get(self, oid: str) -> SnmpRow | None:
+    async def get(self, oids: list[str]) -> list[SnmpRow]:
+        if not oids:
+            return []
         try:
-            result = await self._do_get(oid)
+            raw = await self._do_get(oids)
         except SnmpError:
             raise
         except Exception as exc:
-            raise SnmpError(f"GET {oid} on {self.host} failed: {exc}") from exc
-        if result is None:
-            return None
-        found_oid, value, typ = result
-        if typ.upper() in ABSENT_TYPES or value in ABSENT_TYPES:
-            return None
-        return SnmpRow(found_oid.lstrip("."), value, typ)
-
-    async def walk(self, oid: str) -> list[SnmpRow]:
-        try:
-            raw = await self._do_walk(oid)
-        except Exception as exc:
-            raise SnmpError(f"WALK {oid} on {self.host} failed: {exc}") from exc
+            raise SnmpError(f"GET {oids} on {self.host} failed: {exc}") from exc
         return [
-            SnmpRow(found.lstrip("."), value, typ)
-            for found, value, typ in raw
-            if typ.upper() not in ABSENT_TYPES and value not in ABSENT_TYPES
+            SnmpRow(oid, value, typ)
+            for oid, value, typ in raw
+            if typ.upper() not in ABSENT_TYPES
+        ]
+
+    async def walk(self, base_oid: str) -> list[SnmpRow]:
+        try:
+            raw = await self._do_walk(base_oid)
+        except SnmpError:
+            raise
+        except Exception as exc:
+            raise SnmpError(f"WALK {base_oid} on {self.host} failed: {exc}") from exc
+        return [
+            SnmpRow(oid, value, typ)
+            for oid, value, typ in raw
+            if typ.upper() not in ABSENT_TYPES
         ]
 ```
 
@@ -1829,14 +2128,14 @@ git commit -m "feat(transport): async SNMP read client on pysnmp v7"
 
 ### Task 12: SNMP read operations — `SnmpReader` / `AsyncSnmpReader`
 
-Orchestrate: given a client + `SwitchModel`, walk the right OIDs and hand rows to the pure parsers, returning model objects. Backend guard: SNMP is managed-only — `_require_snmp(model)` in `__init__` raises `UnsupportedCapability` for any model without `Backend.SNMP` (i.e. Plus), and that single gate is authoritative. `get_macs` does **not** re-check `has_mac_table`: it duplicates the same condition (`has_mac_table == (Backend.SNMP in backends)`), already enforced at construction. (`registry.has_mac_table` stays for external callers.) Vendor OIDs are resolved lazily — only inside `get_poe`/`get_sensors`/`get_mgmt_ip`, never in `__init__`. The async reader mirrors the sync one, sharing every parser — the only difference is `await`, seeding the sync/async equivalence theme.
+Orchestrate: given a client + `SwitchModel`, walk the right OIDs and hand rows to the pure parsers, returning model objects. Backend guard: SNMP is managed-only — `_require_snmp(model)` in `__init__` raises `UnsupportedCapabilityError` for any model without `Backend.SNMP` (i.e. Plus), and that single gate is authoritative. `get_macs` does **not** re-check `has_mac_table`: it duplicates the same condition (`has_mac_table == (Backend.SNMP in backends)`), already enforced at construction. (`registry.has_mac_table` stays for external callers.) Vendor OIDs are resolved lazily — only inside `get_poe`/`get_sensors`/`get_mgmt_ip`, never in `__init__`. The async reader mirrors the sync one, sharing every parser — the only difference is `await`, seeding the sync/async equivalence theme.
 
 **Files:**
 - Create: `src/netgear_switch/snmp_read.py`
 - Test: `tests/test_snmp_read.py`
 
 **Interfaces:**
-- Consumes: `SnmpClient`/`AsyncSnmpClient`, `SnmpRow`, `oids`, `parse`, `registry.SwitchModel`, `registry.Backend`, `errors.UnsupportedCapability`, all model types.
+- Consumes: `SnmpClient`/`AsyncSnmpClient`, `SnmpRow`, `oids`, `parse`, `registry.SwitchModel`, `registry.Backend`, `errors.UnsupportedCapabilityError`, all model types.
 - Produces:
   - `class SnmpReader(client: SnmpClient, model: SwitchModel)` with: `get_ports() -> list[PortStatus]`, `get_stats() -> list[PortStats]`, `get_vlans() -> list[VLANInfo]`, `get_pvids() -> list[tuple[int, int]]`, `get_lldp() -> list[LLDPNeighbor]`, `get_macs() -> list[MacEntry]`, `get_poe() -> list[PoEStatus]`, `get_sensors() -> list[Sensor]`, `get_mgmt_ip() -> MgmtIpConfig`.
   - `class AsyncSnmpReader(client: AsyncSnmpClient, model: SwitchModel)` with the same method names, all `async`.
@@ -1849,7 +2148,7 @@ from __future__ import annotations
 
 import pytest
 
-from netgear_switch.errors import UnsupportedCapability
+from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.models import PoEDetect
 from netgear_switch.protocols.snmp.client import SnmpRow
 from netgear_switch.registry import get_model
@@ -1862,12 +2161,11 @@ class FakeClient:
     def __init__(self, tables: dict[str, list[SnmpRow]]):
         self._tables = tables
 
-    def get(self, oid):  # not used by these read paths
-        rows = self.walk(oid)
-        return rows[0] if rows else None
+    def get(self, oids):  # not used by these read paths
+        return [row for oid in oids for row in self.walk(oid)]
 
-    def walk(self, oid):
-        return list(self._tables.get(oid, []))
+    def walk(self, base_oid):
+        return list(self._tables.get(base_oid, []))
 
 
 def _r(base, pairs, typ="INTEGER"):
@@ -1905,7 +2203,7 @@ def test_get_poe_joins_status_and_vendor_mw():
 def test_snmp_reader_rejects_non_snmp_model():
     # The constructor itself is the capability gate for a Plus model, so the
     # construction MUST be inside the raises-block (it never returns a reader).
-    with pytest.raises(UnsupportedCapability):
+    with pytest.raises(UnsupportedCapabilityError):
         SnmpReader(FakeClient({}), get_model("gs110emx"))  # Plus, no SNMP backend
 
 
@@ -1927,7 +2225,7 @@ Expected: FAIL — module `snmp_read` not found.
 """Model-driven SNMP read operations over a sync or async client."""
 from __future__ import annotations
 
-from .errors import UnsupportedCapability
+from .errors import UnsupportedCapabilityError
 from .models import (
     LLDPNeighbor,
     MacEntry,
@@ -1945,7 +2243,7 @@ from .registry import Backend, SwitchModel
 
 def _require_snmp(model: SwitchModel) -> None:
     if Backend.SNMP not in model.backends:
-        raise UnsupportedCapability(f"model {model.key!r} has no SNMP backend")
+        raise UnsupportedCapabilityError(f"model {model.key!r} has no SNMP backend")
 
 
 class SnmpReader:
@@ -2447,7 +2745,7 @@ git commit -m "feat(virtual): pure StateMibView OID responder (bisect GET/GETNEX
 
 ### Task 15: SNMP virtual face + `VirtualSwitch` server (pysnmp agent)
 
-Wire `StateMibView` (Task 14) into a real pysnmp v7 command-responder on an ephemeral UDP port, and the `VirtualSwitch` server that binds it. This exercises a *different* SNMP stack than ezsnmp. GETNEXT/BULK correctness comes entirely from `StateMibView`; this task only adapts pysnmp's controller callbacks to it and manages the engine lifecycle.
+Wire `StateMibView` (Task 14) into a real pysnmp v7 command-responder on an ephemeral UDP port, and the `VirtualSwitch` server that binds it. This exercises a *different* SNMP stack than the net-snmp CLI sync client. GETNEXT/BULK correctness comes entirely from `StateMibView`; this task only adapts pysnmp's controller callbacks to it and manages the engine lifecycle.
 
 **IMPORTANT — verify pysnmp v7 API names before coding.** pysnmp's agent-engine API is large and version-sensitive. Confirm the exact class/module names in the *installed* pysnmp v7 (the engine class, the UDP transport, the `MibInstrumController`/`SnmpContext` equivalents, and the SMI value types) against the package before use — e.g. `uv run --extra testing python -c "import pysnmp.entity.engine, pysnmp.entity.rfc3413.cmdrsp, pysnmp.smi.instrum"` and inspect their contents — rather than assuming the names in the snippets below are current.
 
@@ -2459,7 +2757,7 @@ Wire `StateMibView` (Task 14) into a real pysnmp v7 command-responder on an ephe
 - Consumes: `StateMibView`, `VirtualSwitchState`, pysnmp v7 agent engine (lazy import).
 - Produces:
   - `class VirtualSnmpFace` with `start() -> int` (returns bound UDP port) and `stop()`; internally holds a `StateMibView` and registers a custom MIB instrumentation controller whose `read_vars`/`read_next_vars` delegate to `StateMibView.get`/`get_next`, converting each `(snmp_type, value)` to the matching pysnmp SMI value.
-  - `class VirtualSwitch(model: str, community: str = "public")` with `start() -> None`, `stop() -> None`, `port: int`, `host: str = "127.0.0.1"`, and `state: VirtualSwitchState`. Binds the SNMP face only for models whose registry entry supports `Backend.SNMP` (managed); on a Plus model it raises `UnsupportedCapability` in this slice.
+  - `class VirtualSwitch(model: str, community: str = "public")` with `start() -> None`, `stop() -> None`, `port: int`, `host: str = "127.0.0.1"`, and `state: VirtualSwitchState`. Binds the SNMP face only for models whose registry entry supports `Backend.SNMP` (managed); on a Plus model it raises `UnsupportedCapabilityError` in this slice.
 
 Implementation notes (key snippets only; confirm the real class names first, per the note above): run the pysnmp engine with `CommunityData`/community index configured for v2c, add a UDP transport on `("127.0.0.1", 0)` and read back the assigned port via the transport dispatcher. Convert each `StateMibView` entry to a pysnmp SMI value by `snmp_type` token: `INTEGER`→`Integer32`, `Gauge32`→`Gauge32`, `Counter32`→`Counter32`, `Counter64`→`Counter64`, `OCTETSTR`→`OctetString` (encode the latin-1 bitmap string as bytes), `IPADDR`→`IpAddress`. The custom controller is thin — it owns no ordering logic, only adapting the callbacks to `StateMibView`:
 ```python
@@ -2483,7 +2781,7 @@ from __future__ import annotations
 
 import pytest
 
-from netgear_switch.errors import UnsupportedCapability
+from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.virtual.server import VirtualSwitch
 
@@ -2508,7 +2806,7 @@ def test_get_and_walk_against_virtual_face():
 
 
 def test_plus_model_has_no_snmp_face():
-    with pytest.raises(UnsupportedCapability):
+    with pytest.raises(UnsupportedCapabilityError):
         VirtualSwitch(model="gs110emx").start()
 ```
 
@@ -2519,7 +2817,7 @@ Expected: FAIL — module `server` not found.
 
 - [ ] **Step 3: Implement the face and server**
 
-Implement `faces/snmp.py` (`VirtualSnmpFace`) and `server.py` (`VirtualSwitch`) per the notes above. Guard `VirtualSwitch.start()`: `if Backend.SNMP not in get_model(model).backends: raise UnsupportedCapability(...)`. Construct one `StateMibView(self.state)` at `start()` (it does the sorting once) and have `_StateInstrum` delegate GET/GETNEXT to it, converting each `(snmp_type, value)` to the matching pysnmp SMI value. Bind UDP to `("127.0.0.1", 0)`, read back the port, run the dispatcher in a daemon thread. Having confirmed the pysnmp v7 names per the IMPORTANT note, use the lower-level `pysnmp.entity.engine` + `config.add_transport` + a `context.SnmpContext` whose `MibInstrumController` is the custom `_StateInstrum`; that is the intended path for serving a flat enterprise-OID map with correct GETNEXT semantics (all ordering already lives in `StateMibView`).
+Implement `faces/snmp.py` (`VirtualSnmpFace`) and `server.py` (`VirtualSwitch`) per the notes above. Guard `VirtualSwitch.start()`: `if Backend.SNMP not in get_model(model).backends: raise UnsupportedCapabilityError(...)`. Construct one `StateMibView(self.state)` at `start()` (it does the sorting once) and have `_StateInstrum` delegate GET/GETNEXT to it, converting each `(snmp_type, value)` to the matching pysnmp SMI value. Bind UDP to `("127.0.0.1", 0)`, read back the port, run the dispatcher in a daemon thread. Having confirmed the pysnmp v7 names per the IMPORTANT note, use the lower-level `pysnmp.entity.engine` + `config.add_transport` + a `context.SnmpContext` whose `MibInstrumController` is the custom `_StateInstrum`; that is the intended path for serving a flat enterprise-OID map with correct GETNEXT semantics (all ordering already lives in `StateMibView`).
 
 - [ ] **Step 4: Run test + gates**
 
@@ -2538,14 +2836,14 @@ git commit -m "feat(virtual): pysnmp SNMP face and VirtualSwitch server"
 
 ### Task 16: Integration — both clients vs the virtual face, identical objects
 
-The capstone: run every read operation through **both** the ezsnmp sync client and the pysnmp async client against the same virtual face and assert the returned model objects are identical — and NON-EMPTY, so the equivalence is never vacuous. This is the sync/async equivalence seed and the cross-check against a different SNMP stack. ezsnmp talks real UDP to the pysnmp face on the ephemeral port (both are real stacks; no mocking here). The seed (Task 13) supplies populated port-stats, MAC/FDB and LLDP so `get_stats()`/`get_macs()`/`get_lldp()` are compared over real data, not empty lists.
+The capstone: run every read operation through **both** the net-snmp CLI sync client (`NetsnmpCliClient`) and the pysnmp async client against the same virtual face and assert the returned model objects are identical — and NON-EMPTY, so the equivalence is never vacuous. This is the sync/async equivalence seed and the cross-check against a different SNMP stack. The net-snmp CLI binaries talk real UDP to the pysnmp face on the ephemeral port (both are real stacks; no mocking here — this run requires the system `snmp` package on PATH). Because the two clients normalize `SnmpRow.value` to the same Python types, the model objects they yield must compare equal. The seed (Task 13) supplies populated port-stats, MAC/FDB and LLDP so `get_stats()`/`get_macs()`/`get_lldp()` are compared over real data, not empty lists.
 
 **Files:**
 - Create: `tests/test_snmp_integration.py`, `tests/conftest.py` (a fixture starting/stopping a `VirtualSwitch`).
 - Test: `tests/test_snmp_integration.py`
 
 **Interfaces:**
-- Consumes: `VirtualSwitch`, `EzsnmpClient`, `PysnmpClient`, `SnmpReader`, `AsyncSnmpReader`, `get_model`.
+- Consumes: `VirtualSwitch`, `NetsnmpCliClient`, `PysnmpClient`, `SnmpReader`, `AsyncSnmpReader`, `get_model`.
 - Produces: an equivalence assertion helper `assert_equal_reads(sync_reader, async_reader)`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2576,18 +2874,18 @@ import asyncio
 from netgear_switch.registry import get_model
 from netgear_switch.snmp_read import AsyncSnmpReader, SnmpReader
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
-from netgear_switch.transport.sync.snmp_ezsnmp import EzsnmpClient
+from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 
 
 def test_sync_and_async_reads_are_identical(virtual_gsm7252ps):
     sw = virtual_gsm7252ps
     model = get_model("gsm7252ps")
-    sync = SnmpReader(EzsnmpClient(sw.host, "public"), model)
     aio = AsyncSnmpReader(PysnmpClient(sw.host, "public", port=sw.port), model)
 
-    # NOTE: point ezsnmp at the ephemeral port. EzsnmpClient builds
-    # "host:port" hostnames; construct with host=f"{sw.host}:{sw.port}".
-    sync = SnmpReader(EzsnmpClient(f"{sw.host}:{sw.port}", "public"), model)
+    # NOTE: point the net-snmp CLI at the ephemeral port. NetsnmpCliClient passes
+    # its host arg straight to snmpget/snmpbulkwalk as the agent spec, which
+    # accepts "host:port"; construct with host=f"{sw.host}:{sw.port}".
+    sync = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
 
     # Prove equivalence over NON-EMPTY data for every read op this slice adds —
     # otherwise "sync == async" would pass vacuously on empty lists. The seed
@@ -2618,7 +2916,7 @@ def test_sync_and_async_reads_are_identical(virtual_gsm7252ps):
 def test_reads_return_expected_seed_values(virtual_gsm7252ps):
     sw = virtual_gsm7252ps
     reader = SnmpReader(
-        EzsnmpClient(f"{sw.host}:{sw.port}", "public"), get_model("gsm7252ps")
+        NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), get_model("gsm7252ps")
     )
     vlans = {v.vlan_id: v.name for v in reader.get_vlans()}
     assert vlans[90] == "iot"
@@ -2628,18 +2926,18 @@ def test_reads_return_expected_seed_values(virtual_gsm7252ps):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `uv run --extra testing --extra async --extra sync pytest tests/test_snmp_integration.py -v`
+Run: `uv run --extra testing --extra async pytest tests/test_snmp_integration.py -v` (the sync client needs no extra — it shells out to the system net-snmp CLI, which must be installed: `apt-get install -y snmp`).
 Expected: FAIL — until the face serves values byte-identically to what the parsers expect (likely first failures are OCTET STRING/bitmap or IPADDR formatting differences between the two stacks). Drive these to green by normalising in the transports/face, **not** by loosening the equality assertions.
 
 - [ ] **Step 3: Reconcile representation differences**
 
-If sync and async disagree on a field, fix it at the transport/face boundary so both surface the same dotted-decimal OID and value string the parsers expect (e.g. ensure the face returns VLAN bitmaps as raw `OctetString(bytes)` and IP addresses as `IpAddress`, and confirm `PysnmpClient` uses `prettyPrint()` while `EzsnmpClient` uses `use_numeric=True`). No production-code change should be needed in `parse.py`; if one is, add a unit test for it in the relevant parser test file first.
+If sync and async disagree on a field, fix it at the transport/face boundary so both surface the same normalized `SnmpRow.value` the parsers expect (e.g. ensure the face returns VLAN bitmaps as raw `OctetString(bytes)` and IP addresses as `IpAddress`; confirm `NetsnmpCliClient` uses the `-On -Oe -OU -Ln` flags and `parse_netsnmp_lines` normalization, and that `PysnmpClient`'s `_normalize_varbind` maps the same values to the same Python types — that shared normalization is what makes the two clients equal). No production-code change should be needed in `parse.py`; if one is, add a unit test for it in the relevant parser test file first.
 
 - [ ] **Step 4: Run test + full gate sweep**
 
 Run:
 ```
-uv run --extra testing --extra async --extra sync pytest -v
+uv run --extra testing --extra async pytest -v  # sync client uses the system net-snmp CLI (install `snmp`)
 uv run ruff check
 uv run mypy --strict src
 ```
@@ -2668,7 +2966,7 @@ git commit -m "test(snmp): sync/async equivalence + cross-check vs virtual face"
 | PoE status: admin/detect (RFC3621 col3/col6) + power mW | Task 8 (`parse_poe`), Task 12 (`get_poe`) |
 | Sensors: fan/temp/PSU, walk-discovered, "Not Supported" skip | Task 8 (`parse_box_sensors`), Task 12 (`get_sensors`) |
 | Mgmt-interface DHCP/IP config (query) → `MgmtIpConfig` | Task 2 (model), Task 9 (`parse_mgmt_ip`), Task 12 (`get_mgmt_ip`) |
-| Sync (ezsnmp) + async (pysnmp) transports, `get()`/`walk()`, lazy import | Task 3 (seam), Task 10 (sync), Task 11 (async) |
+| Sync (net-snmp CLI) + async (pysnmp) transports, `get()`/`walk()`, value-parity | Task 3 (seam), Task 10 (sync), Task 11 (async) |
 | SNMP virtual face on pysnmp agent engine, ephemeral UDP | Task 13 (state/seed), Task 14 (`StateMibView` core), Task 15 (pysnmp face/server) |
 | Mock complete for the seeded model; dual-client equivalence | Task 16 |
 | Quality gates: strict lint + strict types + coverage floor | Task 1 (adopted first; every task re-runs them) |
@@ -2677,10 +2975,12 @@ git commit -m "test(snmp): sync/async equivalence + cross-check vs virtual face"
 
 **Port-range validation against `model.port_count`/`poe_port_count` is a CONSCIOUS non-goal for this read-only slice.** Reads surface whatever ports/PoE indices the device reports; rejecting an out-of-range *requested* port is a write-path concern and lands in the write slice (Slice 4). It is deliberately deferred, not forgotten.
 
-**Type consistency with the foundation:** parsers emit exactly the foundation's frozen types — `PortStatus(port,name,admin_enabled,link_up,speed_mbps)`, `VLANInfo(vlan_id,name,member_ports,tagged_ports,untagged_ports)` (all three port sets populated), `PoEStatus(port,admin_enabled,detect: PoEDetect,power_mw)`, `LLDPNeighbor(local_port,remote_sys_name,remote_port_desc,remote_chassis_id)`, `MacEntry(mac,port,vlan_id)`, `Sensor(name,kind,value,unit)`. New types `PortStats`/`MgmtIpConfig`/`IpMode` (Task 2) follow the same frozen/hashable rule and are threaded onto `SwitchData` with tuple/None defaults so existing construction sites stay valid. `PoEDetect` mapping uses the existing members (`DISABLED/SEARCHING/DELIVERING/FAULT/UNKNOWN`) — no enum changes. Method/type names are stable across tasks: `SnmpRow`, `SnmpClient`/`AsyncSnmpClient`, `EzsnmpClient`, `PysnmpClient`, `SnmpReader`/`AsyncSnmpReader`, `VirtualSwitch`/`VirtualSwitchState` are referenced identically everywhere they appear.
+**Type consistency with the foundation:** parsers emit exactly the foundation's frozen types — `PortStatus(port,name,admin_enabled,link_up,speed_mbps)`, `VLANInfo(vlan_id,name,member_ports,tagged_ports,untagged_ports)` (all three port sets populated), `PoEStatus(port,admin_enabled,detect: PoEDetect,power_mw)`, `LLDPNeighbor(local_port,remote_sys_name,remote_port_desc,remote_chassis_id)`, `MacEntry(mac,port,vlan_id)`, `Sensor(name,kind,value,unit)`. New types `PortStats`/`MgmtIpConfig`/`IpMode` (Task 2) follow the same frozen/hashable rule and are threaded onto `SwitchData` with tuple/None defaults so existing construction sites stay valid. `PoEDetect` mapping uses the existing members (`DISABLED/SEARCHING/DELIVERING/FAULT/UNKNOWN`) — no enum changes. Method/type names are stable across tasks: `SnmpRow`, `SnmpClient`/`AsyncSnmpClient`, `NetsnmpCliClient`, `PysnmpClient`, `SnmpReader`/`AsyncSnmpReader`, `VirtualSwitch`/`VirtualSwitchState` are referenced identically everywhere they appear.
+
+**Sync/async `SnmpRow` value parity (enforced):** the sync (net-snmp CLI) and async (pysnmp) clients MUST normalize `SnmpRow.value` to the SAME plain Python types for the same OID — `int` for integer-family, `str` for text/OID/IP, `bytes` for non-printable octet strings (Hex-STRING). `NetsnmpCliClient.parse_netsnmp_lines` and `PysnmpClient._normalize_varbind`/`_octet_value` are kept in lockstep, and Task 16's equivalence integration test compares the parsed model objects (never loosened) to enforce it.
 
 **RISK / controller decisions:**
-1. **ezsnmp import — CLEARED.** `python3 -c "import ezsnmp"` succeeds in this environment (libsnmp-dev present), so sync SNMP is not blocked and no fallback is needed. Task 10 keeps a guard test asserting the import so a regression surfaces immediately.
+1. **Sync SNMP transport = net-snmp CLI (ezsnmp dropped).** `ezsnmp` cannot build in a `uv`/`pip` venv on arm64 (net-snmp `struct session_list` redefinition; no arm64 wheel), which would make local and CI environments diverge. Decision: the sync transport shells out to the net-snmp CLI tools (`snmpget`/`snmpbulkwalk`) via `subprocess` (Task 10) — no Python SNMP package. The binaries are a **documented system requirement** (`apt-get install -y snmp`, already installed locally; the CI slice adds the install step). Task 10's `_which` guard turns a missing binary into a clear `SnmpError`, and a guard test asserts that behaviour, so a missing-`snmp`-package regression surfaces immediately with an actionable message.
 2. **pysnmp not in the base interpreter** — it is declared under the `async`/`testing` extras; all async/face/integration test commands use `uv run --extra async`/`--extra testing`. Not a blocker, but the plan's test commands must include those extras (they do).
 3. **Netgear DHCP-mode OID is unverified.** `parse_mgmt_ip` reads a Netgear private DHCP-mode row addressed by the single named `VendorOids.dhcp_mode_unverified` constant (Task 4, `{base}.99.1`) — never a bare literal at any call site — and the virtual face serves it, so the read path is self-consistent under test; but the real OID/encoding must be confirmed against hardware (the §7.1 capture utility, Slice 7) before mgmt-IP is trusted on live switches. When the OID is absent/unset the parser returns `IpMode.UNKNOWN` (never a guessed dhcp/static), and address/netmask/gateway come from standard `ipAddrTable`/`ipRouteTable` and are safe. Reading the mode is best-effort; **setting** it is out of scope until verified.
 4. **Seeding scope — one model.** This slice seeds only `gsm7252ps` (a fully-managed `4526.10` model exercising ports/VLANs/PoE/sensors/mgmt-IP). §11.2's "complete mock of every switch model" is a Slice 4+ goal; recommend the controller confirm one seeded model is sufficient for Slice 2, with `m4300-24x` (no PoE, colon-STRING bridge MAC) and `gsm7228ps` (`4526.11` base) added when their write/quirk behaviour lands. If the controller wants broader read coverage now, add analogous `seed_m4300_24x()` / `seed_gsm7228ps()` as an extra task before Task 16 and parametrize the integration test over models.
