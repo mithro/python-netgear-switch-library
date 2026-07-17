@@ -156,6 +156,52 @@ class SnmpWriter:
                 before=before, after=after,
             )
 
+    def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        # Creating an EMPTY VLAN adds no port membership, so it is
+        # non-disruptive and does NOT require force. ``force`` exists only for
+        # signature symmetry with delete_vlan (review item 3).
+        before = self._vlan(vlan)
+        self.client.set_many([
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+                       oids.ROW_STATUS_CREATE_AND_GO, "i"),
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vlan}", name, "s"),
+        ])
+        after = self._vlan(vlan)
+        if after is None or (after.name or "") != name:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not created with name {name!r}",
+                before=before, after=after,
+            )
+
+    def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        before = self._vlan(vlan)
+        if before is None:
+            # Precondition failure: no SET has been attempted, so this is NOT a
+            # verification divergence (review item 9, mirrors
+            # set_vlan_membership's missing-VLAN precondition). The mock
+            # accepts destroy(6) on an absent row as a silent no-op, so
+            # skipping this check would let a delete of a non-existent VLAN
+            # pass verification vacuously instead of surfacing as an error.
+            raise SnmpError(f"VLAN {vlan} does not exist")
+        # Destroying a VLAN strips membership from EVERY member port; if any is a
+        # protected (uplink/mgmt) port, refuse without force (review item 3).
+        if not force:
+            clash = before.member_ports & self.protected_ports
+            if clash:
+                raise ProtectedPortError(
+                    f"VLAN {vlan} includes protected port(s) {sorted(clash)}; "
+                    f"pass force=True to delete it anyway"
+                )
+        self.client.set(SetVarbind(
+            f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+            oids.ROW_STATUS_DESTROY, "i",
+        ))
+        after = self._vlan(vlan)
+        if after is not None:
+            raise WriteVerificationError(
+                f"VLAN {vlan} still exists after destroy", before=before, after=after,
+            )
+
 
 class AsyncSnmpWriter:
     """Asynchronous SNMP write facade (mirror of SnmpWriter)."""
@@ -267,4 +313,44 @@ class AsyncSnmpWriter:
                 f"VLAN {vlan} untagged_ports for port {port} did not verify: "
                 f"wanted {sorted(want_untagged)}, got {sorted(after.untagged_ports)}",
                 before=before, after=after,
+            )
+
+    async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        # Empty VLAN creation is non-disruptive; force is for symmetry only.
+        before = await self._vlan(vlan)
+        await self.client.set_many([
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+                       oids.ROW_STATUS_CREATE_AND_GO, "i"),
+            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vlan}", name, "s"),
+        ])
+        after = await self._vlan(vlan)
+        if after is None or (after.name or "") != name:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not created with name {name!r}",
+                before=before, after=after,
+            )
+
+    async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        before = await self._vlan(vlan)
+        if before is None:
+            # Precondition failure (review item 9): no SET attempted. Mirrors
+            # the sync path -- destroy(6) on an absent row is a silent no-op
+            # in the mock, so this must be raised before issuing any SET.
+            raise SnmpError(f"VLAN {vlan} does not exist")
+        # Refuse if a member port is protected, unless force (review item 3).
+        if not force:
+            clash = before.member_ports & self.protected_ports
+            if clash:
+                raise ProtectedPortError(
+                    f"VLAN {vlan} includes protected port(s) {sorted(clash)}; "
+                    f"pass force=True to delete it anyway"
+                )
+        await self.client.set(SetVarbind(
+            f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+            oids.ROW_STATUS_DESTROY, "i",
+        ))
+        after = await self._vlan(vlan)
+        if after is not None:
+            raise WriteVerificationError(
+                f"VLAN {vlan} still exists after destroy", before=before, after=after,
             )

@@ -354,3 +354,129 @@ def test_async_set_vlan_membership_missing_vlan_is_precondition_not_verify_error
     with pytest.raises(SnmpError):
         asyncio.run(w.set_vlan_membership(90, 25, VlanMode.TAGGED, force=True))
     assert client.sets == []  # precondition failed before any SET
+
+
+_ROW_STATUS_NAME = oids.DOT1Q_VLAN_STATIC_NAME
+_ROW_STATUS_COL = oids.DOT1Q_VLAN_STATIC_ROW_STATUS
+
+
+def _apply_row_status_and_name(tables, vbs):
+    """Shared apply logic for ApplyingRowStatusClient/-AsyncClient."""
+    names = tables.setdefault(_ROW_STATUS_NAME, [])
+    for vb in vbs:
+        if vb.oid.startswith(_ROW_STATUS_COL):
+            vid = vb.oid.rsplit(".", 1)[1]
+            if int(vb.value) == oids.ROW_STATUS_DESTROY:
+                tables[_ROW_STATUS_NAME] = [
+                    r for r in names if not r.oid.endswith(f".{vid}")
+                ]
+            elif int(vb.value) == oids.ROW_STATUS_CREATE_AND_GO:
+                names.append(SnmpRow(f"{_ROW_STATUS_NAME}.{vid}", "", "STRING"))
+        elif vb.oid.startswith(_ROW_STATUS_NAME):
+            vid = vb.oid.rsplit(".", 1)[1]
+            tables[_ROW_STATUS_NAME] = [
+                r for r in tables[_ROW_STATUS_NAME] if not r.oid.endswith(f".{vid}")
+            ]
+            val = vb.value.decode() if isinstance(vb.value, bytes) else str(vb.value)
+            tables[_ROW_STATUS_NAME].append(SnmpRow(vb.oid, val, "STRING"))
+
+
+class ApplyingRowStatusClient(FakeWriteClient):
+    """Applies RowStatus create/destroy + name into read tables so verify passes."""
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        _apply_row_status_and_name(self._tables, vbs)
+
+
+class ApplyingRowStatusAsyncClient(FakeAsyncWriteClient):
+    """Async twin of ApplyingRowStatusClient."""
+
+    async def set_many(self, vbs):
+        self.sets.extend(vbs)
+        _apply_row_status_and_name(self._tables, vbs)
+
+    async def set(self, vb):
+        await self.set_many([vb])
+
+
+def test_create_vlan_sets_rowstatus_and_name():
+    client = ApplyingRowStatusClient({})
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.create_vlan(200, "guests")
+    kinds = {(s.oid, s.type_letter, s.value) for s in client.sets}
+    assert (f"{_ROW_STATUS_COL}.200", "i", oids.ROW_STATUS_CREATE_AND_GO) in kinds
+    assert (f"{_ROW_STATUS_NAME}.200", "s", "guests") in kinds
+
+
+def test_delete_vlan_destroys_and_verifies_absent():
+    client = ApplyingRowStatusClient(
+        {_ROW_STATUS_NAME: [SnmpRow(f"{_ROW_STATUS_NAME}.200", "guests", "STRING")]}
+    )
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.delete_vlan(200)
+    assert client.sets == [
+        SetVarbind(f"{_ROW_STATUS_COL}.200", oids.ROW_STATUS_DESTROY, "i")
+    ]
+
+
+def test_delete_vlan_protected_member_requires_force():
+    # VLAN 90 has member ports {1, 2, 10}; port 1 is protected. Deleting it
+    # would strip membership from the protected port (review item 3).
+    client = ApplyingRowStatusClient(
+        _vlan_tables(vid=90, member=(1, 2, 10), untagged=(1, 2))
+    )
+    w = SnmpWriter(client, get_model("gsm7252ps"), protected_ports=frozenset({1}))
+    with pytest.raises(ProtectedPortError):
+        w.delete_vlan(90)
+    assert client.sets == []           # nothing sent when the guard fires
+    w.delete_vlan(90, force=True)      # force bypasses the guard
+    assert any(s.oid == f"{_ROW_STATUS_COL}.90" for s in client.sets)
+
+
+def test_delete_vlan_missing_vlan_is_precondition_not_verify_error():
+    client = ApplyingRowStatusClient({})  # VLAN 999 does not exist
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(SnmpError):
+        w.delete_vlan(999)
+    assert client.sets == []  # precondition failed before any SET
+
+
+def test_async_create_vlan_sets_rowstatus_and_name():
+    client = ApplyingRowStatusAsyncClient({})
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    asyncio.run(w.create_vlan(200, "guests"))
+    kinds = {(s.oid, s.type_letter, s.value) for s in client.sets}
+    assert (f"{_ROW_STATUS_COL}.200", "i", oids.ROW_STATUS_CREATE_AND_GO) in kinds
+    assert (f"{_ROW_STATUS_NAME}.200", "s", "guests") in kinds
+
+
+def test_async_delete_vlan_destroys_and_verifies_absent():
+    client = ApplyingRowStatusAsyncClient(
+        {_ROW_STATUS_NAME: [SnmpRow(f"{_ROW_STATUS_NAME}.200", "guests", "STRING")]}
+    )
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    asyncio.run(w.delete_vlan(200))
+    assert client.sets == [
+        SetVarbind(f"{_ROW_STATUS_COL}.200", oids.ROW_STATUS_DESTROY, "i")
+    ]
+
+
+def test_async_delete_vlan_protected_member_requires_force():
+    client = ApplyingRowStatusAsyncClient(
+        _vlan_tables(vid=90, member=(1, 2, 10), untagged=(1, 2))
+    )
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"), protected_ports=frozenset({1}))
+    with pytest.raises(ProtectedPortError):
+        asyncio.run(w.delete_vlan(90))
+    assert client.sets == []
+    asyncio.run(w.delete_vlan(90, force=True))
+    assert any(s.oid == f"{_ROW_STATUS_COL}.90" for s in client.sets)
+
+
+def test_async_delete_vlan_missing_vlan_is_precondition_not_verify_error():
+    client = ApplyingRowStatusAsyncClient({})  # VLAN 999 does not exist
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+    with pytest.raises(SnmpError):
+        asyncio.run(w.delete_vlan(999))
+    assert client.sets == []

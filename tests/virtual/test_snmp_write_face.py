@@ -16,6 +16,7 @@ import warnings
 
 import pytest
 
+from netgear_switch.errors import ProtectedPortError
 from netgear_switch.models import IpMode, VlanMode
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
@@ -411,5 +412,78 @@ def test_snmp_writer_set_vlan_membership_missing_vlan_raises_snmperror_live():
         writer = SnmpWriter(client, model)
         with pytest.raises(SnmpError):
             writer.set_vlan_membership(777, 25, VlanMode.TAGGED)
+    finally:
+        sw.stop()
+
+
+def test_snmp_writer_create_vlan_then_delete_vlan_live():
+    """``SnmpWriter.create_vlan``/``delete_vlan`` (RowStatus createAndGo/destroy
+    + verify-after-write) driven against a live ``VirtualSwitch`` over the sync
+    (net-snmp CLI) transport: create must show up in ``get_vlans``, and delete
+    must make it disappear again."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model)
+        reader = SnmpReader(client, model)
+        vid = 210
+
+        assert all(v.vlan_id != vid for v in reader.get_vlans())
+
+        writer.create_vlan(vid, "guests")
+        created = next(v for v in reader.get_vlans() if v.vlan_id == vid)
+        assert created.name == "guests"
+
+        writer.delete_vlan(vid)
+        assert all(v.vlan_id != vid for v in reader.get_vlans())
+    finally:
+        sw.stop()
+
+
+def test_async_snmp_writer_create_vlan_then_delete_vlan_live():
+    """Async mirror of the above over the pysnmp transport, proving parity."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        writer = AsyncSnmpWriter(client, model)
+        reader = AsyncSnmpReader(client, model)
+        vid = 211
+
+        assert all(v.vlan_id != vid for v in asyncio.run(reader.get_vlans()))
+
+        asyncio.run(writer.create_vlan(vid, "guests"))
+        created = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
+        assert created.name == "guests"
+
+        asyncio.run(writer.delete_vlan(vid))
+        assert all(v.vlan_id != vid for v in asyncio.run(reader.get_vlans()))
+    finally:
+        sw.stop()
+
+
+def test_snmp_writer_delete_vlan_protected_member_requires_force_live():
+    """The protected-port guard against a live mock: VLAN 90's seeded members
+    include port 1 (marked protected here), so an unforced delete must refuse
+    with ``ProtectedPortError`` and issue no SET, while ``force=True`` deletes
+    it as usual."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model, protected_ports=frozenset({1}))
+        reader = SnmpReader(client, model)
+        vid = 90
+
+        with pytest.raises(ProtectedPortError):
+            writer.delete_vlan(vid)
+        assert any(v.vlan_id == vid for v in reader.get_vlans())  # untouched
+
+        writer.delete_vlan(vid, force=True)
+        assert all(v.vlan_id != vid for v in reader.get_vlans())
     finally:
         sw.stop()
