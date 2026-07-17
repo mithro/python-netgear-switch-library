@@ -83,7 +83,13 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         MacSim(vlan=90, mac_bytes=(0xC8, 0x00, 0x84, 0x89, 0x71, 0x70), bridge_port=10),
         MacSim(vlan=1, mac_bytes=(0x00, 0x1B, 0x21, 0x3C, 0x4D, 0x5E), bridge_port=11),
     ]
-    bridge_ports = {10: 10, 11: 11}
+    # bridge_port 10 deliberately maps to a DIFFERENT ifIndex (110, not 10) so
+    # a regression that drops the dot1dBasePortIfIndex join (or falls back to
+    # the bridge-port number itself) is detectable: get_macs() must surface
+    # the mapped ifIndex 110, never the bridge port 10. bridge_port 11 stays
+    # identity-mapped to prove the join also passes through unmapped/1:1 rows
+    # unchanged.
+    bridge_ports = {10: 110, 11: 11}
 
     lldp = [
         LldpSim(
