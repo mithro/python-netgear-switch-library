@@ -30,11 +30,18 @@ def index_int_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, int]:
         if suffix is None or "." in suffix:
             continue
         try:
-            out[int(suffix)] = int(row.value)
+            idx = int(suffix)
+        except ValueError as exc:
+            raise SnmpError(
+                f"malformed index {suffix!r} at {row.oid}"
+            ) from exc
+        try:
+            value = int(row.value)
         except ValueError as exc:
             raise SnmpError(
                 f"non-integer value {row.value!r} at {row.oid}"
             ) from exc
+        out[idx] = value
     return out
 
 

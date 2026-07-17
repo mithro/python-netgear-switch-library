@@ -62,3 +62,30 @@ def test_index_str_column_raises_on_present_but_malformed_index():
             [SnmpRow("1.3.6.1.2.1.31.1.1.1.1.x", "eth", "OCTETSTR")],
             "1.3.6.1.2.1.31.1.1.1.1",
         )
+
+
+def test_index_str_column_raises_on_non_string_value():
+    """index_str_column raises SnmpError when a present row has non-string value."""
+    with pytest.raises(SnmpError, match="non-string value"):
+        parse.index_str_column(
+            [SnmpRow("1.3.6.1.2.1.31.1.1.1.1.1", 42, "INTEGER")],
+            "1.3.6.1.2.1.31.1.1.1.1",
+        )
+
+
+def test_index_int_column_raises_on_malformed_index():
+    """index_int_column raises SnmpError for non-numeric OID suffix."""
+    with pytest.raises(SnmpError, match="malformed index"):
+        parse.index_int_column(
+            [SnmpRow("1.3.6.1.2.1.2.2.1.8.abc", "42", "INTEGER")],
+            "1.3.6.1.2.1.2.2.1.8",
+        )
+
+
+def test_index_int_column_raises_on_non_integer_value():
+    """index_int_column raises SnmpError for non-numeric value."""
+    with pytest.raises(SnmpError, match="non-integer value"):
+        parse.index_int_column(
+            [SnmpRow("1.3.6.1.2.1.2.2.1.8.1", "not_a_number", "OCTETSTR")],
+            "1.3.6.1.2.1.2.2.1.8",
+        )
