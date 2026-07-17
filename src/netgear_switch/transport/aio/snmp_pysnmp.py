@@ -123,8 +123,24 @@ class PysnmpClient:
                 lexicographicMode=False,
             ):
                 if err_ind or err_stat:
+                    raise SnmpError(
+                        f"WALK {base_oid} on {self.host}: {err_ind or err_stat}"
+                    )
+                done = False
+                for vb in binds:
+                    oid, value, typ = _normalize_varbind(vb[0], vb[1])
+                    if typ == "ENDOFMIBVIEW":
+                        # Benign terminator (mirrors the sync client's
+                        # _END_OF_MIB_MARKERS): stop, keep rows so far.
+                        done = True
+                        break
+                    if typ.upper() in ABSENT_TYPES:
+                        raise SnmpError(
+                            f"absent OID in pysnmp WALK response: {oid}"
+                        )
+                    rows.append((oid, value, typ))
+                if done:
                     break
-                rows.extend(_normalize_varbind(vb[0], vb[1]) for vb in binds)
             return rows
         finally:
             engine.close_dispatcher()
@@ -138,11 +154,12 @@ class PysnmpClient:
             raise
         except Exception as exc:
             raise SnmpError(f"GET {oids} on {self.host} failed: {exc}") from exc
-        return [
-            SnmpRow(oid, value, typ)
-            for oid, value, typ in raw
-            if typ.upper() not in ABSENT_TYPES
-        ]
+        rows: list[SnmpRow] = []
+        for oid, value, typ in raw:
+            if typ.upper() in ABSENT_TYPES:
+                raise SnmpError(f"absent OID in pysnmp GET response: {oid}")
+            rows.append(SnmpRow(oid, value, typ))
+        return rows
 
     async def walk(self, base_oid: str) -> list[SnmpRow]:
         try:

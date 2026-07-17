@@ -65,12 +65,26 @@ def test_index_str_column_raises_on_present_but_malformed_index():
 
 
 def test_index_str_column_raises_on_non_string_value():
-    """index_str_column raises SnmpError when a present row has non-string value."""
+    """index_str_column raises SnmpError when a present row has a non-str/bytes
+    value (e.g. an int) — a genuine wrong-type reply."""
     with pytest.raises(SnmpError, match="non-string value"):
         parse.index_str_column(
             [SnmpRow("1.3.6.1.2.1.31.1.1.1.1.1", 42, "INTEGER")],
             "1.3.6.1.2.1.31.1.1.1.1",
         )
+
+
+def test_index_str_column_decodes_bytes_value():
+    """A bytes OCTET STRING (pysnmp's non-printable heuristic, e.g. a name
+    with a trailing NUL) decodes to the same str the CLI transport would
+    yield for the same underlying value — transport parity."""
+    rows = [
+        SnmpRow("1.3.6.1.2.1.31.1.1.1.1.9", b"1/0/9", "OCTETSTR"),
+        SnmpRow("1.3.6.1.2.1.31.1.1.1.1.10", b"eth1\x00", "OCTETSTR"),
+    ]
+    result = parse.index_str_column(rows, "1.3.6.1.2.1.31.1.1.1.1")
+    assert result[9] == "1/0/9"
+    assert result[10] == "eth1\x00"
 
 
 def test_index_int_column_raises_on_malformed_index():

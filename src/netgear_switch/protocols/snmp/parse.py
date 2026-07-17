@@ -64,6 +64,15 @@ def index_str_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, str]:
     table drift, not absence, and raises SnmpError naming the offending OID —
     consistent with index_int_column. (A multi-component suffix belongs to a
     different, deeper column and is skipped.)
+
+    A text-name OCTET STRING (ifName/ifAlias/dot1qVlanStaticName) can
+    legitimately arrive as ``str`` from the CLI transport or ``bytes`` from
+    the pysnmp transport (its non-printable heuristic picks Hex-STRING for
+    values with any byte outside the printable-ASCII range, e.g. a name with
+    a trailing NUL). Both are valid text here: ``bytes`` is decoded to
+    ``str`` (utf-8, replacing undecodable bytes) so the two transports yield
+    the same model value. Any other type (e.g. an int) is a genuine wrong-type
+    reply and still raises.
     """
     out: dict[int, str] = {}
     for row in rows:
@@ -76,9 +85,12 @@ def index_str_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, str]:
             raise SnmpError(
                 f"non-integer index {suffix!r} at {row.oid}"
             ) from exc
-        if not isinstance(row.value, str):
-            raise SnmpError(f"non-string value {row.value!r} at {row.oid}")
-        out[idx] = row.value
+        value = row.value
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        elif not isinstance(value, str):
+            raise SnmpError(f"non-string value {value!r} at {row.oid}")
+        out[idx] = value
     return out
 
 

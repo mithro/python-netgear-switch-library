@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 import types
 
@@ -64,6 +65,14 @@ class NoSuchInstance:
     pass
 
 
+class NoSuchObject:
+    pass
+
+
+class EndOfMibView:
+    pass
+
+
 def _install_fake_pysnmp(monkeypatch, *, get_cmd=None, bulk_walk_cmd=None):
     """Inject a fake pysnmp.hlapi.v3arch.asyncio module (no network, no import
     of the real async engine) so _do_get/_do_walk can be exercised directly.
@@ -104,6 +113,31 @@ def test_get_wraps_normalized_tuples_into_rows(monkeypatch):
     monkeypatch.setattr(c, "_do_get", fake_do_get)
     rows = asyncio.run(c.get(["1.3.6.1.2.1.2.2.1.8.1"]))
     assert rows == [SnmpRow("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")]
+
+
+def test_get_raises_on_absent_oid(monkeypatch):
+    """get() must raise SnmpError naming the OID for a requested varbind that
+    comes back noSuchObject/noSuchInstance — matching the sync CLI client,
+    which raises rather than silently returning nothing for that OID."""
+    c = PysnmpClient("h", "public")
+
+    async def fake_do_get(oids):
+        return [("1.3.6.1.2.1.2.2.1.8.99", "", "NOSUCHOBJECT")]
+
+    monkeypatch.setattr(c, "_do_get", fake_do_get)
+    with pytest.raises(SnmpError, match=re.escape("1.3.6.1.2.1.2.2.1.8.99")):
+        asyncio.run(c.get(["1.3.6.1.2.1.2.2.1.8.99"]))
+
+
+def test_get_raises_on_no_such_instance(monkeypatch):
+    c = PysnmpClient("h", "public")
+
+    async def fake_do_get(oids):
+        return [("1.3.6.1.2.1.2.2.1.8.99", "", "NOSUCHINSTANCE")]
+
+    monkeypatch.setattr(c, "_do_get", fake_do_get)
+    with pytest.raises(SnmpError, match=re.escape("1.3.6.1.2.1.2.2.1.8.99")):
+        asyncio.run(c.get(["1.3.6.1.2.1.2.2.1.8.99"]))
 
 
 def test_walk_filters_absent_and_wraps(monkeypatch):
@@ -219,7 +253,10 @@ def test_do_get_raises_on_error_indication(monkeypatch):
     assert calls["closed"] is True
 
 
-def test_do_walk_collects_batches_and_stops_on_error(monkeypatch):
+def test_do_walk_raises_on_error_status(monkeypatch):
+    """A nonzero errorStatus/errorIndication mid-walk must RAISE, never be
+    silently swallowed — otherwise a timeout mid-walk looks identical to a
+    completed walk and truncates results without any signal (Fix 2)."""
     c = PysnmpClient("h", "public")
 
     async def fake_bulk_walk_cmd(
@@ -234,7 +271,58 @@ def test_do_walk_collects_batches_and_stops_on_error(monkeypatch):
         lexicographicMode,  # noqa: N803 - matches pysnmp's bulk_walk_cmd kwarg
     ):
         yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.1", Integer32(1))]
-        yield None, 1, 0, []  # errorStatus set -> stop, keep rows so far
+        yield None, 1, 0, []  # errorStatus set mid-walk -> must raise
+
+    calls = _install_fake_pysnmp(monkeypatch, bulk_walk_cmd=fake_bulk_walk_cmd)
+    with pytest.raises(SnmpError):
+        asyncio.run(c._do_walk("1.3.6.1.2.1.2.2.1.8"))
+    assert calls["closed"] is True
+
+
+def test_do_walk_raises_on_error_indication(monkeypatch):
+    c = PysnmpClient("h", "public")
+
+    async def fake_bulk_walk_cmd(
+        engine, community, target, context, non_rep, max_rep, obj,
+        *, lexicographicMode,  # noqa: N803
+    ):
+        yield "timeout", 0, 0, []
+
+    calls = _install_fake_pysnmp(monkeypatch, bulk_walk_cmd=fake_bulk_walk_cmd)
+    with pytest.raises(SnmpError):
+        asyncio.run(c._do_walk("1.3.6.1.2.1.2.2.1.8"))
+    assert calls["closed"] is True
+
+
+def test_do_walk_raises_on_no_such_instance_mid_walk(monkeypatch):
+    """A noSuchObject/noSuchInstance varbind mid-walk is a real absence, not
+    a benign terminator, and must raise (only endOfMibView is benign)."""
+    c = PysnmpClient("h", "public")
+
+    async def fake_bulk_walk_cmd(
+        engine, community, target, context, non_rep, max_rep, obj,
+        *, lexicographicMode,  # noqa: N803
+    ):
+        yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.1", NoSuchInstance())]
+
+    calls = _install_fake_pysnmp(monkeypatch, bulk_walk_cmd=fake_bulk_walk_cmd)
+    with pytest.raises(SnmpError, match=re.escape("1.3.6.1.2.1.2.2.1.8.1")):
+        asyncio.run(c._do_walk("1.3.6.1.2.1.2.2.1.8"))
+    assert calls["closed"] is True
+
+
+def test_do_walk_stops_cleanly_on_end_of_mib_view(monkeypatch):
+    """endOfMibView is the ONE benign terminator (mirrors the sync client's
+    _END_OF_MIB_MARKERS): stop iterating and return rows collected so far,
+    without emitting a row for the terminator itself and without raising."""
+    c = PysnmpClient("h", "public")
+
+    async def fake_bulk_walk_cmd(
+        engine, community, target, context, non_rep, max_rep, obj,
+        *, lexicographicMode,  # noqa: N803
+    ):
+        yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.1", Integer32(1))]
+        yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.2", EndOfMibView())]
 
     calls = _install_fake_pysnmp(monkeypatch, bulk_walk_cmd=fake_bulk_walk_cmd)
     rows = asyncio.run(c._do_walk("1.3.6.1.2.1.2.2.1.8"))
