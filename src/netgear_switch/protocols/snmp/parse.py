@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...models import PortStats, PortStatus, VLANInfo
+from ...models import LLDPNeighbor, MacEntry, PortStats, PortStatus, VLANInfo
 from .client import SnmpError, SnmpRow
 
 if TYPE_CHECKING:
@@ -213,3 +213,126 @@ def parse_pvids(rows: Sequence[SnmpRow]) -> list[tuple[int, int]]:
 
     pvids = index_int_column(rows, oids.DOT1Q_PVID)
     return sorted(pvids.items())
+
+
+def _format_mac_bytes(byte_strs: Sequence[str]) -> str:
+    return ":".join(f"{int(b):02X}" for b in byte_strs)
+
+
+def _format_chassis_id(value: int | str | bytes) -> str:
+    """Format an lldpRemChassisId value.
+
+    The MAC-address chassis subtype arrives as a raw 6-byte value: ``bytes``
+    from a Hex-STRING varbind, or (for a transport that normalizes octet
+    strings to latin-1 text) a 6-character ``str``. Either is formatted as
+    ``XX:XX:XX:XX:XX:XX``. Any other chassis-id subtype (e.g. a chassis
+    component name) is returned as plain text.
+    """
+    if isinstance(value, bytes) and len(value) == 6:
+        return ":".join(f"{b:02X}" for b in value)
+    if isinstance(value, str) and len(value) == 6:
+        return ":".join(f"{ord(c):02X}" for c in value)
+    return value if isinstance(value, str) else str(value)
+
+
+def _column_text(value: int | str | bytes) -> str:
+    """Render a non-chassis LLDP column (portId/portDesc/sysName) as text."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value if isinstance(value, str) else str(value)
+
+
+def parse_lldp(rows: Sequence[SnmpRow]) -> list[LLDPNeighbor]:
+    """Group lldpRemTable rows by local port into LLDPNeighbor entries.
+
+    The instance suffix is ``<column>.<timeMark>.<localPortNum>.<remIndex>``;
+    the middle component is the local port. A row present under the table
+    prefix but with fewer than 4 suffix components, or a non-integer column
+    or local-port component, is drift (not absence) and raises SnmpError
+    naming the offending OID. A fully-empty neighbour group (every tracked
+    column absent) carries no data and is skipped.
+    """
+    from . import oids
+
+    prefix = oids.LLDP_REM_TABLE + ".1."
+    grouped: dict[tuple[str, str, str], dict[int, int | str | bytes]] = {}
+    for row in rows:
+        if not row.oid.startswith(prefix):
+            continue
+        parts = row.oid[len(prefix):].split(".")
+        if len(parts) < 4:
+            raise SnmpError(f"malformed LLDP index at {row.oid}")
+        try:
+            column = int(parts[0])
+        except ValueError as exc:
+            raise SnmpError(
+                f"non-integer LLDP column {parts[0]!r} at {row.oid}"
+            ) from exc
+        key = (parts[1], parts[2], parts[3])  # timeMark, localPort, remIdx
+        grouped.setdefault(key, {})[column] = row.value
+
+    result: list[LLDPNeighbor] = []
+    for (_tm, local_port, _rem), cols in grouped.items():
+        chassis = cols.get(5, "")
+        port_id = cols.get(7, "")
+        port_desc = cols.get(8, "")
+        sys_name = cols.get(9, "")
+        # A neighbour row group with every column empty carries no data
+        # (absent); skip it. A present-but-non-integer local-port index is
+        # drift -> raise.
+        if not (chassis or port_id or port_desc or sys_name):
+            continue
+        try:
+            lp = int(local_port)
+        except ValueError as exc:
+            raise SnmpError(
+                f"non-integer LLDP local port {local_port!r} at {prefix}...{local_port}"
+            ) from exc
+        result.append(
+            LLDPNeighbor(
+                local_port=lp,
+                remote_sys_name=_column_text(sys_name) or None,
+                remote_port_desc=_column_text(port_desc) or None,
+                remote_chassis_id=_format_chassis_id(chassis) or None,
+            )
+        )
+    return sorted(result, key=lambda n: n.local_port)
+
+
+def parse_macs(
+    fdb: Sequence[SnmpRow], bridge_ports: Sequence[SnmpRow]
+) -> list[MacEntry]:
+    """Build the MAC/FDB table from dot1qTpFdbPort + dot1dBasePortIfIndex.
+
+    ``dot1qTpFdbPort`` gives the bridge PORT number keyed by
+    ``<vlan>.<mac-as-6-oid-octets>``; ``dot1dBasePortIfIndex`` maps that
+    bridge port to an ifIndex (falling back to the bridge port number itself
+    when unmapped). A bridge-port value that is present but not an integer is
+    table drift and raises SnmpError naming the offending OID.
+    """
+    from . import oids
+
+    bridge_to_if = index_int_column(bridge_ports, oids.DOT1D_BASE_PORT_IF_INDEX)
+    prefix = oids.DOT1Q_TP_FDB_PORT + "."
+    result: list[MacEntry] = []
+    for row in fdb:
+        if not row.oid.startswith(prefix):
+            continue
+        parts = row.oid[len(prefix):].split(".")
+        if len(parts) != 7:  # <vlan>.<6 MAC bytes>
+            continue
+        try:
+            vlan_id = int(parts[0])
+        except ValueError:
+            continue
+        try:
+            bridge_port = int(row.value)
+        except ValueError as exc:
+            raise SnmpError(
+                f"non-integer bridge port {row.value!r} at {row.oid}"
+            ) from exc
+        port = bridge_to_if.get(bridge_port, bridge_port)
+        result.append(
+            MacEntry(mac=_format_mac_bytes(parts[1:7]), port=port, vlan_id=vlan_id)
+        )
+    return sorted(result, key=lambda m: (m.port, m.mac))
