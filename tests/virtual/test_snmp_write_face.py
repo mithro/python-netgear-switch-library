@@ -16,9 +16,12 @@ import warnings
 
 import pytest
 
+from netgear_switch.models import IpMode
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
-from netgear_switch.protocols.snmp.write import SetVarbind
+from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
+from netgear_switch.registry import get_model
+from netgear_switch.snmp_read import AsyncSnmpReader
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 from netgear_switch.virtual.server import VirtualSwitch
@@ -137,6 +140,153 @@ def test_set_malformed_value_maps_to_snmperror_not_a_timeout():
             asyncio.run(client.set(SetVarbind(oid, b"\xff\xfe", "x")))
         # The malformed write must not have partially created the VLAN.
         assert 300 not in sw.state.vlans
+    finally:
+        sw.stop()
+
+
+def test_set_many_multi_varbind_pdu_atomic_rollback_on_failure():
+    """A single ``set_many`` PDU carrying one VALID varbind followed by one
+    INVALID varbind must apply NEITHER: the whole PDU is all-or-nothing,
+    matching a real SNMP agent and the ``set_many`` "one PDU (atomic)"
+    contract (``protocols/snmp/client.py``) that e.g. ``set_vlan_membership``
+    relies on. Proves ``write_variables`` rolls back the earlier,
+    individually-valid varbind rather than leaving it applied."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = PysnmpClient(sw.host, "public", port=sw.port, timeout=2.0, retries=0)
+        assert sw.state.ports[3].admin is True
+
+        valid = SetVarbind(f"{oids.IF_ADMIN_STATUS}.3", 2, "i")  # admin down
+        invalid = SetVarbind(  # malformed RowStatus value: not integer-parsable
+            f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.300", b"\xff\xfe", "x"
+        )
+        with pytest.raises(SnmpError):
+            asyncio.run(client.set_many([valid, invalid]))
+
+        # Rollback: the earlier valid varbind must NOT have been applied.
+        assert sw.state.ports[3].admin is True
+        assert 300 not in sw.state.vlans
+    finally:
+        sw.stop()
+
+
+def test_set_many_multi_varbind_pdu_applies_all_on_success():
+    """The positive counterpart: two valid varbinds in one PDU both apply."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        asyncio.run(client.set_many([
+            SetVarbind(f"{oids.IF_ADMIN_STATUS}.6", 2, "i"),
+            SetVarbind(f"{oids.IF_ADMIN_STATUS}.7", 2, "i"),
+        ]))
+        assert sw.state.ports[6].admin is False
+        assert sw.state.ports[7].admin is False
+    finally:
+        sw.stop()
+
+
+def test_set_many_vlan_egress_and_untagged_bitmaps_reflected_in_get_vlans():
+    """The exact multi-varbind shape ``set_vlan_membership`` sends: egress AND
+    untagged bitmaps for one VLAN in a single ``set_many`` PDU. Exercises the
+    full ``SetCommandResponder`` -> ``write_variables`` -> ``apply_write`` ->
+    ``get_vlans`` round trip for the VLAN-membership OID class over the wire."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        vid = 90
+        new_member = {1, 2, 10, 25}
+        new_untagged = {1, 2}
+        asyncio.run(client.set_many([
+            SetVarbind(
+                f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}",
+                encode_port_bitmap(new_member), "x",
+            ),
+            SetVarbind(
+                f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}",
+                encode_port_bitmap(new_untagged), "x",
+            ),
+        ]))
+
+        reader = AsyncSnmpReader(client, get_model("gsm7252ps"))
+        vlan90 = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
+        assert vlan90.member_ports == frozenset(new_member)
+        assert vlan90.untagged_ports == frozenset(new_untagged)
+    finally:
+        sw.stop()
+
+
+def test_set_vlan_create_name_destroy_via_rowstatus_reflected_in_get_vlans():
+    """VLAN lifecycle over the wire: createAndGo(4) + name write, then
+    destroy(6), each reflected in ``get_vlans``."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        vid = 250
+        row_oid = f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vid}"
+        reader = AsyncSnmpReader(client, get_model("gsm7252ps"))
+
+        assert all(v.vlan_id != vid for v in asyncio.run(reader.get_vlans()))
+
+        asyncio.run(
+            client.set(SetVarbind(row_oid, oids.ROW_STATUS_CREATE_AND_GO, "i"))
+        )
+        name_oid = f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"
+        asyncio.run(client.set(SetVarbind(name_oid, b"guests", "x")))
+        created = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
+        assert created.name == "guests"
+
+        asyncio.run(client.set(SetVarbind(row_oid, oids.ROW_STATUS_DESTROY, "i")))
+        assert all(v.vlan_id != vid for v in asyncio.run(reader.get_vlans()))
+    finally:
+        sw.stop()
+
+
+def test_set_mgmt_ip_write_oids_reflected_in_get_mgmt_ip():
+    """The UNVERIFIED mgmt-IP write OIDs (address/netmask/gateway), all
+    written in one ``set_many`` PDU, reflected back through ``get_mgmt_ip``."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        model = get_model("gsm7252ps")
+        vo = oids.vendor_oids(model)
+        asyncio.run(client.set_many([
+            SetVarbind(vo.mgmt_write_addr_unverified, "10.9.9.9", "a"),
+            SetVarbind(vo.mgmt_write_netmask_unverified, "255.255.255.0", "a"),
+            SetVarbind(vo.mgmt_write_gateway_unverified, "10.9.9.1", "a"),
+        ]))
+
+        reader = AsyncSnmpReader(client, model)
+        cfg = asyncio.run(reader.get_mgmt_ip())
+        assert cfg.address == "10.9.9.9"
+        assert cfg.netmask == "255.255.255.0"
+        assert cfg.gateway == "10.9.9.1"
+    finally:
+        sw.stop()
+
+
+def test_set_dhcp_mode_write_oid_reflected_in_get_mgmt_ip():
+    """The UNVERIFIED dhcp-mode write OID, reflected back through
+    ``get_mgmt_ip``'s mode field."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        model = get_model("gsm7252ps")
+        oid = f"{oids.vendor_oids(model).dhcp_mode_unverified}.0"
+        reader = AsyncSnmpReader(client, model)
+
+        assert asyncio.run(reader.get_mgmt_ip()).mode == IpMode.STATIC  # seed default
+
+        asyncio.run(client.set(SetVarbind(oid, 1, "i")))  # 1 = dhcp
+        assert asyncio.run(reader.get_mgmt_ip()).mode == IpMode.DHCP
+
+        asyncio.run(client.set(SetVarbind(oid, 2, "i")))  # 2 = static
+        assert asyncio.run(reader.get_mgmt_ip()).mode == IpMode.STATIC
     finally:
         sw.stop()
 

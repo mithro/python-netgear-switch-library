@@ -206,7 +206,27 @@ class _StateInstrum:
     def write_variables(
         self, *var_binds: tuple[Any, Any], **_context: Any
     ) -> list[tuple[Any, Any]]:
-        """Answer a SET: mutate state per varbind, echo the written varbinds.
+        """Answer a SET: mutate state atomically, echo the written varbinds.
+
+        The whole PDU is ALL-OR-NOTHING, matching a real SNMP agent and the
+        ``set_many`` "one PDU (atomic)" contract (``protocols/snmp/client.py``)
+        that e.g. ``set_vlan_membership`` relies on when it writes the egress
+        AND untagged bitmaps as a single SET: if any varbind in the PDU is
+        rejected, NONE of the PDU's varbinds may have mutated state, even the
+        ones already processed earlier in this same call.
+
+        Implemented via snapshot-then-restore rather than validate-then-commit:
+        some failures (e.g. a malformed integer value only discovered when
+        ``apply_write`` itself calls ``int(value)``) only surface mid-apply,
+        so a clean up-front validation pass would have to duplicate
+        ``apply_write``'s own parsing. Instead, the state is snapshotted
+        before the loop; every varbind applies via
+        ``apply_write_uncommitted`` (which mutates but does NOT rebuild the
+        view — rebuilding once, only after the whole PDU has committed, also
+        avoids the per-varbind rebuild this used to do); if any varbind
+        fails, ``restore_state`` rolls the state back to that snapshot before
+        the (unchanged) SMI error propagates, so no partial mutation is ever
+        observable.
 
         An OID ``StateMibView.is_writable_oid`` doesn't recognize at all is
         rejected with a pysnmp ``NotWritableError`` (a clean SNMP
@@ -230,16 +250,27 @@ class _StateInstrum:
         reading ``CommandResponderBase.process_pdu`` on the installed pysnmp
         v7 — a deviation from the brief's sample, which used ``idx=None``).
         """
+        snapshot = self._view.snapshot_state()
         out: list[tuple[Any, Any]] = []
-        for idx, (name, val) in enumerate(var_binds):
-            oid = ".".join(str(x) for x in tuple(name))
-            if not self._view.is_writable_oid(oid):
-                raise self._not_writable_error(name=name, idx=idx)
-            try:
-                self._view.apply_write(oid, _from_smi_value(val))
-            except Exception as exc:  # map to a clean SMI error, never leak
-                raise self._write_error(name=name, idx=idx) from exc
-            out.append((name, val))
+        try:
+            for idx, (name, val) in enumerate(var_binds):
+                oid = ".".join(str(x) for x in tuple(name))
+                if not self._view.is_writable_oid(oid):
+                    raise self._not_writable_error(name=name, idx=idx)
+                try:
+                    self._view.apply_write_uncommitted(oid, _from_smi_value(val))
+                except Exception as exc:  # map to a clean SMI error, never leak
+                    raise self._write_error(name=name, idx=idx) from exc
+                out.append((name, val))
+        except Exception:
+            # Any varbind in this PDU failed: undo every mutation this call
+            # made so far (there may be none, one, or several), so the whole
+            # SET is atomic. The original SMI error (NotWritableError /
+            # WrongValueError, already carrying the right idx) propagates
+            # unchanged.
+            self._view.restore_state(snapshot)
+            raise
+        self._view.rebuild()
         return out
 
 

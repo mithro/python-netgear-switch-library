@@ -58,6 +58,35 @@ class StateMibView:
         self._state.apply_write(oid, value)
         self.rebuild()
 
+    def apply_write_uncommitted(self, oid: str, value: int | bytes | str) -> None:
+        """Mutate the underlying state WITHOUT rebuilding the sorted view.
+
+        For an atomic multi-varbind SET (``faces/snmp.py``'s
+        ``write_variables``): the (relatively expensive) ``rebuild()`` is
+        deferred until the whole PDU has committed successfully, once, rather
+        than once per varbind. Callers MUST call ``rebuild()`` themselves
+        once every varbind in the PDU has applied without error.
+        """
+        self._state.apply_write(oid, value)
+
+    def snapshot_state(self) -> VirtualSwitchState:
+        """Snapshot the underlying state, for atomic multi-varbind SET rollback.
+
+        See ``VirtualSwitchState.snapshot``/``restore_state``.
+        """
+        return self._state.snapshot()
+
+    def restore_state(self, snapshot: VirtualSwitchState) -> None:
+        """Restore the underlying state in place from a prior
+        ``snapshot_state()`` result, discarding any writes applied since.
+
+        The sorted view itself needs no rebuild after a restore: if the
+        caller took the snapshot before making any changes and only ever
+        reaches this on a failed atomic SET, the state (and thus the view)
+        is back to exactly what it was before that SET began.
+        """
+        self._state.restore(snapshot)
+
     def is_writable_oid(self, oid: str) -> bool:
         """Passthrough to ``VirtualSwitchState.is_writable_oid`` (see there)."""
         return self._state.is_writable_oid(oid)

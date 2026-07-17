@@ -9,6 +9,8 @@ Task 5-9 parsers consume. This module is pure data + projection: no network.
 """
 from __future__ import annotations
 
+import copy
+import dataclasses
 from dataclasses import dataclass, field
 
 from ..registry import get_model
@@ -222,6 +224,30 @@ class VirtualSwitchState:
             "INTEGER", "2" if self.mgmt.mode == "static" else "1")
 
         return m
+
+    def snapshot(self) -> VirtualSwitchState:
+        """Deep-copy this state, for atomic multi-varbind SET rollback.
+
+        A single SNMP SET PDU can carry several varbinds (e.g.
+        ``set_vlan_membership`` writing both the egress and untagged
+        bitmaps in one ``set_many`` call) and a real agent guarantees they
+        apply all-or-nothing. ``faces/snmp.py``'s ``write_variables``
+        snapshots the state before applying a PDU's varbinds and calls
+        ``restore`` on this snapshot if any of them fails, so a partial
+        mutation is never observable. See ``restore``.
+        """
+        return copy.deepcopy(self)
+
+    def restore(self, snapshot: VirtualSwitchState) -> None:
+        """Restore this state in place from a prior ``snapshot()`` result.
+
+        Copies every dataclass field from ``snapshot`` onto ``self`` rather
+        than replacing ``self`` itself, so existing references to this exact
+        object (e.g. ``VirtualSwitch.state``, ``StateMibView._state``) keep
+        seeing the restored data.
+        """
+        for f in dataclasses.fields(self):
+            setattr(self, f.name, getattr(snapshot, f.name))
 
     def apply_write(self, oid: str, value: int | bytes | str) -> None:
         """Mutate this state from one SNMP SET varbind, with device coherence.
