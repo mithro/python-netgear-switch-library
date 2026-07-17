@@ -1,18 +1,23 @@
-"""Public synchronous read facade: SyncSwitch."""
+"""Public synchronous read/write facade: SyncSwitch."""
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from ._dispatch import (
     build_sync_snmp_client,
+    build_sync_snmp_write_client,
     require_mac_table,
     require_snmp_backend,
 )
 from .models import SwitchData
 from .snmp_read import SnmpReader
+from .snmp_write import PoeCycleTimeouts, SnmpWriter
+
+_DEFAULT_POE_TIMEOUTS = PoeCycleTimeouts()
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from .config import SwitchConfig
     from .models import (
@@ -24,13 +29,14 @@ if TYPE_CHECKING:
         PortStatus,
         Sensor,
         VLANInfo,
+        VlanMode,
     )
-    from .protocols.snmp.client import SnmpClient
+    from .protocols.snmp.client import SnmpClient, SnmpWriteClient
     from .registry import SwitchModel
 
 
 class SyncSwitch:
-    """Synchronous, model-driven read facade over one switch."""
+    """Synchronous, model-driven read/write facade over one switch."""
 
     def __init__(
         self,
@@ -39,21 +45,41 @@ class SyncSwitch:
         *,
         snmp_community: str | None = None,
         snmp_client: SnmpClient | None = None,
+        snmp_write_community: str | None = None,
+        snmp_write_client: SnmpWriteClient | None = None,
+        snmp_write_community_resolver: Callable[[], str | None] | None = None,
+        protected_ports: frozenset[int] = frozenset(),
     ) -> None:
         self.model = model
         self.host = host
         self._snmp_community = snmp_community
         self._snmp_client = snmp_client
+        self._snmp_write_community = snmp_write_community
+        self._snmp_write_client = snmp_write_client
+        # Deferred write-community resolution: from_config stashes a closure here
+        # instead of resolving eagerly, so read-only construction never raises a
+        # CredentialError for an unresolvable write-community spec (review item 4).
+        self._snmp_write_community_resolver = snmp_write_community_resolver
+        self.protected_ports = protected_ports
 
     @classmethod
     def from_config(
         cls, cfg: SwitchConfig, *, env: Mapping[str, str] | None = None
     ) -> SyncSwitch:
-        # env is reserved for backends that resolve secrets (SNMP write
-        # community / HTTP password in Slices 4-6); SNMP reads use the literal
-        # read community stored on the config, so env is unused here.
-        _ = env
-        return cls(cfg.model, cfg.host, snmp_community=cfg.snmp_community)
+        # Resolve the SNMP write community LAZILY (on first write), never here.
+        # A read-only consumer whose env lacks a resolvable write-community spec
+        # (e.g. ``${UNSET_VAR}``) must still be able to construct the facade and
+        # read; only an actual write attempt may raise CredentialError/ConfigError
+        # (review item 4). We stash a closure that reads the spec + env on demand.
+        def _resolve_write_community() -> str | None:
+            return cfg.snmp_write_community(env=env if env is not None else os.environ)
+
+        return cls(
+            cfg.model, cfg.host,
+            snmp_community=cfg.snmp_community,
+            snmp_write_community_resolver=_resolve_write_community,
+            protected_ports=cfg.protected_ports,
+        )
 
     def _reader(self) -> SnmpReader:
         # Backend-resolution seam: today only SNMP is wired. NSDP/HTTP-only
@@ -110,3 +136,59 @@ class SyncSwitch:
             stats=tuple(reader.get_stats()),
             mgmt_ip=reader.get_mgmt_ip(),
         )
+
+    def _resolve_write_community(self) -> str | None:
+        # First write triggers resolution; an explicit community wins, else the
+        # stashed from_config resolver runs now (may raise), else None.
+        if self._snmp_write_community is not None:
+            return self._snmp_write_community
+        if self._snmp_write_community_resolver is not None:
+            return self._snmp_write_community_resolver()
+        return None
+
+    def _writer(self) -> SnmpWriter:
+        require_snmp_backend(self.model)
+        client = self._snmp_write_client
+        if client is None:
+            community = self._resolve_write_community()
+            client = build_sync_snmp_write_client(self.host, community)
+        return SnmpWriter(client, self.model, protected_ports=self.protected_ports)
+
+    def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
+        self._writer().set_poe(port, on, force=force)
+
+    def set_port_enabled(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        self._writer().set_port_enabled(port, enabled, force=force)
+
+    def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
+        self._writer().set_pvid(port, vlan, force=force)
+
+    def set_vlan_membership(
+        self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
+    ) -> None:
+        self._writer().set_vlan_membership(vlan, port, mode, force=force)
+
+    def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        self._writer().create_vlan(vlan, name, force=force)
+
+    def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        self._writer().delete_vlan(vlan, force=force)
+
+    def cycle_poe(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+    ) -> None:
+        self._writer().cycle_poe(port, force=force, timeouts=timeouts)
+
+    def clear_poe_fault(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+    ) -> None:
+        self._writer().clear_poe_fault(port, force=force, timeouts=timeouts)
+
+    def set_mgmt_ip(
+        self, address: str, netmask: str, gateway: str, *, force: bool = False
+    ) -> None:
+        self._writer().set_mgmt_ip(address, netmask, gateway, force=force)

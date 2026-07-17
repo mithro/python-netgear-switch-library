@@ -9,6 +9,7 @@ from netgear_switch.config import SwitchConfig
 from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpRow
+from netgear_switch.protocols.snmp.write import SetVarbind
 from netgear_switch.registry import get_model
 
 
@@ -104,3 +105,105 @@ def test_reader_builds_default_client_when_not_injected(
     assert build_calls[0] == ("10.0.0.5", None)
     assert len(ports) > 0
     assert ports[0].port == 1
+
+
+class RecordingAsyncWriteClient(FakeAsyncClient):
+    def __init__(self, tables: dict[str, list[SnmpRow]]) -> None:
+        super().__init__(tables)
+        self.sets: list[SetVarbind] = []
+
+    async def set(self, vb: SetVarbind) -> None:
+        await self.set_many([vb])
+
+    async def set_many(self, vbs: list[SetVarbind]) -> None:
+        self.sets.extend(vbs)
+        for vb in vbs:  # apply ifAdminStatus so verify passes
+            if vb.oid.startswith(oids.IF_ADMIN_STATUS):
+                self._tables[oids.IF_ADMIN_STATUS] = [
+                    SnmpRow(vb.oid, int(vb.value), "INTEGER")
+                ]
+
+
+def test_async_switch_set_port_enabled_delegates_to_writer() -> None:
+    tables = _ports_tables()
+    client = RecordingAsyncWriteClient(tables)
+    sw = AsyncSwitch(get_model("gsm7252ps"), "host", snmp_write_client=client)
+    asyncio.run(sw.set_port_enabled(1, enabled=False, force=True))
+    assert client.sets == [SetVarbind(f"{oids.IF_ADMIN_STATUS}.1", 2, "i")]
+
+
+def test_plus_model_write_raises_unsupported_capability() -> None:
+    sw = AsyncSwitch(get_model("gs305ep"), "host")  # {NSDP, HTTP} only
+    with pytest.raises(UnsupportedCapabilityError) as exc:
+        asyncio.run(sw.set_port_enabled(1, enabled=False, force=True))
+    assert "gs305ep" in str(exc.value)
+
+
+def test_from_config_write_community_resolves_lazily_not_at_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Async mirror of the sync lazy-write-community test (review item 4):
+    from_config must not resolve/raise at construction; only the first
+    awaited write resolves the spec and raises."""
+    from netgear_switch.errors import CredentialError
+
+    cfg = SwitchConfig(
+        name="core",
+        model=get_model("gsm7252ps"),
+        host="10.0.0.9",
+        snmp_community="public",
+        snmp_write_community_spec="${NETGEAR_WRITE_UNSET}",  # unresolvable
+        http_password_spec=None,
+        nsdp_interface=None,
+        protected_ports=frozenset(),
+    )
+    monkeypatch.delenv("NETGEAR_WRITE_UNSET", raising=False)
+    monkeypatch.setattr(
+        "netgear_switch.aio_api.build_async_snmp_client",
+        lambda host, community: FakeAsyncClient(_ports_tables()),
+    )
+
+    # Construction resolves nothing -> no CredentialError here.
+    sw = AsyncSwitch.from_config(cfg)
+    # Read ops still work.
+    ports = asyncio.run(sw.get_ports())
+    assert ports[0].port == 1
+    # First awaited write resolves the spec lazily -> now it raises.
+    with pytest.raises(CredentialError):
+        asyncio.run(sw.set_port_enabled(1, enabled=False, force=True))
+
+
+def test_from_config_write_community_resolves_and_writes_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resolvable write-community spec flows through to the async
+    write-client builder lazily on first write."""
+    monkeypatch.setenv("NETGEAR_WRITE_OK", "wcomm")
+    monkeypatch.setattr(
+        "netgear_switch.aio_api.build_async_snmp_client",
+        lambda host, community: FakeAsyncClient(_ports_tables()),
+    )
+    build_calls: list[tuple[str, str | None]] = []
+
+    def fake_build_write(host: str, community: str | None) -> RecordingAsyncWriteClient:
+        build_calls.append((host, community))
+        return RecordingAsyncWriteClient(_ports_tables())
+
+    monkeypatch.setattr(
+        "netgear_switch.aio_api.build_async_snmp_write_client", fake_build_write
+    )
+
+    cfg = SwitchConfig(
+        name="core",
+        model=get_model("gsm7252ps"),
+        host="10.0.0.9",
+        snmp_community="public",
+        snmp_write_community_spec="${NETGEAR_WRITE_OK}",
+        http_password_spec=None,
+        nsdp_interface=None,
+        protected_ports=frozenset(),
+    )
+    sw = AsyncSwitch.from_config(cfg)
+    assert build_calls == []  # not resolved at construction
+    asyncio.run(sw.set_port_enabled(1, enabled=False, force=True))
+    assert build_calls == [("10.0.0.9", "wcomm")]
