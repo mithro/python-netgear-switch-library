@@ -4,6 +4,7 @@ Query and control Netgear switches over SNMP, NSDP and the HTTP web UI
 behind one model-driven API.
 """
 
+from .aio_api import AsyncSwitch
 from .config import (
     SwitchConfig,
     ensure_secure_file,
@@ -33,6 +34,7 @@ from .models import (
     VlanMode,
 )
 from .registry import MODELS, Backend, SwitchClass, SwitchModel, get_model
+from .sync_api import SyncSwitch
 
 __version__: str = "0.1.0"
 
@@ -69,4 +71,7 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "resolve_secret",
     "load_inventory",
     "ensure_secure_file",
+    # facades
+    "SyncSwitch",
+    "AsyncSwitch",
 ]
