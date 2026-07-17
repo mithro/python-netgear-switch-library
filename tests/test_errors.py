@@ -8,7 +8,7 @@ def test_all_errors_subclass_base():
         "ConfigError",
         "CredentialError",
         "UnknownModelError",
-        "UnsupportedCapability",
+        "UnsupportedCapabilityError",
         "WriteVerificationError",
     ):
         cls = getattr(errors, name)
@@ -24,4 +24,4 @@ def test_write_verification_error_carries_before_after():
 
 def test_base_is_catchable():
     with pytest.raises(errors.NetgearSwitchError):
-        raise errors.UnsupportedCapability("no MAC table on Plus switches")
+        raise errors.UnsupportedCapabilityError("no MAC table on Plus switches")

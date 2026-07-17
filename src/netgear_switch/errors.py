@@ -19,10 +19,7 @@ class UnknownModelError(NetgearSwitchError):
     """A switch references a model key that is not in the registry."""
 
 
-class UnsupportedCapability(NetgearSwitchError):  # noqa: N818 -- name is part of
-    # the already-merged foundation's public API (exported + covered by
-    # tests/test_errors.py); renaming to *Error is out of scope for the
-    # tooling-gates task and would be a breaking change best done deliberately.
+class UnsupportedCapabilityError(NetgearSwitchError):
     """The requested operation is not available on this model/backend."""
 
 

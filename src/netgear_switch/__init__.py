@@ -15,7 +15,7 @@ from .errors import (
     CredentialError,
     NetgearSwitchError,
     UnknownModelError,
-    UnsupportedCapability,
+    UnsupportedCapabilityError,
     WriteVerificationError,
 )
 from .models import (
@@ -40,7 +40,7 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "ConfigError",
     "CredentialError",
     "UnknownModelError",
-    "UnsupportedCapability",
+    "UnsupportedCapabilityError",
     "WriteVerificationError",
     # models
     "PortStatus",

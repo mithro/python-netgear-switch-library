@@ -168,32 +168,6 @@ toml = [
 ]
 
 [[package]]
-name = "ezsnmp"
-version = "1.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/88/de/c34f64ba3412b01a4d40f13bb34762b22ff185e2479bd7c33a56582ca7f3/ezsnmp-1.1.0.tar.gz", hash = "sha256:b48f665a8b9632cdb0dfcbab1465d914f7df97991ec2a504d49c6e89a9e94343", size = 51867, upload-time = "2024-10-13T15:59:46.388Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/80/52d1b5aa498b0f8e35925e44f6fe28f5aff82e77ad3c60b5477abf12dfa1/ezsnmp-1.1.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:b4304c6251b4f8641a7fed3e4c25500c874e9cf44fc94c28fc7d5054441cf336", size = 50091, upload-time = "2024-10-13T15:59:00.186Z" },
-    { url = "https://files.pythonhosted.org/packages/ce/04/a3ced63d603921cb5dde526f23d673833f1bbc9bd150dd74011297463bdc/ezsnmp-1.1.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:8ac003ae7bdcf22a7b2597ec47a4d116eaa1a3dd8c07510c0345d0a0b6f141e5", size = 49032, upload-time = "2024-10-13T15:59:01.229Z" },
-    { url = "https://files.pythonhosted.org/packages/a3/5f/0c7e926de58e1a4fdbbde4ed8cb2293d978784b0f7fbec5c25b048b00aef/ezsnmp-1.1.0-cp311-cp311-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:21111849189b73ac5a79a7fae283fc89d4c9b94252fc1c428eb08ba471b8c168", size = 1150610, upload-time = "2024-10-13T15:59:02.865Z" },
-    { url = "https://files.pythonhosted.org/packages/34/ff/6f0278ecbe680cd912ecf0d9a4cd65e1ff080b8389112a8fa56901da4913/ezsnmp-1.1.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:95d85af311adee0adf63ae7668a76e207fcac61696f450cdc2e71280d423142f", size = 1290780, upload-time = "2024-10-13T15:59:04.758Z" },
-    { url = "https://files.pythonhosted.org/packages/82/b8/08a7a7f813a9e288df6356e9913573c13b2040e4d9cf7788bfcb7fe424fe/ezsnmp-1.1.0-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:92ba39ffab4ef8c806b8c50188cd9dc7166fb503c0563ddfd2960a51069b50b9", size = 3100886, upload-time = "2024-10-13T15:59:06.622Z" },
-    { url = "https://files.pythonhosted.org/packages/2d/d0/bbe1fda6600072539b5a451da93d441b1c8531cb8867cecf4250d7bd2874/ezsnmp-1.1.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:8f843611bca0487de6f276056adc045d83b64837ae5b10775d73fdd032118413", size = 3215508, upload-time = "2024-10-13T15:59:08.071Z" },
-    { url = "https://files.pythonhosted.org/packages/f9/b5/fe8397ea6d0ddfcc997ee052e45eeabd398335db36c8f96831f3e82de555/ezsnmp-1.1.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:25359992eee3069f2d3622a73d22c72d233e28c4bc37ee15852e18bdff917100", size = 48503, upload-time = "2024-10-13T15:59:09.889Z" },
-    { url = "https://files.pythonhosted.org/packages/98/7b/d35d4a4920d3c6ecae309bd41f09084d01dd306feeaeb325c0d17400df9f/ezsnmp-1.1.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:05c765985b715364fc0204fb3cae84fcf0df0fff75622d50fa1495bc095e1610", size = 47498, upload-time = "2024-10-13T15:59:10.783Z" },
-    { url = "https://files.pythonhosted.org/packages/0c/e1/21d030e1e13a6bf234a6d40714ae94de16eba6073aece269ebaec94fdf44/ezsnmp-1.1.0-cp312-cp312-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:60d7f55a9b800e1eca843deb36e3585f5dd64713bcd4c273cc3a241530c03d5f", size = 1152173, upload-time = "2024-10-13T15:59:12.438Z" },
-    { url = "https://files.pythonhosted.org/packages/b3/e2/123f1e9d8af0260c3395f60d23acc19d0d2775edfcd80be01ba7fb29bab0/ezsnmp-1.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:05d79338fe89a681ae4d95425ade06b7fbd0a707c8e78ce0f6630eb26283b5d9", size = 1293178, upload-time = "2024-10-13T15:59:14.242Z" },
-    { url = "https://files.pythonhosted.org/packages/b7/71/67c28daa7afc26a949352801f39566aa126f061ed8b7059db7034bdf4190/ezsnmp-1.1.0-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:b5d501c8cb96bffbd7f7047ce8ac3171e3d5660ad0b3d8f1b2c8f2c312e4a578", size = 3103170, upload-time = "2024-10-13T15:59:15.538Z" },
-    { url = "https://files.pythonhosted.org/packages/30/cd/98a13b90101aed2f3a1b9eee9489b6b1e6355d3095ad3a4fee4c8a305424/ezsnmp-1.1.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:1ed67bd52c1a2fb3de7cbe73c692f3363b8f1b1609edc68501d131c4b8d5809f", size = 3218198, upload-time = "2024-10-13T15:59:17.649Z" },
-    { url = "https://files.pythonhosted.org/packages/28/1b/3d62bde4b816969226a0ecc829caf00799e0e9a8d9252649fd9563550d67/ezsnmp-1.1.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:c7c593beb4602e7b1b8503e934ab3ca4ed9067dc293a785cae2fc43291d13bfc", size = 48504, upload-time = "2024-10-13T15:59:19.505Z" },
-    { url = "https://files.pythonhosted.org/packages/c0/1a/889087634fa80f4013c30556aaa42f141edb06efd7b5bbb3f1d2f9d23f51/ezsnmp-1.1.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:a467a5ea08dd34f062a124ca0424ca9ed473705a1e63fdb96ec6cac55962b55a", size = 47495, upload-time = "2024-10-13T15:59:20.442Z" },
-    { url = "https://files.pythonhosted.org/packages/74/43/fedc4d8e410376bec545beccc193e19823f633820e96e4432f35a19878ed/ezsnmp-1.1.0-cp313-cp313-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:e593aab90d19bfd9fabc76a7599f5f33c4633fd1acc28ce2f8567c2b159f5102", size = 1152152, upload-time = "2024-10-13T15:59:21.408Z" },
-    { url = "https://files.pythonhosted.org/packages/fe/cf/86577757c90315742f7e783b49066af33cd1f928a88f792405ea3edfd7cf/ezsnmp-1.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9ca2514d7ea425cd010488eb4a32816abcd7876bb7f4b2dc25c2bbda0fe96e01", size = 1293094, upload-time = "2024-10-13T15:59:22.573Z" },
-    { url = "https://files.pythonhosted.org/packages/78/d0/f41443512f8ff00140cf170bbe4673785e41a55f00991e8db73d70d64f90/ezsnmp-1.1.0-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:cd2d9d5d80757e90b1e0b89ccf36e89415497a70e12b38d4159c749e23b1c264", size = 3103329, upload-time = "2024-10-13T15:59:23.793Z" },
-    { url = "https://files.pythonhosted.org/packages/19/d4/bbea8b7f6b5ea7c9e873d5c2cbfd2341d8909151bcfe7da811314a8f0432/ezsnmp-1.1.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:3478cc8c54c35f0b86a8ed5277b3f39c01fa1edf96331ea48dcf7e5dd14af13a", size = 3218202, upload-time = "2024-10-13T15:59:25.396Z" },
-]
-
-[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -483,9 +457,6 @@ async = [
 http = [
     { name = "httpx" },
 ]
-sync = [
-    { name = "ezsnmp" },
-]
 testing = [
     { name = "pysnmp" },
 ]
@@ -500,7 +471,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ezsnmp", marker = "extra == 'sync'", specifier = "~=1.1" },
     { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27" },
     { name = "pysnmp", marker = "extra == 'async'", specifier = ">=7.0" },
     { name = "pysnmp", marker = "extra == 'testing'", specifier = ">=7.0" },
