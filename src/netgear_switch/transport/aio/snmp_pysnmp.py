@@ -16,9 +16,12 @@ the rest of the module is fully typed.
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...protocols.snmp.client import ABSENT_TYPES, SnmpError, SnmpRow
+
+if TYPE_CHECKING:
+    from ...protocols.snmp.write import SetVarbind
 
 Triple = tuple[str, int | str | bytes, str]
 
@@ -72,8 +75,32 @@ def _normalize_varbind(name: Any, value: Any) -> Triple:
     return oid, value.prettyPrint(), cls  # textual fallback
 
 
+def _to_set_value(hlapi: Any, vb: SetVarbind) -> Any:
+    """Map a SetVarbind's type letter to the matching pysnmp SMI value object.
+
+    ``s`` and ``x`` both become OctetString (bytes on the wire); ``s`` str
+    values are latin-1 encoded (the inverse of the read normalizer). Kept as a
+    plain function taking ``hlapi`` so it is unit-testable with a fake module,
+    with no live pysnmp import.
+    """
+    if vb.type_letter == "i":
+        return hlapi.Integer32(int(vb.value))
+    if vb.type_letter == "u":
+        return hlapi.Gauge32(int(vb.value))
+    if vb.type_letter == "a":
+        return hlapi.IpAddress(str(vb.value))
+    if vb.type_letter in ("s", "x"):
+        data = (
+            vb.value
+            if isinstance(vb.value, bytes)
+            else str(vb.value).encode("latin-1")
+        )
+        return hlapi.OctetString(data)
+    raise SnmpError(f"unsupported SET type letter {vb.type_letter!r}")
+
+
 class PysnmpClient:
-    """Read-only async SNMP client for a single switch."""
+    """Async SNMP v2c read/write client for a single switch."""
 
     def __init__(
         self,
@@ -173,3 +200,41 @@ class PysnmpClient:
             for oid, value, typ in raw
             if typ.upper() not in ABSENT_TYPES
         ]
+
+    async def _do_set(self, varbinds: list[SetVarbind]) -> None:
+        hlapi = _pysnmp_asyncio()
+        engine = hlapi.SnmpEngine()
+        try:
+            target = await hlapi.UdpTransportTarget.create(
+                (self.host, self.port), timeout=self.timeout, retries=self.retries
+            )
+            objects = [
+                hlapi.ObjectType(hlapi.ObjectIdentity(vb.oid), _to_set_value(hlapi, vb))
+                for vb in varbinds
+            ]
+            err_ind, err_stat, _idx, _binds = await hlapi.set_cmd(
+                engine, hlapi.CommunityData(self.community), target,
+                hlapi.ContextData(), *objects,
+            )
+            if err_ind or err_stat:
+                raise SnmpError(
+                    f"SET {[vb.oid for vb in varbinds]} on {self.host}: "
+                    f"{err_ind or err_stat}"
+                )
+        finally:
+            engine.close_dispatcher()
+
+    async def set(self, varbind: SetVarbind) -> None:
+        await self.set_many([varbind])
+
+    async def set_many(self, varbinds: list[SetVarbind]) -> None:
+        if not varbinds:
+            return
+        try:
+            await self._do_set(varbinds)
+        except SnmpError:
+            raise
+        except Exception as exc:
+            raise SnmpError(
+                f"SET {[vb.oid for vb in varbinds]} on {self.host} failed: {exc}"
+            ) from exc

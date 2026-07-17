@@ -4,6 +4,7 @@ import pytest
 
 from netgear_switch.protocols.snmp.client import SnmpError
 from netgear_switch.protocols.snmp.write import SetVarbind
+from netgear_switch.transport.aio.snmp_pysnmp import _to_set_value
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 
 
@@ -61,3 +62,31 @@ def test_set_raises_snmperror_on_commit_failed():
     with pytest.raises(SnmpError) as exc:
         client.set(SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i"))
     assert "commitFailed" in str(exc.value)
+
+
+class _FakeHlapi:
+    """Records which SMI constructor was used, mirroring the value_parity fake."""
+
+    class Integer32:
+        def __init__(self, v): self.kind, self.v = "Integer32", v
+
+    class Gauge32:
+        def __init__(self, v): self.kind, self.v = "Gauge32", v
+
+    class OctetString:
+        def __init__(self, v): self.kind, self.v = "OctetString", v
+
+    class IpAddress:
+        def __init__(self, v): self.kind, self.v = "IpAddress", v
+
+
+def test_to_set_value_maps_type_letters():
+    h = _FakeHlapi()
+    int_val = _to_set_value(h, SetVarbind("o", 2, "i"))
+    assert (int_val.kind, int_val.v) == ("Integer32", 2)
+    assert _to_set_value(h, SetVarbind("o", 90, "u")).kind == "Gauge32"
+    assert _to_set_value(h, SetVarbind("o", "iot", "s")).v == b"iot"
+    hex_val = _to_set_value(h, SetVarbind("o", bytes([0xC0, 0x00]), "x"))
+    assert hex_val.v == bytes([0xC0, 0x00])
+    ip = _to_set_value(h, SetVarbind("o", "10.1.5.20", "a"))
+    assert (ip.kind, ip.v) == ("IpAddress", "10.1.5.20")
