@@ -24,9 +24,13 @@ class StateMibView:
     """Sorted view of a switch's OID map supporting GET and GETNEXT."""
 
     def __init__(self, state: VirtualSwitchState) -> None:
+        self._state = state
+        self._load()
+
+    def _load(self) -> None:
         entries: list[_Entry] = [
             (_oid_to_tuple(oid), snmp_type, value)
-            for oid, (snmp_type, value) in state.oid_map().items()
+            for oid, (snmp_type, value) in self._state.oid_map().items()
         ]
         entries.sort(key=lambda e: e[0])
         self._entries = entries
@@ -44,3 +48,16 @@ class StateMibView:
         if i < len(self._oids):
             return self._entries[i]
         return None  # caller maps None -> endOfMibView
+
+    def rebuild(self) -> None:
+        """Recompute the sorted view from current state (call after a write)."""
+        self._load()
+
+    def apply_write(self, oid: str, value: int | bytes | str) -> None:
+        """Mutate the underlying state then rebuild so reads reflect the write."""
+        self._state.apply_write(oid, value)
+        self.rebuild()
+
+    def is_writable_oid(self, oid: str) -> bool:
+        """Passthrough to ``VirtualSwitchState.is_writable_oid`` (see there)."""
+        return self._state.is_writable_oid(oid)
