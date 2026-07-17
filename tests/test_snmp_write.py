@@ -520,6 +520,26 @@ class AsyncCoherentPoeClient(FakeAsyncWriteClient):
                     SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 1 if on else 2, "INTEGER")]
 
 
+class AsyncStuckOffPoeClient(FakeAsyncWriteClient):
+    """Async twin of ``StuckOffPoeClient``: admin off is coherent, but admin-on
+    never resumes delivering (detect stays 'searching' forever)."""
+
+    async def set_many(self, vbs):
+        self.sets.extend(vbs)
+        for vb in vbs:
+            if vb.oid.startswith(f"{oids.PETH_PSE_PORT_TABLE}.3.1."):
+                port = int(vb.oid.rsplit(".", 1)[1])
+                if int(vb.value) == 2:  # admin off: coherent transition
+                    self._tables[oids.PETH_PSE_PORT_TABLE] = [
+                        SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.{port}", 2, "INTEGER"),
+                        SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.{port}", 1, "INTEGER"),
+                    ]
+                    self._tables[oids.IF_OPER_STATUS] = [
+                        SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 2, "INTEGER")]
+                # admin on: intentionally left un-wired -> detect stays "searching"
+                # forever, so phase 2 (-> delivering) never terminates on its own.
+
+
 class StuckOffPoeClient(FakeWriteClient):
     """Turns off coherently, but admin-on never resumes delivering -- used to
     exercise the phase-2 (on_timeout) branch of ``cycle_poe``."""
@@ -706,3 +726,51 @@ def test_async_cycle_poe_off_never_reached_raises_timeout_and_terminates():
             timeouts=PoeCycleTimeouts(off_timeout=1, poll_interval=0),
             sleep=_sleep, clock=_incrementing_clock()))
     assert client.sets  # the off SET was issued, but never took effect
+
+
+def test_async_cycle_poe_on_never_reached_raises_timeout_and_terminates():
+    """Async phase-2 timeout: detect never leaves 'searching' after admin
+    is re-enabled. Must raise typed error and terminate deterministically."""
+    client = AsyncStuckOffPoeClient(_poe_full_tables())
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+
+    async def _sleep(seconds: float) -> None:
+        return None
+
+    with pytest.raises(WriteVerificationError, match="did not return to delivering"):
+        asyncio.run(w.cycle_poe(
+            5, force=True,
+            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+            sleep=_sleep, clock=_incrementing_clock()))
+
+
+def test_async_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
+    """Async clear_poe_fault timeout: FAULT state never clears despite device
+    being re-enabled. Must raise typed error and terminate deterministically."""
+    tables = _poe_full_tables()
+    tables[oids.PETH_PSE_PORT_TABLE] = [
+        SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.5", 1, "INTEGER"),
+        SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.5", 4, "INTEGER"),  # stuck FAULT
+    ]
+    client = FakeAsyncWriteClient(tables, apply=False)  # SETs never applied
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
+
+    async def _sleep(seconds: float) -> None:
+        return None
+
+    with pytest.raises(WriteVerificationError, match="still in FAULT"):
+        asyncio.run(w.clear_poe_fault(
+            5, force=True,
+            timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+            sleep=_sleep, clock=_incrementing_clock()))
+
+
+def test_async_clear_poe_fault_protected_port_requires_force():
+    """Protected port guard must block clear_poe_fault unless force=True."""
+    client = AsyncCoherentPoeClient(_poe_full_tables())
+    w = AsyncSnmpWriter(client, get_model("gsm7252ps"), protected_ports=frozenset({5}))
+    with pytest.raises(ProtectedPortError):
+        asyncio.run(w.clear_poe_fault(5))
+    assert client.sets == []  # nothing sent without force
+    asyncio.run(w.clear_poe_fault(5, force=True))  # force bypasses the guard
+    assert client.sets
