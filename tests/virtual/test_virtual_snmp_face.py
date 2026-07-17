@@ -17,15 +17,20 @@ brief's snippet didn't match the real client API:
 from __future__ import annotations
 
 import asyncio
+import gc
+import os
+import warnings
 
 import pytest
 
 from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpRow
+from netgear_switch.registry import get_model
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 from netgear_switch.virtual.server import VirtualSwitch
+from netgear_switch.virtual.state import encode_port_bitmap
 
 _PORT_1_OPER_STATUS = f"{oids.IF_OPER_STATUS}.1"
 
@@ -90,3 +95,141 @@ def test_plus_model_has_no_snmp_face():
 
 def test_stop_before_start_is_a_noop():
     VirtualSwitch(model="gsm7252ps").stop()  # must not raise
+
+
+def test_start_get_stop_lifecycle_emits_no_resource_warning():
+    """A full start -> one GET -> stop lifecycle must close the agent's UDP
+    socket/transport deterministically, not leave it for GC to warn about.
+
+    ``ResourceWarning`` for an unclosed socket/transport is raised from a
+    C-level finalizer during garbage collection, where CPython treats any
+    exception the finalizer raises as *unraisable* (routed to
+    ``sys.unraisablehook``, printed to stderr, never propagated to the
+    caller) -- confirmed empirically: on the pre-fix code, wrapping the
+    lifecycle in ``warnings.simplefilter("error", ResourceWarning)`` alone
+    does NOT raise, even though the leak is very much still there. So the
+    literal "must not raise under an error filter" check below is
+    necessary-but-not-sufficient; the *recording* check after it is what
+    actually proves the fd was closed deterministically rather than left
+    for GC.
+    """
+
+    def _lifecycle() -> None:
+        sw = VirtualSwitch(model="gsm7252ps")
+        sw.start()
+        try:
+            client = PysnmpClient(sw.host, "public", port=sw.port)
+            asyncio.run(client.get([_PORT_1_OPER_STATUS]))
+        finally:
+            sw.stop()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ResourceWarning)
+        _lifecycle()  # must not raise
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _lifecycle()
+        gc.collect()
+    resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
+    assert resource_warnings == []
+
+
+def test_ten_start_stop_cycles_do_not_leak_fds_or_warn():
+    """Ten start/stop cycles: no ResourceWarning, and (where /proc is
+    available) the process's open-fd count does not grow across cycles."""
+    fd_dir = f"/proc/{os.getpid()}/fd"
+    try:
+        before = len(os.listdir(fd_dir))
+    except OSError:
+        before = None  # /proc unavailable on this platform
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        for _ in range(10):
+            sw = VirtualSwitch(model="gsm7252ps")
+            sw.start()
+            sw.stop()
+        gc.collect()
+
+    resource_warnings = [w for w in caught if issubclass(w.category, ResourceWarning)]
+    assert resource_warnings == []
+
+    if before is not None:
+        after = len(os.listdir(fd_dir))
+        assert after <= before + 2  # small constant slack; no per-cycle growth
+
+
+def test_type_token_round_trips_through_pysnmp_client():
+    """Pin Gauge32/Counter32/Counter64/IpAddress/OCTETSTR-bytes/vendor-PoE
+    round-trips through the real wire, so a regression in ``_to_smi_value``'s
+    ``(snmp_type, value)`` -> pysnmp SMI object mapping is caught, not just
+    the INTEGER/OCTETSTR-text cases the other tests already cover. Every
+    expected value below is read straight out of the seeded
+    ``VirtualSwitchState`` (via ``seed_gsm7252ps``), never hardcoded.
+    """
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        port1 = sw.state.ports[1]
+        vlan90 = sw.state.vlans[90]
+        vendor = oids.vendor_oids(get_model("gsm7252ps"))
+
+        assert port1.rx_octets is not None
+        assert port1.rx_errors is not None
+
+        # Gauge32: ifHighSpeed.1
+        oid = f"{oids.IF_HIGH_SPEED}.1"
+        rows = asyncio.run(client.get([oid]))
+        assert rows == [SnmpRow(oid, port1.speed, "Gauge32")]
+
+        # Counter64: ifHCInOctets.1
+        oid = f"{oids.IF_HC_IN_OCTETS}.1"
+        rows = asyncio.run(client.get([oid]))
+        assert rows == [SnmpRow(oid, port1.rx_octets, "Counter64")]
+
+        # Counter32: ifInErrors.1
+        oid = f"{oids.IF_IN_ERRORS}.1"
+        rows = asyncio.run(client.get([oid]))
+        assert rows == [SnmpRow(oid, port1.rx_errors, "Counter32")]
+
+        # IpAddress: ipAdEntAddr.<mgmt address>
+        oid = f"{oids.IP_ADENT_ADDR}.{sw.state.mgmt.address}"
+        rows = asyncio.run(client.get([oid]))
+        assert rows == [SnmpRow(oid, sw.state.mgmt.address, "IpAddress")]
+
+        # OCTETSTR-as-bytes bitmap: dot1qVlanStaticEgressPorts.90
+        oid = f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90"
+        expected_bitmap = encode_port_bitmap(vlan90.member).encode("latin-1")
+        rows = asyncio.run(client.get([oid]))
+        assert rows == [SnmpRow(oid, expected_bitmap, "Hex-STRING")]
+
+        # Vendor PoE delivered power (mW) on port 1, the delivering port.
+        oid = f"{vendor.poe_power_mw}.1.1"
+        rows = asyncio.run(client.get([oid]))
+        assert rows == [SnmpRow(oid, sw.state.poe[1].power_mw, "Gauge32")]
+    finally:
+        sw.stop()
+
+
+def test_ip_address_and_bitmap_round_trip_through_netsnmp_cli_client():
+    """The two parity-critical types (raw-bytes bitmap + IpAddress) pinned
+    through the OTHER transport too: Task 16's sync/async equivalence relies
+    on both clients decoding the exact same wire bytes identically."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        vlan90 = sw.state.vlans[90]
+
+        oid = f"{oids.IP_ADENT_ADDR}.{sw.state.mgmt.address}"
+        rows = client.get([oid])
+        assert rows == [SnmpRow(oid, sw.state.mgmt.address, "IpAddress")]
+
+        oid = f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90"
+        expected_bitmap = encode_port_bitmap(vlan90.member).encode("latin-1")
+        rows = client.get([oid])
+        assert rows == [SnmpRow(oid, expected_bitmap, "Hex-STRING")]
+    finally:
+        sw.stop()

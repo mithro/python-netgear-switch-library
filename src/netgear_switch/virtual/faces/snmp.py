@@ -45,6 +45,7 @@ warned its snippets might be stale — they were):
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import socket
 import threading
@@ -178,12 +179,20 @@ class VirtualSnmpFace:
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
         self._start_error: Exception | None = None
+        # The raw UDP socket the agent binds, captured here (not fished out of
+        # pysnmp) since it is this exact object we hand to
+        # ``UdpTransport.open_server_mode(sock=sock)`` in ``_run`` — asyncio's
+        # ``create_datagram_endpoint(sock=...)`` path never dup()s a passed-in
+        # socket, it wraps this literal object. See ``stop()`` for why closing
+        # it ourselves, deterministically, is necessary.
+        self._sock: socket.socket | None = None
 
     def start(self) -> int:
         """Bind the UDP socket, start the agent thread, and return the port."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((self._host, 0))
         self._port = sock.getsockname()[1]
+        self._sock = sock
 
         self._ready.clear()
         self._start_error = None
@@ -197,7 +206,22 @@ class VirtualSnmpFace:
         return self._port
 
     def stop(self) -> None:
-        """Close the dispatcher and join the background thread."""
+        """Close the dispatcher, join the background thread, and close the
+        agent's UDP socket deterministically.
+
+        pysnmp's ``AsyncioDispatcher.close_dispatcher`` closes the asyncio
+        transport by scheduling its real close (``loop.call_soon(...)``) for
+        the *next* loop iteration, then immediately calls ``loop.stop()`` in
+        that same callback — which breaks ``run_forever()`` before that next
+        iteration ever runs. ``_run`` already compensates for this (it pumps
+        the loop once more after ``run_forever()`` returns, so pysnmp's own
+        deferred close normally does run before the loop is closed). Closing
+        ``self._sock`` here too, after the thread has fully stopped, is a
+        deliberate belt-and-braces backstop: it guarantees the fd is closed
+        deterministically even if that compensation ever fails to run (e.g.
+        a future pysnmp change altering the callback ordering), rather than
+        depending on GC to eventually close it and emit a ResourceWarning.
+        """
         if self._loop is not None and self._engine is not None:
             self._loop.call_soon_threadsafe(self._engine.close_dispatcher)
         if self._thread is not None:
@@ -205,6 +229,11 @@ class VirtualSnmpFace:
         self._engine = None
         self._loop = None
         self._thread = None
+        if self._sock is not None:
+            # Already closed (e.g. by pysnmp's own deferred cleanup) is fine.
+            with contextlib.suppress(OSError):
+                self._sock.close()
+            self._sock = None
 
     def _run(self, sock: socket.socket) -> None:
         loop = asyncio.new_event_loop()
@@ -248,4 +277,18 @@ class VirtualSnmpFace:
         try:
             engine.open_dispatcher()
         finally:
+            # ``stop()`` schedules ``engine.close_dispatcher()`` then calls
+            # ``loop.stop()`` in that very callback — before the asyncio
+            # transport's own deferred close (itself scheduled via
+            # ``loop.call_soon`` a moment earlier, by
+            # ``close_dispatcher``'s ``transport.close_transport()``) gets a
+            # turn to run. Left alone, that means the real UDP socket is
+            # never closed by asyncio's own machinery, only by GC later —
+            # a reproducible "unclosed transport"/"unclosed socket"
+            # ResourceWarning on every stop. Running the loop for one more
+            # complete iteration here (still on this same thread, before
+            # ``loop.close()``) lets that already-queued deferred callback
+            # execute, so the transport (and the raw socket it wraps —
+            # ``self._sock`` in ``start()``) close deterministically instead.
+            loop.run_until_complete(asyncio.sleep(0))
             loop.close()
