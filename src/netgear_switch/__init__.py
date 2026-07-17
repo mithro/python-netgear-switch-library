@@ -33,7 +33,7 @@ from .registry import MODELS, Backend, SwitchClass, SwitchModel, get_model
 
 __version__: str = "0.1.0"
 
-__all__ = [
+__all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "__version__",
     # errors
     "NetgearSwitchError",

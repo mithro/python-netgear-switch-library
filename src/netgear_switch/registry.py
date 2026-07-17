@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import enum
-from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from .errors import UnknownModelError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _FM = "1.3.6.1.4.1.4526.10"   # Fully Managed vendor subtree (M4300, GSM7252PS)
 _SMP = "1.3.6.1.4.1.4526.11"  # Smart Managed Pro vendor subtree (S3300/GSM7228PS)

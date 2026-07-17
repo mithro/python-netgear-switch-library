@@ -8,11 +8,15 @@ import subprocess
 import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .errors import ConfigError, CredentialError
 from .registry import SwitchModel, get_model
 
-Runner = Callable[..., subprocess.CompletedProcess]
+if TYPE_CHECKING:
+    from typing import TypeGuard
+
+Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 _SECRET_COMMAND_TIMEOUT = 10
 
@@ -53,7 +57,7 @@ def resolve_secret(
     return spec
 
 
-def _is_literal(spec: str | None) -> bool:
+def _is_literal(spec: str | None) -> TypeGuard[str]:
     if spec is None:
         return False
     return not (spec.startswith("${") and spec.endswith("}")) and not spec.startswith(
@@ -61,7 +65,7 @@ def _is_literal(spec: str | None) -> bool:
     )
 
 
-def ensure_secure_file(path: os.PathLike | str) -> None:
+def ensure_secure_file(path: os.PathLike[str] | str) -> None:
     """Raise if the file is readable/writable by group or other."""
     mode = os.stat(path).st_mode
     if mode & 0o077:
@@ -151,7 +155,7 @@ def _switch_from_table(
 
 
 def load_inventory(
-    path: os.PathLike | str,
+    path: os.PathLike[str] | str,
     *,
     env: Mapping[str, str] | None = None,
 ) -> dict[str, SwitchConfig]:
