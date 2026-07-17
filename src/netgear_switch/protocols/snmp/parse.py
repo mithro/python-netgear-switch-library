@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...models import LLDPNeighbor, MacEntry, PortStats, PortStatus, VLANInfo
+from ...models import (
+    LLDPNeighbor,
+    MacEntry,
+    PoEDetect,
+    PoEStatus,
+    PortStats,
+    PortStatus,
+    Sensor,
+    VLANInfo,
+)
 from .client import SnmpError, SnmpRow
 
 if TYPE_CHECKING:
@@ -338,3 +347,104 @@ def parse_macs(
             MacEntry(mac=_format_mac_bytes(parts[1:7]), port=port, vlan_id=vlan_id)
         )
     return sorted(result, key=lambda m: (m.port, m.mac))
+
+
+DETECT_MAP: dict[int, PoEDetect] = {
+    1: PoEDetect.DISABLED,
+    2: PoEDetect.SEARCHING,
+    3: PoEDetect.DELIVERING,
+    4: PoEDetect.FAULT,
+}
+
+
+def parse_poe(
+    status: Sequence[SnmpRow], power_mw: Sequence[SnmpRow]
+) -> list[PoEStatus]:
+    """Build PoE port status from RFC3621 pethPsePortTable + vendor mW.
+
+    ``status`` is a walk of pethPsePortTable; only columns 3 (admin) and 6
+    (detect) are honoured (the hard-won fix: never column 1). Rows are
+    grouped by ``(group, port)`` from the ``<col>.<group>.<port>`` instance
+    suffix. A port present in the walk but missing either tracked column is
+    drift (not absence) and raises SnmpError naming the offending port.
+    ``power_mw`` is the vendor per-port power walk, matched to a port by the
+    final OID suffix component; a port without a vendor mW row gets
+    ``power_mw=None``.
+    """
+    from . import oids
+
+    prefix = oids.PETH_PSE_PORT_TABLE + "."
+    cols: dict[tuple[int, int], dict[int, int]] = {}
+    for row in status:
+        if not row.oid.startswith(prefix):
+            continue
+        parts = row.oid[len(prefix):].split(".")
+        if len(parts) != 3:
+            continue
+        column = int(parts[0])
+        if column not in (3, 6):
+            continue
+        try:
+            key = (int(parts[1]), int(parts[2]))
+            cols.setdefault(key, {})[column] = int(row.value)
+        except ValueError as exc:
+            raise SnmpError(
+                f"non-integer PoE value {row.value!r} at {row.oid}"
+            ) from exc
+
+    # vendor mW keyed by port index (2nd suffix component)
+    mw: dict[int, int] = {}
+    for row in power_mw:
+        parts = row.oid.split(".")
+        try:
+            mw[int(parts[-1])] = int(row.value)
+        except ValueError:
+            continue
+
+    result: list[PoEStatus] = []
+    for (_group, port), c in sorted(cols.items()):
+        if 3 not in c:
+            raise SnmpError(f"PoE port {port} missing admin (col 3)")
+        if 6 not in c:
+            raise SnmpError(f"PoE port {port} missing detect (col 6)")
+        result.append(
+            PoEStatus(
+                port=port,
+                admin_enabled=c[3] == 1,
+                detect=DETECT_MAP.get(c[6], PoEDetect.UNKNOWN),
+                power_mw=mw.get(port),
+            )
+        )
+    return result
+
+
+def parse_box_sensors(
+    rows_by_kind: Sequence[tuple[str, str, Sequence[SnmpRow]]],
+) -> list[Sensor]:
+    """Build box sensors from walk-discovered Netgear vendor columns.
+
+    Each tuple is ``(kind, unit, rows)`` for one vendor column walk (e.g.
+    fan RPM, PSU power, temperature). Sensor indices are walk-discovered
+    (they differ per model), not hardcoded. The literal string
+    ``"Not Supported"`` is Netgear's placeholder for an unpopulated slot and
+    is skipped, not an error; any other non-integer value is present-but-
+    malformed and raises SnmpError naming the offending OID.
+    """
+    result: list[Sensor] = []
+    for kind, unit, rows in rows_by_kind:
+        for row in rows:
+            parts = row.oid.split(".")
+            instance = parts[-1]
+            if row.value == "Not Supported":
+                continue
+            try:
+                value = int(row.value)
+            except ValueError as exc:
+                raise SnmpError(
+                    f"non-integer {kind} reading {row.value!r} at {row.oid}"
+                ) from exc
+            result.append(
+                Sensor(name=f"{kind}{instance}", kind=kind,
+                        value=float(value), unit=unit)
+            )
+    return result
