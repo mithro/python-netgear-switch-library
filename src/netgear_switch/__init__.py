@@ -19,10 +19,13 @@ from .errors import (
     WriteVerificationError,
 )
 from .models import (
+    IpMode,
     LLDPNeighbor,
     MacEntry,
+    MgmtIpConfig,
     PoEDetect,
     PoEStatus,
+    PortStats,
     PortStatus,
     Sensor,
     SwitchData,
@@ -48,8 +51,11 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "PoEDetect",
     "VLANInfo",
     "VlanMode",
+    "IpMode",
     "LLDPNeighbor",
     "MacEntry",
+    "PortStats",
+    "MgmtIpConfig",
     "Sensor",
     "SwitchData",
     # registry

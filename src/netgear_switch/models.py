@@ -20,6 +20,12 @@ class VlanMode(enum.Enum):
     EXCLUDED = "excluded"
 
 
+class IpMode(enum.Enum):
+    DHCP = "dhcp"
+    STATIC = "static"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class PortStatus:
     port: int
@@ -74,6 +80,25 @@ class Sensor:
 
 
 @dataclass(frozen=True)
+class PortStats:
+    port: int
+    rx_bytes: int | None
+    tx_bytes: int | None
+    rx_packets: int | None
+    tx_packets: int | None
+    rx_errors: int | None
+    tx_errors: int | None
+
+
+@dataclass(frozen=True)
+class MgmtIpConfig:
+    mode: IpMode
+    address: str | None
+    netmask: str | None
+    gateway: str | None
+
+
+@dataclass(frozen=True)
 class SwitchData:
     model: str
     host: str
@@ -84,3 +109,5 @@ class SwitchData:
     lldp: tuple[LLDPNeighbor, ...] = ()
     macs: tuple[MacEntry, ...] = ()
     sensors: tuple[Sensor, ...] = ()
+    stats: tuple[PortStats, ...] = ()
+    mgmt_ip: MgmtIpConfig | None = None
