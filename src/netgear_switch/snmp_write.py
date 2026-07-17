@@ -8,6 +8,9 @@ Disruptive writes to a ``protected_ports`` port are refused unless ``force=True`
 """
 from __future__ import annotations
 
+import asyncio
+import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .errors import (
@@ -15,6 +18,7 @@ from .errors import (
     UnsupportedCapabilityError,
     WriteVerificationError,
 )
+from .models import PoEDetect
 from .protocols.snmp import oids
 from .protocols.snmp.client import SnmpError
 from .protocols.snmp.parse import decode_port_bitmap
@@ -28,6 +32,8 @@ from .registry import Backend
 from .snmp_read import AsyncSnmpReader, SnmpReader
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from .models import PoEStatus, PortStatus, VLANInfo, VlanMode
     from .protocols.snmp.client import AsyncSnmpWriteClient, SnmpWriteClient
     from .registry import SwitchModel
@@ -40,6 +46,35 @@ def _require_snmp(model: SwitchModel) -> None:
 
 def _poe_admin_oid(port: int) -> str:
     return f"{oids.PETH_PSE_PORT_TABLE}.3.1.{port}"
+
+
+@dataclass(frozen=True)
+class PoeCycleTimeouts:
+    """Injectable PoE-cycle deadlines (seconds). Defaults match design spec §6;
+    tests pass tiny values so cycles run fast against the coherent mock."""
+
+    off_timeout: float = 30.0
+    on_timeout: float = 60.0
+    poll_interval: float = 2.0
+
+
+_DEFAULT_POE_TIMEOUTS = PoeCycleTimeouts()
+
+
+def _poe_is_off(status: PoEStatus | None, port_up: bool) -> bool:
+    return (
+        status is not None
+        and status.detect in (PoEDetect.DISABLED, PoEDetect.SEARCHING)
+        and not port_up
+    )
+
+
+def _poe_recovered(status: PoEStatus | None) -> bool:
+    """True once detect has left FAULT and settled to delivering/searching."""
+    return status is not None and status.detect in (
+        PoEDetect.DELIVERING,
+        PoEDetect.SEARCHING,
+    )
 
 
 class SnmpWriter:
@@ -84,6 +119,72 @@ class SnmpWriter:
                 f"PoE admin for port {port} did not read back as {on}",
                 before=before, after=after,
             )
+
+    def cycle_poe(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._guard(port, force)
+        before = self._poe_status(port)
+        # Phase 1: off, poll until unused/searching + link down.
+        self.client.set(SetVarbind(_poe_admin_oid(port), 2, "i"))
+        deadline = clock() + timeouts.off_timeout
+        while not _poe_is_off(self._poe_status(port), self._port_up(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not turn off within {timeouts.off_timeout}s",
+                    before=before, after=self._poe_status(port))
+            sleep(timeouts.poll_interval)
+        # Phase 2: on, poll until delivering.
+        self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
+        deadline = clock() + timeouts.on_timeout
+        while True:
+            st = self._poe_status(port)
+            if st and st.delivering:
+                break
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not return to delivering within "
+                    f"{timeouts.on_timeout}s",
+                    before=before, after=st)
+            sleep(timeouts.poll_interval)
+
+    def clear_poe_fault(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._guard(port, force)
+        before = self._poe_status(port)
+        # Re-arm detection: disable then enable, then POLL for detect to leave
+        # FAULT. An immediate single re-read false-negatives on real hardware
+        # because detect transitions take seconds (review item 5); tests inject
+        # tiny timeouts so this is fast against the coherent mock.
+        self.client.set_many([
+            SetVarbind(_poe_admin_oid(port), 2, "i"),
+            SetVarbind(_poe_admin_oid(port), 1, "i"),
+        ])
+        deadline = clock() + timeouts.on_timeout
+        while not _poe_recovered(self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} still in FAULT after clear within "
+                    f"{timeouts.on_timeout}s",
+                    before=before, after=self._poe_status(port))
+            sleep(timeouts.poll_interval)
+
+    def _port_up(self, port: int) -> bool:
+        status = self._port_status(port)
+        return bool(status and status.link_up)
 
     def set_port_enabled(
         self, port: int, enabled: bool, *, force: bool = False
@@ -246,6 +347,67 @@ class AsyncSnmpWriter:
                 f"PoE admin for port {port} did not read back as {on}",
                 before=before, after=after,
             )
+
+    async def _port_up(self, port: int) -> bool:
+        status = await self._port_status(port)
+        return bool(status and status.link_up)
+
+    async def cycle_poe(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._guard(port, force)
+        before = await self._poe_status(port)
+        await self.client.set(SetVarbind(_poe_admin_oid(port), 2, "i"))
+        deadline = clock() + timeouts.off_timeout
+        while not _poe_is_off(await self._poe_status(port), await self._port_up(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not turn off within {timeouts.off_timeout}s",
+                    before=before, after=await self._poe_status(port))
+            await sleep(timeouts.poll_interval)
+        await self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
+        deadline = clock() + timeouts.on_timeout
+        while True:
+            st = await self._poe_status(port)
+            if st and st.delivering:
+                break
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not return to delivering within "
+                    f"{timeouts.on_timeout}s",
+                    before=before, after=st)
+            await sleep(timeouts.poll_interval)
+
+    async def clear_poe_fault(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._guard(port, force)
+        before = await self._poe_status(port)
+        # Poll for detect to leave FAULT (review item 5); tiny timeouts in tests.
+        await self.client.set_many([
+            SetVarbind(_poe_admin_oid(port), 2, "i"),
+            SetVarbind(_poe_admin_oid(port), 1, "i"),
+        ])
+        deadline = clock() + timeouts.on_timeout
+        while not _poe_recovered(await self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} still in FAULT after clear within "
+                    f"{timeouts.on_timeout}s",
+                    before=before, after=await self._poe_status(port))
+            await sleep(timeouts.poll_interval)
 
     async def set_port_enabled(
         self, port: int, enabled: bool, *, force: bool = False

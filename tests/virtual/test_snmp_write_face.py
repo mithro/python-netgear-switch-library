@@ -17,13 +17,13 @@ import warnings
 import pytest
 
 from netgear_switch.errors import ProtectedPortError
-from netgear_switch.models import IpMode, VlanMode
+from netgear_switch.models import IpMode, PoEDetect, VlanMode
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
 from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
 from netgear_switch.registry import get_model
 from netgear_switch.snmp_read import AsyncSnmpReader, SnmpReader
-from netgear_switch.snmp_write import AsyncSnmpWriter, SnmpWriter
+from netgear_switch.snmp_write import AsyncSnmpWriter, PoeCycleTimeouts, SnmpWriter
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 from netgear_switch.virtual.server import VirtualSwitch
@@ -485,5 +485,129 @@ def test_snmp_writer_delete_vlan_protected_member_requires_force_live():
 
         writer.delete_vlan(vid, force=True)
         assert all(v.vlan_id != vid for v in reader.get_vlans())
+    finally:
+        sw.stop()
+
+
+def test_snmp_writer_cycle_poe_live_off_then_on():
+    """Drives ``SnmpWriter.cycle_poe`` (injectable, tiny timeouts) through the
+    real SET path against a live ``VirtualSwitch``: admin off -> poll for
+    unused+link-down -> admin on -> poll for delivering. The mock's PoE
+    coherence (``test_set_via_pysnmp_client_poe_admin_cycles_detect_coherence``
+    above) makes this terminate on the first poll, so tiny timeouts are fast
+    and non-flaky."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model)
+        reader = SnmpReader(client, model)
+        port = 2
+
+        writer.cycle_poe(
+            port, force=True,
+            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+        )
+
+        status = next(p for p in reader.get_poe() if p.port == port)
+        assert status.delivering
+        assert sw.state.poe[port].admin is True
+    finally:
+        sw.stop()
+
+
+def test_snmp_writer_clear_poe_fault_live_recovers_detect():
+    """``SnmpWriter.clear_poe_fault`` against a live ``VirtualSwitch``: force a
+    FAULT directly on the mock's state (detect is device-derived, not
+    SNMP-settable), then verify the admin off/on + poll sequence clears it."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model)
+        reader = SnmpReader(client, model)
+        port = 4
+        sw.state.poe[port].detect = 4  # FAULT
+
+        writer.clear_poe_fault(
+            port, force=True,
+            timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+        )
+
+        status = next(p for p in reader.get_poe() if p.port == port)
+        assert status.detect is not PoEDetect.FAULT
+    finally:
+        sw.stop()
+
+
+def test_snmp_writer_cycle_poe_protected_port_requires_force_live():
+    """The protected-port guard against a live mock: cycling PoE on a
+    protected port is refused without ``force=True`` and issues no SET."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        writer = SnmpWriter(client, model, protected_ports=frozenset({2}))
+        port = 2
+
+        with pytest.raises(ProtectedPortError):
+            writer.cycle_poe(port)
+        assert sw.state.poe[port].admin is True  # untouched
+
+        writer.cycle_poe(
+            port, force=True,
+            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+        )
+        assert sw.state.poe[port].admin is True  # cycled back on
+    finally:
+        sw.stop()
+
+
+def test_async_snmp_writer_cycle_poe_live_off_then_on():
+    """Async mirror of ``test_snmp_writer_cycle_poe_live_off_then_on`` over
+    the pysnmp transport, proving sync/async parity."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        writer = AsyncSnmpWriter(client, model)
+        reader = AsyncSnmpReader(client, model)
+        port = 6
+
+        asyncio.run(writer.cycle_poe(
+            port, force=True,
+            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+        ))
+
+        status = next(p for p in asyncio.run(reader.get_poe()) if p.port == port)
+        assert status.delivering
+    finally:
+        sw.stop()
+
+
+def test_async_snmp_writer_clear_poe_fault_live_recovers_detect():
+    """Async mirror of ``test_snmp_writer_clear_poe_fault_live_recovers_detect``
+    over the pysnmp transport, proving sync/async parity."""
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw.start()
+    try:
+        model = get_model("gsm7252ps")
+        client = PysnmpClient(sw.host, "public", port=sw.port)
+        writer = AsyncSnmpWriter(client, model)
+        reader = AsyncSnmpReader(client, model)
+        port = 8
+        sw.state.poe[port].detect = 4  # FAULT
+
+        asyncio.run(writer.clear_poe_fault(
+            port, force=True,
+            timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+        ))
+
+        status = next(p for p in asyncio.run(reader.get_poe()) if p.port == port)
+        assert status.detect is not PoEDetect.FAULT
     finally:
         sw.stop()
