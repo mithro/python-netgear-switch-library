@@ -22,6 +22,9 @@ from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from netgear_switch.models import SwitchData
     from netgear_switch.virtual.server import VirtualSwitch
 
 
@@ -61,19 +64,27 @@ def facades_for(sw: VirtualSwitch) -> tuple[SyncSwitch, AsyncSwitch]:
     Injection sidesteps the sync/async host-spec asymmetry: the net-snmp CLI
     client takes a combined ``host:port`` agent spec, while PysnmpClient takes
     host and port separately.
+
+    The injected net-snmp CLI / pysnmp clients implement both read and write, so
+    each is passed as the read client AND the write client; the mock grants the
+    same community read+write access (writeSubTree in the SNMP face).
     """
     model = get_model(sw.model)
+    sync_client = NetsnmpCliClient(f"{sw.host}:{sw.port}", sw.community)
+    aio_client = PysnmpClient(sw.host, sw.community, port=sw.port)
     sync = SyncSwitch(
         model,
         sw.host,
         snmp_community=sw.community,
-        snmp_client=NetsnmpCliClient(f"{sw.host}:{sw.port}", sw.community),
+        snmp_client=sync_client,
+        snmp_write_client=sync_client,
     )
     aio = AsyncSwitch(
         model,
         sw.host,
         snmp_community=sw.community,
-        snmp_client=PysnmpClient(sw.host, sw.community, port=sw.port),
+        snmp_client=aio_client,
+        snmp_write_client=aio_client,
     )
     return sync, aio
 
@@ -142,3 +153,37 @@ def assert_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> None:
     # Force finalization of any unreferenced pysnmp transport before the
     # -W error::ResourceWarning run inspects warnings.
     gc.collect()
+
+
+def assert_write_equivalent(
+    perform_sync: Callable[[SyncSwitch], None],
+    perform_async: Callable[[AsyncSwitch], Awaitable[None]],
+    expect: Callable[[SwitchData], bool],
+    *,
+    model: str = "gsm7252ps",
+    community: str = "public",
+) -> None:
+    """Apply the same write via sync (on one mock) and async (on a second, fresh
+    mock), then assert both post-write snapshots are byte-identical and the
+    write actually took effect (``expect``)."""
+    from netgear_switch.virtual.server import VirtualSwitch
+
+    sw_sync = VirtualSwitch(model=model, community=community)
+    sw_async = VirtualSwitch(model=model, community=community)
+    sw_sync.start()
+    sw_async.start()
+    try:
+        sync_facade, _ = facades_for(sw_sync)
+        _, async_facade = facades_for(sw_async)
+        perform_sync(sync_facade)
+        asyncio.run(perform_async(async_facade))
+
+        # Read both back through the SYNC transport for a like-for-like compare.
+        snap_from_sync = sync_facade.snapshot()
+        snap_from_async = facades_for(sw_async)[0].snapshot()
+        assert snap_from_sync == snap_from_async, "sync and async writes diverged"
+        assert expect(snap_from_sync), "write did not take effect"
+    finally:
+        sw_sync.stop()
+        sw_async.stop()
+    gc.collect()  # finalize pysnmp transports before -W error::ResourceWarning
