@@ -62,6 +62,15 @@ def _error_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(500, html="internal error")
 
 
+def _post_error_handler(request: httpx.Request) -> httpx.Response:
+    """Login GET succeeds, but POST returns HTTP 500."""
+    if request.url.path == "/login.cgi" and request.method == "GET":
+        return httpx.Response(200, html=_LOGIN_HTML)
+    if request.url.path == "/login.cgi" and request.method == "POST":
+        return httpx.Response(500, html="internal error")
+    return httpx.Response(404)
+
+
 def test_login_body_uses_merge_hash() -> None:
     body = _login_body(_SPEC, _PASSWORD, _LOGIN_HTML)
     assert body == {"password": merge_hash_md5(_PASSWORD, _RAND)}
@@ -171,6 +180,35 @@ def test_async_login_transport_error_status_names_path_and_status() -> None:
         )
         try:
             with pytest.raises(HttpError, match=r"GET /login\.cgi returned HTTP 500"):
+                await client.login()
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
+
+
+def test_sync_login_post_transport_error_status_names_path_and_status() -> None:
+    client = HttpClient(
+        "sw.example",
+        _PASSWORD,
+        _SPEC,
+        transport=httpx.MockTransport(_post_error_handler),
+    )
+    with pytest.raises(HttpError, match=r"POST /login\.cgi returned HTTP 500"):
+        client.login()
+    client.close()
+
+
+def test_async_login_post_transport_error_status_names_path_and_status() -> None:
+    async def run() -> None:
+        client = AsyncHttpClient(
+            "sw.example",
+            _PASSWORD,
+            _SPEC,
+            transport=httpx.MockTransport(_post_error_handler),
+        )
+        try:
+            with pytest.raises(HttpError, match=r"POST /login\.cgi returned HTTP 500"):
                 await client.login()
         finally:
             await client.aclose()
