@@ -81,6 +81,15 @@ def test_ports_json_shape() -> None:
     assert data[0]["speed_mbps"] == 1000
 
 
+def test_ports_json_flag_after_subcommand() -> None:
+    """``--json`` placed after the subcommand must behave the same as before it."""
+    code, out, _ = run(["ports", "--json"], FakeSwitch())
+    assert code == context.EXIT_OK
+    data = json.loads(out)
+    assert data[0]["port"] == 1
+    assert data[0]["speed_mbps"] == 1000
+
+
 def test_vlans_pvids_lldp() -> None:
     assert run(["vlans"], FakeSwitch())[0] == context.EXIT_OK
     assert run(["pvids"], FakeSwitch())[0] == context.EXIT_OK
@@ -93,6 +102,75 @@ def test_macs_and_sensors_and_show() -> None:
     code, out, _ = run(["show"], FakeSwitch())
     assert code == context.EXIT_OK
     assert "## Ports" in out
+
+
+def test_vlans_prints_vlan_specific_fields() -> None:
+    """Distinguishes the vlans handler from one that (wrongly) called get_pvids."""
+
+    class VlansFake(FakeSwitch):
+        def get_vlans(self) -> list[VLANInfo]:
+            return [
+                VLANInfo(
+                    777,
+                    "camnet",
+                    frozenset({5, 6, 23}),
+                    frozenset({23}),
+                    frozenset({5, 6}),
+                )
+            ]
+
+    code, out, _ = run(["vlans"], VlansFake())
+    assert code == context.EXIT_OK
+    assert "777" in out
+    assert "camnet" in out
+    assert "5,6" in out  # untagged ports
+    assert "23" in out  # tagged port
+
+
+def test_pvids_prints_port_pvid_mapping() -> None:
+    """Distinguishes the pvids handler from one that (wrongly) called get_vlans."""
+
+    class PvidsFake(FakeSwitch):
+        def get_pvids(self) -> list[tuple[int, int]]:
+            return [(3, 555)]
+
+    code, out, _ = run(["pvids"], PvidsFake())
+    assert code == context.EXIT_OK
+    assert "555" in out
+    assert "PVID" in out
+
+
+def test_lldp_prints_neighbor_fields() -> None:
+    class LldpFake(FakeSwitch):
+        def get_lldp(self) -> list[LLDPNeighbor]:
+            return [LLDPNeighbor(9, "core-switch-9", "Gi0/9", "de:ad:be:ef:00:09")]
+
+    code, out, _ = run(["lldp"], LldpFake())
+    assert code == context.EXIT_OK
+    assert "core-switch-9" in out
+    assert "de:ad:be:ef:00:09" in out
+
+
+def test_macs_prints_mac_port_vlan() -> None:
+    class MacsFake(FakeSwitch):
+        def get_macs(self) -> list[MacEntry]:
+            return [MacEntry("11:22:33:44:55:66", 17, 200)]
+
+    code, out, _ = run(["macs"], MacsFake())
+    assert code == context.EXIT_OK
+    assert "11:22:33:44:55:66" in out
+    assert "200" in out
+
+
+def test_sensors_prints_sensor_name_value_unit() -> None:
+    class SensorsFake(FakeSwitch):
+        def get_sensors(self) -> list[Sensor]:
+            return [Sensor("psu-temp", "temperature", 57.5, "C")]
+
+    code, out, _ = run(["sensors"], SensorsFake())
+    assert code == context.EXIT_OK
+    assert "psu-temp" in out
+    assert "57.5" in out
 
 
 def test_unsupported_capability_is_clean_message_not_traceback() -> None:
