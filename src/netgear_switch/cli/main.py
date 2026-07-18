@@ -12,6 +12,7 @@ from netgear_switch.errors import NetgearSwitchError
 from netgear_switch.registry import MODELS
 
 from . import format as fmt
+from . import safety
 from .context import EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
 
 if TYPE_CHECKING:
@@ -172,6 +173,50 @@ def _cmd_show(
     return EXIT_OK
 
 
+def _cmd_poe(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    if args.port is None:
+        fmt.emit(ctx, switch.get_poe(), fmt.poe_table)
+        return EXIT_OK
+    if args.action is None:
+        print(
+            "error: an action (on|off|cycle|clear-fault) is required with a port",
+            file=ctx.err,
+        )
+        return EXIT_USAGE
+    actions: dict[str, Callable[[], None]] = {
+        "on": lambda: switch.set_poe(args.port, True, force=args.force),
+        "off": lambda: switch.set_poe(args.port, False, force=args.force),
+        "cycle": lambda: switch.cycle_poe(args.port, force=args.force),
+        "clear-fault": lambda: switch.clear_poe_fault(args.port, force=args.force),
+    }
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"set PoE port {args.port} -> {args.action}",
+        action=actions[args.action],
+    )
+
+
+def _cmd_port(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    enabled = args.state == "up"
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"set port {args.port} {'up' if enabled else 'down'}",
+        action=lambda: switch.set_port_enabled(args.port, enabled, force=args.force),
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     gp = _global_parser()
     parser = argparse.ArgumentParser(
@@ -198,6 +243,26 @@ def build_parser() -> argparse.ArgumentParser:
     read_cmd("macs", _cmd_macs, "show the MAC/FDB table")
     read_cmd("sensors", _cmd_sensors, "show sensors")
     read_cmd("show", _cmd_show, "show a full switch snapshot")
+
+    poe = sub.add_parser(
+        "poe", parents=[child_gp], help="show PoE status, or control a port's PoE"
+    )
+    poe.add_argument("port", type=int, nargs="?", help="port number to control")
+    poe.add_argument(
+        "action",
+        nargs="?",
+        choices=("on", "off", "cycle", "clear-fault"),
+        help="PoE action for the given port",
+    )
+    safety.add_write_args(poe)
+    poe.set_defaults(func=_cmd_poe)
+
+    port = sub.add_parser("port", parents=[child_gp], help="bring a port up or down")
+    port.add_argument("port", type=int, help="port number")
+    port.add_argument("state", choices=("up", "down"), help="admin state")
+    safety.add_write_args(port)
+    port.set_defaults(func=_cmd_port)
+
     return parser
 
 
