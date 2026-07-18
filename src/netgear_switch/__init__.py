@@ -40,7 +40,20 @@ from .models import (
 from .registry import MODELS, Backend, SwitchClass, SwitchModel, get_model
 from .sync_api import SyncSwitch
 
-__version__: str = "0.1.0"
+try:
+    # Normal case: the package is installed (editable or wheel) and its
+    # dist-info carries the version hatch-vcs derived from git at build time.
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
+
+    __version__: str = _pkg_version("python-netgear-switch-library")
+except PackageNotFoundError:  # pragma: no cover - only hit outside an installed env
+    # Fallback for running straight out of a source checkout with no install
+    # metadata available: read the file hatch-vcs generates at build time.
+    try:
+        from ._version import __version__
+    except ImportError:
+        __version__ = "0.0.dev0+unknown"
 
 __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "__version__",
