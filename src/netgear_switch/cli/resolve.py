@@ -34,7 +34,12 @@ def _read_community(
     if config_value:
         return config_value
     if prompt is not None:
-        return prompt("SNMP read community: ")
+        typed = prompt("SNMP read community: ")
+        # A bare Enter at the prompt must NOT become a literal empty-string
+        # SNMP community; treat it as unresolved so the library's existing
+        # lazy CredentialError fires at SNMP-build time instead. (CLI/env/
+        # config tiers are out of scope here -- separate hardening later.)
+        return typed if typed.strip() else None
     return None
 
 

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from netgear_switch.cli.resolve import resolve_switch
-from netgear_switch.errors import ConfigError
+from netgear_switch.errors import ConfigError, CredentialError, UnknownModelError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -76,3 +76,133 @@ def test_unknown_switch_name_raises_configerror(tmp_path: Path) -> None:
 def test_no_target_raises_configerror() -> None:
     with pytest.raises(ConfigError, match="--switch"):
         resolve_switch(_args(), env={})
+
+
+# --- Precedence tests: mutation-catching -----------------------------------
+#
+# Each test sets MULTIPLE credential tiers simultaneously with DISTINCT,
+# conflicting values so that swapping the order of the checks inside
+# `_read_community` (e.g. checking env before args.community) would make the
+# assertion fail. A test that only ever supplies ONE tier at a time cannot
+# distinguish "tier X was checked first" from "tier X was the only one set".
+
+
+def test_cli_flag_beats_env_community() -> None:
+    # Both the CLI flag AND the env var are set, to distinct values: if
+    # `_read_community` checked env before args.community, this would
+    # observe "env_val" instead and the assertion would fail.
+    sw = resolve_switch(
+        _args(host="h", model="gsm7252ps", community="cli_val"),
+        env={"NGSW_COMMUNITY": "env_val"},
+    )
+    assert sw._snmp_community == "cli_val"
+
+
+def test_env_community_beats_config_value(tmp_path: Path) -> None:
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.core]\nmodel = "gsm7252ps"\nhost = "10.1.5.20"\n'
+        'snmp.community = "config_val"\n'
+    )
+    # Both the env var AND the inventory's snmp.community are set, to
+    # distinct values: if `_read_community` checked config_value before
+    # env, this would observe "config_val" instead.
+    sw = resolve_switch(
+        _args(config=str(inv), switch="core"),
+        env={"NGSW_COMMUNITY": "env_val"},
+    )
+    assert sw._snmp_community == "env_val"
+
+
+def test_config_value_beats_prompt(tmp_path: Path) -> None:
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.core]\nmodel = "gsm7252ps"\nhost = "10.1.5.20"\n'
+        'snmp.community = "config_val"\n'
+    )
+
+    def exploding_prompt(text: str) -> str:
+        raise AssertionError("prompt must not be invoked when config has a value")
+
+    # Both the inventory's snmp.community AND a prompt callable are
+    # available, with distinct values: if `_read_community` checked
+    # prompt before config_value, this would either observe a different
+    # value or the exploding prompt would fire.
+    sw = resolve_switch(
+        _args(config=str(inv), switch="core"), env={}, prompt=exploding_prompt
+    )
+    assert sw._snmp_community == "config_val"
+
+
+# --- Write-community override --------------------------------------------
+
+
+def test_cli_write_community_override_reaches_switch() -> None:
+    sw = resolve_switch(
+        _args(
+            host="h", model="gsm7252ps", community="ro_secret",
+            write_community="wr_secret",
+        ),
+        env={},
+    )
+    assert sw._snmp_write_community == "wr_secret"
+    # Also confirm the resolver actually surfaces the override (this is
+    # what every write op consults, not the raw attribute).
+    assert sw._resolve_write_community() == "wr_secret"
+
+
+def test_env_write_community_override_reaches_switch() -> None:
+    sw = resolve_switch(
+        _args(host="h", model="gsm7252ps", community="ro_secret"),
+        env={"NGSW_WRITE_COMMUNITY": "env_wr_secret"},
+    )
+    assert sw._snmp_write_community == "env_wr_secret"
+    assert sw._resolve_write_community() == "env_wr_secret"
+
+
+def test_inventory_cli_write_community_override_wins_over_spec(
+    tmp_path: Path,
+) -> None:
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.core]\nmodel = "gsm7252ps"\nhost = "10.1.5.20"\n'
+        'snmp.community = "public"\nsnmp.write_community = "spec_secret"\n'
+    )
+    inv.chmod(0o600)
+    sw = resolve_switch(
+        _args(config=str(inv), switch="core", write_community="override_secret"),
+        env={},
+    )
+    assert sw._snmp_write_community == "override_secret"
+    assert sw._resolve_write_community() == "override_secret"
+
+
+# --- Unknown model ----------------------------------------------------------
+
+
+def test_unknown_model_raises_unknownmodelerror() -> None:
+    with pytest.raises(UnknownModelError, match="bogus-model"):
+        resolve_switch(
+            _args(host="h", model="bogus-model", community="secret"), env={}
+        )
+
+
+# --- Blank prompt result is treated as unresolved --------------------------
+
+
+def test_blank_prompt_result_is_treated_as_unresolved() -> None:
+    sw = resolve_switch(
+        _args(host="h", model="gsm7252ps"), env={}, prompt=lambda _: ""
+    )
+    assert sw._snmp_community is None
+    # The library's existing lazy CredentialError must fire at SNMP-build
+    # time, not silently pass "" through as a real community.
+    with pytest.raises(CredentialError, match="no SNMP read community"):
+        sw.get_ports()
+
+
+def test_whitespace_only_prompt_result_is_treated_as_unresolved() -> None:
+    sw = resolve_switch(
+        _args(host="h", model="gsm7252ps"), env={}, prompt=lambda _: "   "
+    )
+    assert sw._snmp_community is None
