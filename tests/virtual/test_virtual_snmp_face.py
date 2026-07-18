@@ -88,9 +88,37 @@ def test_walk_reaches_end_of_mib_view_cleanly():
         sw.stop()
 
 
-def test_plus_model_has_no_snmp_face():
+def test_plus_model_binds_nsdp_not_snmp():
+    """A Plus model (NSDP+HTTP backends, no SNMP) must not raise on start() —
+    Task 9 gives it a real NSDP face instead of the SNMP one; see
+    ``tests/virtual/test_virtual_nsdp_face.py`` for full NSDP-face coverage."""
+    sw = VirtualSwitch(model="gs110emx")
+    sw.start()
+    try:
+        assert sw._snmp_face is None
+        assert sw.port != 0
+    finally:
+        sw.stop()
+
+
+def test_model_with_neither_backend_raises_unsupported():
+    """``VirtualSwitch.start()`` still raises for a hypothetical model with
+    no bindable backend at all (every real registry entry has SNMP or NSDP,
+    so this exercises the ``else`` branch directly against a stub)."""
+    from netgear_switch.registry import SwitchClass, SwitchModel
+
+    sw = VirtualSwitch(model="gsm7252ps")
+    sw._model_info = SwitchModel(
+        key="stub-no-backend",
+        display_name="stub",
+        switch_class=SwitchClass.FULLY_MANAGED,
+        port_count=1,
+        poe_port_count=0,
+        backends=frozenset(),
+        snmp_vendor_base=None,
+    )
     with pytest.raises(UnsupportedCapabilityError):
-        VirtualSwitch(model="gs110emx").start()
+        sw.start()
 
 
 def test_stop_before_start_is_a_noop():

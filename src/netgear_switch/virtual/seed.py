@@ -119,3 +119,46 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         lldp=lldp,
         mgmt=mgmt,
     )
+
+
+def seed_gs110emx() -> VirtualSwitchState:
+    """Build a realistic GS110EMX (10-port Plus, NSDP) virtual switch state."""
+    ports: dict[int, PortSim] = {}
+    for port in range(1, 11):
+        speed = 10000 if port in (9, 10) else 1000
+        sim = PortSim(
+            name=f"g{port}",
+            admin=True,
+            link=port != 3,  # port 3 admin-up but link-down
+            speed=speed,
+        )
+        if port in (1, 2):
+            sim.rx_octets = 1_000_000
+            sim.tx_octets = 2_000_000
+            sim.rx_errors = 0
+        ports[port] = sim
+
+    vlans = {
+        1: VlanSim(name="", member=set(range(1, 11)), untagged=set(range(1, 11))),
+        90: VlanSim(name="", member={1, 2, 10}, untagged={1, 2}),
+    }
+    pvids = dict.fromkeys(range(1, 11), 1)
+    pvids[1] = 90
+    pvids[2] = 90
+
+    mgmt = MgmtSim(
+        address="10.1.5.20", netmask="255.255.255.0", gateway="10.1.5.1", mode="static"
+    )
+
+    return VirtualSwitchState(
+        model_key="gs110emx",
+        ports=ports,
+        vlans=vlans,
+        pvids=pvids,
+        mgmt=mgmt,
+        model_name="GS110EMX",
+        serial="53H6025EA0083",
+        firmware="1.0.0.7",
+        hostname="plus-sw",
+        nsdp_password="password",
+    )

@@ -45,11 +45,25 @@ def test_get_ports_delegates_to_injected_client() -> None:
     assert ports[0].speed_mbps == 1000
 
 
-def test_plus_model_read_raises_backend_not_implemented() -> None:
-    sw = SyncSwitch(get_model("gs305ep"), "host")  # {NSDP, HTTP} only
-    with pytest.raises(UnsupportedCapabilityError) as exc:
-        sw.get_ports()
-    assert "gs305ep" in str(exc.value)
+def test_plus_model_read_routes_to_nsdp() -> None:
+    # gs305ep has {NSDP, HTTP} only; now that NSDP is wired, get_ports() must
+    # route to the injected NSDP client rather than raise (superseded the old
+    # "backend not implemented" stub-era assertion now that Task 10 wires NSDP).
+    from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+
+    class FakeNsdp:
+        def read(self, tags: object) -> NSDPPacket:
+            pkt = NSDPPacket(
+                op=Op.READ_RESPONSE, client_mac=b"\x00" * 6, server_mac=b"\xaa" * 6
+            )
+            pkt.add_tlv(Tag.MODEL, b"GS305EP")
+            pkt.add_tlv(Tag.PORT_COUNT, b"\x05")
+            pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")
+            return pkt
+
+    sw = SyncSwitch(get_model("gs305ep"), "host", nsdp_client=FakeNsdp())
+    ports = sw.get_ports()
+    assert ports[0].speed_mbps == 1000
 
 
 def test_get_macs_on_plus_model_raises_no_mac_table() -> None:
@@ -75,10 +89,29 @@ def test_from_config_builds_facade_without_touching_network() -> None:
     assert sw.model.key == "gsm7252ps"
 
 
-def test_snapshot_on_plus_model_raises() -> None:
-    sw = SyncSwitch(get_model("gs305ep"), "host")
-    with pytest.raises(UnsupportedCapabilityError):
-        sw.snapshot()
+def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> None:
+    # snapshot() is backend-tolerant: macs/lldp/sensors/poe are ops NSDP cannot
+    # serve, so they aggregate as empty instead of raising; the other five
+    # sections populate from the injected NSDP client.
+    from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+
+    class FakeNsdp:
+        def read(self, tags: object) -> NSDPPacket:
+            pkt = NSDPPacket(
+                op=Op.READ_RESPONSE, client_mac=b"\x00" * 6, server_mac=b"\xaa" * 6
+            )
+            pkt.add_tlv(Tag.MODEL, b"GS305EP")
+            pkt.add_tlv(Tag.PORT_COUNT, b"\x05")
+            pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")
+            return pkt
+
+    sw = SyncSwitch(get_model("gs305ep"), "host", nsdp_client=FakeNsdp())
+    data = sw.snapshot()
+    assert len(data.ports) == 1
+    assert data.macs == ()
+    assert data.lldp == ()
+    assert data.sensors == ()
+    assert data.poe == ()
 
 
 def test_reader_builds_default_client_when_not_injected(
@@ -316,10 +349,22 @@ def test_sync_switch_write_methods_delegate_to_writer() -> None:
 
 
 def test_plus_model_write_raises_unsupported_capability() -> None:
-    sw = SyncSwitch(get_model("gs305ep"), "host")  # {NSDP, HTTP} only
+    # NSDP has no per-port admin-enable tag; the NsdpWriter must raise before
+    # ever touching the client (DummyNsdp asserts it is never called).
+    class DummyNsdp:
+        def read(self, tags: object) -> None:
+            raise AssertionError("must not be called")
+
+        def write(self, tlvs: object, *, password: str) -> None:
+            raise AssertionError("must not be called")
+
+    sw = SyncSwitch(
+        get_model("gs305ep"), "host",  # {NSDP, HTTP} only
+        nsdp_write_client=DummyNsdp(), nsdp_password="admin",
+    )
     with pytest.raises(UnsupportedCapabilityError) as exc:
         sw.set_port_enabled(1, enabled=False, force=True)
-    assert "gs305ep" in str(exc.value)
+    assert "admin-enable" in str(exc.value)
 
 
 def test_from_config_write_community_resolves_lazily_not_at_construction(
@@ -463,3 +508,60 @@ def test_resolve_write_community_defaults_to_none_without_community_or_resolver(
     sw = SyncSwitch(get_model("gsm7252ps"), "host")
     sw.set_port_enabled(1, enabled=False, force=True)
     assert build_calls == [("host", None)]
+
+
+def test_sync_switch_plus_model_reads_over_nsdp() -> None:
+    from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+
+    class FakeNsdp:
+        def read(self, tags):
+            pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
+                             server_mac=b"\xaa" * 6)
+            pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+            pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
+            pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")
+            return pkt
+
+        def write(self, tlvs, *, password):  # unused here
+            return NSDPPacket(op=Op.WRITE_RESPONSE, client_mac=b"\x00" * 6)
+
+    sw = SyncSwitch(get_model("gs110emx"), "10.1.5.20", nsdp_client=FakeNsdp())
+    assert sw.get_ports()[0].speed_mbps == 1000
+    # A Plus model has no MAC table: facade guard raises before the reader.
+    with pytest.raises(UnsupportedCapabilityError):
+        sw.get_macs()
+
+
+def test_sync_switch_plus_set_pvid_over_nsdp() -> None:
+    from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+
+    class RecordingNsdp:
+        def __init__(self) -> None:
+            self.pvids = {1: 1}
+            self.writes: list[str] = []
+
+        def read(self, tags):
+            import struct
+            pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
+                             server_mac=b"\xaa" * 6)
+            pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+            pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
+            for p, v in self.pvids.items():
+                pkt.add_tlv(Tag.PORT_PVID, bytes([p]) + struct.pack(">H", v))
+            return pkt
+
+        def write(self, tlvs, *, password):
+            import struct
+            self.writes.append(password)
+            for t in tlvs:
+                if t.tag == Tag.PORT_PVID:
+                    self.pvids[t.value[0]] = struct.unpack_from(">H", t.value, 1)[0]
+            return NSDPPacket(op=Op.WRITE_RESPONSE, client_mac=b"\x00" * 6, result=0)
+
+    client = RecordingNsdp()
+    sw = SyncSwitch(get_model("gs110emx"), "10.1.5.20",
+                    nsdp_write_client=client, nsdp_client=client,
+                    nsdp_password="admin")
+    sw.set_pvid(1, 90)
+    assert client.pvids[1] == 90
+    assert client.writes == ["admin"]

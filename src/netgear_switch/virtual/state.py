@@ -11,9 +11,14 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import struct
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from ..registry import get_model
+
+if TYPE_CHECKING:
+    from ..protocols.nsdp.protocol import Tag, TLVEntry
 
 
 def encode_port_bitmap(ports: set[int], width_bytes: int = 8) -> str:
@@ -27,6 +32,11 @@ def encode_port_bitmap(ports: set[int], width_bytes: int = 8) -> str:
     from ..protocols.snmp.write import encode_port_bitmap as _encode_bytes
 
     return _encode_bytes(ports, width_bytes).decode("latin-1")
+
+
+def _mbps_to_speed_byte(mbps: int) -> int:
+    """Map a negotiated Mbps rate to its NSDP LinkSpeed wire byte."""
+    return {10: 0x02, 100: 0x04, 1000: 0x05, 10000: 0xFF}.get(mbps, 0x00)
 
 
 @dataclass
@@ -135,6 +145,12 @@ class VirtualSwitchState:
             address="0.0.0.0", netmask="0.0.0.0", gateway="0.0.0.0", mode="dhcp"
         )
     )
+    model_name: str = ""
+    serial: str = ""
+    firmware: str = ""
+    hostname: str = ""
+    nsdp_password: str = "password"
+    nsdp_mac: bytes = b"\x28\xc6\x8e\x00\x00\x01"  # fixed seed MAC for NSDP identity
 
     def oid_map(self) -> dict[str, tuple[str, str]]:
         """Project this state onto the full numeric OID -> (type, value) view.
@@ -361,6 +377,109 @@ class VirtualSwitchState:
             return
 
         # Unhandled writable OID: deliberate no-op (verify-after-write catches it).
+
+    def nsdp_tlvs(self, tags: set[Tag]) -> list[TLVEntry]:
+        """Project this state onto NSDP read TLVs for the requested tags.
+
+        MODEL / MAC / PORT_COUNT identity is always included (a real Plus switch
+        echoes it, and ``parse_device`` needs the model + a port count to size
+        VLAN bitmaps). Only tags this mock knows are emitted; unknown requested
+        tags are silently skipped, exactly as real hardware does.
+        """
+        import socket
+
+        from ..protocols.nsdp.protocol import Tag, TLVEntry
+
+        model = get_model(self.model_key)
+        port_count = model.port_count
+        width = (port_count + 7) // 8
+        model_bytes = (self.model_name or model.display_name).encode("ascii")
+        out: list[TLVEntry] = [
+            TLVEntry(Tag.MODEL, model_bytes),
+            TLVEntry(Tag.MAC, self.nsdp_mac),
+            TLVEntry(Tag.PORT_COUNT, bytes([port_count])),
+        ]
+        if Tag.SERIAL_NUMBER in tags and self.serial:
+            serial_bytes = b"\x01" + self.serial.encode("ascii")
+            out.append(TLVEntry(Tag.SERIAL_NUMBER, serial_bytes))
+        if Tag.HOSTNAME in tags and self.hostname:
+            out.append(TLVEntry(Tag.HOSTNAME, self.hostname.encode("ascii")))
+        if Tag.FIRMWARE_VER_1 in tags and self.firmware:
+            out.append(TLVEntry(Tag.FIRMWARE_VER_1, self.firmware.encode("ascii")))
+        if Tag.PORT_STATUS in tags:
+            for port, sim in sorted(self.ports.items()):
+                speed_byte = _mbps_to_speed_byte(sim.speed) if sim.link else 0x00
+                out.append(TLVEntry(Tag.PORT_STATUS, bytes([port, speed_byte, 0x01])))
+        if Tag.PORT_STATISTICS in tags:
+            for port, sim in sorted(self.ports.items()):
+                if sim.rx_octets is None:
+                    continue
+                out.append(
+                    TLVEntry(
+                        Tag.PORT_STATISTICS,
+                        bytes([port])
+                        + struct.pack(">Q", sim.rx_octets or 0)
+                        + struct.pack(">Q", sim.tx_octets or 0)
+                        + struct.pack(">Q", sim.rx_errors or 0)
+                        + b"\x00" * 24,
+                    )
+                )
+        if Tag.VLAN_MEMBERS in tags:
+            from ..protocols.nsdp.parsers import ports_to_bitmap
+            for vid, vsim in sorted(self.vlans.items()):
+                tagged = vsim.member - vsim.untagged
+                out.append(
+                    TLVEntry(
+                        Tag.VLAN_MEMBERS,
+                        struct.pack(">H", vid)
+                        + ports_to_bitmap(vsim.member, width)
+                        + ports_to_bitmap(tagged, width),
+                    )
+                )
+        if Tag.PORT_PVID in tags:
+            for port, pv in sorted(self.pvids.items()):
+                pvid_bytes = bytes([port]) + struct.pack(">H", pv)
+                out.append(TLVEntry(Tag.PORT_PVID, pvid_bytes))
+        if Tag.IP_ADDRESS in tags:
+            out.append(TLVEntry(Tag.IP_ADDRESS, socket.inet_aton(self.mgmt.address)))
+        if Tag.NETMASK in tags:
+            out.append(TLVEntry(Tag.NETMASK, socket.inet_aton(self.mgmt.netmask)))
+        if Tag.GATEWAY in tags:
+            out.append(TLVEntry(Tag.GATEWAY, socket.inet_aton(self.mgmt.gateway)))
+        if Tag.DHCP_MODE in tags:
+            dhcp_byte = b"\x00" if self.mgmt.mode == "static" else b"\x01"
+            out.append(TLVEntry(Tag.DHCP_MODE, dhcp_byte))
+        return out
+
+    def apply_nsdp_write(self, tag: Tag | int, value: bytes) -> None:
+        """Mutate this state from one NSDP write TLV (verify-after-write reads it
+        back). Unknown/read-only tags are a deliberate no-op."""
+        import socket
+
+        from ..protocols.nsdp.parsers import parse_vlan_members
+        from ..protocols.nsdp.protocol import Tag
+
+        model = get_model(self.model_key)
+        if tag == Tag.PORT_PVID:
+            self.pvids[value[0]] = struct.unpack_from(">H", value, 1)[0]
+        elif tag == Tag.VLAN_MEMBERS:
+            m = parse_vlan_members(value, model.port_count)
+            existing = self.vlans.get(m.vlan_id)
+            name = existing.name if existing is not None else ""
+            self.vlans[m.vlan_id] = VlanSim(
+                name=name,
+                member=set(m.member_ports),
+                untagged=set(m.untagged_ports),
+            )
+        elif tag == Tag.IP_ADDRESS:
+            self.mgmt.address = socket.inet_ntoa(value)
+        elif tag == Tag.NETMASK:
+            self.mgmt.netmask = socket.inet_ntoa(value)
+        elif tag == Tag.GATEWAY:
+            self.mgmt.gateway = socket.inet_ntoa(value)
+        elif tag == Tag.DHCP_MODE:
+            self.mgmt.mode = "dhcp" if value[:1] == b"\x01" else "static"
+        # REBOOT / FACTORY_RESET / unknown: deliberate no-op.
 
     def is_writable_oid(self, oid: str) -> bool:
         """True if ``oid`` is one this mock recognizes as SNMP-writable.
