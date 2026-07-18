@@ -3,8 +3,11 @@ from __future__ import annotations
 import argparse
 import io
 
+import pytest
+
 from netgear_switch.cli import context
 from netgear_switch.cli.safety import add_write_args, confirm, do_write
+from netgear_switch.errors import ProtectedPortError
 
 
 def make_ctx(stdin_text: str = "") -> context.CliContext:
@@ -107,3 +110,43 @@ def test_confirm_helper_reads_stdin() -> None:
     assert confirm("go?", assume_yes=False, ctx=make_ctx("yes\n")) is True
     assert confirm("go?", assume_yes=False, ctx=make_ctx("\n")) is False
     assert confirm("go?", assume_yes=True, ctx=make_ctx("")) is True
+
+
+def test_action_exception_propagates() -> None:
+    """Exceptions raised by action callable must propagate, not be swallowed."""
+    ctx = make_ctx()
+
+    def failing_action() -> None:
+        raise ProtectedPortError("port 1 is protected")
+
+    with pytest.raises(ProtectedPortError, match="port 1 is protected"):
+        do_write(
+            ctx,
+            dry_run=False,
+            assume_yes=True,
+            host="10.0.0.1",
+            description="modify protected port",
+            action=failing_action,
+        )
+
+
+def test_write_args_default_false() -> None:
+    """When flags are omitted, argparse defaults to False."""
+    parser = argparse.ArgumentParser()
+    add_write_args(parser)
+    args = parser.parse_args([])
+    assert args.dry_run is False
+    assert args.yes is False
+    assert args.force is False
+
+
+def test_confirm_rejects_non_yes_answers() -> None:
+    """Confirmation allow-list only accepts y/yes, rejecting no/maybe/garbage."""
+    # Reject explicit "no"
+    assert confirm("proceed?", assume_yes=False, ctx=make_ctx("no\n")) is False
+    # Reject "maybe"
+    assert confirm("proceed?", assume_yes=False, ctx=make_ctx("maybe\n")) is False
+    # Reject whitespace-only
+    assert confirm("proceed?", assume_yes=False, ctx=make_ctx("   \n")) is False
+    # Reject garbage
+    assert confirm("proceed?", assume_yes=False, ctx=make_ctx("garbage\n")) is False
