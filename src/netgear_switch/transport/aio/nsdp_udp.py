@@ -51,16 +51,25 @@ async def _udp_transceive(
 ) -> bytes:
     loop = asyncio.get_running_loop()
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    if interface is not None:
-        sock.setsockopt(
-            socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface.encode() + b"\0"
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if interface is not None:
+            sock.setsockopt(
+                socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface.encode() + b"\0"
+            )
+        sock.bind(("", client_port))
+        future: asyncio.Future[bytes] = loop.create_future()
+        transport, _proto = await loop.create_datagram_endpoint(
+            lambda: _OneShotProtocol(future), sock=sock
         )
-    sock.bind(("", client_port))
-    future: asyncio.Future[bytes] = loop.create_future()
-    transport, _proto = await loop.create_datagram_endpoint(
-        lambda: _OneShotProtocol(future), sock=sock
-    )
+    except BaseException:
+        # setsockopt/bind (or the endpoint handoff itself) failed before
+        # create_datagram_endpoint took ownership of the socket on success —
+        # nothing else will ever close it, so close it here to avoid an fd
+        # leak. Once the try above succeeds, only the transport (below) owns
+        # the socket and closes it.
+        sock.close()
+        raise
     try:
         transport.sendto(payload, addr)
         return await asyncio.wait_for(future, timeout)
