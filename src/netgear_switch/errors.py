@@ -38,3 +38,15 @@ class WriteVerificationError(NetgearSwitchError):
         super().__init__(message)
         self.before = before
         self.after = after
+
+
+class HttpError(NetgearSwitchError):
+    """An HTTP web-UI transport operation failed (connect, HTTP status, page shape)."""
+
+
+class HttpAuthError(HttpError):
+    """Web-UI login was rejected, or an authenticated session was lost."""
+
+
+class HttpUnexpectedPageError(HttpError):
+    """A web-UI page or token could not be parsed into the expected shape."""
