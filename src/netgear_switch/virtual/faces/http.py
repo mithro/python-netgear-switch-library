@@ -18,32 +18,31 @@ listening socket — so nothing leaks under ``-W error::ResourceWarning``.
 """
 from __future__ import annotations
 
+import dataclasses
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs
 
 from ...protocols.http.crypt import merge_hash_md5
-from ...protocols.http.endpoints import LoginScheme
+from ...protocols.http.endpoints import HttpModelSpec, LoginScheme
 from .. import web
 
 if TYPE_CHECKING:
-    from ...protocols.http.endpoints import HttpModelSpec
     from ..state import VirtualSwitchState
 
 # Every path-shaped field an HttpModelSpec may populate, other than
 # login_path (handled separately as the login handshake). A model that
 # leaves one of these None does not serve that endpoint at all.
-_PATH_FIELDS = (
-    "dashboard_path",
-    "stats_path",
-    "poe_config_path",
-    "poe_status_path",
-    "vlan_config_path",
-    "vlan_membership_path",
-    "pvid_path",
-    "reboot_path",
-    "logout_path",
+#
+# Derived from the dataclass itself (rather than hand-maintained) so a future
+# spec field ending in "_path" is picked up automatically instead of silently
+# 404ing forever; login_path is filtered back out since it is handled by the
+# login handshake, not the known-path gate.
+_PATH_FIELDS: tuple[str, ...] = tuple(
+    f.name
+    for f in dataclasses.fields(HttpModelSpec)
+    if f.name.endswith("_path") and f.name != "login_path"
 )
 
 
@@ -77,6 +76,13 @@ class VirtualHttpFace:
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._cookie = f"{spec.cookie_name}=virtualsid"
+        # ThreadingHTTPServer runs one thread per request; do_GET/do_POST
+        # mutate shared VirtualSwitchState via web.render_page/apply_form
+        # with no lock of their own, so two overlapping requests (e.g. a
+        # sync and an async client hitting the same VirtualSwitch) would
+        # race. Serialize just the render/apply critical section on this
+        # single lock rather than the whole request.
+        self._lock = threading.Lock()
 
     def start(self) -> int:
         face = self
@@ -110,7 +116,9 @@ class VirtualHttpFace:
                 if path not in face._known_paths:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
-                self._send(web.render_page(face.state, face.spec, path, {}))
+                with face._lock:
+                    page = web.render_page(face.state, face.spec, path, {})
+                self._send(page)
 
             def do_POST(self) -> None:
                 path = self.path.split("?", 1)[0]
@@ -122,8 +130,10 @@ class VirtualHttpFace:
                 if path not in face._known_paths:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
-                web.apply_form(face.state, face.spec, path, form)
-                self._send(web.render_page(face.state, face.spec, path, form))
+                with face._lock:
+                    web.apply_form(face.state, face.spec, path, form)
+                    page = web.render_page(face.state, face.spec, path, form)
+                self._send(page)
 
         server = ThreadingHTTPServer((self.host, 0), Handler)
         self._server = server
