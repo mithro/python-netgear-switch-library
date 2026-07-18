@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from netgear_switch.protocols.nsdp import write
 from netgear_switch.protocols.nsdp.client import NsdpError, check_result
 from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+from netgear_switch.transport.aio.nsdp_udp import AsyncUdpNsdpClient
 from netgear_switch.transport.sync.nsdp_udp import UdpNsdpClient
 
 _MAC = b"\x00\x00\x00\x00\x00\x01"
@@ -107,3 +110,51 @@ def test_write_wrong_op_response_raises_nsdperror():
 
 def test_check_result_success_is_silent():
     check_result(NSDPPacket(op=Op.WRITE_RESPONSE, client_mac=_MAC, result=0))
+
+
+def _fake_transceive(response: bytes | None):
+    async def transceive(payload, addr, *, client_port, interface, timeout):
+        if response is None:
+            raise TimeoutError("timed out")
+        return response
+    return transceive
+
+
+def test_async_read_decodes_response():
+    client = AsyncUdpNsdpClient(
+        "127.0.0.1", client_port=0, client_mac=_MAC,
+        transceive=_fake_transceive(_response_packet()),
+    )
+    pkt = asyncio.run(client.read([Tag.MODEL]))
+    assert pkt.op == Op.READ_RESPONSE
+    assert pkt.tlvs[0].value == b"GS110EMX"
+
+
+def test_async_read_timeout_raises_nsdperror():
+    client = AsyncUdpNsdpClient(
+        "127.0.0.1", client_port=0, client_mac=_MAC,
+        transceive=_fake_transceive(None),
+    )
+    with pytest.raises(NsdpError, match="timed out"):
+        asyncio.run(client.read([Tag.MODEL]))
+
+
+def test_async_write_bad_password_raises_nsdperror():
+    client = AsyncUdpNsdpClient(
+        "127.0.0.1", client_port=0, client_mac=_MAC,
+        transceive=_fake_transceive(
+            _response_packet(op=Op.WRITE_RESPONSE, result=0x0700)
+        ),
+    )
+    with pytest.raises(NsdpError, match="bad password"):
+        asyncio.run(client.write([write.pvid_tlv(1, 90)], password="wrong"))
+
+
+def test_async_write_wrong_op_response_raises_nsdperror():
+    # A stray READ_RESPONSE (result=0) must NOT pass as a successful write.
+    client = AsyncUdpNsdpClient(
+        "127.0.0.1", client_port=0, client_mac=_MAC,
+        transceive=_fake_transceive(_response_packet(op=Op.READ_RESPONSE, result=0)),
+    )
+    with pytest.raises(NsdpError, match="expected WRITE_RESPONSE"):
+        asyncio.run(client.write([write.pvid_tlv(1, 90)], password="admin"))
