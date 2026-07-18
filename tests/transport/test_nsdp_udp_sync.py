@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import pytest
+
+from netgear_switch.protocols.nsdp import write
+from netgear_switch.protocols.nsdp.client import NsdpError, check_result
+from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+from netgear_switch.transport.sync.nsdp_udp import UdpNsdpClient
+
+_MAC = b"\x00\x00\x00\x00\x00\x01"
+
+
+class _FakeSocket:
+    """Records sendto and returns a scripted recvfrom response (or raises)."""
+
+    def __init__(self, response: bytes | None):
+        self._response = response
+        self.sent: list[tuple[bytes, tuple[str, int]]] = []
+        self.opts: list[tuple[int, int]] = []
+        self.bound: tuple[str, int] | None = None
+        self.closed = False
+
+    def setsockopt(self, level, opt, val):
+        self.opts.append((level, opt))
+
+    def bind(self, addr):
+        self.bound = addr
+
+    def settimeout(self, t):
+        self._timeout = t
+
+    def sendto(self, data, addr):
+        self.sent.append((data, addr))
+
+    def recvfrom(self, bufsize):
+        if self._response is None:
+            raise TimeoutError("timed out")
+        return self._response, ("127.0.0.1", 63322)
+
+    def close(self):
+        self.closed = True
+
+
+def _response_packet(result: int = 0, op: Op = Op.READ_RESPONSE) -> bytes:
+    pkt = NSDPPacket(op=op, client_mac=_MAC, server_mac=b"\xaa" * 6, result=result)
+    pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+    return pkt.encode()
+
+
+def _client(response: bytes | None) -> tuple[UdpNsdpClient, list[_FakeSocket]]:
+    made: list[_FakeSocket] = []
+
+    def factory(*_a, **_k):
+        s = _FakeSocket(response)
+        made.append(s)
+        return s
+
+    return UdpNsdpClient("127.0.0.1", client_port=0, server_port=63322,
+                         client_mac=_MAC, sock_factory=factory), made
+
+
+def test_read_sends_read_request_and_decodes_response():
+    client, made = _client(_response_packet())
+    pkt = client.read([Tag.MODEL, Tag.PORT_STATUS])
+    assert pkt.op == Op.READ_RESPONSE
+    assert pkt.tlvs[0].value == b"GS110EMX"
+    # A READ_REQUEST datagram went to the server port; socket was closed.
+    sent_data, addr = made[0].sent[0]
+    assert addr == ("127.0.0.1", 63322)
+    assert NSDPPacket.decode(sent_data).op == Op.READ_REQUEST
+    assert made[0].closed is True
+
+
+def test_timeout_raises_nsdperror():
+    client, _ = _client(None)
+    with pytest.raises(NsdpError, match="timed out"):
+        client.read([Tag.MODEL])
+
+
+def test_malformed_response_raises_nsdperror():
+    client, _ = _client(b"not-nsdp-bytes")
+    with pytest.raises(NsdpError, match="malformed"):
+        client.read([Tag.MODEL])
+
+
+def test_write_sends_write_request_with_password_and_checks_result():
+    client, made = _client(_response_packet(op=Op.WRITE_RESPONSE, result=0))
+    client.write([write.pvid_tlv(1, 90)], password="admin")
+    sent_data, _ = made[0].sent[0]
+    req = NSDPPacket.decode(sent_data)
+    assert req.op == Op.WRITE_REQUEST
+    assert req.tlvs[0].tag == Tag.PASSWORD  # v1 auth TLV present
+
+
+def test_write_bad_password_raises_nsdperror():
+    client, _ = _client(_response_packet(op=Op.WRITE_RESPONSE, result=0x0700))
+    with pytest.raises(NsdpError, match="bad password"):
+        client.write([write.pvid_tlv(1, 90)], password="wrong")
+
+
+def test_write_wrong_op_response_raises_nsdperror():
+    # A stray READ_RESPONSE (result=0) must NOT pass as a successful write.
+    client, _ = _client(_response_packet(op=Op.READ_RESPONSE, result=0))
+    with pytest.raises(NsdpError, match="expected WRITE_RESPONSE"):
+        client.write([write.pvid_tlv(1, 90)], password="admin")
+
+
+def test_check_result_success_is_silent():
+    check_result(NSDPPacket(op=Op.WRITE_RESPONSE, client_mac=_MAC, result=0))
