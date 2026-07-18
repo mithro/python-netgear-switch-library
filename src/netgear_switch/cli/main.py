@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, TypedDict
 from netgear_switch.errors import NetgearSwitchError
 from netgear_switch.registry import MODELS
 
+from . import format as fmt
 from .context import EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
 
 if TYPE_CHECKING:
@@ -122,6 +123,55 @@ def _cmd_models(
     return EXIT_OK
 
 
+def _cmd_ports(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().get_ports(), fmt.ports_table)
+    return EXIT_OK
+
+
+def _cmd_vlans(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().get_vlans(), fmt.vlans_table)
+    return EXIT_OK
+
+
+def _cmd_pvids(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().get_pvids(), fmt.pvids_table)
+    return EXIT_OK
+
+
+def _cmd_lldp(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().get_lldp(), fmt.lldp_table)
+    return EXIT_OK
+
+
+def _cmd_macs(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().get_macs(), fmt.macs_table)
+    return EXIT_OK
+
+
+def _cmd_sensors(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().get_sensors(), fmt.sensors_table)
+    return EXIT_OK
+
+
+def _cmd_show(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().snapshot(), fmt.snapshot_text)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     gp = _global_parser()
     parser = argparse.ArgumentParser(
@@ -136,6 +186,18 @@ def build_parser() -> argparse.ArgumentParser:
         "models", parents=[child_gp], help="list the known switch models"
     )
     models.set_defaults(func=_cmd_models)
+
+    def read_cmd(name: str, handler: object, help_text: str) -> None:
+        parser_ = sub.add_parser(name, parents=[child_gp], help=help_text)
+        parser_.set_defaults(func=handler)
+
+    read_cmd("ports", _cmd_ports, "show port status")
+    read_cmd("vlans", _cmd_vlans, "show VLANs")
+    read_cmd("pvids", _cmd_pvids, "show per-port PVIDs")
+    read_cmd("lldp", _cmd_lldp, "show LLDP neighbours")
+    read_cmd("macs", _cmd_macs, "show the MAC/FDB table")
+    read_cmd("sensors", _cmd_sensors, "show sensors")
+    read_cmd("show", _cmd_show, "show a full switch snapshot")
     return parser
 
 
