@@ -15,6 +15,7 @@ HEAD)``).
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -40,6 +41,43 @@ def _git(*args: str) -> str:
     ).stdout.strip()
 
 
+def _run_in_repo(
+    repo: Path, *args: str, check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """Invoke the script with ``DEB_VERSION_REPO`` pointed at a temp repo.
+
+    ``deb-version.py`` normally derives its own repo location from
+    ``__file__``, but honours the ``DEB_VERSION_REPO`` env var override so it
+    can be pointed at a throwaway git repo for these tests without touching
+    the real project checkout.
+    """
+    env = os.environ.copy()
+    env["DEB_VERSION_REPO"] = str(repo)
+    return subprocess.run(
+        ["python3", str(SCRIPT), *args],
+        capture_output=True, text=True, check=check, env=env,
+    )
+
+
+def _init_repo(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.email", "test@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(path), "config", "user.name", "Test User"], check=True,
+    )
+
+
+def _commit(path: Path, message: str) -> None:
+    subprocess.run(
+        ["git", "-C", str(path), "commit", "-q", "--allow-empty", "-m", message],
+        check=True,
+    )
+
+
 def test_script_is_executable_and_has_correct_shebang():
     assert SCRIPT.stat().st_mode & 0o111, "packaging/deb-version.py must be executable"
     first_line = SCRIPT.read_text().splitlines()[0]
@@ -48,7 +86,9 @@ def test_script_is_executable_and_has_correct_shebang():
 
 def test_only_stdlib_imports():
     """Must run in a bare Debian container before any deps are installed."""
-    stdlib_allow = {"argparse", "re", "subprocess", "pathlib", "__future__"}
+    stdlib_allow = {
+        "argparse", "os", "re", "subprocess", "sys", "pathlib", "__future__",
+    }
     tree = ast.parse(SCRIPT.read_text())
     seen = set()
     for node in ast.walk(tree):
@@ -96,3 +136,55 @@ def test_write_changelog_produces_parseable_debian_changelog(tmp_path):
             debian_dir = CHANGELOG.parent
             if debian_dir.exists() and not any(debian_dir.iterdir()):
                 debian_dir.rmdir()
+
+
+def test_version_tag_based_path(tmp_path):
+    """vX.Y -> X.Y at the tag; X.Y.postN with N commits after it.
+
+    The live upstream repo has no tags, so this path (the ``git describe``
+    branch of ``version()``) has no coverage from the other tests above --
+    exercise it directly against a throwaway repo instead.
+    """
+    repo = tmp_path / "tag-repo"
+    _init_repo(repo)
+    _commit(repo, "initial commit")
+    subprocess.run(["git", "-C", str(repo), "tag", "v1.2"], check=True)
+
+    at_tag = _run_in_repo(repo)
+    assert at_tag.stdout.strip() == "1.2"
+
+    n = 3
+    for i in range(n):
+        _commit(repo, f"commit {i} after tag")
+
+    after_tag = _run_in_repo(repo)
+    assert after_tag.stdout.strip() == f"1.2.post{n}"
+
+
+def test_shallow_clone_fails_loudly_instead_of_wrong_version(tmp_path):
+    """A shallow clone must FAIL, not silently emit a truncated 0.0.post1.
+
+    Regression test for the bug where ``git rev-list --count HEAD`` returns 1
+    in a ``--depth 1`` clone, producing a badly wrong version that looks like
+    a downgrade from previously published releases.
+    """
+    origin = tmp_path / "origin"
+    _init_repo(origin)
+    for i in range(5):
+        _commit(origin, f"commit {i}")
+
+    shallow = tmp_path / "shallow-clone"
+    subprocess.run(
+        # file:// forces a real shallow clone; git silently ignores --depth
+        # for plain local-path clones ("--depth is ignored in local clones").
+        ["git", "clone", "-q", "--depth", "1", f"file://{origin}", str(shallow)],
+        check=True,
+    )
+
+    result = _run_in_repo(shallow, check=False)
+
+    assert result.returncode != 0, (
+        f"expected non-zero exit on a shallow clone, got stdout={result.stdout!r}"
+    )
+    assert "0.0.post1" not in result.stdout
+    assert "shallow" in result.stderr.lower()
