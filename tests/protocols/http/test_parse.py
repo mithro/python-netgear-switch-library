@@ -104,6 +104,18 @@ def test_parse_pvids_rejects_malformed_page() -> None:
         parse.parse_pvids(_MALFORMED)
 
 
+def test_parse_pvids_rejects_rows_without_sel_cells() -> None:
+    # portID rows present but missing sel="text"/sel="input" cells (wrong shape)
+    malformed_rows = (
+        '<html><table>'
+        '<tr class="portID"><td>1</td><td>90</td></tr>'
+        '<tr class="portID"><td>2</td><td>1</td></tr>'
+        '</table></html>'
+    )
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_pvids(malformed_rows)
+
+
 def test_parse_vlan_ids_rejects_malformed_page() -> None:
     with pytest.raises(HttpUnexpectedPageError):
         parse.parse_vlan_ids(_MALFORMED)

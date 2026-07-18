@@ -8,7 +8,7 @@ from netgear_switch.protocols.http.endpoints import (
     LoginScheme,
     http_spec,
 )
-from netgear_switch.registry import Backend, get_model
+from netgear_switch.registry import Backend, SwitchModel, get_model
 
 
 def test_every_http_model_has_a_spec() -> None:
@@ -17,7 +17,7 @@ def test_every_http_model_has_a_spec() -> None:
             assert key in HTTP_SPECS, f"{key} has HTTP backend but no HttpModelSpec"
 
 
-def _all_models() -> dict[str, object]:
+def _all_models() -> dict[str, SwitchModel]:
     from netgear_switch.registry import MODELS
 
     return dict(MODELS)

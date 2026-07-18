@@ -167,7 +167,8 @@ def parse_poe_status(html: str) -> list[PoEStatus]:
 
 def parse_pvids(html: str) -> list[tuple[int, int]]:
     """portPVID.cgi rows: ``sel="text"`` cell = port, ``sel="input"`` cell = PVID."""
-    if not _ROW_RE.search(html):
+    rows = _ROW_RE.findall(html)
+    if not rows:
         raise HttpUnexpectedPageError(
             'portPVID.cgi: expected <tr class="portID"> rows, found none'
         )
@@ -178,6 +179,11 @@ def parse_pvids(html: str) -> list[tuple[int, int]]:
         re.DOTALL,
     ):
         out.append((int(m.group(1)), int(m.group(2))))
+    if not out:
+        raise HttpUnexpectedPageError(
+            'portPVID.cgi: expected <td sel="text"> and <td sel="input"> '
+            "cells in portID rows, found none matching"
+        )
     return out
 
 
