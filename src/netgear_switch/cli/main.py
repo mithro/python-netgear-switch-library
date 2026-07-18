@@ -9,6 +9,7 @@ import traceback
 from typing import TYPE_CHECKING, TypedDict
 
 from netgear_switch.errors import NetgearSwitchError
+from netgear_switch.models import VlanMode
 from netgear_switch.registry import MODELS
 
 from . import format as fmt
@@ -217,6 +218,92 @@ def _cmd_port(
     )
 
 
+def _cmd_pvid(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"set PVID port {args.port} -> VLAN {args.vlan}",
+        action=lambda: switch.set_pvid(args.port, args.vlan, force=args.force),
+    )
+
+
+def _cmd_vlan_set(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    mode = VlanMode(args.mode)
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"set VLAN {args.vlan} port {args.port} -> {args.mode}",
+        action=lambda: switch.set_vlan_membership(
+            args.vlan, args.port, mode, force=args.force
+        ),
+    )
+
+
+def _cmd_vlan_create(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"create VLAN {args.vlan} named {args.name!r}",
+        action=lambda: switch.create_vlan(args.vlan, args.name, force=args.force),
+    )
+
+
+def _cmd_vlan_delete(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"delete VLAN {args.vlan}",
+        action=lambda: switch.delete_vlan(args.vlan, force=args.force),
+    )
+
+
+def _cmd_ip(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_mgmt_ip(), fmt.mgmt_ip_text)
+    return EXIT_OK
+
+
+def _cmd_ip_set(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=(
+            f"set mgmt IP {args.address} netmask {args.netmask} gw {args.gateway}"
+        ),
+        action=lambda: switch.set_mgmt_ip(
+            args.address, args.netmask, args.gateway, force=args.force
+        ),
+        warning="WARNING: a wrong management-IP change can strand the switch.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     gp = _global_parser()
     parser = argparse.ArgumentParser(
@@ -262,6 +349,53 @@ def build_parser() -> argparse.ArgumentParser:
     port.add_argument("state", choices=("up", "down"), help="admin state")
     safety.add_write_args(port)
     port.set_defaults(func=_cmd_port)
+
+    pvid = sub.add_parser("pvid", parents=[child_gp], help="set a port's PVID")
+    pvid.add_argument("port", type=int, help="port number")
+    pvid.add_argument("vlan", type=int, help="VLAN id")
+    safety.add_write_args(pvid)
+    pvid.set_defaults(func=_cmd_pvid)
+
+    vlan = sub.add_parser(
+        "vlan", parents=[child_gp], help="create/delete VLANs or set membership"
+    )
+    vlan_sub = vlan.add_subparsers(dest="vlan_cmd", required=True)
+
+    vlan_set = vlan_sub.add_parser(
+        "set", parents=[child_gp], help="set port VLAN membership"
+    )
+    vlan_set.add_argument("vlan", type=int)
+    vlan_set.add_argument("port", type=int)
+    vlan_set.add_argument("mode", choices=("untagged", "tagged", "excluded"))
+    safety.add_write_args(vlan_set)
+    vlan_set.set_defaults(func=_cmd_vlan_set)
+
+    vlan_create = vlan_sub.add_parser(
+        "create", parents=[child_gp], help="create a VLAN"
+    )
+    vlan_create.add_argument("vlan", type=int)
+    vlan_create.add_argument("name")
+    safety.add_write_args(vlan_create)
+    vlan_create.set_defaults(func=_cmd_vlan_create)
+
+    vlan_delete = vlan_sub.add_parser(
+        "delete", parents=[child_gp], help="delete a VLAN"
+    )
+    vlan_delete.add_argument("vlan", type=int)
+    safety.add_write_args(vlan_delete)
+    vlan_delete.set_defaults(func=_cmd_vlan_delete)
+
+    ip = sub.add_parser("ip", parents=[child_gp], help="show or set the management IP")
+    ip.set_defaults(func=_cmd_ip)
+    ip_sub = ip.add_subparsers(dest="ip_cmd")
+    ip_set = ip_sub.add_parser(
+        "set", parents=[child_gp], help="set the management IP"
+    )
+    ip_set.add_argument("address")
+    ip_set.add_argument("netmask")
+    ip_set.add_argument("gateway")
+    safety.add_write_args(ip_set)
+    ip_set.set_defaults(func=_cmd_ip_set)
 
     return parser
 
