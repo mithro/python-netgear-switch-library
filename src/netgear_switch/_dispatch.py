@@ -13,6 +13,7 @@ from .errors import CredentialError, UnsupportedCapabilityError
 from .registry import Backend
 
 if TYPE_CHECKING:
+    from .protocols.nsdp.client import AsyncNsdpWriteClient, NsdpWriteClient
     from .protocols.snmp.client import (
         AsyncSnmpClient,
         AsyncSnmpWriteClient,
@@ -22,8 +23,8 @@ if TYPE_CHECKING:
     from .registry import SwitchModel
 
 BACKEND_NOT_IMPLEMENTED = (
-    "model {key!r} has no SNMP backend; NSDP/HTTP read backends are not "
-    "implemented yet (Slices 5-6)"
+    "model {key!r} has no SNMP backend; its NSDP backend is used instead. "
+    "(An HTTP-only capability is not implemented until Slice 6.)"
 )
 
 
@@ -40,6 +41,14 @@ def require_mac_table(model: SwitchModel) -> None:
     if not model.has_mac_table:
         raise UnsupportedCapabilityError(
             f"model {model.key!r} has no MAC/FDB table"
+        )
+
+
+def require_nsdp_backend(model: SwitchModel) -> None:
+    """Raise unless the model exposes an NSDP backend."""
+    if Backend.NSDP not in model.backends:
+        raise UnsupportedCapabilityError(
+            f"model {model.key!r} has no NSDP backend"
         )
 
 
@@ -92,3 +101,23 @@ def build_async_snmp_write_client(
     from .transport.aio.snmp_pysnmp import PysnmpClient
 
     return PysnmpClient(host, _require_write_community(host, write_community))
+
+
+def build_sync_nsdp_client(host: str, interface: str | None) -> NsdpWriteClient:
+    """Default sync NSDP client (UDP). One client does read AND write, so the
+    return is annotated with the richer ``NsdpWriteClient`` protocol (the
+    concrete ``UdpNsdpClient`` satisfies it; ``NsdpWriteClient`` extends
+    ``NsdpClient`` so a read-only caller can still use it). Lazy import."""
+    from .transport.sync.nsdp_udp import UdpNsdpClient
+
+    return UdpNsdpClient(host, interface=interface)
+
+
+def build_async_nsdp_client(host: str, interface: str | None) -> AsyncNsdpWriteClient:
+    """Default async NSDP client (asyncio UDP). Read AND write; annotated with
+    the richer ``AsyncNsdpWriteClient`` protocol (``AsyncUdpNsdpClient`` satisfies
+    it and it extends ``AsyncNsdpClient``, so ``_reader()`` can still accept it).
+    Lazy import."""
+    from .transport.aio.nsdp_udp import AsyncUdpNsdpClient
+
+    return AsyncUdpNsdpClient(host, interface=interface)

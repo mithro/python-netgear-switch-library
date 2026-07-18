@@ -82,3 +82,28 @@ def test_build_async_write_client_requires_write_community() -> None:
 def test_build_async_write_client_rejects_empty_community() -> None:
     with pytest.raises(CredentialError):
         _dispatch.build_async_snmp_write_client("host", "")
+
+
+def test_require_nsdp_backend_passes_for_plus_model() -> None:
+    _dispatch.require_nsdp_backend(get_model("gs110emx"))
+
+
+def test_require_nsdp_backend_raises_for_snmp_only_model() -> None:
+    with pytest.raises(UnsupportedCapabilityError):
+        _dispatch.require_nsdp_backend(get_model("gsm7252ps"))
+
+
+def test_build_sync_nsdp_client_returns_udp_client() -> None:
+    from netgear_switch.transport.sync.nsdp_udp import UdpNsdpClient
+
+    client = _dispatch.build_sync_nsdp_client("10.1.5.20", None)
+    assert isinstance(client, UdpNsdpClient)
+    assert client.host == "10.1.5.20"
+
+
+def test_build_async_nsdp_client_returns_async_udp_client() -> None:
+    from netgear_switch.transport.aio.nsdp_udp import AsyncUdpNsdpClient
+
+    client = _dispatch.build_async_nsdp_client("10.1.5.20", "eth0")
+    assert isinstance(client, AsyncUdpNsdpClient)
+    assert client.host == "10.1.5.20"

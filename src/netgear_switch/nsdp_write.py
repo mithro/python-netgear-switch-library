@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from .models import VLANInfo
     from .protocols.nsdp.client import AsyncNsdpWriteClient, NsdpWriteClient
     from .registry import SwitchModel
+    from .snmp_write import PoeCycleTimeouts
 
 _NO_POE = "NSDP has no PoE control tag; use the HTTP backend (Slice 6) for PoE"
 _NO_PORT_ADMIN = (
@@ -163,10 +164,19 @@ class NsdpWriter:
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         raise UnsupportedCapabilityError(_NO_POE)
 
-    def cycle_poe(self, port: int, *, force: bool = False) -> None:
+    def cycle_poe(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
+        # timeouts accepted-but-unused: matches SnmpWriter's signature so the
+        # facade's SnmpWriter | NsdpWriter union call site typechecks; NSDP has
+        # no PoE control tag at all, so there is nothing to time.
         raise UnsupportedCapabilityError(_NO_POE)
 
-    def clear_poe_fault(self, port: int, *, force: bool = False) -> None:
+    def clear_poe_fault(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
         raise UnsupportedCapabilityError(_NO_POE)
 
     def set_port_enabled(
@@ -276,10 +286,20 @@ class AsyncNsdpWriter:
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         raise UnsupportedCapabilityError(_NO_POE)
 
-    async def cycle_poe(self, port: int, *, force: bool = False) -> None:
+    async def cycle_poe(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
+        # timeouts accepted-but-unused: matches AsyncSnmpWriter's signature so
+        # the facade's AsyncSnmpWriter | AsyncNsdpWriter union call site
+        # typechecks; NSDP has no PoE control tag at all, so there is nothing
+        # to time.
         raise UnsupportedCapabilityError(_NO_POE)
 
-    async def clear_poe_fault(self, port: int, *, force: bool = False) -> None:
+    async def clear_poe_fault(
+        self, port: int, *, force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
         raise UnsupportedCapabilityError(_NO_POE)
 
     async def set_port_enabled(
