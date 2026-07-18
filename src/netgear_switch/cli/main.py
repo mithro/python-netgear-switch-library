@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import sys
 import traceback
@@ -17,7 +18,7 @@ from . import format as fmt
 from .context import EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from typing import TextIO
 
     from netgear_switch.sync_api import SyncSwitch
@@ -129,6 +130,13 @@ def _cmd_ports(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
     fmt.emit(ctx, get_switch().get_ports(), fmt.ports_table)
+    return EXIT_OK
+
+
+def _cmd_stats(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    fmt.emit(ctx, get_switch().get_stats(), fmt.stats_table)
     return EXIT_OK
 
 
@@ -342,6 +350,7 @@ def build_parser() -> argparse.ArgumentParser:
         parser_.set_defaults(func=handler)
 
     read_cmd("ports", _cmd_ports, "show port status")
+    read_cmd("stats", _cmd_stats, "show port RX/TX counters")
     read_cmd("vlans", _cmd_vlans, "show VLANs")
     read_cmd("pvids", _cmd_pvids, "show per-port PVIDs")
     read_cmd("lldp", _cmd_lldp, "show LLDP neighbours")
@@ -439,6 +448,8 @@ def main(
     stdin: TextIO | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
+    env: Mapping[str, str] | None = None,
+    prompt: Callable[[str], str] = getpass.getpass,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -455,7 +466,7 @@ def main(
             return switch_factory(args, ctx)
         from .resolve import resolve_switch
 
-        return resolve_switch(args)
+        return resolve_switch(args, env=env, prompt=prompt)
 
     try:
         result: int = args.func(args, ctx, get_switch)

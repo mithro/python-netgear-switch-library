@@ -173,6 +173,63 @@ def test_sensors_prints_sensor_name_value_unit() -> None:
     assert "57.5" in out
 
 
+def test_stats_prints_distinct_rx_tx_columns() -> None:
+    """Distinct values in every column so a column swap fails this."""
+
+    class StatsFake(FakeSwitch):
+        def get_stats(self) -> list[PortStats]:
+            return [
+                PortStats(
+                    port=1,
+                    rx_bytes=1001,
+                    tx_bytes=2002,
+                    rx_packets=3003,
+                    tx_packets=4004,
+                    rx_errors=5,
+                    tx_errors=6,
+                )
+            ]
+
+    code, out, _ = run(["stats"], StatsFake())
+    assert code == context.EXIT_OK
+    lines = out.splitlines()
+    assert lines[0].split() == [
+        "Port",
+        "RxBytes",
+        "TxBytes",
+        "RxPackets",
+        "TxPackets",
+        "RxErrors",
+        "TxErrors",
+    ]
+    assert lines[1].split() == ["1", "1001", "2002", "3003", "4004", "5", "6"]
+
+
+def test_stats_json_shape() -> None:
+    class StatsFake(FakeSwitch):
+        def get_stats(self) -> list[PortStats]:
+            return [
+                PortStats(
+                    port=2,
+                    rx_bytes=10,
+                    tx_bytes=20,
+                    rx_packets=1,
+                    tx_packets=2,
+                    rx_errors=0,
+                    tx_errors=0,
+                )
+            ]
+
+    code, out, _ = run(["--json", "stats"], StatsFake())
+    assert code == context.EXIT_OK
+    data = json.loads(out)
+    assert data[0]["port"] == 2
+    assert data[0]["rx_bytes"] == 10
+    assert data[0]["tx_bytes"] == 20
+    assert data[0]["rx_packets"] == 1
+    assert data[0]["tx_packets"] == 2
+
+
 def test_unsupported_capability_is_clean_message_not_traceback() -> None:
     class Unsupported(FakeSwitch):
         def get_ports(self) -> list[PortStatus]:

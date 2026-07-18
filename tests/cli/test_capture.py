@@ -11,6 +11,7 @@ import pytest
 from netgear_switch.cli import context
 from netgear_switch.cli.capture import CaptureRecord, default_raw_walk, run_capture
 from netgear_switch.cli.main import main
+from netgear_switch.errors import ConfigError
 from netgear_switch.models import IpMode, MgmtIpConfig, PortStatus, SwitchData
 from netgear_switch.registry import get_model
 
@@ -157,6 +158,31 @@ def test_default_raw_walk_propagates_timeout(tmp_path: Path) -> None:
 
     assert "error" in record.raw_exchanges[0]
     assert "TimeoutExpired" in record.raw_exchanges[0]["error"]
+
+
+def test_run_capture_wraps_write_oserror_as_configerror(tmp_path: Path) -> None:
+    """An unwritable output path (parent directory does not exist) must
+    surface as a clean ``ConfigError`` naming the path -- never a bare
+    ``OSError``/``FileNotFoundError`` traceback."""
+    bad_path = tmp_path / "does-not-exist" / "cap.json"
+    with pytest.raises(ConfigError, match=str(bad_path)):
+        run_capture(FakeSwitch(), bad_path, snapshot_only=True)
+
+
+def test_capture_command_with_unwritable_path_exits_cleanly_via_main(
+    tmp_path: Path,
+) -> None:
+    bad_path = tmp_path / "does-not-exist" / "cap.json"
+    buf, err = io.StringIO(), io.StringIO()
+    code = main(
+        ["capture", str(bad_path), "--snapshot-only"],
+        switch_factory=lambda a, c: FakeSwitch(),
+        stdout=buf,
+        stderr=err,
+    )
+    assert code != context.EXIT_OK
+    assert "Traceback" not in err.getvalue()
+    assert "error:" in err.getvalue()
 
 
 def test_capture_command_snapshot_only(tmp_path: Path) -> None:

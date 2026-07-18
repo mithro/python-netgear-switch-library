@@ -10,6 +10,7 @@ from netgear_switch.models import (
     MgmtIpConfig,
     PoEDetect,
     PoEStatus,
+    PortStats,
     PortStatus,
     Sensor,
     SwitchData,
@@ -176,6 +177,51 @@ def test_sensors_table_renders_exact_name_kind_value_unit_cells() -> None:
     assert text == (
         "Sensor  Kind         Value  Unit\nCPU     temperature  45.5   C   "
     )
+
+
+def test_stats_table_distinguishes_all_columns() -> None:
+    # Every counter is a distinct value so a column swap (e.g. rx_bytes and
+    # tx_packets) would make one of the split()-compared cells fail.
+    stats = [
+        PortStats(
+            port=1,
+            rx_bytes=100,
+            tx_bytes=200,
+            rx_packets=10,
+            tx_packets=20,
+            rx_errors=1,
+            tx_errors=2,
+        )
+    ]
+    text = fmt.stats_table(stats)
+    lines = text.splitlines()
+    assert lines[0].split() == [
+        "Port",
+        "RxBytes",
+        "TxBytes",
+        "RxPackets",
+        "TxPackets",
+        "RxErrors",
+        "TxErrors",
+    ]
+    assert lines[1].split() == ["1", "100", "200", "10", "20", "1", "2"]
+
+
+def test_stats_table_renders_none_counters_as_dash() -> None:
+    stats = [
+        PortStats(
+            port=3,
+            rx_bytes=None,
+            tx_bytes=None,
+            rx_packets=None,
+            tx_packets=None,
+            rx_errors=None,
+            tx_errors=None,
+        )
+    ]
+    text = fmt.stats_table(stats)
+    lines = text.splitlines()
+    assert lines[1].split() == ["3", "-", "-", "-", "-", "-", "-"]
 
 
 def test_snapshot_text_includes_all_sections() -> None:

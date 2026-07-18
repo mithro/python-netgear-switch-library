@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from netgear_switch.errors import ConfigError
+
 from . import format as fmt
 
 if TYPE_CHECKING:
@@ -109,7 +111,12 @@ def run_capture(
             record.raw_exchanges.append(
                 {"protocol": "snmp", "request": request, "response": lines}
             )
-    out_path.write_text(json.dumps(_as_dict(record), indent=2))
+    try:
+        out_path.write_text(json.dumps(_as_dict(record), indent=2))
+    except OSError as exc:
+        raise ConfigError(
+            f"cannot write capture output to {out_path}: {exc}"
+        ) from exc
     return record
 
 

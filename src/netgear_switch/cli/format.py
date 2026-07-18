@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         MacEntry,
         MgmtIpConfig,
         PoEStatus,
+        PortStats,
         PortStatus,
         Sensor,
         SwitchData,
@@ -132,6 +133,28 @@ def macs_table(entries: Sequence[MacEntry]) -> str:
         for e in entries
     ]
     return _table(("MAC", "Port", "VLAN"), rows)
+
+
+def stats_table(stats: Sequence[PortStats]) -> str:
+    def cell(value: int | None) -> str:
+        return "-" if value is None else str(value)
+
+    rows = [
+        [
+            str(s.port),
+            cell(s.rx_bytes),
+            cell(s.tx_bytes),
+            cell(s.rx_packets),
+            cell(s.tx_packets),
+            cell(s.rx_errors),
+            cell(s.tx_errors),
+        ]
+        for s in stats
+    ]
+    headers = (
+        "Port", "RxBytes", "TxBytes", "RxPackets", "TxPackets", "RxErrors", "TxErrors",
+    )
+    return _table(headers, rows)
 
 
 def sensors_table(sensors: Sequence[Sensor]) -> str:

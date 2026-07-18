@@ -23,13 +23,14 @@ from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable
 
     from netgear_switch.virtual.server import VirtualSwitch
 
 
 def _factory(
     sw: VirtualSwitch,
-) -> object:
+) -> Callable[[argparse.Namespace, context.CliContext], SyncSwitch]:
     def build(args: argparse.Namespace, ctx: context.CliContext) -> SyncSwitch:
         del args, ctx  # resolve seam is bypassed entirely for this e2e test
         client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
