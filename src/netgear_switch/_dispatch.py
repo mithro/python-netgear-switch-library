@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         SnmpWriteClient,
     )
     from .registry import SwitchModel
+    from .transport.http.client import AsyncHttpClient, HttpClient
 
 BACKEND_NOT_IMPLEMENTED = (
     "model {key!r} has no SNMP backend; its NSDP backend is used instead. "
@@ -121,3 +122,57 @@ def build_async_nsdp_client(host: str, interface: str | None) -> AsyncNsdpWriteC
     from .transport.aio.nsdp_udp import AsyncUdpNsdpClient
 
     return AsyncUdpNsdpClient(host, interface=interface)
+
+
+def require_http_backend(model: SwitchModel) -> None:
+    """Raise unless the model exposes an HTTP web-UI backend."""
+    if Backend.HTTP not in model.backends:
+        raise UnsupportedCapabilityError(
+            f"model {model.key!r} has no HTTP backend"
+        )
+
+
+def http_reads_supported(model: SwitchModel) -> bool:
+    """True only if the model's web reads/writes are grounded (reads_verified).
+
+    The facade uses this to decide whether HTTP may join the per-op backend
+    fallback. UNVERIFIED-pending-capture models (gs110emx Gambit, gsm7228ps
+    cheetah) return False: their HTTP path is never used for read/write dispatch
+    (gsm7228ps stays SNMP-authoritative; HTTP is reserved for firmware/reboot).
+    The lazy import keeps ``import netgear_switch`` clear of the endpoints module
+    on the hot path (endpoints is pure, but this mirrors the other lazy builders).
+    """
+    if Backend.HTTP not in model.backends:
+        return False
+    from .protocols.http.endpoints import HTTP_SPECS
+
+    spec = HTTP_SPECS.get(model.key)
+    return spec is not None and spec.reads_verified
+
+
+def _require_http_password(host: str, password: str | None) -> str:
+    if not password:
+        raise CredentialError(f"no HTTP password configured for {host!r}")
+    return password
+
+
+def build_sync_http_client(
+    host: str, password: str | None, model: SwitchModel
+) -> HttpClient:
+    """Default sync web-UI client (httpx). Imported lazily."""
+    from .protocols.http.endpoints import http_spec
+    from .transport.http.client import HttpClient
+
+    return HttpClient(host, _require_http_password(host, password), http_spec(model))
+
+
+def build_async_http_client(
+    host: str, password: str | None, model: SwitchModel
+) -> AsyncHttpClient:
+    """Default async web-UI client (httpx). Imported lazily."""
+    from .protocols.http.endpoints import http_spec
+    from .transport.http.client import AsyncHttpClient
+
+    return AsyncHttpClient(
+        host, _require_http_password(host, password), http_spec(model)
+    )

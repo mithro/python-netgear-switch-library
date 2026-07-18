@@ -162,3 +162,34 @@ def seed_gs110emx() -> VirtualSwitchState:
         hostname="plus-sw",
         nsdp_password="password",
     )
+
+
+def seed_gs305ep() -> VirtualSwitchState:
+    """Build a realistic GS305EP (5-port, PoE ports 1-4) virtual switch state.
+
+    Plus family: no MAC/FDB, no box sensors, no LLDP (web UI exposes none).
+    Port 1 delivers PoE (12800 mW); VLAN 90 carries ports 1,2 (untagged 1,2).
+    """
+    ports = {
+        p: PortSim(
+            name=f"Port {p}", admin=p != 3, link=p == 1, speed=1000 if p == 1 else 0
+        )
+        for p in range(1, 6)
+    }
+    ports[1].rx_octets = 1_000_000
+    ports[1].tx_octets = 2_000_000
+    ports[1].rx_errors = 0
+    vlans = {
+        1: VlanSim(name="default", member={1, 2, 3, 4, 5}, untagged={3, 4, 5}),
+        90: VlanSim(name="iot", member={1, 2}, untagged={1, 2}),
+    }
+    pvids = {1: 90, 2: 90, 3: 1, 4: 1, 5: 1}
+    poe = {
+        1: PoeSim(admin=True, detect=3, power_mw=12_800),
+        2: PoeSim(admin=True, detect=1, power_mw=0),
+        3: PoeSim(admin=True, detect=1, power_mw=0),
+        4: PoeSim(admin=False, detect=1, power_mw=0),
+    }
+    return VirtualSwitchState(
+        model_key="gs305ep", ports=ports, vlans=vlans, pvids=pvids, poe=poe
+    )

@@ -33,3 +33,15 @@ def virtual_gs110emx() -> Iterator[VirtualSwitch]:
         yield sw
     finally:
         sw.stop()
+
+
+@pytest.fixture
+def virtual_gs305ep() -> Iterator[VirtualSwitch]:
+    """Start a seeded gs305ep VirtualSwitch (HTTP face) on an ephemeral port;
+    stop it after the test, even on failure, so no socket is leaked."""
+    sw = VirtualSwitch(model="gs305ep")
+    sw.start()
+    try:
+        yield sw
+    finally:
+        sw.stop()

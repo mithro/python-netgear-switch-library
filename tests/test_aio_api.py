@@ -78,9 +78,11 @@ def test_get_macs_on_plus_model_raises_no_mac_table() -> None:
 
 
 def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> None:
-    # snapshot() is backend-tolerant: macs/lldp/sensors/poe are ops NSDP cannot
-    # serve, so they aggregate as empty instead of raising; the other five
-    # sections populate from the injected NSDP client.
+    # snapshot() is backend-tolerant: macs/lldp/sensors are ops NEITHER NSDP
+    # NOR HTTP can serve on gs305ep, so they aggregate as empty instead of
+    # raising. poe is an NSDP gap that HTTP DOES serve (Task 9 per-op
+    # routing), so with an HTTP client available it populates too, instead of
+    # skipping as it did before HTTP was wired.
     from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
 
     class FakeAsyncNsdp:
@@ -93,13 +95,29 @@ def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> No
             pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")
             return pkt
 
-    sw = AsyncSwitch(get_model("gs305ep"), "host", nsdp_client=FakeAsyncNsdp())
+    class FakeAsyncHttp:
+        async def login(self) -> None: ...
+        async def get_page(self, path: str) -> str:
+            if path == "/getPoePortStatus.cgi":
+                return (
+                    '<tr class="portID"><td>1</td><td>Delivering</td>'
+                    '<td>12800</td></tr>'
+                )
+            return "<input name='hash' value='h'>"
+        async def post_form(self, path: str, data: dict[str, str]) -> str:
+            return ""
+
+    sw = AsyncSwitch(
+        get_model("gs305ep"), "host",
+        nsdp_client=FakeAsyncNsdp(), http_client=FakeAsyncHttp(),
+    )
     data = asyncio.run(sw.snapshot())
     assert len(data.ports) == 1
     assert data.macs == ()
     assert data.lldp == ()
     assert data.sensors == ()
-    assert data.poe == ()
+    assert len(data.poe) == 1
+    assert data.poe[0].power_mw == 12800
 
 
 def test_from_config_builds_facade_without_touching_network() -> None:
@@ -362,9 +380,13 @@ def test_async_switch_write_methods_delegate_to_writer() -> None:
 
 
 def test_plus_model_write_raises_unsupported_capability() -> None:
-    # NSDP has no per-port admin-enable tag; the AsyncNsdpWriter must raise
-    # before ever touching the client (DummyAsyncNsdp asserts it is never
-    # called).
+    # NSDP has no per-port admin-enable tag, so the AsyncNsdpWriter refuses
+    # (without ever touching the client -- DummyAsyncNsdp asserts it is never
+    # called); per-op routing then falls through to HTTP, whose writer ALSO
+    # has no grounded port-enable endpoint and refuses too (without ever
+    # resolving an HTTP password -- construction never even reaches the
+    # wire). The last UnsupportedCapabilityError raised (HTTP's) is what the
+    # caller sees.
     class DummyAsyncNsdp:
         async def read(self, tags: object) -> None:
             raise AssertionError("must not be called")
@@ -378,7 +400,7 @@ def test_plus_model_write_raises_unsupported_capability() -> None:
     )
     with pytest.raises(UnsupportedCapabilityError) as exc:
         asyncio.run(sw.set_port_enabled(1, enabled=False, force=True))
-    assert "admin-enable" in str(exc.value)
+    assert "port-enable" in str(exc.value)
 
 
 def test_from_config_write_community_resolves_lazily_not_at_construction(
@@ -588,5 +610,197 @@ def test_async_switch_plus_set_pvid_over_nsdp() -> None:
         await sw.set_pvid(1, 90)
         assert client.pvids[1] == 90
         assert client.writes == ["admin"]
+
+    asyncio.run(_run())
+
+
+# --- Task 9: per-op three-way backend routing (SNMP > NSDP > HTTP) ---------
+
+
+def test_gs305ep_poe_routes_to_http_ports_stay_nsdp() -> None:
+    # Async mirror of the sync test: PoE is an NSDP gap → served by HTTP; the
+    # facade must fall through NSDP (raises UnsupportedCapabilityError for
+    # get_poe) to HTTP.
+    from netgear_switch.registry import get_model
+
+    class _AsyncHttpSess:
+        async def login(self) -> None: ...
+        async def get_page(self, path: str) -> str:
+            if path == "/getPoePortStatus.cgi":
+                return (
+                    '<tr class="portID"><td>1</td><td>Delivering</td>'
+                    '<td>12800</td></tr>'
+                )
+            return "<input name='hash' value='h'>"
+        async def post_form(self, path: str, data: dict[str, str]) -> str:
+            return ""
+
+    async def _run() -> None:
+        # AsyncNsdpReader.get_poe() raises UnsupportedCapabilityError WITHOUT
+        # touching its client, so a bare object() is a safe NSDP stand-in.
+        sw = AsyncSwitch(
+            get_model("gs305ep"), "sw.example",
+            nsdp_client=object(), nsdp_password="x", http_client=_AsyncHttpSess(),
+        )
+        poe = await sw.get_poe()
+        assert poe[0].port == 1
+        assert poe[0].power_mw == 12800  # came from HTTP, proving fallback
+
+    asyncio.run(_run())
+
+
+def test_gsm7228ps_http_gated_off_for_read_and_write() -> None:
+    # gsm7228ps is SNMP-authoritative; its HTTP backend must never
+    # participate in read/write dispatch (reserved for firmware/reboot).
+    from netgear_switch.registry import Backend, get_model
+
+    sw = AsyncSwitch(get_model("gsm7228ps"), "h")
+    with pytest.raises(UnsupportedCapabilityError):
+        sw._reader_for(Backend.HTTP)
+    with pytest.raises(UnsupportedCapabilityError):
+        sw._writer_for(Backend.HTTP)
+
+
+def test_http_password_resolved_lazily() -> None:
+    from netgear_switch.config import SwitchConfig
+    from netgear_switch.registry import get_model
+
+    cfg = SwitchConfig(
+        name="p", model=get_model("gs305ep"), host="h",
+        snmp_community=None, snmp_write_community_spec=None,
+        http_password_spec="${MISSING_HTTP_PW}", nsdp_interface=None,
+        protected_ports=frozenset(),
+    )
+    # Construction must NOT raise even though the spec is unresolvable.
+    sw = AsyncSwitch.from_config(cfg, env={})
+    assert sw.model.key == "gs305ep"
+
+
+def test_http_client_closed_after_http_routed_op(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # HTTP is the only one of the three backends holding a persistent
+    # connection; the facade must aclose() any AsyncHttpClient IT builds, via
+    # async-context-manager exit.
+    from netgear_switch.registry import get_model
+
+    class _SpyAsyncHttpClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def login(self) -> None: ...
+
+        async def get_page(self, path: str) -> str:
+            if path == "/getPoePortStatus.cgi":
+                return (
+                    '<tr class="portID"><td>1</td><td>Delivering</td>'
+                    '<td>12800</td></tr>'
+                )
+            return "<input name='hash' value='h'>"
+
+        async def post_form(self, path: str, data: dict[str, str]) -> str:
+            return ""
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    spy = _SpyAsyncHttpClient()
+    monkeypatch.setattr(
+        "netgear_switch.aio_api.build_async_http_client",
+        lambda host, password, model: spy,
+    )
+
+    async def _run() -> None:
+        async with AsyncSwitch(
+            get_model("gs305ep"), "sw.example",
+            nsdp_client=object(), nsdp_password="x", http_password="secret",
+        ) as sw:
+            poe = await sw.get_poe()
+            assert poe[0].port == 1
+            assert spy.closed is False  # still in use inside `async with`
+        assert spy.closed is True  # torn down on async-context-manager exit
+
+    asyncio.run(_run())
+
+
+def test_injected_http_client_is_never_closed_by_facade() -> None:
+    # An AsyncHttpSession the caller injected is the caller's to close, not
+    # ours; `aclose()` must never touch it.
+    from netgear_switch.registry import get_model
+
+    class _AsyncHttpSess:
+        async def login(self) -> None: ...
+
+        async def get_page(self, path: str) -> str:
+            if path == "/getPoePortStatus.cgi":
+                return (
+                    '<tr class="portID"><td>1</td><td>Delivering</td>'
+                    '<td>12800</td></tr>'
+                )
+            return "<input name='hash' value='h'>"
+
+        async def post_form(self, path: str, data: dict[str, str]) -> str:
+            return ""
+
+        async def aclose(self) -> None:
+            raise AssertionError("facade must never close a caller-injected client")
+
+    async def _run() -> None:
+        async with AsyncSwitch(
+            get_model("gs305ep"), "sw.example",
+            nsdp_client=object(), nsdp_password="x", http_client=_AsyncHttpSess(),
+        ) as sw:
+            await sw.get_poe()
+
+    asyncio.run(_run())
+
+
+def test_delete_vlan_guards_protected_member_before_http_fallback() -> None:
+    # Async mirror: AsyncNsdpWriter.delete_vlan ALWAYS raises
+    # UnsupportedCapabilityError (NSDP has no VLAN lifecycle ops), so on a
+    # {NSDP, HTTP} model delete_vlan always falls through to AsyncHttpWriter --
+    # which does NOT itself guard protected member ports on delete. The
+    # facade must supply that missing safety rail itself, before HTTP is ever
+    # touched.
+    import struct
+
+    from netgear_switch.errors import ProtectedPortError
+    from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+    from netgear_switch.registry import get_model
+
+    class FakeAsyncNsdp:
+        async def read(self, tags: object) -> NSDPPacket:
+            pkt = NSDPPacket(
+                op=Op.READ_RESPONSE, client_mac=b"\x00" * 6, server_mac=b"\xaa" * 6
+            )
+            pkt.add_tlv(Tag.MODEL, b"GS305EP")
+            pkt.add_tlv(Tag.PORT_COUNT, b"\x05")
+            pkt.add_tlv(
+                Tag.VLAN_MEMBERS,
+                struct.pack(">H", 90) + bytes([0b1000_0000, 0]) + bytes([0, 0]),
+            )  # vlan 90 has protected port 1 as an untagged member
+            return pkt
+
+        async def write(self, tlvs: object, *, password: str) -> None:
+            raise AssertionError("NSDP has no VLAN lifecycle; must not be written")
+
+    class _RaisingAsyncHttpSess:
+        async def login(self) -> None:
+            raise AssertionError("guard must refuse before HTTP is ever touched")
+
+        async def get_page(self, path: str) -> str:
+            raise AssertionError("guard must refuse before HTTP is ever touched")
+
+        async def post_form(self, path: str, data: dict[str, str]) -> str:
+            raise AssertionError("guard must refuse before HTTP is ever touched")
+
+    async def _run() -> None:
+        sw = AsyncSwitch(
+            get_model("gs305ep"), "sw.example",
+            nsdp_client=FakeAsyncNsdp(), http_client=_RaisingAsyncHttpSess(),
+            protected_ports=frozenset({1}),
+        )
+        with pytest.raises(ProtectedPortError):
+            await sw.delete_vlan(90)  # force=False: must refuse, never reach HTTP
 
     asyncio.run(_run())

@@ -14,7 +14,11 @@ from .config import (
 from .errors import (
     ConfigError,
     CredentialError,
+    HttpAuthError,
+    HttpError,
+    HttpUnexpectedPageError,
     NetgearSwitchError,
+    ProtectedPortError,
     UnknownModelError,
     UnsupportedCapabilityError,
     WriteVerificationError,
@@ -47,6 +51,10 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "UnknownModelError",
     "UnsupportedCapabilityError",
     "WriteVerificationError",
+    "ProtectedPortError",
+    "HttpError",
+    "HttpAuthError",
+    "HttpUnexpectedPageError",
     # models
     "PortStatus",
     "PoEStatus",
