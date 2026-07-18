@@ -7,9 +7,12 @@ the parsers consume. No transport-specific types appear here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ...errors import NetgearSwitchError
+
+if TYPE_CHECKING:
+    from .write import SetVarbind
 
 # snmp_type tokens meaning "no value present here".
 ABSENT_TYPES: frozenset[str] = frozenset(
@@ -62,3 +65,24 @@ class AsyncSnmpClient(Protocol):
     async def get(self, oids: list[str]) -> list[SnmpRow]: ...
 
     async def walk(self, base_oid: str) -> list[SnmpRow]: ...
+
+
+class SnmpWriteClient(SnmpClient, Protocol):
+    """Synchronous SNMP v2c read+write client for a single switch.
+
+    Extends the read client with SET. ``set_many`` is one PDU (atomic). A write
+    RW community can also read, so a single write client verifies its own
+    writes via the inherited ``get``/``walk``.
+    """
+
+    def set(self, varbind: SetVarbind) -> None: ...
+
+    def set_many(self, varbinds: list[SetVarbind]) -> None: ...
+
+
+class AsyncSnmpWriteClient(AsyncSnmpClient, Protocol):
+    """Asynchronous SNMP v2c read+write client for a single switch."""
+
+    async def set(self, varbind: SetVarbind) -> None: ...
+
+    async def set_many(self, varbinds: list[SetVarbind]) -> None: ...

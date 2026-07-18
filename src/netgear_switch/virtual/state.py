@@ -9,6 +9,8 @@ Task 5-9 parsers consume. This module is pure data + projection: no network.
 """
 from __future__ import annotations
 
+import copy
+import dataclasses
 from dataclasses import dataclass, field
 
 from ..registry import get_model
@@ -17,17 +19,14 @@ from ..registry import get_model
 def encode_port_bitmap(ports: set[int], width_bytes: int = 8) -> str:
     """Inverse of ``parse.decode_port_bitmap``: a port set -> a latin-1 bitmap.
 
-    Bit 7 (MSB) of byte 0 is port 1, matching the decode side. The result is
-    grown past ``width_bytes`` if a port number requires it, so callers never
-    need to pre-size the buffer for the actual port count.
+    Delegates to the canonical bytes encoder in
+    ``protocols/snmp/write.encode_port_bitmap`` (single source of truth for the
+    MSB-first bit-packing) and decodes to the latin-1 ``str`` this module's
+    callers expect.
     """
-    data = bytearray(width_bytes)
-    for p in ports:
-        byte_idx, bit = divmod(p - 1, 8)
-        while byte_idx >= len(data):
-            data.append(0)
-        data[byte_idx] |= 0x80 >> bit
-    return data.decode("latin-1")
+    from ..protocols.snmp.write import encode_port_bitmap as _encode_bytes
+
+    return _encode_bytes(ports, width_bytes).decode("latin-1")
 
 
 @dataclass
@@ -145,8 +144,11 @@ class VirtualSwitchState:
         the seeded state from what the face returns.
         """
         from ..protocols.snmp import oids
+        from ..protocols.snmp.write import vlan_bitmap_width
 
-        v = oids.vendor_oids(get_model(self.model_key))
+        model = get_model(self.model_key)
+        v = oids.vendor_oids(model)
+        vlan_width = vlan_bitmap_width(model)
         m: dict[str, tuple[str, str]] = {}
 
         for port, sim in self.ports.items():
@@ -172,9 +174,9 @@ class VirtualSwitchState:
         for vid, vsim in self.vlans.items():
             m[f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"] = ("OCTETSTR", vsim.name)
             m[f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"] = (
-                "OCTETSTR", encode_port_bitmap(vsim.member))
+                "OCTETSTR", encode_port_bitmap(vsim.member, width_bytes=vlan_width))
             m[f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}"] = (
-                "OCTETSTR", encode_port_bitmap(vsim.untagged))
+                "OCTETSTR", encode_port_bitmap(vsim.untagged, width_bytes=vlan_width))
 
         for port, pv in self.pvids.items():
             m[f"{oids.DOT1Q_PVID}.{port}"] = ("Gauge32", str(pv))
@@ -225,3 +227,180 @@ class VirtualSwitchState:
             "INTEGER", "2" if self.mgmt.mode == "static" else "1")
 
         return m
+
+    def snapshot(self) -> VirtualSwitchState:
+        """Deep-copy this state, for atomic multi-varbind SET rollback.
+
+        A single SNMP SET PDU can carry several varbinds (e.g.
+        ``set_vlan_membership`` writing both the egress and untagged
+        bitmaps in one ``set_many`` call) and a real agent guarantees they
+        apply all-or-nothing. ``faces/snmp.py``'s ``write_variables``
+        snapshots the state before applying a PDU's varbinds and calls
+        ``restore`` on this snapshot if any of them fails, so a partial
+        mutation is never observable. See ``restore``.
+        """
+        return copy.deepcopy(self)
+
+    def restore(self, snapshot: VirtualSwitchState) -> None:
+        """Restore this state in place from a prior ``snapshot()`` result.
+
+        Copies every dataclass field from ``snapshot`` onto ``self`` rather
+        than replacing ``self`` itself, so existing references to this exact
+        object (e.g. ``VirtualSwitch.state``, ``StateMibView._state``) keep
+        seeing the restored data.
+        """
+        for f in dataclasses.fields(self):
+            setattr(self, f.name, getattr(snapshot, f.name))
+
+    def apply_write(self, oid: str, value: int | bytes | str) -> None:
+        """Mutate this state from one SNMP SET varbind, with device coherence.
+
+        Dispatches on the OID's column prefix. Applies the same coherence a real
+        PoE switch shows so ``cycle_poe`` terminates against the mock: admin off
+        -> detect=1 (unused) + data-port link down; admin on -> detect=3
+        (delivering). Unhandled writable OIDs are a deliberate no-op (the write
+        "succeeds" but reads back unchanged), which is exactly what a
+        verify-after-write must catch. (The SNMP face layer additionally
+        rejects a SET on an OID ``is_writable_oid`` doesn't recognize at all
+        with a proper SNMP error, before it ever reaches here — see
+        ``faces/snmp.py``.)
+        """
+        from ..protocols.snmp import oids
+        from ..registry import get_model
+
+        v = oids.vendor_oids(get_model(self.model_key))
+
+        def _tail(base: str) -> int | None:
+            prefix = base + "."
+            if oid.startswith(prefix) and oid[len(prefix):].isdigit():
+                return int(oid[len(prefix):])
+            return None
+
+        def _as_bytes(val: int | bytes | str) -> bytes:
+            if isinstance(val, bytes):
+                return val
+            if isinstance(val, str):
+                return val.encode("latin-1")
+            return bytes([val])
+
+        # ifAdminStatus.<port>
+        port = _tail(oids.IF_ADMIN_STATUS)
+        if port is not None and port in self.ports:
+            self.ports[port].admin = int(value) == 1
+            if int(value) != 1:
+                self.ports[port].link = False
+            return
+
+        # pethPsePortAdminEnable = <table>.3.1.<port>
+        poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
+        if oid.startswith(poe_prefix) and oid[len(poe_prefix):].isdigit():
+            p = int(oid[len(poe_prefix):])
+            if p in self.poe:
+                on = int(value) == 1
+                self.poe[p].admin = on
+                self.poe[p].detect = 3 if on else 1  # delivering / unused
+                if not on and p in self.ports:
+                    self.ports[p].link = False
+            return
+
+        # dot1qPvid.<port>
+        port = _tail(oids.DOT1Q_PVID)
+        if port is not None:
+            self.pvids[port] = int(value)
+            return
+
+        # dot1qVlanStaticEgressPorts.<vid>
+        vid = _tail(oids.DOT1Q_VLAN_STATIC_EGRESS)
+        if vid is not None and vid in self.vlans:
+            from ..protocols.snmp.parse import decode_port_bitmap
+            self.vlans[vid].member = set(decode_port_bitmap(_as_bytes(value)))
+            return
+
+        # dot1qVlanStaticUntaggedPorts.<vid>
+        vid = _tail(oids.DOT1Q_VLAN_STATIC_UNTAGGED)
+        if vid is not None and vid in self.vlans:
+            from ..protocols.snmp.parse import decode_port_bitmap
+            self.vlans[vid].untagged = set(decode_port_bitmap(_as_bytes(value)))
+            return
+
+        # dot1qVlanStaticRowStatus.<vid>  (createAndGo=4 / destroy=6)
+        vid = _tail(oids.DOT1Q_VLAN_STATIC_ROW_STATUS)
+        if vid is not None:
+            if int(value) == oids.ROW_STATUS_DESTROY:
+                self.vlans.pop(vid, None)
+            elif int(value) == oids.ROW_STATUS_CREATE_AND_GO and vid not in self.vlans:
+                self.vlans[vid] = VlanSim(name="")
+            return
+
+        # dot1qVlanStaticName.<vid>
+        vid = _tail(oids.DOT1Q_VLAN_STATIC_NAME)
+        if vid is not None:
+            name = value.decode("latin-1") if isinstance(value, bytes) else str(value)
+            if vid in self.vlans:
+                self.vlans[vid].name = name
+            else:
+                self.vlans[vid] = VlanSim(name=name)
+            return
+
+        # UNVERIFIED mgmt-IP write OIDs -> MgmtSim (read projection follows).
+        if oid == v.mgmt_write_addr_unverified:
+            self.mgmt.address = str(value)
+            return
+        if oid == v.mgmt_write_netmask_unverified:
+            self.mgmt.netmask = str(value)
+            return
+        if oid == v.mgmt_write_gateway_unverified:
+            self.mgmt.gateway = str(value)
+            return
+
+        # UNVERIFIED dhcp-mode write OID (same scalar the read projection
+        # advertises, mirroring the mgmt-write precedent above): 2=static,
+        # anything else=dhcp, matching oid_map()'s own encoding exactly.
+        if oid == f"{v.dhcp_mode_unverified}.0":
+            self.mgmt.mode = "static" if int(value) == 2 else "dhcp"
+            return
+
+        # Unhandled writable OID: deliberate no-op (verify-after-write catches it).
+
+    def is_writable_oid(self, oid: str) -> bool:
+        """True if ``oid`` is one this mock recognizes as SNMP-writable.
+
+        Mirrors ``apply_write``'s dispatch prefixes on purpose (single set of
+        column constants from ``protocols.snmp.oids``, kept in sync
+        deliberately) so the SNMP face (``faces/snmp.py``) can reject a SET on
+        a genuinely unknown/read-only OID with a proper SNMP error
+        (notWritable) instead of the always-succeeding no-op ``apply_write``
+        itself deliberately allows for a recognized-but-absent instance (e.g.
+        creating a not-yet-existing VLAN row).
+        """
+        from ..protocols.snmp import oids
+        from ..registry import get_model
+
+        v = oids.vendor_oids(get_model(self.model_key))
+
+        def _is_col(base: str) -> bool:
+            prefix = base + "."
+            return oid.startswith(prefix) and oid[len(prefix):].isdigit()
+
+        if _is_col(oids.IF_ADMIN_STATUS):
+            return True
+        poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
+        if oid.startswith(poe_prefix) and oid[len(poe_prefix):].isdigit():
+            return True
+        if _is_col(oids.DOT1Q_PVID):
+            return True
+        if _is_col(oids.DOT1Q_VLAN_STATIC_EGRESS):
+            return True
+        if _is_col(oids.DOT1Q_VLAN_STATIC_UNTAGGED):
+            return True
+        if _is_col(oids.DOT1Q_VLAN_STATIC_ROW_STATUS):
+            return True
+        if _is_col(oids.DOT1Q_VLAN_STATIC_NAME):
+            return True
+        if oid in (
+            v.mgmt_write_addr_unverified,
+            v.mgmt_write_netmask_unverified,
+            v.mgmt_write_gateway_unverified,
+        ):
+            return True
+        return oid == f"{v.dhcp_mode_unverified}.0"

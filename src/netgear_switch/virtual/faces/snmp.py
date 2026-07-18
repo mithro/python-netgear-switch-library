@@ -41,6 +41,31 @@ warned its snippets might be stale — they were):
   ``add_transport``/``add_v1_system``/``add_vacm_user`` (the real, current
   function names — no ``addTransport``/``addV1System`` camelCase, those are
   deprecated aliases too).
+
+**Task 17 (write path) additions, verified the same way against the
+installed pysnmp v7 rather than trusted from a brief:**
+
+* ``SetCommandResponder.handle_management_operation`` (read via
+  ``inspect.getsource``) calls
+  ``self.snmpContext.get_mib_instrum(contextName).write_variables`` — so the
+  controller callback is named ``write_variables`` (matching the
+  ``read_variables``/``read_next_variables`` naming above), not
+  ``write_vars``.
+* That same source shows ``CommandResponderBase.process_pdu`` catches any
+  ``pysnmp.smi.error.SmiError`` raised out of ``handle_management_operation``
+  and maps its *exact class* through ``SMI_ERROR_MAP`` to an SNMP
+  error-status (``WrongValueError`` -> ``wrongValue``, ``NotWritableError``
+  -> ``notWritable``) — confirming both errors below travel cleanly to the
+  client instead of the whole-PDU ``genErr``/timeout a bare exception would
+  cause.
+* That handler then does ``errorIndex = errorIndication["idx"] + 1``. Passing
+  ``idx=None`` (as sketched in the brief) would make this
+  ``None + 1`` -> an unhandled ``TypeError`` inside pysnmp's own error path —
+  a worse failure than the one being guarded against. ``write_variables``
+  below passes the real 0-based position of the failing var-bind instead.
+* ``add_vacm_user`` already existed for reads; granting SET access is just
+  passing ``writeSubTree=(1, 3, 6, 1)`` alongside the existing
+  ``readSubTree`` — same function, no new API.
 """
 from __future__ import annotations
 
@@ -87,6 +112,10 @@ def _pysnmp_rfc1905() -> Any:
     return importlib.import_module("pysnmp.proto.rfc1905")
 
 
+def _pysnmp_smi_error() -> Any:
+    return importlib.import_module("pysnmp.smi.error")
+
+
 def _to_smi_value(snmp_type: str, value: str) -> Any:
     """Convert one ``StateMibView`` ``(snmp_type, value)`` pair to the
     matching pysnmp SMI value object, so it goes on the wire with the right
@@ -114,6 +143,18 @@ def _to_smi_value(snmp_type: str, value: str) -> Any:
     raise ValueError(f"unsupported snmp_type token: {snmp_type!r}")
 
 
+def _from_smi_value(value: Any) -> int | bytes | str:
+    """Convert an incoming pysnmp SET value to a plain Python value for the mock."""
+    cls = value.__class__.__name__
+    if cls in ("Integer", "Integer32", "Gauge32", "Unsigned32"):
+        return int(value)
+    if cls == "OctetString":
+        return bytes(value.asOctets())
+    if cls == "IpAddress":
+        return str(value.prettyPrint())
+    return str(value.prettyPrint())
+
+
 class _StateInstrum:
     """Adapts ``StateMibView.get``/``get_next`` to pysnmp's MIB-instrumentation
     controller callbacks.
@@ -130,6 +171,9 @@ class _StateInstrum:
         rfc1905 = _pysnmp_rfc1905()
         self._no_such_instance = rfc1905.noSuchInstance
         self._end_of_mib_view = rfc1905.endOfMibView
+        smi_error = _pysnmp_smi_error()
+        self._write_error = smi_error.WrongValueError
+        self._not_writable_error = smi_error.NotWritableError
 
     def read_variables(
         self, *var_binds: tuple[Any, Any], **_context: Any
@@ -157,6 +201,76 @@ class _StateInstrum:
             else:
                 next_oid, snmp_type, value = entry
                 out.append((next_oid, _to_smi_value(snmp_type, value)))
+        return out
+
+    def write_variables(
+        self, *var_binds: tuple[Any, Any], **_context: Any
+    ) -> list[tuple[Any, Any]]:
+        """Answer a SET: mutate state atomically, echo the written varbinds.
+
+        The whole PDU is ALL-OR-NOTHING, matching a real SNMP agent and the
+        ``set_many`` "one PDU (atomic)" contract (``protocols/snmp/client.py``)
+        that e.g. ``set_vlan_membership`` relies on when it writes the egress
+        AND untagged bitmaps as a single SET: if any varbind in the PDU is
+        rejected, NONE of the PDU's varbinds may have mutated state, even the
+        ones already processed earlier in this same call.
+
+        Implemented via snapshot-then-restore rather than validate-then-commit:
+        some failures (e.g. a malformed integer value only discovered when
+        ``apply_write`` itself calls ``int(value)``) only surface mid-apply,
+        so a clean up-front validation pass would have to duplicate
+        ``apply_write``'s own parsing. Instead, the state is snapshotted
+        before the loop; every varbind applies via
+        ``apply_write_uncommitted`` (which mutates but does NOT rebuild the
+        view — rebuilding once, only after the whole PDU has committed, also
+        avoids the per-varbind rebuild this used to do); if any varbind
+        fails, ``restore_state`` rolls the state back to that snapshot before
+        the (unchanged) SMI error propagates, so no partial mutation is ever
+        observable.
+
+        An OID ``StateMibView.is_writable_oid`` doesn't recognize at all is
+        rejected with a pysnmp ``NotWritableError`` (a clean SNMP
+        ``notWritable`` error-status) rather than the silent, always-succeeds
+        no-op ``apply_write`` deliberately allows for a recognized-but-absent
+        instance (e.g. creating a not-yet-existing VLAN row) — that no-op is
+        a mock-fidelity choice for a *known* writable column, not licence to
+        accept an arbitrary/bogus OID.
+
+        A failure in ``apply_write`` itself (malformed value, unexpected
+        type, ...) is converted to a pysnmp ``WrongValueError`` so the
+        responder returns a clean SNMP error-status; it is never allowed to
+        escape into the dispatcher (which the client would observe as a
+        timeout = flaky test).
+
+        ``idx`` is passed as the 0-based position of the failing varbind
+        within this call, not ``None``: pysnmp's command-responder computes
+        ``errorIndication["idx"] + 1`` when building the SNMP error response,
+        so a ``None`` idx would raise an unhandled ``TypeError`` inside
+        pysnmp's own error path instead of a clean SNMP error (confirmed by
+        reading ``CommandResponderBase.process_pdu`` on the installed pysnmp
+        v7 — a deviation from the brief's sample, which used ``idx=None``).
+        """
+        snapshot = self._view.snapshot_state()
+        out: list[tuple[Any, Any]] = []
+        try:
+            for idx, (name, val) in enumerate(var_binds):
+                oid = ".".join(str(x) for x in tuple(name))
+                if not self._view.is_writable_oid(oid):
+                    raise self._not_writable_error(name=name, idx=idx)
+                try:
+                    self._view.apply_write_uncommitted(oid, _from_smi_value(val))
+                except Exception as exc:  # map to a clean SMI error, never leak
+                    raise self._write_error(name=name, idx=idx) from exc
+                out.append((name, val))
+        except Exception:
+            # Any varbind in this PDU failed: undo every mutation this call
+            # made so far (there may be none, one, or several), so the whole
+            # SET is atomic. The original SMI error (NotWritableError /
+            # WrongValueError, already carrying the right idx) propagates
+            # unchanged.
+            self._view.restore_state(snapshot)
+            raise
+        self._view.rebuild()
         return out
 
 
@@ -257,6 +371,7 @@ class VirtualSnmpFace:
                 "netgear-virtual",
                 "noAuthNoPriv",
                 readSubTree=(1, 3, 6, 1),
+                writeSubTree=(1, 3, 6, 1),
             )
 
             snmp_context = context.SnmpContext(engine)
@@ -265,6 +380,7 @@ class VirtualSnmpFace:
             cmdrsp.GetCommandResponder(engine, snmp_context)
             cmdrsp.NextCommandResponder(engine, snmp_context)
             cmdrsp.BulkCommandResponder(engine, snmp_context)
+            cmdrsp.SetCommandResponder(engine, snmp_context)
         except Exception as exc:  # surfaced to start() via _start_error, not swallowed
             self._start_error = exc
             self._ready.set()

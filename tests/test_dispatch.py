@@ -56,3 +56,29 @@ def test_build_async_client_returns_pysnmp_client() -> None:
     assert isinstance(client, PysnmpClient)
     assert client.host == "sw.example"
     assert client.community == "public"
+
+
+def test_build_sync_write_client_requires_write_community() -> None:
+    with pytest.raises(CredentialError):
+        _dispatch.build_sync_snmp_write_client("host", None)
+    client = _dispatch.build_sync_snmp_write_client("host", "wcomm")
+    assert client.community == "wcomm"
+
+
+def test_build_sync_write_client_rejects_empty_community() -> None:
+    # An empty string must be rejected too, not just None -- an unresolved
+    # write-community spec must never silently flow to `snmpset -c ""`.
+    with pytest.raises(CredentialError):
+        _dispatch.build_sync_snmp_write_client("host", "")
+
+
+def test_build_async_write_client_requires_write_community() -> None:
+    with pytest.raises(CredentialError):
+        _dispatch.build_async_snmp_write_client("host", None)
+    client = _dispatch.build_async_snmp_write_client("host", "wcomm")
+    assert client.community == "wcomm"
+
+
+def test_build_async_write_client_rejects_empty_community() -> None:
+    with pytest.raises(CredentialError):
+        _dispatch.build_async_snmp_write_client("host", "")

@@ -13,7 +13,12 @@ from .errors import CredentialError, UnsupportedCapabilityError
 from .registry import Backend
 
 if TYPE_CHECKING:
-    from .protocols.snmp.client import AsyncSnmpClient, SnmpClient
+    from .protocols.snmp.client import (
+        AsyncSnmpClient,
+        AsyncSnmpWriteClient,
+        SnmpClient,
+        SnmpWriteClient,
+    )
     from .registry import SwitchModel
 
 BACKEND_NOT_IMPLEMENTED = (
@@ -58,3 +63,32 @@ def build_async_snmp_client(host: str, community: str | None) -> AsyncSnmpClient
     from .transport.aio.snmp_pysnmp import PysnmpClient
 
     return PysnmpClient(host, _require_community(host, community))
+
+
+def _require_write_community(host: str, community: str | None) -> str:
+    # An empty string must be rejected too, not just None -- otherwise an
+    # unresolved/blank write-community spec could silently flow through to
+    # `snmpset -c ""` instead of raising (carry-forward review fix).
+    if not community:
+        raise CredentialError(
+            f"no SNMP write community configured for {host!r}"
+        )
+    return community
+
+
+def build_sync_snmp_write_client(
+    host: str, write_community: str | None
+) -> SnmpWriteClient:
+    """Default sync SNMP write client (net-snmp CLI). Imported lazily."""
+    from .transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+
+    return NetsnmpCliClient(host, _require_write_community(host, write_community))
+
+
+def build_async_snmp_write_client(
+    host: str, write_community: str | None
+) -> AsyncSnmpWriteClient:
+    """Default async SNMP write client (pysnmp). Imported lazily."""
+    from .transport.aio.snmp_pysnmp import PysnmpClient
+
+    return PysnmpClient(host, _require_write_community(host, write_community))

@@ -23,6 +23,10 @@ class UnsupportedCapabilityError(NetgearSwitchError):
     """The requested operation is not available on this model/backend."""
 
 
+class ProtectedPortError(NetgearSwitchError):
+    """A disruptive write targeted a protected port without force=True."""
+
+
 class WriteVerificationError(NetgearSwitchError):
     """A write did not read back as expected.
 

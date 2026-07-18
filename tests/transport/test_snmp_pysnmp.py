@@ -9,6 +9,7 @@ import types
 import pytest
 
 from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
+from netgear_switch.protocols.snmp.write import SetVarbind
 from netgear_switch.transport.aio.snmp_pysnmp import (
     PysnmpClient,
     _normalize_varbind,
@@ -38,6 +39,16 @@ class OctetString:
 
     def asOctets(self):  # noqa: N802 - mirrors pysnmp's camelCase method name
         return self._data
+
+
+class Gauge32:
+    """Stands in for pysnmp's Gauge32: int()-convertible, like Integer32."""
+
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    def __int__(self) -> int:
+        return self._value
 
 
 class IpAddress:
@@ -73,9 +84,15 @@ class EndOfMibView:
     pass
 
 
-def _install_fake_pysnmp(monkeypatch, *, get_cmd=None, bulk_walk_cmd=None):
+def _install_fake_pysnmp(
+    monkeypatch, *, get_cmd=None, bulk_walk_cmd=None, set_cmd=None
+):
     """Inject a fake pysnmp.hlapi.v3arch.asyncio module (no network, no import
-    of the real async engine) so _do_get/_do_walk can be exercised directly.
+    of the real async engine) so _do_get/_do_walk/_do_set can be exercised
+    directly. ``ObjectType`` accepts either the read-side one-arg form
+    (``ObjectType(ObjectIdentity(oid))``) or the write-side two-arg form
+    (``ObjectType(ObjectIdentity(oid), value)``), returning ``oid`` or
+    ``(oid, value)`` respectively so tests can inspect what was built.
     """
     calls: dict[str, object] = {"closed": False}
 
@@ -92,13 +109,19 @@ def _install_fake_pysnmp(monkeypatch, *, get_cmd=None, bulk_walk_cmd=None):
     fake.CommunityData = lambda community: community
     fake.ContextData = lambda: None
     fake.ObjectIdentity = lambda oid: oid
-    fake.ObjectType = lambda oid: oid
+    fake.ObjectType = lambda oid, value=None: oid if value is None else (oid, value)
     fake.SnmpEngine = FakeEngine
     fake.UdpTransportTarget = FakeUdpTransportTarget
+    fake.Integer32 = Integer32
+    fake.Gauge32 = Gauge32
+    fake.OctetString = OctetString
+    fake.IpAddress = IpAddress
     if get_cmd is not None:
         fake.get_cmd = get_cmd
     if bulk_walk_cmd is not None:
         fake.bulk_walk_cmd = bulk_walk_cmd
+    if set_cmd is not None:
+        fake.set_cmd = set_cmd
     monkeypatch.setitem(sys.modules, _MODNAME, fake)
     return calls
 
@@ -328,3 +351,104 @@ def test_do_walk_stops_cleanly_on_end_of_mib_view(monkeypatch):
     rows = asyncio.run(c._do_walk("1.3.6.1.2.1.2.2.1.8"))
     assert rows == [("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")]
     assert calls["closed"] is True
+
+
+def test_do_set_builds_pdu_with_mapped_smi_objects(monkeypatch):
+    """_do_set must build one ObjectType per varbind using _to_set_value's SMI
+    mapping (symmetric with the sync client's type-letter handling) and call
+    set_cmd exactly once (single atomic PDU)."""
+    c = PysnmpClient("h", "public")
+    captured: dict[str, object] = {}
+
+    async def fake_set_cmd(engine, community, target, context, *varbinds):
+        captured["varbinds"] = varbinds
+        return None, 0, 0, varbinds
+
+    calls = _install_fake_pysnmp(monkeypatch, set_cmd=fake_set_cmd)
+    asyncio.run(
+        c._do_set(
+            [
+                SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i"),
+                SetVarbind("1.3.6.1.2.1.17.7.1.4.3.1.2.90", bytes([0xC0, 0x00]), "x"),
+            ]
+        )
+    )
+    oid1, value1 = captured["varbinds"][0]
+    oid2, value2 = captured["varbinds"][1]
+    assert oid1 == "1.3.6.1.2.1.2.2.1.7.5"
+    assert isinstance(value1, Integer32)
+    assert int(value1) == 2
+    assert oid2 == "1.3.6.1.2.1.17.7.1.4.3.1.2.90"
+    assert isinstance(value2, OctetString)
+    assert value2.asOctets() == bytes([0xC0, 0x00])
+    assert calls["closed"] is True
+
+
+def test_do_set_raises_on_error_indication(monkeypatch):
+    c = PysnmpClient("h", "public")
+
+    async def fake_set_cmd(engine, community, target, context, *varbinds):
+        return "timeout", 0, 0, ()
+
+    calls = _install_fake_pysnmp(monkeypatch, set_cmd=fake_set_cmd)
+    with pytest.raises(SnmpError):
+        asyncio.run(
+            c._do_set([SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")])
+        )
+    assert calls["closed"] is True
+
+
+def test_do_set_raises_on_error_status(monkeypatch):
+    """A nonzero errorStatus (e.g. notWritable, commitFailed) must raise, not
+    be silently ignored — a failed SET must never look like it succeeded."""
+    c = PysnmpClient("h", "public")
+
+    async def fake_set_cmd(engine, community, target, context, *varbinds):
+        return None, 17, 0, ()  # 17 == notWritable
+
+    calls = _install_fake_pysnmp(monkeypatch, set_cmd=fake_set_cmd)
+    with pytest.raises(SnmpError, match=re.escape("1.3.6.1.2.1.2.2.1.7.5")):
+        asyncio.run(
+            c._do_set([SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")])
+        )
+    assert calls["closed"] is True
+
+
+def test_set_many_returns_without_calling_do_set_when_empty():
+    c = PysnmpClient("h", "public")
+    asyncio.run(c.set_many([]))  # must not raise / must not touch pysnmp at all
+
+
+def test_set_delegates_single_varbind_to_set_many(monkeypatch):
+    c = PysnmpClient("h", "public")
+    captured: list[list[SetVarbind]] = []
+
+    async def fake_set_many(varbinds):
+        captured.append(varbinds)
+
+    monkeypatch.setattr(c, "set_many", fake_set_many)
+    vb = SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")
+    asyncio.run(c.set(vb))
+    assert captured == [[vb]]
+
+
+def test_set_reraises_snmp_error_unwrapped(monkeypatch):
+    c = PysnmpClient("h", "public")
+
+    async def raises_snmp_error(varbinds):
+        raise SnmpError("agent unreachable")
+
+    monkeypatch.setattr(c, "_do_set", raises_snmp_error)
+    with pytest.raises(SnmpError, match="agent unreachable"):
+        asyncio.run(c.set(SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")))
+
+
+def test_set_many_wraps_unexpected_exception(monkeypatch):
+    c = PysnmpClient("h", "public")
+
+    async def boom(varbinds):
+        raise RuntimeError("engine down")
+
+    monkeypatch.setattr(c, "_do_set", boom)
+    with pytest.raises(SnmpError):
+        asyncio.run(c.set(SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")))
