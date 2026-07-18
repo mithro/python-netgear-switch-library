@@ -1,0 +1,33 @@
+Source: python-netgear-switch-library
+Section: python
+Priority: optional
+Maintainer: Tim 'mithro' Ansell <me@mith.ro>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               pybuild-plugin-pyproject,
+               python3-all,
+               python3-hatchling,
+               python3-hatch-vcs,
+               python3-setuptools-scm,
+Standards-Version: 4.7.0
+Homepage: https://github.com/mithro/netgear-stupid-control
+Vcs-Git: https://github.com/mithro/netgear-stupid-control.git
+Vcs-Browser: https://github.com/mithro/netgear-stupid-control
+Rules-Requires-Root: no
+
+Package: python3-netgear-switch-library
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         snmp
+Recommends: python3-httpx
+Suggests: python3-pysnmp
+Description: query and control Netgear switches over SNMP, NSDP and HTTP
+ Python library (import name netgear_switch) and CLI (ngsw) to query and control
+ Netgear managed and Plus switches behind one model-driven API. Managed switches
+ are driven over SNMP, Plus switches over NSDP and the HTTP web UI.
+ .
+ The synchronous SNMP transport shells out to the net-snmp command-line tools
+ (snmpget/snmpbulkwalk/snmpset) from the "snmp" package, which is why it is a
+ hard runtime dependency. The optional asynchronous transport uses python3-pysnmp
+ and the HTTP transport uses python3-httpx.

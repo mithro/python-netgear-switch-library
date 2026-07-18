@@ -1,0 +1,19 @@
+#!/usr/bin/make -f
+
+# Build the netgear_switch Python package with dh-python/pybuild straight from
+# pyproject.toml (hatchling backend). The upstream version is normally derived
+# from git by hatch-vcs, but during the .deb build there may be no VCS context in
+# the unpacked source, so we pin it to the changelog version (set by
+# packaging/deb-version.py) through SETUPTOOLS_SCM_PRETEND_VERSION. dpkg source
+# format is native, so the changelog version has no Debian revision to strip.
+export PYBUILD_NAME = netgear_switch
+export SETUPTOOLS_SCM_PRETEND_VERSION = $(shell dpkg-parsechangelog -SVersion)
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild
+
+# The test suite (net-snmp subprocesses + live virtual-switch integration) runs
+# in the CI test job, not during packaging. Skip it here to keep the build fast
+# and free of extra build-deps.
+override_dh_auto_test:
+	:
