@@ -253,6 +253,141 @@ def assert_nsdp_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> 
     gc.collect()  # no leaked datagram transports before -W error::ResourceWarning
 
 
+@dataclass(frozen=True)
+class HttpEquivalencePins:
+    """Known gs305ep seed values spanning the NSDP + HTTP backends."""
+
+    port_name: str
+    poe_port: int
+    poe_power_mw: int
+    vlan_id: int
+    vlan_member_port: int
+
+
+# NOTE: on gs305ep the ports/stats/vlans/pvids/mgmt come from NSDP (which carries
+# NO port name — PortStatus.name is None), so we pin the NSDP port on its speed,
+# not its name; the poe/vlan pins span the HTTP + NSDP backends. port_name is kept
+# on the dataclass for parity with EquivalencePins but is not asserted here.
+GS305EP_HTTP_PINS = HttpEquivalencePins(
+    port_name="",           # unused: NSDP-served ports have no name
+    poe_port=1,
+    poe_power_mw=12_800,
+    vlan_id=90,
+    vlan_member_port=1,
+)
+
+
+def http_facades_for(sw: VirtualSwitch) -> tuple[SyncSwitch, AsyncSwitch]:
+    """Wire both facades to BOTH faces of the running gs305ep VirtualSwitch:
+    NSDP (ports/stats/vlans/pvids/mgmt) + HTTP (PoE). Injecting both clients is
+    what proves per-op routing end-to-end on a single device."""
+    from netgear_switch.protocols.http.endpoints import http_spec
+    from netgear_switch.transport.http.client import AsyncHttpClient, HttpClient
+
+    model = get_model(sw.model)
+    spec = http_spec(model)
+    http_host = f"{sw.host}:{sw.http_port}"
+    sync_http = HttpClient(http_host, sw.http_password, spec)
+    aio_http = AsyncHttpClient(http_host, sw.http_password, spec)
+    sync_nsdp = UdpNsdpClient(
+        sw.host, client_port=0, server_port=sw.port, client_mac=_NSDP_CLIENT_MAC
+    )
+    aio_nsdp = AsyncUdpNsdpClient(
+        sw.host, client_port=0, server_port=sw.port, client_mac=_NSDP_CLIENT_MAC
+    )
+    sync = SyncSwitch(
+        model,
+        sw.host,
+        nsdp_client=sync_nsdp,
+        nsdp_write_client=sync_nsdp,
+        nsdp_password=sw.nsdp_password,
+        http_client=sync_http,
+    )
+    aio = AsyncSwitch(
+        model,
+        sw.host,
+        nsdp_client=aio_nsdp,
+        nsdp_write_client=aio_nsdp,
+        nsdp_password=sw.nsdp_password,
+        http_client=aio_http,
+    )
+    return sync, aio
+
+
+def assert_http_facades_equivalent(
+    sw: VirtualSwitch, pins: HttpEquivalencePins
+) -> None:
+    sync, aio = http_facades_for(sw)
+
+    # NSDP-served reads (must stay populated — no Slice-5 regression).
+    ports = sync.get_ports()
+    stats = sync.get_stats()
+    vlans = sync.get_vlans()
+    pvids = sync.get_pvids()
+    mgmt = sync.get_mgmt_ip()
+    # HTTP-served read: NSDP raises for get_poe, so per-op routing falls to HTTP.
+    poe = sync.get_poe()
+
+    assert ports, "ports must be non-empty (NSDP)"
+    assert [s for s in stats if s.rx_bytes is not None], "stats non-empty (NSDP)"
+    assert vlans, "vlans must be non-empty (NSDP)"
+    assert pvids, "pvids must be non-empty (NSDP)"
+    assert mgmt.address, "mgmt-ip must be populated (NSDP)"
+    assert any(p.power_mw for p in poe), "poe must show delivered power (HTTP)"
+
+    # Content pins spanning BOTH backends.
+    assert any(p.port == 1 and p.speed_mbps == 1000 for p in ports)  # NSDP
+    target = next(v for v in vlans if v.vlan_id == pins.vlan_id)      # NSDP
+    assert pins.vlan_member_port in target.member_ports
+    delivering = [p for p in poe if p.power_mw]                       # HTTP
+    assert delivering[0].port == pins.poe_port
+    assert delivering[0].power_mw == pins.poe_power_mw
+
+    # sync (NSDP+HTTP) == async (NSDP+HTTP): per-op routing is identical.
+    assert ports == asyncio.run(aio.get_ports())
+    assert stats == asyncio.run(aio.get_stats())
+    assert vlans == asyncio.run(aio.get_vlans())
+    assert pvids == asyncio.run(aio.get_pvids())
+    assert mgmt == asyncio.run(aio.get_mgmt_ip())
+    assert poe == asyncio.run(aio.get_poe())
+
+    # snapshot() blends NSDP (ports/stats/vlans/pvids/mgmt) + HTTP (poe) per field
+    # and is equal across facades; NSDP-served fields are NEVER nulled.
+    sync_snap = sync.snapshot()
+    assert sync_snap == asyncio.run(aio.snapshot())
+    assert sync_snap.ports, "snapshot ports (NSDP) must stay populated"
+    assert sync_snap.poe, "snapshot poe (HTTP) must stay populated"
+    assert sync_snap.macs == ()  # neither backend serves a MAC table on Plus
+
+    gc.collect()
+
+
+def assert_http_write_equivalent(
+    perform_sync: Callable[[SyncSwitch], None],
+    perform_async: Callable[[AsyncSwitch], Awaitable[None]],
+    expect: Callable[[list[object]], bool],
+) -> None:
+    from netgear_switch.virtual.server import VirtualSwitch
+
+    sw_sync = VirtualSwitch(model="gs305ep")
+    sw_async = VirtualSwitch(model="gs305ep")
+    sw_sync.start()
+    sw_async.start()
+    try:
+        sync_facade, _ = http_facades_for(sw_sync)
+        _, async_facade = http_facades_for(sw_async)
+        perform_sync(sync_facade)
+        asyncio.run(perform_async(async_facade))
+        poe_sync = http_facades_for(sw_sync)[0].get_poe()
+        poe_async = http_facades_for(sw_async)[0].get_poe()
+        assert poe_sync == poe_async, "sync and async writes diverged"
+        assert expect(poe_sync), "write did not take effect"
+    finally:
+        sw_sync.stop()
+        sw_async.stop()
+    gc.collect()
+
+
 def assert_write_equivalent(
     perform_sync: Callable[[SyncSwitch], None],
     perform_async: Callable[[AsyncSwitch], Awaitable[None]],

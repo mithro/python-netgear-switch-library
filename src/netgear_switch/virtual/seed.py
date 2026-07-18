@@ -176,6 +176,9 @@ def seed_gs305ep() -> VirtualSwitchState:
         )
         for p in range(1, 6)
     }
+    ports[1].rx_octets = 1_000_000
+    ports[1].tx_octets = 2_000_000
+    ports[1].rx_errors = 0
     vlans = {
         1: VlanSim(name="default", member={1, 2, 3, 4, 5}, untagged={3, 4, 5}),
         90: VlanSim(name="iot", member={1, 2}, untagged={1, 2}),
