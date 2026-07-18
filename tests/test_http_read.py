@@ -47,6 +47,8 @@ def _pages() -> dict[str, str]:
         "/portStatistics.cgi": (_FIX / "gs305ep_portstats.html").read_text(),
         "/getPoePortStatus.cgi": (_FIX / "gs305ep_poestatus.html").read_text(),
         "/portPVID.cgi": (_FIX / "gs305ep_pvid.html").read_text(),
+        "/8021qCf.cgi": (_FIX / "gs305ep_vlancfg.html").read_text(),
+        "/8021qMembe.cgi": (_FIX / "gs305ep_membership.html").read_text(),
     }
 
 
@@ -62,6 +64,27 @@ def test_get_ports_and_poe() -> None:
 def test_get_pvids() -> None:
     reader = HttpReader(_FakeSession(_pages()), get_model("gs305ep"))
     assert dict(reader.get_pvids()) == {1: 90, 2: 1}
+
+
+def test_get_stats() -> None:
+    reader = HttpReader(_FakeSession(_pages()), get_model("gs305ep"))
+    stats = {s.port: s for s in reader.get_stats()}
+    assert stats[1].rx_bytes == 1000000
+    assert stats[1].tx_bytes == 2000000
+    assert stats[1].rx_errors == 0
+    assert stats[2].rx_bytes == 500
+    assert stats[2].tx_bytes == 750
+    assert stats[2].rx_errors == 3
+
+
+def test_get_vlans() -> None:
+    reader = HttpReader(_FakeSession(_pages()), get_model("gs305ep"))
+    vlans = {v.vlan_id: v for v in reader.get_vlans()}
+    assert set(vlans) == {1, 90}
+    vlan90 = vlans[90]
+    assert vlan90.tagged_ports == frozenset({1})
+    assert vlan90.untagged_ports == frozenset({2, 3})
+    assert vlan90.member_ports == frozenset({1, 2, 3})
 
 
 def test_mac_table_unsupported_on_plus() -> None:
@@ -84,5 +107,18 @@ def test_async_reader_matches_sync() -> None:
         reader = AsyncHttpReader(_AsyncFakeSession(_pages()), get_model("gs305ep"))
         ports = {p.port: p for p in await reader.get_ports()}
         assert ports[2].link_up is False
+
+    asyncio.run(run())
+
+
+def test_async_get_vlans() -> None:
+    async def run() -> None:
+        reader = AsyncHttpReader(_AsyncFakeSession(_pages()), get_model("gs305ep"))
+        vlans = {v.vlan_id: v for v in await reader.get_vlans()}
+        assert set(vlans) == {1, 90}
+        vlan90 = vlans[90]
+        assert vlan90.tagged_ports == frozenset({1})
+        assert vlan90.untagged_ports == frozenset({2, 3})
+        assert vlan90.member_ports == frozenset({1, 2, 3})
 
     asyncio.run(run())
