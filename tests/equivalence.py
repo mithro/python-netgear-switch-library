@@ -14,11 +14,16 @@ import gc
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pytest
+
 from netgear_switch.aio_api import AsyncSwitch
+from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.models import IpMode
-from netgear_switch.registry import get_model
+from netgear_switch.registry import Backend, get_model
 from netgear_switch.sync_api import SyncSwitch
+from netgear_switch.transport.aio.nsdp_udp import AsyncUdpNsdpClient
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
+from netgear_switch.transport.sync.nsdp_udp import UdpNsdpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 
 if TYPE_CHECKING:
@@ -26,6 +31,8 @@ if TYPE_CHECKING:
 
     from netgear_switch.models import SwitchData
     from netgear_switch.virtual.server import VirtualSwitch
+
+_NSDP_CLIENT_MAC = b"\x00\x00\x00\x00\x00\x01"
 
 
 @dataclass(frozen=True)
@@ -58,8 +65,26 @@ GSM7252PS_PINS = EquivalencePins(
 )
 
 
+GS110EMX_PINS = EquivalencePins(
+    port_name="1000",       # unused for NSDP (no port names); see note below
+    vlan_id=90,
+    vlan_name="",           # NSDP carries no VLAN name
+    vlan_member_port=10,
+    mgmt_address="10.1.5.20",
+    mgmt_mode=IpMode.STATIC,
+    poe_port=0,             # NSDP exposes no PoE (unused)
+    poe_power_mw=0,
+    mac="",                 # NSDP exposes no MAC table (unused)
+    mac_port=0,
+)
+
+
 def facades_for(sw: VirtualSwitch) -> tuple[SyncSwitch, AsyncSwitch]:
     """Build both facades wired to a running VirtualSwitch via injected clients.
+
+    SNMP models use the net-snmp CLI (sync) + pysnmp (async) clients; NSDP
+    (Plus) models use the sync/async UDP NSDP clients pointed at the face's
+    ephemeral port. In both cases one client instance serves read AND write.
 
     Injection sidesteps the sync/async host-spec asymmetry: the net-snmp CLI
     client takes a combined ``host:port`` agent spec, while PysnmpClient takes
@@ -70,21 +95,44 @@ def facades_for(sw: VirtualSwitch) -> tuple[SyncSwitch, AsyncSwitch]:
     same community read+write access (writeSubTree in the SNMP face).
     """
     model = get_model(sw.model)
-    sync_client = NetsnmpCliClient(f"{sw.host}:{sw.port}", sw.community)
-    aio_client = PysnmpClient(sw.host, sw.community, port=sw.port)
+    if Backend.SNMP in model.backends:
+        sync_client = NetsnmpCliClient(f"{sw.host}:{sw.port}", sw.community)
+        aio_client = PysnmpClient(sw.host, sw.community, port=sw.port)
+        sync = SyncSwitch(
+            model,
+            sw.host,
+            snmp_community=sw.community,
+            snmp_client=sync_client,
+            snmp_write_client=sync_client,
+        )
+        aio = AsyncSwitch(
+            model,
+            sw.host,
+            snmp_community=sw.community,
+            snmp_client=aio_client,
+            snmp_write_client=aio_client,
+        )
+        return sync, aio
+    # NSDP (Plus) backend.
+    sync_nsdp = UdpNsdpClient(
+        sw.host, client_port=0, server_port=sw.port, client_mac=_NSDP_CLIENT_MAC
+    )
+    aio_nsdp = AsyncUdpNsdpClient(
+        sw.host, client_port=0, server_port=sw.port, client_mac=_NSDP_CLIENT_MAC
+    )
     sync = SyncSwitch(
         model,
         sw.host,
-        snmp_community=sw.community,
-        snmp_client=sync_client,
-        snmp_write_client=sync_client,
+        nsdp_client=sync_nsdp,
+        nsdp_write_client=sync_nsdp,
+        nsdp_password=sw.nsdp_password,
     )
     aio = AsyncSwitch(
         model,
         sw.host,
-        snmp_community=sw.community,
-        snmp_client=aio_client,
-        snmp_write_client=aio_client,
+        nsdp_client=aio_nsdp,
+        nsdp_write_client=aio_nsdp,
+        nsdp_password=sw.nsdp_password,
     )
     return sync, aio
 
@@ -153,6 +201,56 @@ def assert_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> None:
     # Force finalization of any unreferenced pysnmp transport before the
     # -W error::ResourceWarning run inspects warnings.
     gc.collect()
+
+
+def assert_nsdp_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> None:
+    """Run every NSDP-supported read op through both facades; assert non-empty,
+    pinned, byte-identical across sync/async, and that unsupported ops raise."""
+    sync, aio = facades_for(sw)
+
+    ports = sync.get_ports()
+    stats = sync.get_stats()
+    vlans = sync.get_vlans()
+    pvids = sync.get_pvids()
+    mgmt = sync.get_mgmt_ip()
+
+    # Non-empty over real seeded data (guard against a vacuous [] == [] pass).
+    assert ports, "ports must be non-empty"
+    assert [s for s in stats if s.rx_bytes is not None], "stats must be non-empty"
+    assert vlans, "vlans must be non-empty"
+    assert pvids, "pvids must be non-empty"
+    assert mgmt.address, "mgmt-ip must be populated"
+
+    # Content pins over NSDP-populated fields only.
+    assert any(p.port == 1 and p.speed_mbps == 1000 for p in ports)
+    assert any(p.port == 9 and p.speed_mbps == 10000 for p in ports)  # 10G pin
+    target = next(v for v in vlans if v.vlan_id == pins.vlan_id)
+    assert pins.vlan_member_port in target.member_ports
+    assert mgmt.address == pins.mgmt_address
+    assert mgmt.mode is pins.mgmt_mode
+
+    # Ops NSDP genuinely cannot serve must raise, not silently return empty.
+    for op in ("get_macs", "get_lldp", "get_sensors", "get_poe"):
+        with pytest.raises(UnsupportedCapabilityError):
+            getattr(sync, op)()
+
+    # Equivalence proper: sync (UDP) vs async (asyncio UDP) must be equal.
+    assert ports == asyncio.run(aio.get_ports())
+    assert stats == asyncio.run(aio.get_stats())
+    assert vlans == asyncio.run(aio.get_vlans())
+    assert pvids == asyncio.run(aio.get_pvids())
+    assert mgmt == asyncio.run(aio.get_mgmt_ip())
+
+    # snapshot() aggregates the same objects (unsupported sections empty) and is
+    # equivalent across facades.
+    sync_snap = sync.snapshot()
+    aio_snap = asyncio.run(aio.snapshot())
+    assert sync_snap == aio_snap
+    assert sync_snap.model == sw.model
+    assert sync_snap.macs == ()      # Plus: no MAC table, aggregated empty
+    assert sync_snap.poe == ()
+
+    gc.collect()  # no leaked datagram transports before -W error::ResourceWarning
 
 
 def assert_write_equivalent(
