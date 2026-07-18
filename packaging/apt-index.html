@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>python-netgear-switch-library apt repository</title></head>
+<body>
+<h1>python-netgear-switch-library apt repository</h1>
+<p>Debian packages of
+<a href="https://github.com/mithro/netgear-stupid-control">python-netgear-switch-library</a>:
+a Python library (<code>import netgear_switch</code>) and CLI (<code>ngsw</code>)
+to query and control Netgear managed and Plus switches over SNMP, NSDP and HTTP.
+Rolling release &mdash; every push to <code>main</code> publishes a new version
+(no tags). Built for Debian trixie and sid; the package is architecture
+<code>all</code> (pure Python).</p>
+
+<h2>Setup (Debian trixie)</h2>
+<pre>
+sudo install -d -m0755 /etc/apt/keyrings
+curl -fsSL https://mithro.github.io/netgear-stupid-control/netgear-switch.gpg \
+  | sudo tee /etc/apt/keyrings/netgear-switch.gpg > /dev/null
+
+echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/netgear-stupid-control/trixie/ ./" \
+  | sudo tee /etc/apt/sources.list.d/netgear-switch.list
+
+sudo apt update
+sudo apt install python3-netgear-switch-library
+</pre>
+
+<h2>Setup (Debian sid)</h2>
+<pre>
+sudo install -d -m0755 /etc/apt/keyrings
+curl -fsSL https://mithro.github.io/netgear-stupid-control/netgear-switch.gpg \
+  | sudo tee /etc/apt/keyrings/netgear-switch.gpg > /dev/null
+
+echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/netgear-stupid-control/sid/ ./" \
+  | sudo tee /etc/apt/sources.list.d/netgear-switch.list
+
+sudo apt update
+sudo apt install python3-netgear-switch-library
+</pre>
+</body>
+</html>
