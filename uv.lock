@@ -447,7 +447,6 @@ wheels = [
 
 [[package]]
 name = "python-netgear-switch-library"
-version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -475,7 +474,7 @@ requires-dist = [
     { name = "pysnmp", marker = "extra == 'async'", specifier = ">=7.0" },
     { name = "pysnmp", marker = "extra == 'testing'", specifier = ">=7.0" },
 ]
-provides-extras = ["sync", "async", "http", "testing"]
+provides-extras = ["async", "http", "sync", "testing"]
 
 [package.metadata.requires-dev]
 dev = [

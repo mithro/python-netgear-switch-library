@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "python-netgear-switch-library"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Python library and CLI to query and control Netgear switches over SNMP, NSDP and HTTP."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,6 +29,21 @@ ngsw = "netgear_switch.cli.main:main"
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "pytest-cov>=5.0"]
 
+# Rolling release: the version is derived from git, never hand-edited and never
+# tagged. Every commit on main increments the commit height, so post-release
+# versioning yields a real, monotonic version (0.0.postN with no tag; X.Y.postN
+# once a vX.Y tag ever exists). "no-local-version" keeps the version PyPI-upload
+# safe. These forms are also valid Debian versions verbatim.
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+version_scheme = "post-release"
+local_scheme = "no-local-version"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/netgear_switch/_version.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/netgear_switch"]
 
@@ -42,6 +57,7 @@ addopts = "-ra --cov=netgear_switch --cov-report=term-missing --cov-fail-under=9
 [tool.ruff]
 target-version = "py311"
 src = ["src", "tests"]
+extend-exclude = ["src/netgear_switch/_version.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "PT", "TC", "C4", "PIE", "RET", "N"]
@@ -50,3 +66,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "PT", "TC", "C4", "PIE", "RET"
 packages = ["netgear_switch"]
 strict = true
 python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = "netgear_switch._version"
+ignore_errors = true

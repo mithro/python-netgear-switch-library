@@ -13,11 +13,26 @@ venv/
 .ruff_cache/
 .mypy_cache/
 .cache/
+.uvcache/
 
 # Coverage artifacts (pytest-cov / coverage.py)
 .coverage
 .coverage.*
 htmlcov/
+
+# hatch-vcs writes this at build/editable-install time; it is derived from git.
+/src/netgear_switch/_version.py
+
+# Debian build byproducts (dpkg-buildpackage writes to the parent dir; local
+# builds may drop these in-tree).
+/built-debs/
+*.deb
+*.buildinfo
+*.changes
+/debian/.debhelper/
+/debian/files
+/debian/python3-netgear-switch-library/
+/debian/debhelper-build-stamp
 
 # Project-local scratch
 tmp/

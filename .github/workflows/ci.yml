@@ -1,0 +1,48 @@
+name: CI
+
+# Runs the SAME gates as local development (ruff, mypy --strict, pytest with
+# coverage >= 90) on every push to main and every pull request. A green run here
+# is what "mergeable" means; merging to main triggers the release workflows.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so hatch-vcs can derive the version
+
+      - name: Install net-snmp CLI (system dependency for the sync transport)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends snmp
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Install the matrix Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync all extras and the dev group
+        run: uv sync --all-extras --dev --python ${{ matrix.python-version }}
+
+      - name: Lint (ruff)
+        run: uv run ruff check
+
+      - name: Type-check (mypy --strict)
+        run: uv run mypy
+
+      - name: Tests + coverage gate (>= 90)
+        run: uv run pytest

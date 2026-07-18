@@ -4,6 +4,9 @@ Query and control Netgear switches over SNMP, NSDP and the HTTP web UI
 behind one model-driven API.
 """
 
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
 from .aio_api import AsyncSwitch
 from .config import (
     SwitchConfig,
@@ -40,7 +43,21 @@ from .models import (
 from .registry import MODELS, Backend, SwitchClass, SwitchModel, get_model
 from .sync_api import SyncSwitch
 
-__version__: str = "0.1.0"
+try:
+    # Normal case: the package is installed (editable or wheel) and its
+    # dist-info carries the version hatch-vcs derived from git at build time.
+    __version__: str = _pkg_version("python-netgear-switch-library")
+except PackageNotFoundError:  # pragma: no cover - only hit outside an installed env
+    # Fallback for running with no install metadata available at all (e.g. a
+    # bare source checkout added straight to sys.path without an install).
+    # Deliberately does NOT import the hatch-vcs-generated `_version.py`: that
+    # file is gitignored and absent on a fresh checkout, and importing it here
+    # would make `mypy --strict` fail in that state (import-not-found) while
+    # a `# type: ignore` on the import would itself be flagged unused
+    # (no-redef) once the file exists after a build. Every installed/editable
+    # environment (dev, CI, wheel) already resolves the metadata version
+    # above, so this branch is unreachable there.
+    __version__ = "0.0.dev0+unknown"
 
 __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "__version__",
