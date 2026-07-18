@@ -396,17 +396,24 @@ class AsyncHttpWriter:
             reboot_path, forms.reboot_form(csrf_hash=_csrf(page))
         )
 
-    def set_port_enabled(
+    async def set_port_enabled(
         self, port: int, enabled: bool, *, force: bool = False
     ) -> None:
+        # Task 9 fix: was a plain (non-async) `def` -- inconsistent with every
+        # other AsyncHttpWriter method and unsound under a facade call site
+        # typed `Callable[[...], Awaitable[None]]` (mypy --strict caught the
+        # union-type mismatch once the facade's generic per-op dispatcher
+        # actually called it). Same immediate-refusal behaviour, now reachable
+        # via `await` like its siblings.
         del port, enabled, force
         raise UnsupportedCapabilityError(
             f"{self.model.key!r} web port-enable endpoint is UNVERIFIED-pending-capture"
         )
 
-    def set_mgmt_ip(
+    async def set_mgmt_ip(
         self, address: str, netmask: str, gateway: str, *, force: bool = False
     ) -> None:
+        # Task 9 fix: see set_port_enabled above.
         del address, netmask, gateway, force
         raise UnsupportedCapabilityError(
             f"{self.model.key!r} web mgmt-IP endpoint is UNVERIFIED-pending-capture"

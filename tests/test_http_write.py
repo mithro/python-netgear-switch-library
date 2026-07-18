@@ -400,10 +400,10 @@ def test_async_reboot_posts_form_with_force() -> None:
 def test_async_set_port_enabled_is_unsupported() -> None:
     writer = AsyncHttpWriter(_AsyncStatefulSession(), get_model("gs305ep"))
     with pytest.raises(UnsupportedCapabilityError):
-        writer.set_port_enabled(2, True)
+        _run(writer.set_port_enabled(2, True))
 
 
 def test_async_set_mgmt_ip_is_unsupported() -> None:
     writer = AsyncHttpWriter(_AsyncStatefulSession(), get_model("gs305ep"))
     with pytest.raises(UnsupportedCapabilityError):
-        writer.set_mgmt_ip("10.0.0.2", "255.255.255.0", "10.0.0.1")
+        _run(writer.set_mgmt_ip("10.0.0.2", "255.255.255.0", "10.0.0.1"))
