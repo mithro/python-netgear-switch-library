@@ -47,8 +47,8 @@ def parse_port_status(data: bytes) -> NsdpPortStatus:
 
 
 def parse_port_statistics(data: bytes) -> NsdpPortStatistics:
-    if len(data) < 25:
-        raise ValueError(f"PORT_STATISTICS TLV must be >=25 bytes, got {len(data)}")
+    if len(data) != 49:
+        raise ValueError(f"PORT_STATISTICS TLV must be 49 bytes, got {len(data)}")
     rx, tx, crc = struct.unpack_from(">QQQ", data, 1)
     return NsdpPortStatistics(
         port_id=data[0], bytes_received=rx, bytes_sent=tx, crc_errors=crc

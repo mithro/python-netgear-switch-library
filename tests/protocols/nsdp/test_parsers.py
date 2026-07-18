@@ -43,6 +43,20 @@ def test_parse_port_statistics_49_bytes():
     assert stats.crc_errors == 3
 
 
+def test_parse_port_statistics_rejects_truncated():
+    # Too short: 25 bytes instead of 49
+    data = (
+        b"\x01"
+        + struct.pack(">Q", 1000)
+        + struct.pack(">Q", 500)
+        + struct.pack(">Q", 3)
+    )
+    with pytest.raises(
+        ValueError, match="PORT_STATISTICS TLV must be 49 bytes, got 25"
+    ):
+        parsers.parse_port_statistics(data)
+
+
 def test_parse_port_pvid_3_bytes():
     pv = parsers.parse_port_pvid(b"\x05\x00\x64")  # port 5, vlan 100
     assert (pv.port_id, pv.vlan_id) == (5, 100)
