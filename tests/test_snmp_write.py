@@ -20,6 +20,11 @@ class FakeWriteClient:
     def __init__(self, tables=None, apply=True):
         self._tables = tables or {}
         self.sets: list[SetVarbind] = []
+        # Per-PDU call log (list of varbind-lists): distinguishes N separate
+        # single-varbind SET calls from one set_many call carrying multiple
+        # varbinds in a single PDU -- ``self.sets`` alone can't tell those
+        # apart since it's just the flattened varbinds.
+        self.calls: list[list[SetVarbind]] = []
         self._apply = apply
 
     def get(self, oids_):
@@ -33,6 +38,7 @@ class FakeWriteClient:
 
     def set_many(self, vbs):
         self.sets.extend(vbs)
+        self.calls.append(list(vbs))
         if not self._apply:
             return
         for vb in vbs:  # crude apply: overwrite the exact leaf row
@@ -56,6 +62,8 @@ class FakeAsyncWriteClient:
     def __init__(self, tables=None, apply=True):
         self._tables = tables or {}
         self.sets: list[SetVarbind] = []
+        # See FakeWriteClient.calls: per-PDU call log.
+        self.calls: list[list[SetVarbind]] = []
         self._apply = apply
 
     async def get(self, oids_):
@@ -72,6 +80,7 @@ class FakeAsyncWriteClient:
 
     async def set_many(self, vbs):
         self.sets.extend(vbs)
+        self.calls.append(list(vbs))
         if not self._apply:
             return
         for vb in vbs:
@@ -489,6 +498,7 @@ class CoherentPoeClient(FakeWriteClient):
 
     def set_many(self, vbs):
         self.sets.extend(vbs)
+        self.calls.append(list(vbs))
         for vb in vbs:
             if vb.oid.startswith(f"{oids.PETH_PSE_PORT_TABLE}.3.1."):
                 port = int(vb.oid.rsplit(".", 1)[1])
@@ -507,6 +517,7 @@ class AsyncCoherentPoeClient(FakeAsyncWriteClient):
 
     async def set_many(self, vbs):
         self.sets.extend(vbs)
+        self.calls.append(list(vbs))
         for vb in vbs:
             if vb.oid.startswith(f"{oids.PETH_PSE_PORT_TABLE}.3.1."):
                 port = int(vb.oid.rsplit(".", 1)[1])
@@ -522,10 +533,13 @@ class AsyncCoherentPoeClient(FakeAsyncWriteClient):
 
 class AsyncStuckOffPoeClient(FakeAsyncWriteClient):
     """Async twin of ``StuckOffPoeClient``: admin off is coherent, but admin-on
-    never resumes delivering (detect stays 'searching' forever)."""
+    never resumes delivering (detect stays 'searching' forever). Also used to
+    exercise ``clear_poe_fault``'s on-timeout branch: detect never reaches
+    delivering/searching-recovered, so it never leaves 'FAULT' either."""
 
     async def set_many(self, vbs):
         self.sets.extend(vbs)
+        self.calls.append(list(vbs))
         for vb in vbs:
             if vb.oid.startswith(f"{oids.PETH_PSE_PORT_TABLE}.3.1."):
                 port = int(vb.oid.rsplit(".", 1)[1])
@@ -542,10 +556,13 @@ class AsyncStuckOffPoeClient(FakeAsyncWriteClient):
 
 class StuckOffPoeClient(FakeWriteClient):
     """Turns off coherently, but admin-on never resumes delivering -- used to
-    exercise the phase-2 (on_timeout) branch of ``cycle_poe``."""
+    exercise the phase-2 (on_timeout) branch of ``cycle_poe``. Also used to
+    exercise ``clear_poe_fault``'s on-timeout branch: detect never reaches
+    delivering/searching-recovered, so it never leaves 'FAULT' either."""
 
     def set_many(self, vbs):
         self.sets.extend(vbs)
+        self.calls.append(list(vbs))
         for vb in vbs:
             if vb.oid.startswith(f"{oids.PETH_PSE_PORT_TABLE}.3.1."):
                 port = int(vb.oid.rsplit(".", 1)[1])
@@ -612,6 +629,17 @@ def test_clear_poe_fault_recovers_detect():
                       sleep=calls.append)
     detect = next(p.detect for p in w._reader.get_poe() if p.port == 5)
     assert detect is not PoEDetect.FAULT
+    prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
+    admin_sets = [s.value for s in client.sets if s.oid.startswith(prefix)]
+    assert admin_sets == [2, 1]  # off then on
+    # Must be TWO SEPARATE single-varbind SET calls, never one set_many PDU
+    # carrying both varbinds for the same (duplicate) OID -- RFC 3416 leaves
+    # per-varbind ordering for a repeated OID undefined, so a real agent may
+    # reject such a PDU or collapse it (last-wins), silently defeating the
+    # off->on re-arm.
+    poe_calls = [c for c in client.calls
+                 if c and c[0].oid.startswith(prefix)]
+    assert [len(c) for c in poe_calls] == [1, 1]
 
 
 def test_cycle_poe_protected_port_requires_force():
@@ -655,16 +683,20 @@ def test_cycle_poe_on_never_reached_raises_timeout_and_terminates():
 
 
 def test_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
+    """The off SET is coherent (so phase 1 completes), but re-enabling admin
+    never resumes delivering/searching -- detect never leaves 'FAULT', so
+    phase 2 must raise a typed timeout, not hang."""
     tables = _poe_full_tables()
     tables[oids.PETH_PSE_PORT_TABLE] = [
         SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.5", 1, "INTEGER"),
         SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.5", 4, "INTEGER"),  # stuck FAULT
     ]
-    client = FakeWriteClient(tables, apply=False)  # SETs never applied
+    client = StuckOffPoeClient(tables)
     w = SnmpWriter(client, get_model("gsm7252ps"))
     with pytest.raises(WriteVerificationError, match="still in FAULT"):
         w.clear_poe_fault(5, force=True,
-                          timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+                          timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1,
+                                                     poll_interval=0),
                           sleep=lambda _: None, clock=_incrementing_clock())
 
 
@@ -703,6 +735,14 @@ def test_async_clear_poe_fault_recovers_detect():
         sleep=_sleep))
     detect = next(p.detect for p in asyncio.run(w._reader.get_poe()) if p.port == 5)
     assert detect is not PoEDetect.FAULT
+    prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
+    admin_sets = [s.value for s in client.sets if s.oid.startswith(prefix)]
+    assert admin_sets == [2, 1]  # off then on
+    # TWO SEPARATE single-varbind SET calls -- never one set_many PDU with a
+    # duplicate OID (see the sync test's comment for the rationale).
+    poe_calls = [c for c in client.calls
+                 if c and c[0].oid.startswith(prefix)]
+    assert [len(c) for c in poe_calls] == [1, 1]
 
 
 def test_async_cycle_poe_protected_port_requires_force():
@@ -745,14 +785,16 @@ def test_async_cycle_poe_on_never_reached_raises_timeout_and_terminates():
 
 
 def test_async_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
-    """Async clear_poe_fault timeout: FAULT state never clears despite device
-    being re-enabled. Must raise typed error and terminate deterministically."""
+    """Async clear_poe_fault timeout: the off SET is coherent (phase 1
+    completes), but re-enabling admin never resumes delivering/searching, so
+    detect never leaves 'FAULT'. Must raise typed error and terminate
+    deterministically."""
     tables = _poe_full_tables()
     tables[oids.PETH_PSE_PORT_TABLE] = [
         SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.5", 1, "INTEGER"),
         SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.5", 4, "INTEGER"),  # stuck FAULT
     ]
-    client = FakeAsyncWriteClient(tables, apply=False)  # SETs never applied
+    client = AsyncStuckOffPoeClient(tables)
     w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
 
     async def _sleep(seconds: float) -> None:
@@ -761,7 +803,7 @@ def test_async_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
     with pytest.raises(WriteVerificationError, match="still in FAULT"):
         asyncio.run(w.clear_poe_fault(
             5, force=True,
-            timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
             sleep=_sleep, clock=_incrementing_clock()))
 
 
