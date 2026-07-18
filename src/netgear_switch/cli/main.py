@@ -12,8 +12,8 @@ from netgear_switch.errors import NetgearSwitchError
 from netgear_switch.models import VlanMode
 from netgear_switch.registry import MODELS
 
+from . import capture, safety
 from . import format as fmt
-from . import safety
 from .context import EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
 
 if TYPE_CHECKING:
@@ -304,6 +304,24 @@ def _cmd_ip_set(
     )
 
 
+def _cmd_capture(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    from pathlib import Path
+
+    switch = get_switch()
+    record = capture.run_capture(
+        switch,
+        Path(args.output),
+        snapshot_only=args.snapshot_only,
+        raw_walk=None if args.snapshot_only else capture.default_raw_walk,
+    )
+    print(f"wrote capture for {record.model} to {args.output}", file=ctx.out)
+    for note in record.notes:
+        print(f"note: {note}", file=ctx.err)
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     gp = _global_parser()
     parser = argparse.ArgumentParser(
@@ -396,6 +414,19 @@ def build_parser() -> argparse.ArgumentParser:
     ip_set.add_argument("gateway")
     safety.add_write_args(ip_set)
     ip_set.set_defaults(func=_cmd_ip_set)
+
+    cap = sub.add_parser(
+        "capture",
+        parents=[child_gp],
+        help="record a real switch's state + protocol exchanges (opt-in, live)",
+    )
+    cap.add_argument("output", help="output JSON file path")
+    cap.add_argument(
+        "--snapshot-only",
+        action="store_true",
+        help="record only the state snapshot (skip the live raw protocol walk)",
+    )
+    cap.set_defaults(func=_cmd_capture)
 
     return parser
 
