@@ -115,8 +115,10 @@ def _render_vlan_cfg(state: VirtualSwitchState) -> str:
 
 
 def _render_membership(state: VirtualSwitchState, vid: int) -> str:
+    from ..registry import get_model
+
     vsim = state.vlans.get(vid)
-    port_count = max(state.ports) if state.ports else 0
+    port_count = get_model(state.model_key).port_count
     chars = []
     for p in range(1, port_count + 1):
         if vsim is None or p not in vsim.member:
