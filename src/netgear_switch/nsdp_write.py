@@ -31,8 +31,9 @@ if TYPE_CHECKING:
 
 _NO_POE = "NSDP has no PoE control tag; use the HTTP backend (Slice 6) for PoE"
 _NO_PORT_ADMIN = (
-    "NSDP has no per-port admin-enable tag on these Plus models; use the HTTP "
-    "backend (Slice 6) to enable/disable a port"
+    "no per-port admin-enable is available on these Plus models: NSDP has no "
+    "admin-enable tag, and the web UI has no grounded port-enable endpoint "
+    "(UNVERIFIED-pending-capture)"
 )
 _NO_VLAN_LIFECYCLE = (
     "NSDP has no VLAN create/destroy tag on these Plus models; only VLAN "

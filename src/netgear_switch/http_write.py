@@ -1,0 +1,413 @@
+"""Model-driven web-UI write operations with verify-after-write + guards.
+
+Parallel to ``snmp_write.py``. Every mutating op: (1) enforces
+``protected_ports`` on disruptive ports unless ``force=True``; (2) GETs the
+target page to scrape the fresh CSRF ``hash``; (3) POSTs the encoded form;
+(4) re-GETs and re-parses to confirm the change actually took — raising
+``WriteVerificationError(before, after)`` on divergence, NEVER silently
+succeeding. Web-UI-impossible/UNVERIFIED writes (port enable, mgmt-IP) raise
+``UnsupportedCapabilityError`` honestly.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import TYPE_CHECKING
+
+from .errors import (
+    HttpUnexpectedPageError,
+    ProtectedPortError,
+    UnsupportedCapabilityError,
+    WriteVerificationError,
+)
+from .protocols.http import forms, parse
+from .protocols.http.endpoints import http_spec
+
+if TYPE_CHECKING:
+    from .models import VlanMode
+    from .protocols.http.session import AsyncHttpSession, HttpSession
+    from .registry import SwitchModel
+    from .snmp_write import PoeCycleTimeouts
+
+
+def _csrf(html: str) -> str:
+    token = parse.parse_csrf_hash(html)
+    if token is None:
+        raise HttpUnexpectedPageError("no CSRF 'hash' token on page before write")
+    return token
+
+
+def _require_path(model_key: str, path: str | None, op: str) -> str:
+    """Return ``path`` or raise honestly if this model's spec has none for ``op``."""
+    if path is None:
+        raise UnsupportedCapabilityError(
+            f"model {model_key!r} web UI does not expose {op}"
+        )
+    return path
+
+
+def _vlan_checkbox_index(html: str, vlan: int) -> int | None:
+    for m in re.finditer(r'name="vlanck(\d+)"[^>]*value="(\d+)"', html):
+        if int(m.group(2)) == vlan:
+            return int(m.group(1))
+    return None
+
+
+class HttpWriter:
+    def __init__(
+        self,
+        session: HttpSession,
+        model: SwitchModel,
+        *,
+        protected_ports: frozenset[int] = frozenset(),
+    ) -> None:
+        self._spec = http_spec(model)
+        self.session = session
+        self.model = model
+        self.protected_ports = protected_ports
+
+    def _guard(self, port: int, force: bool) -> None:
+        if port in self.protected_ports and not force:
+            raise ProtectedPortError(
+                f"port {port} is protected on {self.model.key!r}; pass force=True"
+            )
+
+    def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
+        path = _require_path(
+            self.model.key, self._spec.poe_config_path, "web PoE config"
+        )
+        self._guard(port, force)
+        before = self._poe_admin(port)
+        page = self.session.get_page(path)
+        form = forms.poe_apply_form(
+            port=port, on=on, is_epx=self._spec.is_epx_poe, csrf_hash=_csrf(page)
+        )
+        self.session.post_form(path, form)
+        after = self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    def cycle_poe(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
+        # timeouts accepted-but-unused: matches SnmpWriter/NsdpWriter so the
+        # facade's SnmpWriter | NsdpWriter | HttpWriter union call site typechecks.
+        del timeouts
+        path = _require_path(
+            self.model.key, self._spec.poe_config_path, "web PoE config"
+        )
+        self._guard(port, force)
+        page = self.session.get_page(path)
+        self.session.post_form(
+            path, forms.poe_reset_form(port=port, csrf_hash=_csrf(page))
+        )
+
+    def clear_poe_fault(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
+        # Present so the facade's writer union has a uniform surface; the Plus
+        # web UI has no grounded clear-PoE-fault endpoint (a fault clears on the
+        # next PoEPortConfig apply/reset), so this is honestly unsupported.
+        del port, force, timeouts
+        raise UnsupportedCapabilityError(
+            f"{self.model.key!r} web clear-PoE-fault is UNVERIFIED-pending-capture"
+        )
+
+    def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
+        self._guard(port, force)
+        path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        page = self.session.get_page(path)
+        self.session.post_form(
+            path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
+        )
+        after = dict(parse.parse_pvids(self.session.get_page(path)))
+        if after.get(port) != vlan:
+            raise WriteVerificationError(
+                f"PVID for port {port} did not read back as {vlan}",
+                before=None,
+                after=after.get(port),
+            )
+
+    def set_vlan_membership(
+        self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
+    ) -> None:
+        self._guard(port, force)
+        path = _require_path(
+            self.model.key, self._spec.vlan_membership_path, "VLAN membership"
+        )
+        html = self.session.post_form(path, {"VLAN_ID": str(vlan)})
+        states = parse.parse_membership(html, self.model.port_count)
+        states[port] = mode
+        hidden = forms.membership_hidden_mem(states, self.model.port_count)
+        self.session.post_form(
+            path,
+            forms.membership_form(vlan=vlan, hidden_mem=hidden, csrf_hash=_csrf(html)),
+        )
+        verify = self.session.post_form(path, {"VLAN_ID": str(vlan)})
+        after = parse.parse_membership(verify, self.model.port_count)
+        if after.get(port) is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value}",
+                before=states.get(port),
+                after=after.get(port),
+            )
+
+    def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        del name, force  # web UI 8021qCf.cgi has no VLAN-name field (GROUNDED).
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
+        page = self.session.get_page(path)
+        self.session.post_form(
+            path, forms.vlan_add_form(vlan=vlan, csrf_hash=_csrf(page))
+        )
+        after = parse.parse_vlan_ids(self.session.get_page(path))
+        if vlan not in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not created", before=None, after=after
+            )
+
+    def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        del force  # VLAN delete disruptiveness is guarded per-member elsewhere.
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
+        page = self.session.get_page(path)
+        idx = _vlan_checkbox_index(page, vlan)
+        if idx is None:
+            raise HttpUnexpectedPageError(f"VLAN {vlan} not present to delete")
+        self.session.post_form(
+            path,
+            forms.vlan_delete_form(
+                vlan=vlan, checkbox_index=idx, csrf_hash=_csrf(page)
+            ),
+        )
+        after = parse.parse_vlan_ids(self.session.get_page(path))
+        if vlan in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not deleted", before=None, after=after
+            )
+
+    def reboot(self, *, force: bool = False) -> None:
+        # Capability check BEFORE the force gate: a model with no reboot endpoint
+        # must raise the (accurate) UnsupportedCapabilityError, not ProtectedPortError.
+        reboot_path = _require_path(
+            self.model.key, self._spec.reboot_path, "web reboot"
+        )
+        if not force:
+            raise ProtectedPortError("reboot is disruptive; pass force=True")
+        landing = self._spec.vlan_config_path or self._spec.dashboard_path
+        page = self.session.get_page(
+            _require_path(self.model.key, landing, "web reboot")
+        )
+        self.session.post_form(reboot_path, forms.reboot_form(csrf_hash=_csrf(page)))
+
+    def set_port_enabled(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        del port, enabled, force
+        raise UnsupportedCapabilityError(
+            f"{self.model.key!r} web port-enable endpoint is UNVERIFIED-pending-capture"
+        )
+
+    def set_mgmt_ip(
+        self, address: str, netmask: str, gateway: str, *, force: bool = False
+    ) -> None:
+        del address, netmask, gateway, force
+        raise UnsupportedCapabilityError(
+            f"{self.model.key!r} web mgmt-IP endpoint is UNVERIFIED-pending-capture"
+        )
+
+    def _poe_admin(self, port: int) -> bool:
+        path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
+        rows = parse.parse_poe_status(self.session.get_page(path))
+        for r in rows:
+            if r.port == port:
+                return r.admin_enabled
+        return False
+
+
+class AsyncHttpWriter:
+    def __init__(
+        self,
+        session: AsyncHttpSession,
+        model: SwitchModel,
+        *,
+        protected_ports: frozenset[int] = frozenset(),
+    ) -> None:
+        self._spec = http_spec(model)
+        self.session = session
+        self.model = model
+        self.protected_ports = protected_ports
+
+    def _guard(self, port: int, force: bool) -> None:
+        if port in self.protected_ports and not force:
+            raise ProtectedPortError(
+                f"port {port} is protected on {self.model.key!r}; pass force=True"
+            )
+
+    async def _poe_admin(self, port: int) -> bool:
+        path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
+        rows = parse.parse_poe_status(await self.session.get_page(path))
+        for r in rows:
+            if r.port == port:
+                return r.admin_enabled
+        return False
+
+    async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
+        path = _require_path(
+            self.model.key, self._spec.poe_config_path, "web PoE config"
+        )
+        self._guard(port, force)
+        before = await self._poe_admin(port)
+        page = await self.session.get_page(path)
+        form = forms.poe_apply_form(
+            port=port, on=on, is_epx=self._spec.is_epx_poe, csrf_hash=_csrf(page)
+        )
+        await self.session.post_form(path, form)
+        after = await self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    async def cycle_poe(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
+        del timeouts  # accepted-but-unused; uniform writer surface (see sync).
+        path = _require_path(
+            self.model.key, self._spec.poe_config_path, "web PoE config"
+        )
+        self._guard(port, force)
+        page = await self.session.get_page(path)
+        await self.session.post_form(
+            path, forms.poe_reset_form(port=port, csrf_hash=_csrf(page))
+        )
+
+    async def clear_poe_fault(
+        self,
+        port: int,
+        *,
+        force: bool = False,
+        timeouts: PoeCycleTimeouts | None = None,
+    ) -> None:
+        del port, force, timeouts
+        raise UnsupportedCapabilityError(
+            f"{self.model.key!r} web clear-PoE-fault is UNVERIFIED-pending-capture"
+        )
+
+    async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
+        self._guard(port, force)
+        path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        page = await self.session.get_page(path)
+        await self.session.post_form(
+            path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
+        )
+        after = dict(parse.parse_pvids(await self.session.get_page(path)))
+        if after.get(port) != vlan:
+            raise WriteVerificationError(
+                f"PVID for port {port} did not read back as {vlan}",
+                before=None,
+                after=after.get(port),
+            )
+
+    async def set_vlan_membership(
+        self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
+    ) -> None:
+        self._guard(port, force)
+        path = _require_path(
+            self.model.key, self._spec.vlan_membership_path, "VLAN membership"
+        )
+        html = await self.session.post_form(path, {"VLAN_ID": str(vlan)})
+        states = parse.parse_membership(html, self.model.port_count)
+        states[port] = mode
+        hidden = forms.membership_hidden_mem(states, self.model.port_count)
+        await self.session.post_form(
+            path,
+            forms.membership_form(vlan=vlan, hidden_mem=hidden, csrf_hash=_csrf(html)),
+        )
+        verify = await self.session.post_form(path, {"VLAN_ID": str(vlan)})
+        after = parse.parse_membership(verify, self.model.port_count)
+        if after.get(port) is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value}",
+                before=states.get(port),
+                after=after.get(port),
+            )
+
+    async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        del name, force
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
+        page = await self.session.get_page(path)
+        await self.session.post_form(
+            path, forms.vlan_add_form(vlan=vlan, csrf_hash=_csrf(page))
+        )
+        after = parse.parse_vlan_ids(await self.session.get_page(path))
+        if vlan not in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not created", before=None, after=after
+            )
+
+    async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        del force
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
+        page = await self.session.get_page(path)
+        idx = _vlan_checkbox_index(page, vlan)
+        if idx is None:
+            raise HttpUnexpectedPageError(f"VLAN {vlan} not present to delete")
+        await self.session.post_form(
+            path,
+            forms.vlan_delete_form(
+                vlan=vlan, checkbox_index=idx, csrf_hash=_csrf(page)
+            ),
+        )
+        after = parse.parse_vlan_ids(await self.session.get_page(path))
+        if vlan in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not deleted", before=None, after=after
+            )
+
+    async def reboot(self, *, force: bool = False) -> None:
+        # Capability check BEFORE the force gate (see sync reboot).
+        reboot_path = _require_path(
+            self.model.key, self._spec.reboot_path, "web reboot"
+        )
+        if not force:
+            raise ProtectedPortError("reboot is disruptive; pass force=True")
+        landing = self._spec.vlan_config_path or self._spec.dashboard_path
+        page = await self.session.get_page(
+            _require_path(self.model.key, landing, "web reboot")
+        )
+        await self.session.post_form(
+            reboot_path, forms.reboot_form(csrf_hash=_csrf(page))
+        )
+
+    def set_port_enabled(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        del port, enabled, force
+        raise UnsupportedCapabilityError(
+            f"{self.model.key!r} web port-enable endpoint is UNVERIFIED-pending-capture"
+        )
+
+    def set_mgmt_ip(
+        self, address: str, netmask: str, gateway: str, *, force: bool = False
+    ) -> None:
+        del address, netmask, gateway, force
+        raise UnsupportedCapabilityError(
+            f"{self.model.key!r} web mgmt-IP endpoint is UNVERIFIED-pending-capture"
+        )
