@@ -23,6 +23,9 @@ from ...protocols.http.endpoints import LoginScheme
 from ...protocols.http.parse import parse_login_rand
 
 if TYPE_CHECKING:
+    from types import TracebackType
+    from typing import Self
+
     from ...protocols.http.endpoints import HttpModelSpec
 
 _TIMEOUT = 15.0
@@ -56,6 +59,24 @@ def _check_authed(spec: HttpModelSpec, cookies: httpx.Cookies) -> None:
         )
 
 
+def _validate_response(
+    resp: httpx.Response, *, context: str, path: str | None = None
+) -> None:
+    """Raise on an HTTP-error status, or (if ``path`` given) a lost session.
+
+    Pure; shared by every sync/async GET/POST call site so status-code and
+    stale-session handling cannot drift between the two codebases.
+
+    ``context`` names the request for the status-code error (e.g. ``"GET
+    /login.cgi"``). ``path`` is only passed by mid-session reads that should
+    also detect the web-UI silently redirecting back to the login page.
+    """
+    if resp.status_code >= 400:
+        raise HttpError(f"{context} returned HTTP {resp.status_code}")
+    if path is not None and "redirect to login" in resp.text.lower():
+        raise HttpAuthError(f"session lost fetching {path}")
+
+
 class HttpClient:
     """Synchronous httpx web-UI session (implements ``HttpSession``)."""
 
@@ -70,9 +91,8 @@ class HttpClient:
     ) -> None:
         self._spec = spec
         self._password = password
-        self._base = f"http://{host}"
         self._client = httpx.Client(
-            base_url=self._base,
+            base_url=f"http://{host}",
             timeout=_TIMEOUT,
             verify=verify_tls,
             transport=transport,
@@ -80,11 +100,24 @@ class HttpClient:
         )
         self._logged_in = False
 
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.close()
+
     def login(self) -> None:
         try:
             page = self._client.get(self._spec.login_path)
+            _validate_response(page, context=f"GET {self._spec.login_path}")
             body = _login_body(self._spec, self._password, page.text)
-            self._client.post(self._spec.login_path, data=body)
+            resp = self._client.post(self._spec.login_path, data=body)
+            _validate_response(resp, context=f"POST {self._spec.login_path}")
         except httpx.HTTPError as exc:
             raise HttpError(f"web-UI login transport error: {exc}") from exc
         _check_authed(self._spec, self._client.cookies)
@@ -97,10 +130,7 @@ class HttpClient:
             resp = self._client.get(path)
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
-        if resp.status_code >= 400:
-            raise HttpError(f"GET {path} returned HTTP {resp.status_code}")
-        if "redirect to login" in resp.text.lower():
-            raise HttpAuthError(f"session lost fetching {path}")
+        _validate_response(resp, context=f"GET {path}", path=path)
         return resp.text
 
     def post_form(self, path: str, data: dict[str, str]) -> str:
@@ -110,8 +140,7 @@ class HttpClient:
             resp = self._client.post(path, data=data)
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
-        if resp.status_code >= 400:
-            raise HttpError(f"POST {path} returned HTTP {resp.status_code}")
+        _validate_response(resp, context=f"POST {path}")
         return resp.text
 
     def close(self) -> None:
@@ -141,11 +170,24 @@ class AsyncHttpClient:
         )
         self._logged_in = False
 
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        await self.aclose()
+
     async def login(self) -> None:
         try:
             page = await self._client.get(self._spec.login_path)
+            _validate_response(page, context=f"GET {self._spec.login_path}")
             body = _login_body(self._spec, self._password, page.text)
-            await self._client.post(self._spec.login_path, data=body)
+            resp = await self._client.post(self._spec.login_path, data=body)
+            _validate_response(resp, context=f"POST {self._spec.login_path}")
         except httpx.HTTPError as exc:
             raise HttpError(f"web-UI login transport error: {exc}") from exc
         _check_authed(self._spec, self._client.cookies)
@@ -158,10 +200,7 @@ class AsyncHttpClient:
             resp = await self._client.get(path)
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
-        if resp.status_code >= 400:
-            raise HttpError(f"GET {path} returned HTTP {resp.status_code}")
-        if "redirect to login" in resp.text.lower():
-            raise HttpAuthError(f"session lost fetching {path}")
+        _validate_response(resp, context=f"GET {path}", path=path)
         return resp.text
 
     async def post_form(self, path: str, data: dict[str, str]) -> str:
@@ -171,8 +210,7 @@ class AsyncHttpClient:
             resp = await self._client.post(path, data=data)
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
-        if resp.status_code >= 400:
-            raise HttpError(f"POST {path} returned HTTP {resp.status_code}")
+        _validate_response(resp, context=f"POST {path}")
         return resp.text
 
     async def aclose(self) -> None:
