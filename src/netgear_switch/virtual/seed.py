@@ -9,7 +9,9 @@ neighbour, and a static management IP. This makes the Task 16 SNMP<->SNMP
 equivalence test (and the round-trip tests here) exercise real data on every
 parser, not an empty table. Port 1 also carries an ifAlias description (ports
 2+ deliberately leave it unset) so the ifAlias column exercises both the
-present and absent-instance paths.
+present and absent-instance paths. A sysDescr containing "GSM7252PS" plus a
+placeholder sysObjectID (Task 2 model detection) round out the identity
+signals -- see ``VirtualSwitchState.sys_descr``/``sys_object_id``.
 """
 from __future__ import annotations
 
@@ -122,6 +124,15 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         bridge_ports=bridge_ports,
         lldp=lldp,
         mgmt=mgmt,
+        # Illustrative sysDescr text -- NOT a captured real firmware string;
+        # its only requirement is containing the model name "GSM7252PS" so
+        # detect_model_from_sysdescr's string matching has something real to
+        # key off end-to-end. sys_object_id is a plausible-looking UNVERIFIED
+        # virtual/test placeholder under the model's own 4526.10 vendor
+        # subtree -- NOT a claim about the real device's sysObjectID (no
+        # capture of the real value exists).
+        sys_descr="NETGEAR GSM7252PS Managed Switch, firmware 8.0.6.6",
+        sys_object_id="1.3.6.1.4.1.4526.10.100.14",
     )
 
 

@@ -7,7 +7,7 @@ behind one model-driven API.
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
-from .aio_api import AsyncSwitch
+from .aio_api import AsyncSwitch, async_detect_model
 from .config import (
     SwitchConfig,
     ensure_secure_file,
@@ -27,6 +27,7 @@ from .errors import (
     WriteVerificationError,
 )
 from .models import (
+    DetectedModel,
     IpMode,
     LLDPNeighbor,
     MacEntry,
@@ -41,7 +42,7 @@ from .models import (
     VlanMode,
 )
 from .registry import MODELS, Backend, SwitchClass, SwitchModel, get_model
-from .sync_api import SyncSwitch
+from .sync_api import SyncSwitch, detect_model
 
 try:
     # Normal case: the package is installed (editable or wheel) and its
@@ -85,6 +86,7 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "MgmtIpConfig",
     "Sensor",
     "SwitchData",
+    "DetectedModel",
     # registry
     "Backend",
     "SwitchClass",
@@ -99,4 +101,7 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     # facades
     "SyncSwitch",
     "AsyncSwitch",
+    # model detection (Task 2)
+    "detect_model",
+    "async_detect_model",
 ]

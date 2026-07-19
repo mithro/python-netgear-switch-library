@@ -10,7 +10,12 @@ from netgear_switch.models import IpMode, PoEDetect
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpRow
 from netgear_switch.registry import get_model
-from netgear_switch.snmp_read import AsyncSnmpReader, SnmpReader
+from netgear_switch.snmp_read import (
+    AsyncSnmpReader,
+    SnmpReader,
+    async_read_system_info,
+    read_system_info,
+)
 
 
 class FakeClient:
@@ -292,3 +297,68 @@ def test_async_reader_matches_sync_reader_for_every_method():
     assert sync_results["mgmt_ip"].mode is IpMode.UNKNOWN
     assert sync_results["ports"][0].description == "uplink"
     assert sync_results["mgmt_ip"].base_mac == "28:C6:8E:00:00:01"
+
+
+# --- Task 2: model detection via sysDescr -----------------------------------
+
+
+def _system_info_tables(sys_descr: str) -> dict[str, list[SnmpRow]]:
+    return {
+        oids.SYS_DESCR: [SnmpRow(oids.SYS_DESCR, sys_descr, "STRING")],
+        oids.SYS_OBJECT_ID: [
+            SnmpRow(oids.SYS_OBJECT_ID, "1.3.6.1.4.1.4526.10.100.14", "OID")
+        ],
+    }
+
+
+def test_read_system_info_matches_known_model():
+    tables = _system_info_tables("NETGEAR GSM7252PS Managed Switch, firmware 8.0.6.6")
+    detected = read_system_info(FakeClient(tables))
+    assert detected.key == "gsm7252ps"
+    assert detected.matched is True
+    assert detected.sys_descr == "NETGEAR GSM7252PS Managed Switch, firmware 8.0.6.6"
+    assert detected.sys_object_id == "1.3.6.1.4.1.4526.10.100.14"
+
+
+def test_read_system_info_unregistered_model_is_honestly_unmatched():
+    # sysObjectID is READ (see detected.sys_object_id) but never used to
+    # guess a model -- an unregistered Netgear model name in sysDescr must
+    # come back as key=None, not be coerced onto some other registered model.
+    tables = _system_info_tables("NETGEAR M7300-28G")
+    detected = read_system_info(FakeClient(tables))
+    assert detected.key is None
+    assert detected.matched is False
+    assert detected.sys_descr == "NETGEAR M7300-28G"
+    assert detected.sys_object_id == "1.3.6.1.4.1.4526.10.100.14"
+
+
+def test_read_system_info_no_reply_at_all_is_honestly_unmatched():
+    detected = read_system_info(FakeClient({}))
+    assert detected.key is None
+    assert detected.sys_descr is None
+    assert detected.sys_object_id is None
+
+
+def test_snmp_reader_get_system_info_reuses_readers_client():
+    tables = _system_info_tables("NETGEAR GSM7252PS")
+    reader = SnmpReader(FakeClient(tables), get_model("gsm7252ps"))
+    detected = reader.get_system_info()
+    assert detected.key == "gsm7252ps"
+
+
+def test_async_read_system_info_matches_sync_read_system_info():
+    tables = _system_info_tables("NETGEAR GSM7252PS Managed Switch, firmware 8.0.6.6")
+    sync_detected = read_system_info(FakeClient(tables))
+    async_detected = asyncio.run(async_read_system_info(FakeAsyncClient(tables)))
+    assert sync_detected == async_detected
+    assert sync_detected.key == "gsm7252ps"
+
+
+def test_async_snmp_reader_get_system_info_is_independent_of_bound_model():
+    # get_system_info() reflects what the DEVICE actually reports, not what
+    # model the reader happens to be constructed with -- useful to detect a
+    # reader was built against the wrong model key.
+    tables = _system_info_tables("NETGEAR GS110EMX")
+    reader = AsyncSnmpReader(FakeAsyncClient(tables), get_model("gsm7252ps"))
+    detected = asyncio.run(reader.get_system_info())
+    assert detected.key == "gs110emx"

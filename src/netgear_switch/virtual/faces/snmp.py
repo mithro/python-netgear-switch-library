@@ -140,6 +140,8 @@ def _to_smi_value(snmp_type: str, value: str) -> Any:
         return rfc1902.IpAddress(value)
     if snmp_type == "OCTETSTR":
         return rfc1902.OctetString(value.encode("latin-1"))
+    if snmp_type == "OID":
+        return rfc1902.ObjectIdentifier(value)
     raise ValueError(f"unsupported snmp_type token: {snmp_type!r}")
 
 

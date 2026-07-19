@@ -19,7 +19,9 @@ from ...models import (
 from .client import SnmpError, SnmpRow
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
+
+    from ...registry import SwitchModel
 
 
 def _suffix(row: SnmpRow, base: str) -> str | None:
@@ -593,3 +595,103 @@ def parse_mgmt_ip(
         mode=mode, address=ip, netmask=mask, gateway=gateway,
         base_mac=parse_base_mac(base_mac),
     )
+
+
+def _scalar_text(rows: Sequence[SnmpRow], oid: str) -> str | None:
+    """Extract one scalar exact-OID GET result's value as text, or None.
+
+    Unlike the walk-based column parsers above (matched by base-OID
+    *prefix*), ``sysDescr``/``sysObjectID`` are fetched with a plain exact-OID
+    GET (see ``snmp_read.read_system_info``), so ``rows`` is the combined
+    result of one ``client.get([...])`` call and this matches by exact OID
+    equality. An absent scalar (no row with this exact OID at all) is
+    honestly ``None`` -- not every device necessarily answers, and a caller
+    must never fabricate a value. A row that IS present but isn't decodable
+    to text is drift, not absence, and raises SnmpError naming the offending
+    OID, consistent with every other parser in this module.
+    """
+    for row in rows:
+        if row.oid != oid:
+            continue
+        value = row.value
+        if isinstance(value, bytes):
+            return value.decode("utf-8", "replace")
+        if isinstance(value, str):
+            return value
+        raise SnmpError(f"non-string value {value!r} at {row.oid}")
+    return None
+
+
+def parse_system_info(rows: Sequence[SnmpRow]) -> tuple[str | None, str | None]:
+    """Extract the raw sysDescr/sysObjectID scalar text from one combined GET.
+
+    Pure row -> ``(sys_descr, sys_object_id)`` extraction ONLY -- no model
+    matching happens here. Kept strictly separate from
+    ``detect_model_from_sysdescr`` so the matching heuristic is unit-testable
+    against plain strings, with no SnmpRow/client machinery involved at all.
+    """
+    from . import oids
+
+    sys_descr = _scalar_text(rows, oids.SYS_DESCR)
+    sys_object_id = _scalar_text(rows, oids.SYS_OBJECT_ID)
+    return sys_descr, sys_object_id
+
+
+def _model_match_tokens(model: SwitchModel) -> tuple[str, ...]:
+    """Name tokens to search for (uppercased) in a sysDescr string.
+
+    Built ONLY from the registry's own ``key``/``display_name`` -- there is
+    NO hand-invented per-model sysDescr/sysObjectID table anywhere (no MIBs,
+    no captures, no prior-art map exist for one; see
+    ``detect_model_from_sysdescr``'s docstring). ``display_name`` sometimes
+    carries a parenthesized alias (e.g. ``"GSM7228PS (S3300)"`` or
+    ``"M4300-24X (XSM4324CS)"``); both the main name and the alias are valid
+    tokens, since a real switch's sysDescr text could plausibly use either.
+    """
+    tokens = [model.key.upper()]
+    name = model.display_name
+    if "(" in name and name.endswith(")"):
+        main, _, alias = name.partition("(")
+        tokens.append(main.strip())
+        tokens.append(alias[:-1].strip())
+    else:
+        tokens.append(name.strip())
+    return tuple(t for t in tokens if t)
+
+
+def detect_model_from_sysdescr(
+    sys_descr: str | None, models: Mapping[str, SwitchModel]
+) -> str | None:
+    """Match a switch's sysDescr text against registered models' names.
+
+    HONESTY CONSTRAINT: there is no ground-truth sysObjectID -> model table
+    (see ``oids.SYS_OBJECT_ID`` -- it is read as a raw signal but never used
+    here). Matching is pure case-insensitive substring text matching against
+    each registered model's own key/display_name/alias tokens
+    (``_model_match_tokens``) -- NEVER a guess:
+
+    * A sysDescr containing an unregistered Netgear model name (e.g.
+      ``"M7300"``, not in ``models``) matches no token and correctly returns
+      ``None`` -- it is NEVER coerced onto some other, wrong, registered
+      model just because it looks Netgear-ish.
+    * A non-Netgear/garbage string matches nothing and also returns ``None``.
+    * A sysDescr matching MORE THAN ONE registered model's tokens (meaning
+      two registered models' names collide and can't be disambiguated by
+      this heuristic) ALSO returns ``None`` rather than guessing between
+      them. This never happens for the current registry (verified: no
+      model's match tokens are a substring of another's -- e.g. "M4300-24X"
+      vs "M4300-16X", "GSM7252PS" vs "GSM7228PS"/"S3300" are all mutually
+      exclusive), but the fallback is kept as a permanent safety net against
+      a future registry addition introducing a collision.
+    """
+    if not sys_descr:
+        return None
+    upper = sys_descr.upper()
+    matches = {
+        model.key
+        for model in models.values()
+        if any(token in upper for token in _model_match_tokens(model))
+    }
+    if len(matches) == 1:
+        return next(iter(matches))
+    return None

@@ -19,7 +19,7 @@ from .models import SwitchData
 from .nsdp_read import NsdpReader
 from .nsdp_write import NsdpWriter
 from .registry import Backend
-from .snmp_read import SnmpReader
+from .snmp_read import SnmpReader, read_system_info
 from .snmp_write import PoeCycleTimeouts, SnmpWriter
 
 _DEFAULT_POE_TIMEOUTS = PoeCycleTimeouts()
@@ -69,6 +69,7 @@ if TYPE_CHECKING:
 
     from .config import SwitchConfig
     from .models import (
+        DetectedModel,
         LLDPNeighbor,
         MacEntry,
         MgmtIpConfig,
@@ -84,6 +85,26 @@ if TYPE_CHECKING:
     from .protocols.snmp.client import SnmpClient, SnmpWriteClient
     from .registry import SwitchModel
     from .transport.http.client import HttpClient
+
+
+def detect_model(
+    host: str, *, community: str | None = None, client: SnmpClient | None = None
+) -> DetectedModel:
+    """Identify a switch's model over SNMP, WITHOUT already knowing/hardcoding
+    it -- the discovery entry point a caller (e.g. gdoc2netcfg) uses BEFORE it
+    can construct a ``SyncSwitch`` at all: call this first, then
+    ``registry.get_model(detected.key)`` + ``SyncSwitch(...)`` once
+    ``detected.key`` is not ``None``. See ``models.DetectedModel`` /
+    ``protocols.snmp.parse.detect_model_from_sysdescr`` for exactly how (and
+    why) an unmatched sysDescr honestly yields ``key=None`` rather than a
+    guess.
+
+    Builds the default net-snmp CLI client from ``host``/``community`` unless
+    ``client`` is injected (tests, or an already-open connection).
+    """
+    if client is None:
+        client = build_sync_snmp_client(host, community)
+    return read_system_info(client)
 
 
 class SyncSwitch:
@@ -363,6 +384,25 @@ class SyncSwitch:
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         return self._read(lambda r: r.get_mgmt_ip())
+
+    def identify(self) -> DetectedModel:
+        """Detect this switch's ACTUAL model via SNMP sysDescr, independent of
+        ``self.model``.
+
+        Unlike every other read/write op, this deliberately bypasses the
+        per-op SNMP/NSDP/HTTP backend-preference dispatch (``_read``) AND the
+        ``self.model`` SNMP-backend gate entirely: it exists precisely to
+        confirm/discover a switch's real model when the caller does not yet
+        trust the model this facade happens to have been constructed with
+        (e.g. a placeholder used only to carry host/credentials). Reuses an
+        injected ``snmp_client``/``snmp_community`` exactly like
+        ``_reader_for(Backend.SNMP)`` would, but never requires
+        ``self.model.backends`` to include SNMP.
+        """
+        client = self._snmp_client
+        if client is None:
+            client = build_sync_snmp_client(self.host, self._snmp_community)
+        return read_system_info(client)
 
     def snapshot(self) -> SwitchData:
         """Aggregate every read op, routing each field to the first backend that

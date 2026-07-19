@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .errors import UnsupportedCapabilityError
+from .models import DetectedModel
 from .protocols.snmp import oids, parse
-from .registry import Backend
+from .registry import MODELS, Backend
 
 if TYPE_CHECKING:
     # Only used in type annotations (return types / parameter types), never
@@ -30,6 +31,32 @@ if TYPE_CHECKING:
 def _require_snmp(model: SwitchModel) -> None:
     if Backend.SNMP not in model.backends:
         raise UnsupportedCapabilityError(f"model {model.key!r} has no SNMP backend")
+
+
+def read_system_info(client: SnmpClient) -> DetectedModel:
+    """Identify a switch's model via SNMP sysDescr matching.
+
+    Deliberately NOT a method on ``SnmpReader``: every other read in this
+    module requires a already-known ``SwitchModel`` (``_require_snmp`` gates
+    the reader's construction), but model identification exists precisely
+    for the case where the caller does NOT yet know/trust the model -- so
+    this takes a bare, unbound ``SnmpClient`` instead. See
+    ``protocols.snmp.parse.detect_model_from_sysdescr`` for the honesty-
+    constrained matching rules (never guesses; ``key=None`` means genuinely
+    unidentified -- an unregistered model or a non-Netgear device).
+    """
+    rows = client.get([oids.SYS_DESCR, oids.SYS_OBJECT_ID])
+    sys_descr, sys_object_id = parse.parse_system_info(rows)
+    key = parse.detect_model_from_sysdescr(sys_descr, MODELS)
+    return DetectedModel(key=key, sys_descr=sys_descr, sys_object_id=sys_object_id)
+
+
+async def async_read_system_info(client: AsyncSnmpClient) -> DetectedModel:
+    """Async twin of ``read_system_info`` -- see there."""
+    rows = await client.get([oids.SYS_DESCR, oids.SYS_OBJECT_ID])
+    sys_descr, sys_object_id = parse.parse_system_info(rows)
+    key = parse.detect_model_from_sysdescr(sys_descr, MODELS)
+    return DetectedModel(key=key, sys_descr=sys_descr, sys_object_id=sys_object_id)
 
 
 class SnmpReader:
@@ -105,6 +132,17 @@ class SnmpReader:
             w(vendor.dhcp_mode_unverified),  # single named UNVERIFIED OID (Task 4)
             w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
         )
+
+    def get_system_info(self) -> DetectedModel:
+        """Identify this switch's model via sysDescr (see ``read_system_info``).
+
+        Reuses this reader's already-connected client. Unlike every other
+        method here, the result does NOT depend on ``self.model`` matching
+        the real device -- useful to confirm/discover a switch's real model
+        via a reader that was (possibly wrongly) constructed against a
+        different model key.
+        """
+        return read_system_info(self.client)
 
 
 class AsyncSnmpReader:
@@ -182,3 +220,7 @@ class AsyncSnmpReader:
             await w(vendor.dhcp_mode_unverified),  # single named UNVERIFIED OID
             await w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
         )
+
+    async def get_system_info(self) -> DetectedModel:
+        """Async twin of ``SnmpReader.get_system_info`` -- see there."""
+        return await async_read_system_info(self.client)

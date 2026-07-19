@@ -160,6 +160,19 @@ class VirtualSwitchState:
     # both project this same value -- on real hardware they're the same
     # physical base MAC.
     nsdp_mac: bytes = b"\x28\xc6\x8e\x00\x00\x01"
+    # MIB-II sysDescr (Task 2 model detection). Empty means unseeded: oid_map()
+    # falls back to a generic-but-real-model-name text derived from the
+    # registry's own display_name, so sysDescr-based detection works out of
+    # the box for every SNMP-capable registered model, not just the ones with
+    # a hand-authored seed_*() (see seed_gsm7252ps for the hand-seeded case).
+    sys_descr: str = ""
+    # UNVERIFIED sysObjectID test fixture -- see oid_map(). There is no known
+    # real sysObjectID -> model table (no MIBs/captures/prior-art exist for
+    # one); this value is NEVER a claim about real hardware, purely a
+    # plausible-looking virtual/test placeholder under the model's own
+    # 1.3.6.1.4.1.4526 vendor subtree, so sysObjectID round-trips end-to-end.
+    # Empty means unseeded: oid_map() derives one from the model's vendor base.
+    sys_object_id: str = ""
 
     def oid_map(self) -> dict[str, tuple[str, str]]:
         """Project this state onto the full numeric OID -> (type, value) view.
@@ -182,6 +195,17 @@ class VirtualSwitchState:
         # address, so one seed value serves both protocol faces.
         m[f"{oids.DOT1D_BASE_BRIDGE_ADDRESS}.0"] = (
             "OCTETSTR", self.nsdp_mac.decode("latin-1"))
+
+        # MIB-II System group (Task 2 model detection). sysDescr is a REAL,
+        # honestly-matchable signal (a real switch's own sysDescr text
+        # contains its model name); sysObjectID has no known OID->model
+        # table, so the value projected here is an UNVERIFIED virtual/test
+        # fixture only -- see the field docstrings above, never trust it as
+        # ground truth for a real device.
+        m[oids.SYS_DESCR] = (
+            "OCTETSTR", self.sys_descr or f"Netgear {model.display_name}"
+        )
+        m[oids.SYS_OBJECT_ID] = ("OID", self.sys_object_id or f"{v.base}.1")
 
         for port, sim in self.ports.items():
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")

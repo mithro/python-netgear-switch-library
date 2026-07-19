@@ -14,6 +14,13 @@ if TYPE_CHECKING:
 
 
 # Standard-MIB OID constants
+# MIB-II System group scalars (Task 2 model detection): both are full,
+# instance-qualified (".0") leaf OIDs, fetched with a plain exact-OID GET
+# (unlike the walk-based base-OIDs below) -- see snmp_read.read_system_info.
+SYS_DESCR = "1.3.6.1.2.1.1.1.0"       # sysDescr: text incl. the model name
+SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"   # sysObjectID: read-only signal, unused
+# for matching (no known OID->model table exists -- see parse.py's
+# detect_model_from_sysdescr docstring).
 IF_ADMIN_STATUS = "1.3.6.1.2.1.2.2.1.7"        # ifAdminStatus (1=up,2=down)
 IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"        # ifOperStatus  (1=up,2=down)
 IF_IN_ERRORS = "1.3.6.1.2.1.2.2.1.14"

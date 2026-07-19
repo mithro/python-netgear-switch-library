@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from netgear_switch.aio_api import AsyncSwitch
+from netgear_switch.aio_api import AsyncSwitch, async_detect_model
 from netgear_switch.config import SwitchConfig
 from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.models import VlanMode
@@ -804,3 +804,61 @@ def test_delete_vlan_guards_protected_member_before_http_fallback() -> None:
             await sw.delete_vlan(90)  # force=False: must refuse, never reach HTTP
 
     asyncio.run(_run())
+
+
+# --- Task 2: model detection (async_detect_model / AsyncSwitch.identify) ---
+
+
+def _system_info_tables(sys_descr: str) -> dict[str, list[SnmpRow]]:
+    return {
+        oids.SYS_DESCR: [SnmpRow(oids.SYS_DESCR, sys_descr, "STRING")],
+        oids.SYS_OBJECT_ID: [
+            SnmpRow(oids.SYS_OBJECT_ID, "1.3.6.1.4.1.4526.10.100.14", "OID")
+        ],
+    }
+
+
+def test_async_detect_model_matches_registered_model() -> None:
+    client = FakeAsyncClient(_system_info_tables("NETGEAR GSM7252PS"))
+    detected = asyncio.run(async_detect_model("10.0.0.9", client=client))
+    assert detected.key == "gsm7252ps"
+    assert detected.matched is True
+
+
+def test_async_detect_model_unregistered_model_is_none() -> None:
+    client = FakeAsyncClient(_system_info_tables("NETGEAR M7300-28G"))
+    detected = asyncio.run(async_detect_model("10.0.0.9", client=client))
+    assert detected.key is None
+    assert detected.matched is False
+
+
+def test_async_detect_model_builds_default_client_when_not_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build_calls: list[tuple[str, str | None]] = []
+
+    def fake_build(host: str, community: str | None) -> FakeAsyncClient:
+        build_calls.append((host, community))
+        return FakeAsyncClient(_system_info_tables("NETGEAR GSM7252PS"))
+
+    monkeypatch.setattr("netgear_switch.aio_api.build_async_snmp_client", fake_build)
+
+    detected = asyncio.run(async_detect_model("10.0.0.9", community="public"))
+    assert build_calls == [("10.0.0.9", "public")]
+    assert detected.key == "gsm7252ps"
+
+
+def test_async_switch_identify_bypasses_model_snmp_gate() -> None:
+    # Mirrors SyncSwitch.identify's test: must work even when self.model has
+    # no SNMP backend at all.
+    client = FakeAsyncClient(_system_info_tables("NETGEAR GS110EMX"))
+    sw = AsyncSwitch(get_model("gs110emx"), "host", snmp_client=client)
+    detected = asyncio.run(sw.identify())
+    assert detected.key == "gs110emx"
+
+
+def test_async_switch_identify_reflects_device_not_bound_model() -> None:
+    client = FakeAsyncClient(_system_info_tables("NETGEAR GS110EMX"))
+    sw = AsyncSwitch(get_model("gsm7252ps"), "host", snmp_client=client)
+    detected = asyncio.run(sw.identify())
+    assert detected.key == "gs110emx"
