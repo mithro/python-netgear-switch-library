@@ -82,6 +82,7 @@ if TYPE_CHECKING:
     )
     from .protocols.http.session import HttpSession
     from .protocols.nsdp.client import NsdpClient, NsdpWriteClient
+    from .protocols.nsdp.types import NsdpDevice
     from .protocols.snmp.client import SnmpClient, SnmpWriteClient
     from .registry import SwitchModel
     from .transport.http.client import HttpClient
@@ -384,6 +385,25 @@ class SyncSwitch:
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         return self._read(lambda r: r.get_mgmt_ip())
+
+    def nsdp_device(self) -> NsdpDevice:
+        """Return the COMPLETE raw ``NsdpDevice`` for this switch: model, MAC,
+        hostname, mgmt IP, firmware, DHCP mode, port count, serial number,
+        VLAN engine, raw per-port status (speed byte NOT pre-converted to
+        Mbps -- see ``protocols.nsdp.types.NsdpPortStatus.speed``) and
+        statistics, VLAN membership, PVIDs, plus QoS engine/mirroring/IGMP
+        snooping/broadcast filtering/loop detection.
+
+        Unlike every other read op, this deliberately bypasses the
+        SNMP/NSDP/HTTP backend-preference dispatch (``_read``): NSDP is the
+        ONLY backend that can serve it, so a model without an NSDP backend
+        raises ``UnsupportedCapabilityError`` directly (mirroring
+        ``identify()``'s bypass of that dispatch below, and
+        ``NsdpReader.__init__``'s own ``_require_nsdp`` guard).
+        """
+        reader = self._reader_for(Backend.NSDP)
+        assert isinstance(reader, NsdpReader)
+        return reader.get_device()
 
     def identify(self) -> DetectedModel:
         """Detect this switch's ACTUAL model via SNMP sysDescr, independent of

@@ -9,7 +9,7 @@ from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.models import IpMode
 from netgear_switch.nsdp_read import AsyncNsdpReader, NsdpReader
 from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
-from netgear_switch.protocols.nsdp.types import VLANEngine
+from netgear_switch.protocols.nsdp.types import LinkSpeed, VLANEngine
 from netgear_switch.registry import get_model
 
 
@@ -37,6 +37,14 @@ def _canned_packet() -> NSDPPacket:
     pkt.add_tlv(Tag.GATEWAY, b"\x0a\x01\x05\x01")
     pkt.add_tlv(Tag.DHCP_MODE, b"\x00")
     pkt.add_tlv(Tag.VLAN_ENGINE, bytes([VLANEngine.ADVANCED_802_1Q]))
+    pkt.add_tlv(Tag.FIRMWARE_VER_1, b"1.0.0.7")
+    pkt.add_tlv(Tag.SERIAL_NUMBER, b"\x0153H6025EA0083")
+    pkt.add_tlv(Tag.HOSTNAME, b"plus-sw")
+    pkt.add_tlv(Tag.QOS_ENGINE, b"\x01")  # port-based
+    pkt.add_tlv(Tag.PORT_MIRRORING, b"\x0a\xc0\x00\x00")  # dest=10, src={1,2}
+    pkt.add_tlv(Tag.IGMP_SNOOPING, b"\x00\x01\x00\x5a")  # enabled, vlan=90
+    pkt.add_tlv(Tag.BROADCAST_FILTERING, b"\x01")
+    pkt.add_tlv(Tag.LOOP_DETECTION, b"\x01")
     return pkt
 
 
@@ -105,6 +113,36 @@ def test_get_mgmt_ip_static():
     assert mgmt.netmask == "255.255.255.0"
     assert mgmt.gateway == "10.1.5.1"
     assert mgmt.mode is IpMode.STATIC
+
+
+def test_get_device_returns_full_device():
+    dev = _reader().get_device()
+    assert dev.model == "GS110EMX"
+    assert dev.port_count == 10
+    assert dev.firmware_version == "1.0.0.7"
+    assert dev.serial_number == "53H6025EA0083"
+    assert dev.hostname == "plus-sw"
+    assert dev.dhcp_enabled is False
+    assert dev.ip == "10.1.5.20"
+    assert dev.vlan_engine is VLANEngine.ADVANCED_802_1Q
+    # Raw port-status speed byte is NOT pre-converted to Mbps here.
+    assert dev.port_status[0].speed is LinkSpeed.GIGABIT
+    assert dev.qos_engine == 1
+    assert dev.port_mirroring is not None
+    assert dev.port_mirroring.destination_port == 10
+    assert dev.port_mirroring.source_ports == frozenset({1, 2})
+    assert dev.igmp_snooping is not None
+    assert dev.igmp_snooping.enabled is True
+    assert dev.igmp_snooping.vlan_id == 90
+    assert dev.broadcast_filtering is True
+    assert dev.loop_detection is True
+
+
+def test_async_get_device_matches_sync():
+    async def _call():
+        return await _async_reader().get_device()
+
+    assert asyncio.run(_call()) == _reader().get_device()
 
 
 @pytest.mark.parametrize("op", ["get_macs", "get_lldp", "get_sensors", "get_poe"])

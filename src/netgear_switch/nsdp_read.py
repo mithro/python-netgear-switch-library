@@ -28,6 +28,33 @@ _NO_LLDP = "NSDP exposes no LLDP neighbours on these Plus switches"
 _NO_SENSORS = "NSDP exposes no environmental sensors on these Plus switches"
 _NO_POE = "NSDP exposes no PoE status; use the HTTP backend (Slice 6) for PoE"
 
+# Every read-tag ``parse_device`` knows how to decode, requested together so
+# ``get_device()``/``nsdp_device()`` returns the COMPLETE NsdpDevice in one
+# round trip -- identity, mgmt IP, per-port status/stats, VLANs/PVIDs, and the
+# QoS/mirroring/IGMP/broadcast-filtering/loop-detection tags (see parsers.py).
+_FULL_DEVICE_TAGS = [
+    Tag.MODEL,
+    Tag.MAC,
+    Tag.HOSTNAME,
+    Tag.IP_ADDRESS,
+    Tag.NETMASK,
+    Tag.GATEWAY,
+    Tag.FIRMWARE_VER_1,
+    Tag.DHCP_MODE,
+    Tag.PORT_COUNT,
+    Tag.SERIAL_NUMBER,
+    Tag.VLAN_ENGINE,
+    Tag.PORT_STATUS,
+    Tag.PORT_STATISTICS,
+    Tag.VLAN_MEMBERS,
+    Tag.PORT_PVID,
+    Tag.QOS_ENGINE,
+    Tag.PORT_MIRRORING,
+    Tag.IGMP_SNOOPING,
+    Tag.BROADCAST_FILTERING,
+    Tag.LOOP_DETECTION,
+]
+
 
 def _require_nsdp(model: SwitchModel) -> None:
     if Backend.NSDP not in model.backends:
@@ -123,6 +150,16 @@ class NsdpReader:
             self._device([Tag.IP_ADDRESS, Tag.NETMASK, Tag.GATEWAY, Tag.DHCP_MODE])
         )
 
+    def get_device(self) -> NsdpDevice:
+        """Return the COMPLETE raw ``NsdpDevice`` for this switch: every tag
+        ``parse_device`` knows how to decode, in one round trip. Unlike the
+        other ``get_*`` ops above, this returns the NSDP-native shape
+        (including the raw port-status speed byte) rather than mapping onto
+        the shared ``models`` types -- callers that need the full protocol
+        surface (e.g. gdoc2netcfg's DiscoveryDB) use this instead of the
+        per-field ops."""
+        return self._device(_FULL_DEVICE_TAGS)
+
     def get_macs(self) -> list[MacEntry]:
         raise UnsupportedCapabilityError(_NO_MACS)
 
@@ -166,6 +203,10 @@ class AsyncNsdpReader:
                 [Tag.IP_ADDRESS, Tag.NETMASK, Tag.GATEWAY, Tag.DHCP_MODE]
             )
         )
+
+    async def get_device(self) -> NsdpDevice:
+        """Async twin of ``NsdpReader.get_device`` -- see there."""
+        return await self._device(_FULL_DEVICE_TAGS)
 
     async def get_macs(self) -> list[MacEntry]:
         raise UnsupportedCapabilityError(_NO_MACS)
