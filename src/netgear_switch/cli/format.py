@@ -120,12 +120,15 @@ def lldp_table(neighbors: Sequence[LLDPNeighbor]) -> str:
         [
             str(n.local_port),
             n.remote_sys_name or "-",
+            n.remote_port_id or "-",
             n.remote_port_desc or "-",
             n.remote_chassis_id or "-",
         ]
         for n in neighbors
     ]
-    return _table(("Port", "Neighbor", "RemotePort", "ChassisID"), rows)
+    return _table(
+        ("Port", "Neighbor", "RemotePortId", "RemotePortDesc", "ChassisID"), rows
+    )
 
 
 def macs_table(entries: Sequence[MacEntry]) -> str:

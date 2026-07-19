@@ -20,6 +20,22 @@ def test_parse_lldp_groups_columns_by_local_port():
     assert n[0].local_port == 49
     assert n[0].remote_sys_name == "sw-cisco-shed"
     assert n[0].remote_port_desc == "eth0"
+    # remote_port_id (lldpRemPortId, column 7) is a distinct field from
+    # remote_port_desc (lldpRemPortDesc, column 8) -- surfaced, not discarded.
+    assert n[0].remote_port_id == "1/xg51"
+    assert n[0].remote_port_id != n[0].remote_port_desc
+
+
+def test_parse_lldp_remote_port_id_absent_is_none():
+    """A neighbour row group with no col-7 value yields remote_port_id=None,
+    not a fabricated empty string."""
+    base = "1.0.8802.1.1.2.1.4.1.1"
+    rows = [
+        SnmpRow(f"{base}.9.75.49.7", "sw-cisco-shed", "OCTETSTR"),
+    ]
+    n = parse.parse_lldp(rows)
+    assert len(n) == 1
+    assert n[0].remote_port_id is None
 
 
 def test_parse_macs_maps_bridge_port_to_ifindex():

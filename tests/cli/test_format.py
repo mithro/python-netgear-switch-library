@@ -167,14 +167,15 @@ def test_lldp_table_renders_exact_neighbor_fields() -> None:
         LLDPNeighbor(
             local_port=1,
             remote_sys_name="switch-b",
-            remote_port_desc="ge-0/0/1",
+            remote_port_desc="ge-0/0/1.uplink",
             remote_chassis_id="aa:bb:cc:dd:ee:ff",
+            remote_port_id="ge-0/0/1",
         )
     ]
     text = fmt.lldp_table(neighbors)
     assert text == (
-        "Port  Neighbor  RemotePort  ChassisID        \n"
-        "1     switch-b  ge-0/0/1    aa:bb:cc:dd:ee:ff"
+        "Port  Neighbor  RemotePortId  RemotePortDesc   ChassisID        \n"
+        "1     switch-b  ge-0/0/1      ge-0/0/1.uplink  aa:bb:cc:dd:ee:ff"
     )
 
 

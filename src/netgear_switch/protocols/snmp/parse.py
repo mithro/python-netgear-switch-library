@@ -362,6 +362,7 @@ def parse_lldp(rows: Sequence[SnmpRow]) -> list[LLDPNeighbor]:
                 remote_sys_name=_column_text(sys_name) or None,
                 remote_port_desc=_column_text(port_desc) or None,
                 remote_chassis_id=_format_chassis_id(chassis) or None,
+                remote_port_id=_column_text(port_id) or None,
             )
         )
     return sorted(result, key=lambda n: n.local_port)

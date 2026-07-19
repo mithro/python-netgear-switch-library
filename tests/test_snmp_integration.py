@@ -98,6 +98,10 @@ def test_sync_and_async_reads_are_identical(virtual_gsm7252ps: VirtualSwitch) ->
     assert sync_vlans == asyncio.run(aio.get_vlans())
     assert sync_pvids == asyncio.run(aio.get_pvids())
     assert sync_lldp == asyncio.run(aio.get_lldp())
+    # remote_port_id (lldpRemPortId) is a distinct field from remote_port_desc
+    # (lldpRemPortDesc) -- pinned over real seed data, both transports.
+    assert sync_lldp[0].remote_port_id == "1/xg51"
+    assert sync_lldp[0].remote_port_id != sync_lldp[0].remote_port_desc
     assert sync_macs == asyncio.run(aio.get_macs())
     assert sync_poe == asyncio.run(aio.get_poe())
     assert sync_sensors == asyncio.run(aio.get_sensors())
