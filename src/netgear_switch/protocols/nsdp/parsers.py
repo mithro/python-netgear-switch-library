@@ -15,6 +15,8 @@ from .protocol import Tag
 from .types import (
     LinkSpeed,
     NsdpDevice,
+    NsdpIgmpSnooping,
+    NsdpPortMirroring,
     NsdpPortPvid,
     NsdpPortStatistics,
     NsdpPortStatus,
@@ -110,6 +112,33 @@ def _decode_str(data: bytes) -> str:
     return data.decode("ascii", errors="replace").rstrip("\x00")
 
 
+def parse_port_mirroring(data: bytes) -> NsdpPortMirroring:
+    """Parse NSDP tag 0x5C00 (4 bytes: dest_port(1) + source bitmap(3)).
+
+    Lifted from ``gdoc2netcfg/src/nsdp/parsers.py::parse_port_mirroring``.
+    """
+    if len(data) != 4:
+        raise ValueError(f"PORT_MIRRORING TLV must be 4 bytes, got {len(data)}")
+    dest_port = data[0]
+    # Bytes 1-3 are the source-port bitmap (MSB first).
+    source_ports = bitmap_to_ports(data[1:4])
+    return NsdpPortMirroring(destination_port=dest_port, source_ports=source_ports)
+
+
+def parse_igmp_snooping(data: bytes) -> NsdpIgmpSnooping:
+    """Parse NSDP tag 0x6800 (>=2 bytes: unknown, enabled, [unknown, vlan?]).
+
+    Lifted from ``gdoc2netcfg/src/nsdp/parsers.py::parse_igmp_snooping``.
+    """
+    if len(data) < 2:
+        raise ValueError(f"IGMP_SNOOPING TLV must be >= 2 bytes, got {len(data)}")
+    enabled = bool(data[1])
+    vlan_id = None
+    if len(data) >= 4:
+        vlan_id = data[3] if data[3] != 0 else None
+    return NsdpIgmpSnooping(enabled=enabled, vlan_id=vlan_id)
+
+
 def parse_device(packet: NSDPPacket) -> NsdpDevice:
     """Aggregate a READ_RESPONSE packet's TLVs into an NsdpDevice."""
     model: str | None = None
@@ -155,6 +184,16 @@ def parse_device(packet: NSDPPacket) -> NsdpDevice:
             vlan_members.append(parse_vlan_members(tlv.value, port_count))
         elif tlv.tag == Tag.PORT_PVID:
             pvids.append(parse_port_pvid(tlv.value))
+        elif tlv.tag == Tag.QOS_ENGINE and tlv.value:
+            fields["qos_engine"] = tlv.value[0]
+        elif tlv.tag == Tag.PORT_MIRRORING:
+            fields["port_mirroring"] = parse_port_mirroring(tlv.value)
+        elif tlv.tag == Tag.IGMP_SNOOPING:
+            fields["igmp_snooping"] = parse_igmp_snooping(tlv.value)
+        elif tlv.tag == Tag.BROADCAST_FILTERING and tlv.value:
+            fields["broadcast_filtering"] = bool(tlv.value[0])
+        elif tlv.tag == Tag.LOOP_DETECTION and tlv.value:
+            fields["loop_detection"] = bool(tlv.value[0])
     if model is None:
         raise ValueError("no MODEL tag in NSDP response")
     if mac is None:

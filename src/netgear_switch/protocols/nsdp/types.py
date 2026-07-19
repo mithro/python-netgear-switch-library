@@ -78,6 +78,37 @@ class NsdpPortPvid:
 
 
 @dataclass(frozen=True)
+class NsdpPortMirroring:
+    """Port mirroring configuration (NSDP tag 0x5C00).
+
+    Lifted from ``gdoc2netcfg/src/nsdp/types.py::PortMirroring``.
+
+    Attributes:
+        destination_port: Port receiving mirrored traffic (0 = disabled).
+        source_ports: Ports being mirrored.
+    """
+
+    destination_port: int
+    source_ports: frozenset[int] = frozenset()
+
+
+@dataclass(frozen=True)
+class NsdpIgmpSnooping:
+    """IGMP snooping configuration (NSDP tag 0x6800).
+
+    Lifted from ``gdoc2netcfg/src/nsdp/types.py::IGMPSnooping``.
+
+    Attributes:
+        enabled: Whether IGMP snooping is enabled.
+        vlan_id: VLAN for IGMP snooping (if applicable); ``None`` when the
+            wire value is 0 (no VLAN association).
+    """
+
+    enabled: bool
+    vlan_id: int | None = None
+
+
+@dataclass(frozen=True)
 class NsdpDevice:
     model: str
     mac: str
@@ -94,3 +125,13 @@ class NsdpDevice:
     port_statistics: tuple[NsdpPortStatistics, ...] = ()
     vlan_members: tuple[NsdpVlanMembership, ...] = ()
     port_pvids: tuple[NsdpPortPvid, ...] = field(default_factory=tuple)
+    # QoS engine mode (tag 0x3400): 0=disabled, 1=port-based, 2=802.1p.
+    qos_engine: int | None = None
+    # Port mirroring configuration (tag 0x5C00).
+    port_mirroring: NsdpPortMirroring | None = None
+    # IGMP snooping configuration (tag 0x6800).
+    igmp_snooping: NsdpIgmpSnooping | None = None
+    # Whether broadcast storm filtering is enabled (tag 0x5400).
+    broadcast_filtering: bool | None = None
+    # Whether loop detection is enabled (tag 0x9000).
+    loop_detection: bool | None = None

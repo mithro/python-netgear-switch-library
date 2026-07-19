@@ -41,6 +41,21 @@ from .models import (
     VLANInfo,
     VlanMode,
 )
+from .protocols.nsdp.types import (
+    LinkSpeed as NsdpLinkSpeed,
+)
+from .protocols.nsdp.types import (
+    NsdpDevice,
+    NsdpIgmpSnooping,
+    NsdpPortMirroring,
+    NsdpPortPvid,
+    NsdpPortStatistics,
+    NsdpPortStatus,
+    NsdpVlanMembership,
+)
+from .protocols.nsdp.types import (
+    VLANEngine as NsdpVlanEngine,
+)
 from .registry import MODELS, Backend, SwitchClass, SwitchModel, get_model
 from .sync_api import SyncSwitch, detect_model
 
@@ -87,6 +102,16 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "Sensor",
     "SwitchData",
     "DetectedModel",
+    # NSDP full-device types (SyncSwitch.nsdp_device()/AsyncSwitch.nsdp_device())
+    "NsdpDevice",
+    "NsdpPortStatus",
+    "NsdpPortStatistics",
+    "NsdpVlanMembership",
+    "NsdpPortPvid",
+    "NsdpPortMirroring",
+    "NsdpIgmpSnooping",
+    "NsdpLinkSpeed",
+    "NsdpVlanEngine",
     # registry
     "Backend",
     "SwitchClass",

@@ -176,6 +176,16 @@ def seed_gs110emx() -> VirtualSwitchState:
         firmware="1.0.0.7",
         hostname="plus-sw",
         nsdp_password="password",
+        # QoS/mirroring/IGMP/broadcast-filtering/loop-detection test fixtures
+        # (Slice 9b): illustrative, non-vacuous values so nsdp_device() has
+        # something real to decode on every one of the 5 newly-parsed tags.
+        nsdp_qos_engine=1,  # port-based
+        nsdp_port_mirroring_dest=10,
+        nsdp_port_mirroring_sources=frozenset({1, 2}),
+        nsdp_igmp_snooping_enabled=True,
+        nsdp_igmp_snooping_vlan=90,
+        nsdp_broadcast_filtering=True,
+        nsdp_loop_detection=True,
     )
 
 

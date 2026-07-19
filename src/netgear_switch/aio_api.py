@@ -81,6 +81,7 @@ if TYPE_CHECKING:
     )
     from .protocols.http.session import AsyncHttpSession
     from .protocols.nsdp.client import AsyncNsdpClient, AsyncNsdpWriteClient
+    from .protocols.nsdp.types import NsdpDevice
     from .protocols.snmp.client import AsyncSnmpClient, AsyncSnmpWriteClient
     from .registry import SwitchModel
     from .transport.http.client import AsyncHttpClient
@@ -377,6 +378,12 @@ class AsyncSwitch:
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
         return await self._read(lambda r: r.get_mgmt_ip())
+
+    async def nsdp_device(self) -> NsdpDevice:
+        """Async twin of ``SyncSwitch.nsdp_device`` -- see there."""
+        reader = self._reader_for(Backend.NSDP)
+        assert isinstance(reader, AsyncNsdpReader)
+        return await reader.get_device()
 
     async def identify(self) -> DetectedModel:
         """Async twin of ``SyncSwitch.identify`` -- see there."""

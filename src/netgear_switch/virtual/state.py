@@ -155,6 +155,19 @@ class VirtualSwitchState:
     firmware: str = ""
     hostname: str = ""
     nsdp_password: str = "password"
+    # QoS engine mode (NSDP tag 0x3400): None = unseeded (tag omitted from
+    # nsdp_tlvs(), exactly like a real switch that doesn't answer it).
+    nsdp_qos_engine: int | None = None
+    # Port mirroring (NSDP tag 0x5C00): None destination = unseeded/disabled.
+    nsdp_port_mirroring_dest: int | None = None
+    nsdp_port_mirroring_sources: frozenset[int] = field(default_factory=frozenset)
+    # IGMP snooping (NSDP tag 0x6800): None = unseeded.
+    nsdp_igmp_snooping_enabled: bool | None = None
+    nsdp_igmp_snooping_vlan: int | None = None
+    # Broadcast storm filtering (NSDP tag 0x5400): None = unseeded.
+    nsdp_broadcast_filtering: bool | None = None
+    # Loop detection (NSDP tag 0x9000): None = unseeded.
+    nsdp_loop_detection: bool | None = None
     # Fixed seed MAC for device identity: the NSDP identity TLV (Tag.MAC /
     # server_mac) AND the SNMP dot1dBaseBridgeAddress scalar (see oid_map())
     # both project this same value -- on real hardware they're the same
@@ -491,6 +504,41 @@ class VirtualSwitchState:
         if Tag.DHCP_MODE in tags:
             dhcp_byte = b"\x00" if self.mgmt.mode == "static" else b"\x01"
             out.append(TLVEntry(Tag.DHCP_MODE, dhcp_byte))
+        if Tag.QOS_ENGINE in tags and self.nsdp_qos_engine is not None:
+            out.append(TLVEntry(Tag.QOS_ENGINE, bytes([self.nsdp_qos_engine])))
+        if Tag.PORT_MIRRORING in tags and self.nsdp_port_mirroring_dest is not None:
+            from ..protocols.nsdp.parsers import ports_to_bitmap
+            out.append(
+                TLVEntry(
+                    Tag.PORT_MIRRORING,
+                    bytes([self.nsdp_port_mirroring_dest])
+                    + ports_to_bitmap(self.nsdp_port_mirroring_sources, 3),
+                )
+            )
+        if Tag.IGMP_SNOOPING in tags and self.nsdp_igmp_snooping_enabled is not None:
+            vlan_byte = self.nsdp_igmp_snooping_vlan or 0
+            out.append(
+                TLVEntry(
+                    Tag.IGMP_SNOOPING,
+                    bytes([0x00, 1 if self.nsdp_igmp_snooping_enabled else 0,
+                           0x00, vlan_byte]),
+                )
+            )
+        if (Tag.BROADCAST_FILTERING in tags
+                and self.nsdp_broadcast_filtering is not None):
+            out.append(
+                TLVEntry(
+                    Tag.BROADCAST_FILTERING,
+                    bytes([1 if self.nsdp_broadcast_filtering else 0]),
+                )
+            )
+        if Tag.LOOP_DETECTION in tags and self.nsdp_loop_detection is not None:
+            out.append(
+                TLVEntry(
+                    Tag.LOOP_DETECTION,
+                    bytes([1 if self.nsdp_loop_detection else 0]),
+                )
+            )
         return out
 
     def apply_nsdp_write(self, tag: Tag | int, value: bytes) -> None:
