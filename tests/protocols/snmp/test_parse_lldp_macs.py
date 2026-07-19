@@ -38,6 +38,33 @@ def test_parse_lldp_remote_port_id_absent_is_none():
     assert n[0].remote_port_id is None
 
 
+def test_parse_lldp_remote_port_id_binary_mac_formats_as_hex():
+    """A MAC-address-subtype (lldpPortIdSubtype 3) portId arrives as a raw
+    6-byte OCTET STRING and must format as ``XX:XX:XX:XX:XX:XX`` -- exactly
+    like a MAC-subtype chassis-id -- not get UTF-8-mangled into U+FFFD
+    replacement characters. This restores the binary-portId coverage that
+    was lost with the old gdoc2netcfg helpers."""
+    base = "1.0.8802.1.1.2.1.4.1.1"
+    rows = [
+        SnmpRow(f"{base}.7.75.49.7", b"\x0c\xc4\x7a\x16\x3b\x4a", "OCTETSTR"),
+    ]
+    n = parse.parse_lldp(rows)
+    assert len(n) == 1
+    assert n[0].remote_port_id == "0C:C4:7A:16:3B:4A"
+
+
+def test_parse_lldp_remote_port_id_ascii_stays_text():
+    """An ASCII interface-name-subtype portId (e.g. a fleet portId like
+    "gi24") is plain text and must NOT be reinterpreted as MAC bytes."""
+    base = "1.0.8802.1.1.2.1.4.1.1"
+    rows = [
+        SnmpRow(f"{base}.7.75.49.7", "gi24", "OCTETSTR"),
+    ]
+    n = parse.parse_lldp(rows)
+    assert len(n) == 1
+    assert n[0].remote_port_id == "gi24"
+
+
 def test_parse_macs_maps_bridge_port_to_ifindex():
     fdb_base = "1.3.6.1.2.1.17.7.1.2.2.1.2"
     fdb = [SnmpRow(f"{fdb_base}.90.200.0.132.137.113.112", "10", "INTEGER")]

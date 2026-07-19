@@ -304,10 +304,44 @@ def parse_base_mac(rows: Sequence[SnmpRow]) -> str | None:
 
 
 def _column_text(value: int | str | bytes) -> str:
-    """Render a non-chassis LLDP column (portId/portDesc/sysName) as text."""
+    """Render a non-chassis LLDP column (portDesc/sysName) as text."""
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return value if isinstance(value, str) else str(value)
+
+
+def _format_port_id(value: int | str | bytes) -> str:
+    """Format an lldpRemPortId value.
+
+    Consistent with ``_format_chassis_id``: a MAC-address port-id subtype
+    (lldpPortIdSubtype 3) is raw binary and formats as
+    ``XX:XX:XX:XX:XX:XX`` via ``_format_mac_octetstring``, instead of being
+    UTF-8-decoded (with ``errors="replace"``) into garbled U+FFFD text --
+    that mismatch, versus chassis-id's correct MAC handling, was the bug.
+
+    A genuinely binary portId always arrives as ``bytes`` (the transport's
+    own printable-ASCII heuristic -- see ``index_str_column``'s docstring --
+    only emits ``str`` for values that decode cleanly as text), so the
+    ``bytes``-and-6-long check below is the reliable MAC signal. A ``str`` is
+    additionally treated as raw MAC bytes only when it is NOT printable text
+    (mirroring the latin-1-normalizing-transport case exercised for
+    ``parse_base_mac``): this guards against a real, everyday ASCII
+    interface-name portId that happens to be exactly 6 characters (e.g.
+    ``"1/xg51"``) being mistaken for a MAC and corrupted into hex -- unlike
+    chassis-id, port-id routinely carries short human-readable interface
+    names, so a bare length-6 check on ``str`` is unsafe here. Any other
+    value (including a printable 6-char ``str`` or any non-MAC-shaped
+    value) is plain text, per ``_column_text``.
+    """
+    if isinstance(value, bytes) and len(value) == 6:
+        mac = _format_mac_octetstring(value)
+        if mac is not None:
+            return mac
+    if isinstance(value, str) and len(value) == 6 and not value.isprintable():
+        mac = _format_mac_octetstring(value)
+        if mac is not None:
+            return mac
+    return _column_text(value)
 
 
 def parse_lldp(rows: Sequence[SnmpRow]) -> list[LLDPNeighbor]:
@@ -362,7 +396,7 @@ def parse_lldp(rows: Sequence[SnmpRow]) -> list[LLDPNeighbor]:
                 remote_sys_name=_column_text(sys_name) or None,
                 remote_port_desc=_column_text(port_desc) or None,
                 remote_chassis_id=_format_chassis_id(chassis) or None,
-                remote_port_id=_column_text(port_id) or None,
+                remote_port_id=_format_port_id(port_id) or None,
             )
         )
     return sorted(result, key=lambda n: n.local_port)
