@@ -2,6 +2,7 @@
 """Pure SNMP-row -> models.py parsers. No I/O."""
 from __future__ import annotations
 
+import string
 from typing import TYPE_CHECKING
 
 from ...models import (
@@ -659,6 +660,35 @@ def _model_match_tokens(model: SwitchModel) -> tuple[str, ...]:
     return tuple(t for t in tokens if t)
 
 
+# Punctuation stripped from the edges of a whitespace-delimited sysDescr
+# word before comparing it to a registered token. Hyphens are deliberately
+# EXCLUDED: they are meaningful inside a model identifier itself (e.g.
+# "M4300-24X"), so stripping them would merge distinct SKUs together.
+_WORD_STRIP_CHARS = string.punctuation.replace("-", "")
+
+
+def _candidate_tokens(sys_descr: str) -> frozenset[str]:
+    """Whitespace-delimited "words" of a sysDescr string, as whole-token
+    candidates for exact (uppercased) comparison against a registered
+    model's match tokens.
+
+    Only edge punctuation is stripped (e.g. the trailing comma in
+    ``"M4300-24X,"``) -- internal structure, in particular hyphens, is left
+    intact. This is what makes the comparison a WHOLE-IDENTIFIER match: a
+    registered token must equal an entire sysDescr word, not merely appear
+    as a prefix/substring of it. That is the crux of the fix for the
+    false-positive bug this function exists to prevent (see
+    ``detect_model_from_sysdescr``'s docstring) -- e.g. the single sysDescr
+    word ``"GS305EPP"`` never equals the registered token ``"GS305EP"``, and
+    the single word ``"S3300-28X"`` never equals the registered alias
+    token ``"S3300"``, no matter what non-alphanumeric character (or none)
+    immediately follows the registered token's text.
+    """
+    return frozenset(
+        word.strip(_WORD_STRIP_CHARS).upper() for word in sys_descr.split()
+    )
+
+
 def detect_model_from_sysdescr(
     sys_descr: str | None, models: Mapping[str, SwitchModel]
 ) -> str | None:
@@ -666,31 +696,46 @@ def detect_model_from_sysdescr(
 
     HONESTY CONSTRAINT: there is no ground-truth sysObjectID -> model table
     (see ``oids.SYS_OBJECT_ID`` -- it is read as a raw signal but never used
-    here). Matching is pure case-insensitive substring text matching against
-    each registered model's own key/display_name/alias tokens
-    (``_model_match_tokens``) -- NEVER a guess:
+    here). Matching is EXACT (case-insensitive) whole-word matching: the
+    sysDescr string is split into whitespace-delimited candidate tokens
+    (``_candidate_tokens``) and a registered model matches only when one of
+    its own key/display_name/alias tokens (``_model_match_tokens``) equals
+    one of those candidates in full -- NEVER a bare substring/prefix check,
+    and NEVER a guess:
 
     * A sysDescr containing an unregistered Netgear model name (e.g.
       ``"M7300"``, not in ``models``) matches no token and correctly returns
       ``None`` -- it is NEVER coerced onto some other, wrong, registered
       model just because it looks Netgear-ish.
     * A non-Netgear/garbage string matches nothing and also returns ``None``.
+    * CRITICAL (regression that motivated the switch away from substring
+      matching): a real, unregistered Netgear model whose name EXTENDS a
+      registered token must also return ``None``, never the shorter
+      registered model. Bare substring matching used to fail this both when
+      the extension has no separator (``"GS305EPP"`` used to wrongly match
+      the registered ``"GS305EP"``, a distinct 123W model vs. the registered
+      63W one) AND when it has one (``"S3300-28X"`` / ``"S3300-28X-PoE+"``
+      used to wrongly match the registered alias ``"S3300"`` for
+      ``gsm7228ps``, a distinct S3300 SKU). Whole-word equality rejects both:
+      neither ``"GS305EPP"`` nor ``"S3300-28X"`` is ever *equal* to the
+      shorter registered token, regardless of what character (alphanumeric
+      or not) follows it in the original text.
     * A sysDescr matching MORE THAN ONE registered model's tokens (meaning
       two registered models' names collide and can't be disambiguated by
       this heuristic) ALSO returns ``None`` rather than guessing between
       them. This never happens for the current registry (verified: no
-      model's match tokens are a substring of another's -- e.g. "M4300-24X"
-      vs "M4300-16X", "GSM7252PS" vs "GSM7228PS"/"S3300" are all mutually
+      model's match tokens equal another's -- e.g. "M4300-24X" vs
+      "M4300-16X", "GSM7252PS" vs "GSM7228PS"/"S3300" are all mutually
       exclusive), but the fallback is kept as a permanent safety net against
       a future registry addition introducing a collision.
     """
     if not sys_descr:
         return None
-    upper = sys_descr.upper()
+    candidates = _candidate_tokens(sys_descr)
     matches = {
         model.key
         for model in models.values()
-        if any(token in upper for token in _model_match_tokens(model))
+        if any(token.upper() in candidates for token in _model_match_tokens(model))
     }
     if len(matches) == 1:
         return next(iter(matches))

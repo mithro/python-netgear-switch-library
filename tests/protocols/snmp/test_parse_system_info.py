@@ -96,9 +96,20 @@ def test_detect_model_from_sysdescr_matches_s3300_alias_for_gsm7228ps():
     # display_name "GSM7228PS (S3300)": the parenthesized alias must ALSO
     # resolve to the same registry key, since real Netgear sysDescr text may
     # use either name.
-    assert parse.detect_model_from_sysdescr("NETGEAR S3300-52X-PoE+", MODELS) == (
-        "gsm7228ps"
-    )
+    #
+    # NOTE: this used to assert on "NETGEAR S3300-52X-PoE+" (a fabricated,
+    # never-verified SKU string). That string is UNSAFE to accept: it has
+    # the exact same shape ("S3300" + "-" + 2 digits + "X" + suffix) as the
+    # real, unregistered "S3300-28X"/"S3300-28X-PoE+" SKUs that must return
+    # None (see test_detect_model_from_sysdescr_rejects_unregistered_s3300_skus
+    # below) -- no textual rule can accept one shape and reject the other,
+    # since the only difference is the specific digits, which carry no
+    # generic textual meaning. So the alias match is now proven against a
+    # bare, unsuffixed occurrence of the alias token instead, which is the
+    # only form that is unambiguously safe to match.
+    assert parse.detect_model_from_sysdescr(
+        "NETGEAR S3300 Managed Switch, firmware 6.4.2.9", MODELS
+    ) == "gsm7228ps"
 
 
 def test_detect_model_from_sysdescr_matches_xsm_alias_for_m4300_24x():
@@ -138,6 +149,28 @@ def test_detect_model_from_sysdescr_distinguishes_gsm7252ps_from_gsm7228ps():
     assert (
         parse.detect_model_from_sysdescr("NETGEAR GSM7228PS", MODELS) == "gsm7228ps"
     )
+
+
+def test_detect_model_from_sysdescr_rejects_gs305epp_extension_of_gs305ep():
+    # CRITICAL safety regression: GS305EPP is a real, distinct, unregistered
+    # 123W model -- NOT the registered 63W GS305EP. Bare substring matching
+    # used to wrongly return "gs305ep" here because "GS305EP" is a prefix of
+    # "GS305EPP" with no word boundary check. Must honestly return None.
+    assert parse.detect_model_from_sysdescr(
+        "NETGEAR GS305EPP Managed Switch", MODELS
+    ) is None
+
+
+def test_detect_model_from_sysdescr_rejects_unregistered_s3300_skus():
+    # CRITICAL safety regression: S3300-28X (and its -PoE+ variant) are
+    # real, distinct, unregistered S3300 SKUs -- NOT the registered 52-port
+    # GSM7228PS (alias "S3300"). Bare substring matching used to wrongly
+    # return "gsm7228ps" here since "S3300" is a substring/prefix of
+    # "S3300-28X" separated only by a hyphen. Must honestly return None.
+    assert parse.detect_model_from_sysdescr("NETGEAR S3300-28X", MODELS) is None
+    assert parse.detect_model_from_sysdescr(
+        "NETGEAR S3300-28X-PoE+ Managed Switch", MODELS
+    ) is None
 
 
 def test_detect_model_from_sysdescr_ambiguous_match_is_none():
