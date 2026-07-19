@@ -19,7 +19,7 @@ from .models import SwitchData
 from .nsdp_read import AsyncNsdpReader
 from .nsdp_write import AsyncNsdpWriter
 from .registry import Backend
-from .snmp_read import AsyncSnmpReader
+from .snmp_read import AsyncSnmpReader, async_read_system_info
 from .snmp_write import AsyncSnmpWriter, PoeCycleTimeouts
 
 _DEFAULT_POE_TIMEOUTS = PoeCycleTimeouts()
@@ -68,6 +68,7 @@ if TYPE_CHECKING:
 
     from .config import SwitchConfig
     from .models import (
+        DetectedModel,
         LLDPNeighbor,
         MacEntry,
         MgmtIpConfig,
@@ -83,6 +84,15 @@ if TYPE_CHECKING:
     from .protocols.snmp.client import AsyncSnmpClient, AsyncSnmpWriteClient
     from .registry import SwitchModel
     from .transport.http.client import AsyncHttpClient
+
+
+async def async_detect_model(
+    host: str, *, community: str | None = None, client: AsyncSnmpClient | None = None
+) -> DetectedModel:
+    """Async twin of ``sync_api.detect_model`` -- see there."""
+    if client is None:
+        client = build_async_snmp_client(host, community)
+    return await async_read_system_info(client)
 
 
 class AsyncSwitch:
@@ -367,6 +377,13 @@ class AsyncSwitch:
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
         return await self._read(lambda r: r.get_mgmt_ip())
+
+    async def identify(self) -> DetectedModel:
+        """Async twin of ``SyncSwitch.identify`` -- see there."""
+        client = self._snmp_client
+        if client is None:
+            client = build_async_snmp_client(self.host, self._snmp_community)
+        return await async_read_system_info(client)
 
     async def snapshot(self) -> SwitchData:
         """Aggregate every read op, routing each field to the first backend

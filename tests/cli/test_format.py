@@ -49,8 +49,8 @@ def test_ports_table_has_header_and_rows() -> None:
     ]
     text = fmt.ports_table(ports)
     lines = text.splitlines()
-    assert lines[0].split() == ["Port", "Name", "Link", "Admin", "Speed"]
-    assert lines[1] == "1     1/0/1  up    enabled  1000 "
+    assert lines[0].split() == ["Port", "Name", "Link", "Admin", "Speed", "Description"]
+    assert lines[1] == "1     1/0/1  up    enabled  1000   -          "
 
 
 def test_ports_table_renders_none_speed_as_dash() -> None:
@@ -63,7 +63,8 @@ def test_ports_table_renders_none_speed_as_dash() -> None:
     ]
     text = fmt.ports_table(ports)
     assert text == (
-        "Port  Name  Link  Admin     Speed\n3     -     up    disabled  -    "
+        "Port  Name  Link  Admin     Speed  Description\n"
+        "3     -     up    disabled  -      -          "
     )
 
 
@@ -73,17 +74,18 @@ def test_ports_table_distinguishes_link_admin_name_and_speed_columns() -> None:
     # exact rows would change.
     ports = [
         PortStatus(
-            port=1, name="uplink", admin_enabled=False, link_up=True, speed_mbps=1000
+            port=1, name="uplink", admin_enabled=False, link_up=True, speed_mbps=1000,
+            description="to-core",
         ),
         PortStatus(
-            port=2, name="downlink", admin_enabled=True, link_up=False, speed_mbps=None
+            port=2, name="downlink", admin_enabled=True, link_up=False, speed_mbps=None,
         ),
     ]
     text = fmt.ports_table(ports)
     assert text == (
-        "Port  Name      Link  Admin     Speed\n"
-        "1     uplink    up    disabled  1000 \n"
-        "2     downlink  down  enabled   -    "
+        "Port  Name      Link  Admin     Speed  Description\n"
+        "1     uplink    up    disabled  1000   to-core    \n"
+        "2     downlink  down  enabled   -      -          "
     )
 
 
@@ -95,14 +97,27 @@ def test_mgmt_ip_text_labels_every_field() -> None:
         address="10.1.5.20",
         netmask="255.255.255.0",
         gateway="10.1.5.1",
+        base_mac="28:C6:8E:00:00:01",
     )
     text = fmt.mgmt_ip_text(cfg)
     assert text == (
         "mode:    static\n"
         "address: 10.1.5.20\n"
         "netmask: 255.255.255.0\n"
-        "gateway: 10.1.5.1"
+        "gateway: 10.1.5.1\n"
+        "mac:     28:C6:8E:00:00:01"
     )
+
+
+def test_mgmt_ip_text_renders_absent_base_mac_as_dash() -> None:
+    cfg = MgmtIpConfig(
+        mode=IpMode.STATIC,
+        address="10.1.5.20",
+        netmask="255.255.255.0",
+        gateway="10.1.5.1",
+    )
+    text = fmt.mgmt_ip_text(cfg)
+    assert text.splitlines()[-1] == "mac:     -"
 
 
 def test_poe_table_distinguishes_admin_and_detect_columns() -> None:

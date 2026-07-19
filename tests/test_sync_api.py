@@ -10,7 +10,7 @@ from netgear_switch.protocols.snmp.client import SnmpRow
 from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
 from netgear_switch.registry import get_model
 from netgear_switch.snmp_write import PoeCycleTimeouts
-from netgear_switch.sync_api import SyncSwitch
+from netgear_switch.sync_api import SyncSwitch, detect_model
 
 
 class FakeClient:
@@ -727,6 +727,74 @@ def test_injected_http_client_is_never_closed_by_facade() -> None:
         sw.get_poe()
     # __exit__ ran close() above; no AssertionError means the injected
     # session's close() was correctly never invoked.
+
+
+# --- Task 2: model detection (detect_model / SyncSwitch.identify) ----------
+
+
+def _system_info_tables(sys_descr: str) -> dict[str, list[SnmpRow]]:
+    return {
+        oids.SYS_DESCR: [SnmpRow(oids.SYS_DESCR, sys_descr, "STRING")],
+        oids.SYS_OBJECT_ID: [
+            SnmpRow(oids.SYS_OBJECT_ID, "1.3.6.1.4.1.4526.10.100.14", "OID")
+        ],
+    }
+
+
+def test_detect_model_module_function_matches_registered_model() -> None:
+    client = FakeClient(_system_info_tables("NETGEAR GSM7252PS"))
+    detected = detect_model("10.0.0.9", client=client)
+    assert detected.key == "gsm7252ps"
+    assert detected.matched is True
+
+
+def test_detect_model_module_function_unregistered_model_is_none() -> None:
+    client = FakeClient(_system_info_tables("NETGEAR M7300-28G"))
+    detected = detect_model("10.0.0.9", client=client)
+    assert detected.key is None
+    assert detected.matched is False
+    # sysObjectID/sysDescr are still carried for the caller/logging even when
+    # unmatched.
+    assert detected.sys_descr == "NETGEAR M7300-28G"
+    assert detected.sys_object_id == "1.3.6.1.4.1.4526.10.100.14"
+
+
+def test_detect_model_builds_default_client_when_not_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build_calls: list[tuple[str, str | None]] = []
+
+    def fake_build(host: str, community: str | None) -> FakeClient:
+        build_calls.append((host, community))
+        return FakeClient(_system_info_tables("NETGEAR GSM7252PS"))
+
+    monkeypatch.setattr("netgear_switch.sync_api.build_sync_snmp_client", fake_build)
+
+    detected = detect_model("10.0.0.9", community="public")
+    assert build_calls == [("10.0.0.9", "public")]
+    assert detected.key == "gsm7252ps"
+
+
+def test_sync_switch_identify_bypasses_model_snmp_gate() -> None:
+    # identify() must work even for a facade constructed against a model with
+    # NO SNMP backend at all (e.g. a placeholder used only to carry
+    # host/credentials before the real model is known) -- unlike every other
+    # read op, it never consults self.model.backends.
+    client = FakeClient(_system_info_tables("NETGEAR GS110EMX"))
+    sw = SyncSwitch(get_model("gs110emx"), "host", snmp_client=client)
+    detected = sw.identify()
+    assert detected.key == "gs110emx"
+
+
+def test_sync_switch_identify_reflects_device_not_bound_model() -> None:
+    # The facade is bound to gsm7252ps, but the device itself reports a
+    # different sysDescr -- identify() must reflect what the DEVICE says, not
+    # self.model, since that is precisely the "is this the model I think it
+    # is" question identify() exists to answer.
+    client = FakeClient(_system_info_tables("NETGEAR GS110EMX"))
+    sw = SyncSwitch(get_model("gsm7252ps"), "host", snmp_client=client)
+    detected = sw.identify()
+    assert detected.key == "gs110emx"
 
 
 def test_delete_vlan_guards_protected_member_before_http_fallback() -> None:

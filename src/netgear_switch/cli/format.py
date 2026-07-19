@@ -77,10 +77,11 @@ def ports_table(ports: Sequence[PortStatus]) -> str:
             "up" if p.link_up else "down",
             "enabled" if p.admin_enabled else "disabled",
             "-" if p.speed_mbps is None else str(p.speed_mbps),
+            p.description or "-",
         ]
         for p in ports
     ]
-    return _table(("Port", "Name", "Link", "Admin", "Speed"), rows)
+    return _table(("Port", "Name", "Link", "Admin", "Speed", "Description"), rows)
 
 
 def poe_table(entries: Sequence[PoEStatus]) -> str:
@@ -169,6 +170,7 @@ def mgmt_ip_text(cfg: MgmtIpConfig) -> str:
             f"address: {cfg.address or '-'}",
             f"netmask: {cfg.netmask or '-'}",
             f"gateway: {cfg.gateway or '-'}",
+            f"mac:     {cfg.base_mac or '-'}",
         ]
     )
 

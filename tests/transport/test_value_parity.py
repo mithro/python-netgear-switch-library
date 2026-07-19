@@ -65,11 +65,23 @@ class TimeTicks:
 
 
 class ObjectIdentifier:
+    """Stands in for pysnmp's ObjectIdentifier/ObjectIdentity.
+
+    ``_normalize_varbind`` uses ``str(value)`` (always the plain numeric
+    dotted OID), never ``prettyPrint()`` (which hlapi's auto-resolution can
+    render symbolically, e.g. "SNMPv2-SMI::enterprises..."); prettyPrint is
+    deliberately given a different value here so a regression back to it
+    would be caught.
+    """
+
     def __init__(self, text: str) -> None:
         self._text = text
 
-    def prettyPrint(self):  # noqa: N802
+    def __str__(self) -> str:
         return self._text
+
+    def prettyPrint(self):  # noqa: N802
+        return "SNMPv2-SMI::enterprises.wrong-if-this-is-used"
 
 
 def _sync_value(line: str):

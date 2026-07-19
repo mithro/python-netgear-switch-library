@@ -60,11 +60,25 @@ class IpAddress:
 
 
 class ObjectIdentifier:
+    """Stands in for pysnmp's ObjectIdentifier/ObjectIdentity.
+
+    Real pysnmp's ``str(value)`` always yields the plain numeric dotted OID,
+    while ``prettyPrint()`` can render a well-known prefix symbolically (e.g.
+    "SNMPv2-SMI::enterprises...") when hlapi's auto-resolution has attached a
+    MIB view controller -- exactly the transport-parity bug ``_normalize_
+    varbind`` fixes by using ``str(value)``, never ``prettyPrint()``, for
+    this class. ``prettyPrint`` is deliberately given a DIFFERENT (wrong)
+    value here so a regression back to ``prettyPrint()`` would be caught.
+    """
+
     def __init__(self, text: str) -> None:
         self._text = text
 
-    def prettyPrint(self):  # noqa: N802
+    def __str__(self) -> str:
         return self._text
+
+    def prettyPrint(self):  # noqa: N802
+        return "SNMPv2-SMI::enterprises.wrong-if-this-is-used"
 
 
 class _FakeTextual:

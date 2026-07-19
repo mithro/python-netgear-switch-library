@@ -69,7 +69,14 @@ def _normalize_varbind(name: Any, value: Any) -> Triple:
         norm, token = _octet_value(bytes(value.asOctets()))
         return oid, norm, token
     if cls in ("ObjectIdentifier", "ObjectIdentity"):
-        return oid, value.prettyPrint().lstrip("."), "OID"
+        # NOT value.prettyPrint(): hlapi's get_cmd/bulk_walk_cmd auto-resolve
+        # an OBJECT IDENTIFIER *value* against their attached MIB view
+        # controller, so prettyPrint() can render a well-known prefix
+        # symbolically (e.g. "SNMPv2-SMI::enterprises.4526.10.100.14")
+        # instead of the plain numeric dotted OID str(value) always gives
+        # (confirmed empirically: str(value) == "1.3.6.1.4.1.4526.10.100.14",
+        # matching the net-snmp CLI client's numeric ("-On") output exactly).
+        return oid, str(value).lstrip("."), "OID"
     if cls == "IpAddress":
         return oid, value.prettyPrint(), "IpAddress"
     return oid, value.prettyPrint(), cls  # textual fallback

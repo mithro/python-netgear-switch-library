@@ -2,6 +2,7 @@
 """Pure SNMP-row -> models.py parsers. No I/O."""
 from __future__ import annotations
 
+import string
 from typing import TYPE_CHECKING
 
 from ...models import (
@@ -19,7 +20,9 @@ from ...models import (
 from .client import SnmpError, SnmpRow
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
+
+    from ...registry import SwitchModel
 
 
 def _suffix(row: SnmpRow, base: str) -> str | None:
@@ -99,6 +102,7 @@ def parse_port_status(
     oper: Sequence[SnmpRow],
     speed: Sequence[SnmpRow],
     names: Sequence[SnmpRow],
+    aliases: Sequence[SnmpRow],
 ) -> list[PortStatus]:
     from . import oids
 
@@ -106,6 +110,10 @@ def parse_port_status(
     oper_map = index_int_column(oper, oids.IF_OPER_STATUS)
     speed_map = index_int_column(speed, oids.IF_HIGH_SPEED)
     name_map = index_str_column(names, oids.IF_NAME)
+    # ifAlias (operator-set description): distinct column from ifName above.
+    # An absent row for a port (or an empty-string alias) both mean "no
+    # description set" -> honest None, never a fabricated "".
+    alias_map = index_str_column(aliases, oids.IF_ALIAS)
 
     ports = sorted(set(admin_map) | set(oper_map))
     result: list[PortStatus] = []
@@ -119,6 +127,7 @@ def parse_port_status(
                 link_up=oper_map.get(p) == 1,
                 # ifHighSpeed 0 (link down) intentionally maps to None, not 0.
                 speed_mbps=mbps if mbps else None,
+                description=alias_map.get(p) or None,
             )
         )
     return result
@@ -243,20 +252,55 @@ def _format_mac_bytes(byte_strs: Sequence[str]) -> str:
     return ":".join(f"{int(b):02X}" for b in byte_strs)
 
 
-def _format_chassis_id(value: int | str | bytes) -> str:
-    """Format an lldpRemChassisId value.
+def _format_mac_octetstring(value: int | str | bytes) -> str | None:
+    """Format a raw 6-byte MAC-shaped OCTET STRING as ``XX:XX:XX:XX:XX:XX``.
 
-    The MAC-address chassis subtype arrives as a raw 6-byte value: ``bytes``
-    from a Hex-STRING varbind, or (for a transport that normalizes octet
-    strings to latin-1 text) a 6-character ``str``. Either is formatted as
-    ``XX:XX:XX:XX:XX:XX``. Any other chassis-id subtype (e.g. a chassis
-    component name) is returned as plain text.
+    The value arrives as ``bytes`` from a Hex-STRING varbind, or (for a
+    transport that normalizes octet strings to latin-1 text) a 6-character
+    ``str``. Returns ``None`` when ``value`` isn't a 6-byte/6-char octet
+    string -- the caller decides whether that's absence or malformed drift.
     """
     if isinstance(value, bytes) and len(value) == 6:
         return ":".join(f"{b:02X}" for b in value)
     if isinstance(value, str) and len(value) == 6:
         return ":".join(f"{ord(c):02X}" for c in value)
+    return None
+
+
+def _format_chassis_id(value: int | str | bytes) -> str:
+    """Format an lldpRemChassisId value.
+
+    The MAC-address chassis subtype formats as ``XX:XX:XX:XX:XX:XX`` (see
+    ``_format_mac_octetstring``). Any other chassis-id subtype (e.g. a chassis
+    component name) is returned as plain text.
+    """
+    mac = _format_mac_octetstring(value)
+    if mac is not None:
+        return mac
     return value if isinstance(value, str) else str(value)
+
+
+def parse_base_mac(rows: Sequence[SnmpRow]) -> str | None:
+    """Parse dot1dBaseBridgeAddress (BRIDGE-MIB scalar, standard MIB-II) into
+    a colon-separated MAC string.
+
+    An absent scalar (no row under the OID at all) is honestly ``None`` --
+    not every device necessarily answers this instance. A row that IS present
+    but isn't a 6-byte/6-char OCTET STRING is drift, not absence, and raises
+    SnmpError naming the offending OID, consistent with the other column
+    parsers in this module.
+    """
+    from . import oids
+
+    prefix = oids.DOT1D_BASE_BRIDGE_ADDRESS + "."
+    for row in rows:
+        if not row.oid.startswith(prefix):
+            continue
+        mac = _format_mac_octetstring(row.value)
+        if mac is None:
+            raise SnmpError(f"malformed base MAC {row.value!r} at {row.oid}")
+        return mac
+    return None
 
 
 def _column_text(value: int | str | bytes) -> str:
@@ -484,6 +528,7 @@ def parse_mgmt_ip(
     route_dest: Sequence[SnmpRow],
     route_nexthop: Sequence[SnmpRow],
     dhcp_mode: Sequence[SnmpRow],
+    base_mac: Sequence[SnmpRow],
 ) -> MgmtIpConfig:
     """Build the management-IP config from ipAddrTable/ipRouteTable + vendor mode.
 
@@ -496,7 +541,9 @@ def parse_mgmt_ip(
     docstring); only a recognized present value (``1``/``2``) maps to
     DHCP/STATIC, any other present value -- including one that cannot be
     coerced to ``int`` at all -- also yields UNKNOWN rather than raising,
-    since this OID is explicitly best-effort.
+    since this OID is explicitly best-effort. ``base_mac`` is the standard
+    (non-UNVERIFIED) dot1dBaseBridgeAddress scalar walk -- see
+    ``parse_base_mac``; an empty walk (OID absent) yields ``base_mac=None``.
     """
     from . import oids
 
@@ -545,4 +592,151 @@ def parse_mgmt_ip(
             mode = IpMode.STATIC
         break
 
-    return MgmtIpConfig(mode=mode, address=ip, netmask=mask, gateway=gateway)
+    return MgmtIpConfig(
+        mode=mode, address=ip, netmask=mask, gateway=gateway,
+        base_mac=parse_base_mac(base_mac),
+    )
+
+
+def _scalar_text(rows: Sequence[SnmpRow], oid: str) -> str | None:
+    """Extract one scalar exact-OID GET result's value as text, or None.
+
+    Unlike the walk-based column parsers above (matched by base-OID
+    *prefix*), ``sysDescr``/``sysObjectID`` are fetched with a plain exact-OID
+    GET (see ``snmp_read.read_system_info``), so ``rows`` is the combined
+    result of one ``client.get([...])`` call and this matches by exact OID
+    equality. An absent scalar (no row with this exact OID at all) is
+    honestly ``None`` -- not every device necessarily answers, and a caller
+    must never fabricate a value. A row that IS present but isn't decodable
+    to text is drift, not absence, and raises SnmpError naming the offending
+    OID, consistent with every other parser in this module.
+    """
+    for row in rows:
+        if row.oid != oid:
+            continue
+        value = row.value
+        if isinstance(value, bytes):
+            return value.decode("utf-8", "replace")
+        if isinstance(value, str):
+            return value
+        raise SnmpError(f"non-string value {value!r} at {row.oid}")
+    return None
+
+
+def parse_system_info(rows: Sequence[SnmpRow]) -> tuple[str | None, str | None]:
+    """Extract the raw sysDescr/sysObjectID scalar text from one combined GET.
+
+    Pure row -> ``(sys_descr, sys_object_id)`` extraction ONLY -- no model
+    matching happens here. Kept strictly separate from
+    ``detect_model_from_sysdescr`` so the matching heuristic is unit-testable
+    against plain strings, with no SnmpRow/client machinery involved at all.
+    """
+    from . import oids
+
+    sys_descr = _scalar_text(rows, oids.SYS_DESCR)
+    sys_object_id = _scalar_text(rows, oids.SYS_OBJECT_ID)
+    return sys_descr, sys_object_id
+
+
+def _model_match_tokens(model: SwitchModel) -> tuple[str, ...]:
+    """Name tokens to search for (uppercased) in a sysDescr string.
+
+    Built ONLY from the registry's own ``key``/``display_name`` -- there is
+    NO hand-invented per-model sysDescr/sysObjectID table anywhere (no MIBs,
+    no captures, no prior-art map exist for one; see
+    ``detect_model_from_sysdescr``'s docstring). ``display_name`` sometimes
+    carries a parenthesized alias (e.g. ``"GSM7228PS (S3300)"`` or
+    ``"M4300-24X (XSM4324CS)"``); both the main name and the alias are valid
+    tokens, since a real switch's sysDescr text could plausibly use either.
+    """
+    tokens = [model.key.upper()]
+    name = model.display_name
+    if "(" in name and name.endswith(")"):
+        main, _, alias = name.partition("(")
+        tokens.append(main.strip())
+        tokens.append(alias[:-1].strip())
+    else:
+        tokens.append(name.strip())
+    return tuple(t for t in tokens if t)
+
+
+# Punctuation stripped from the edges of a whitespace-delimited sysDescr
+# word before comparing it to a registered token. Hyphens are deliberately
+# EXCLUDED: they are meaningful inside a model identifier itself (e.g.
+# "M4300-24X"), so stripping them would merge distinct SKUs together.
+_WORD_STRIP_CHARS = string.punctuation.replace("-", "")
+
+
+def _candidate_tokens(sys_descr: str) -> frozenset[str]:
+    """Whitespace-delimited "words" of a sysDescr string, as whole-token
+    candidates for exact (uppercased) comparison against a registered
+    model's match tokens.
+
+    Only edge punctuation is stripped (e.g. the trailing comma in
+    ``"M4300-24X,"``) -- internal structure, in particular hyphens, is left
+    intact. This is what makes the comparison a WHOLE-IDENTIFIER match: a
+    registered token must equal an entire sysDescr word, not merely appear
+    as a prefix/substring of it. That is the crux of the fix for the
+    false-positive bug this function exists to prevent (see
+    ``detect_model_from_sysdescr``'s docstring) -- e.g. the single sysDescr
+    word ``"GS305EPP"`` never equals the registered token ``"GS305EP"``, and
+    the single word ``"S3300-28X"`` never equals the registered alias
+    token ``"S3300"``, no matter what non-alphanumeric character (or none)
+    immediately follows the registered token's text.
+    """
+    return frozenset(
+        word.strip(_WORD_STRIP_CHARS).upper() for word in sys_descr.split()
+    )
+
+
+def detect_model_from_sysdescr(
+    sys_descr: str | None, models: Mapping[str, SwitchModel]
+) -> str | None:
+    """Match a switch's sysDescr text against registered models' names.
+
+    HONESTY CONSTRAINT: there is no ground-truth sysObjectID -> model table
+    (see ``oids.SYS_OBJECT_ID`` -- it is read as a raw signal but never used
+    here). Matching is EXACT (case-insensitive) whole-word matching: the
+    sysDescr string is split into whitespace-delimited candidate tokens
+    (``_candidate_tokens``) and a registered model matches only when one of
+    its own key/display_name/alias tokens (``_model_match_tokens``) equals
+    one of those candidates in full -- NEVER a bare substring/prefix check,
+    and NEVER a guess:
+
+    * A sysDescr containing an unregistered Netgear model name (e.g.
+      ``"GS752TP"``, not in ``models``) matches no token and correctly
+      returns ``None`` -- it is NEVER coerced onto some other, wrong,
+      registered model just because it looks Netgear-ish.
+    * A non-Netgear/garbage string matches nothing and also returns ``None``.
+    * CRITICAL (regression that motivated the switch away from substring
+      matching): a real, unregistered Netgear model whose name EXTENDS a
+      registered token must also return ``None``, never the shorter
+      registered model. Bare substring matching used to fail this both when
+      the extension has no separator (``"GS305EPP"`` used to wrongly match
+      the registered ``"GS305EP"``, a distinct 123W model vs. the registered
+      63W one) AND when it has one (``"S3300-28X"`` / ``"S3300-28X-PoE+"``
+      used to wrongly match the registered alias ``"S3300"`` for
+      ``gsm7228ps``, a distinct S3300 SKU). Whole-word equality rejects both:
+      neither ``"GS305EPP"`` nor ``"S3300-28X"`` is ever *equal* to the
+      shorter registered token, regardless of what character (alphanumeric
+      or not) follows it in the original text.
+    * A sysDescr matching MORE THAN ONE registered model's tokens (meaning
+      two registered models' names collide and can't be disambiguated by
+      this heuristic) ALSO returns ``None`` rather than guessing between
+      them. This never happens for the current registry (verified: no
+      model's match tokens equal another's -- e.g. "M4300-24X" vs
+      "M4300-16X", "GSM7252PS" vs "GSM7228PS"/"S3300" are all mutually
+      exclusive), but the fallback is kept as a permanent safety net against
+      a future registry addition introducing a collision.
+    """
+    if not sys_descr:
+        return None
+    candidates = _candidate_tokens(sys_descr)
+    matches = {
+        model.key
+        for model in models.values()
+        if any(token.upper() in candidates for token in _model_match_tokens(model))
+    }
+    if len(matches) == 1:
+        return next(iter(matches))
+    return None

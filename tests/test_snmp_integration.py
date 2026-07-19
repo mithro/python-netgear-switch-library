@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING
 
 from netgear_switch.models import IpMode
 from netgear_switch.registry import get_model
-from netgear_switch.snmp_read import AsyncSnmpReader, SnmpReader
+from netgear_switch.snmp_read import (
+    AsyncSnmpReader,
+    SnmpReader,
+    async_read_system_info,
+    read_system_info,
+)
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 
@@ -59,6 +64,13 @@ def test_sync_and_async_reads_are_identical(virtual_gsm7252ps: VirtualSwitch) ->
     # not just internally-consistent empty structures.
     port_names = {p.name for p in sync_ports}
     assert "1/0/1" in port_names
+    # ifAlias, over a real transport round-trip (not FakeClient): port 1 has
+    # an operator-set description, others honestly don't.
+    port1 = next(p for p in sync_ports if p.port == 1)
+    assert port1.description == "uplink-to-core"
+    assert any(p.description is None for p in sync_ports)
+    # dot1dBaseBridgeAddress, over a real transport round-trip.
+    assert sync_mgmt.base_mac == "28:C6:8E:00:00:01"
     vlan_names = {v.vlan_id: v.name for v in sync_vlans}
     assert vlan_names[90] == "iot"
     assert 10 in next(v for v in sync_vlans if v.vlan_id == 90).member_ports
@@ -117,3 +129,30 @@ def test_reads_return_expected_seed_values(virtual_gsm7252ps: VirtualSwitch) -> 
     macs = reader.get_macs()
     joined = next(m for m in macs if m.mac == "C8:00:84:89:71:70")
     assert joined.port == 110, "bridge_port 10 must join to ifIndex 110, not itself"
+
+
+def test_detect_model_end_to_end_sync_and_async_over_real_transport(
+    virtual_gsm7252ps: VirtualSwitch,
+) -> None:
+    """Task 2 capstone: sysDescr-based model detection over BOTH real
+    transports (net-snmp CLI + pysnmp) against the seeded gsm7252ps virtual
+    switch, matching the same key -- proving detection works end-to-end, not
+    just against a FakeClient."""
+    sw = virtual_gsm7252ps
+    sync_client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+    async_client = PysnmpClient(sw.host, "public", port=sw.port)
+
+    sync_detected = read_system_info(sync_client)
+    async_detected = asyncio.run(async_read_system_info(async_client))
+
+    assert sync_detected.key == "gsm7252ps"
+    assert sync_detected.matched is True
+    # The seed's sysDescr contains the model name; the raw text is carried
+    # through untouched.
+    assert "GSM7252PS" in (sync_detected.sys_descr or "")
+    # sysObjectID is READ (raw signal, kept for the caller/logging) but is a
+    # virtual/test placeholder -- NOT a real captured value -- and is never
+    # used for matching.
+    assert sync_detected.sys_object_id == "1.3.6.1.4.1.4526.10.100.14"
+
+    assert sync_detected == async_detected

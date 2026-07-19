@@ -33,6 +33,11 @@ class PortStatus:
     admin_enabled: bool
     link_up: bool
     speed_mbps: int | None
+    # ifAlias (operator-set port description) -- distinct from `name` (ifName).
+    # Defaults to None so existing positional call sites (name-only backends,
+    # older tests) keep constructing without it; a backend that cannot read
+    # ifAlias (NSDP, HTTP) leaves it honestly None rather than fabricating "".
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +101,38 @@ class MgmtIpConfig:
     address: str | None
     netmask: str | None
     gateway: str | None
+    # dot1dBaseBridgeAddress (BRIDGE-MIB) / the NSDP identity MAC: the switch's
+    # own base MAC, formatted "XX:XX:XX:XX:XX:XX". Defaults to None so existing
+    # positional call sites keep constructing without it; a backend that
+    # genuinely cannot read it (HTTP) leaves it honestly None.
+    base_mac: str | None = None
+
+
+@dataclass(frozen=True)
+class DetectedModel:
+    """Result of identifying a switch's model over SNMP (sysDescr matching).
+
+    ``key`` is a registry key (see ``registry.get_model``) if the switch's
+    sysDescr confidently matched exactly one registered model's name, or
+    ``None`` if it did not -- e.g. an unregistered Netgear model, a
+    non-Netgear device, or an unreadable/absent sysDescr. ``None`` is NEVER a
+    fabricated guess; see ``protocols.snmp.parse.detect_model_from_sysdescr``.
+
+    ``sys_descr``/``sys_object_id`` are the raw SNMP-reported strings, kept
+    for the caller/logging even when unmatched. ``sys_object_id`` is READ but
+    NOT used for matching -- there is no known sysObjectID -> model table
+    (no MIBs/captures/prior-art exist for one), so it is carried purely as a
+    raw signal and a future exact-match hook, never as fabricated tie-break
+    data.
+    """
+
+    key: str | None
+    sys_descr: str | None
+    sys_object_id: str | None
+
+    @property
+    def matched(self) -> bool:
+        return self.key is not None
 
 
 @dataclass(frozen=True)

@@ -41,9 +41,11 @@ def test_seed_roundtrips_through_parsers():
         rows(oids.IP_ADENT_ADDR), rows(oids.IP_ADENT_NETMASK),
         rows(oids.IP_ROUTE_DEST), rows(oids.IP_ROUTE_NEXTHOP),
         rows(oids.vendor_oids(get_model("gsm7252ps")).dhcp_mode_unverified),
+        rows(oids.DOT1D_BASE_BRIDGE_ADDRESS),
     )
     assert mgmt.address == "10.1.5.20"
     assert mgmt.gateway == "10.1.5.1"
+    assert mgmt.base_mac == "28:C6:8E:00:00:01"
 
 
 def test_seed_emits_nonempty_stats_macs_lldp():
@@ -96,15 +98,17 @@ def test_seed_emits_nonempty_ports_pvids_poe_sensors():
 
     ports = parse.parse_port_status(
         rows(oids.IF_ADMIN_STATUS), rows(oids.IF_OPER_STATUS),
-        rows(oids.IF_HIGH_SPEED), rows(oids.IF_NAME),
+        rows(oids.IF_HIGH_SPEED), rows(oids.IF_NAME), rows(oids.IF_ALIAS),
     )
     assert len(ports) == 52
     port1 = next(p for p in ports if p.port == 1)
     assert port1.admin_enabled is True
     assert port1.link_up is True
     assert port1.speed_mbps == 1000
+    assert port1.description == "uplink-to-core"
     port3 = next(p for p in ports if p.port == 3)
     assert port3.link_up is False
+    assert port3.description is None  # ifAlias never set on port 3
 
     pvids = parse.parse_pvids(rows(oids.DOT1Q_PVID))
     assert len(pvids) == 52

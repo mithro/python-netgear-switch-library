@@ -33,6 +33,11 @@ if TYPE_CHECKING:
     from netgear_switch.virtual.server import VirtualSwitch
 
 _NSDP_CLIENT_MAC = b"\x00\x00\x00\x00\x00\x01"
+# VirtualSwitchState.nsdp_mac's default (see virtual/state.py): every seed
+# below that doesn't override it -- gsm7252ps, gs110emx, gs305ep -- projects
+# this same value as both the SNMP dot1dBaseBridgeAddress scalar and the NSDP
+# identity MAC.
+_DEFAULT_BASE_MAC = "28:C6:8E:00:00:01"
 
 
 @dataclass(frozen=True)
@@ -49,6 +54,10 @@ class EquivalencePins:
     poe_power_mw: int
     mac: str
     mac_port: int
+    # dot1dBaseBridgeAddress (SNMP) / the NSDP identity MAC: both mocks default
+    # VirtualSwitchState.nsdp_mac to the same bytes, so this pin is identical
+    # across the SNMP and NSDP model fixtures below.
+    base_mac: str = _DEFAULT_BASE_MAC
 
 
 GSM7252PS_PINS = EquivalencePins(
@@ -175,6 +184,12 @@ def assert_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> None:
     # MAC/FDB join proof: a non-identity bridge_port -> ifIndex mapping.
     joined = next(m for m in macs if m.mac == pins.mac)
     assert joined.port == pins.mac_port
+    # dot1dBaseBridgeAddress: device base MAC, proven over real seed data.
+    assert mgmt.base_mac == pins.base_mac
+    # ifAlias: at least one port carries an operator-set description, distinct
+    # from ifName (`name`); a port with no seeded alias stays honestly None.
+    assert any(p.description for p in ports)
+    assert any(p.description is None for p in ports)
 
     # Equivalence proper: sync (net-snmp CLI) vs async (pysnmp) must be equal.
     assert ports == asyncio.run(aio.get_ports())
@@ -228,6 +243,11 @@ def assert_nsdp_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> 
     assert pins.vlan_member_port in target.member_ports
     assert mgmt.address == pins.mgmt_address
     assert mgmt.mode is pins.mgmt_mode
+    # NSDP always echoes the device's identity MAC (Tag.MAC / server_mac
+    # fallback), so base_mac is honestly populated here too, never None.
+    assert mgmt.base_mac == pins.base_mac
+    # NSDP PORT_STATUS carries no operator-set alias; honestly None.
+    assert all(p.description is None for p in ports)
 
     # Ops NSDP genuinely cannot serve must raise, not silently return empty.
     for op in ("get_macs", "get_lldp", "get_sensors", "get_poe"):
@@ -342,6 +362,9 @@ def assert_http_facades_equivalent(
     delivering = [p for p in poe if p.power_mw]                       # HTTP
     assert delivering[0].port == pins.poe_port
     assert delivering[0].power_mw == pins.poe_power_mw
+    # base_mac comes via NSDP (HttpReader.get_mgmt_ip always raises), so it
+    # stays honestly populated exactly like the other NSDP-served fields above.
+    assert mgmt.base_mac == _DEFAULT_BASE_MAC
 
     # sync (NSDP+HTTP) == async (NSDP+HTTP): per-op routing is identical.
     assert ports == asyncio.run(aio.get_ports())
