@@ -84,6 +84,160 @@ def test_parse_serial_requires_0x01_prefix():
         parsers.parse_serial(b"\x0253H6025EA0083")
 
 
+class TestParsePortMirroring:
+    """Byte vectors lifted verbatim from
+    ``gdoc2netcfg/tests/test_nsdp/test_parsers.py::TestParsePortMirroring``
+    (same source bytes, same expected decode) to prove this port is faithful.
+    """
+
+    def test_disabled(self):
+        result = parsers.parse_port_mirroring(b"\x00\x00\x00\x00")
+        assert result.destination_port == 0
+        assert result.source_ports == frozenset()
+
+    def test_enabled_single_source(self):
+        # Dest port 10, source port 1 (bitmap 0x80 = 10000000)
+        result = parsers.parse_port_mirroring(b"\x0a\x80\x00\x00")
+        assert result.destination_port == 10
+        assert result.source_ports == frozenset({1})
+
+    def test_enabled_multiple_sources(self):
+        # Dest port 10, source ports 1,2 (bitmap 0xC0 = 11000000)
+        result = parsers.parse_port_mirroring(b"\x0a\xc0\x00\x00")
+        assert result.destination_port == 10
+        assert result.source_ports == frozenset({1, 2})
+
+    def test_enabled_many_sources(self):
+        # Dest port 5, source ports 1-8 (bitmap 0xFF 0x00 0x00)
+        result = parsers.parse_port_mirroring(b"\x05\xff\x00\x00")
+        assert result.destination_port == 5
+        assert result.source_ports == frozenset({1, 2, 3, 4, 5, 6, 7, 8})
+
+    def test_invalid_length_too_short(self):
+        with pytest.raises(ValueError, match="4 bytes"):
+            parsers.parse_port_mirroring(b"\x0a\xc0")
+
+    def test_invalid_length_too_long(self):
+        with pytest.raises(ValueError, match="4 bytes"):
+            parsers.parse_port_mirroring(b"\x0a\xc0\x00\x00\x00")
+
+
+class TestParseIgmpSnooping:
+    """Byte vectors lifted verbatim from
+    ``gdoc2netcfg/tests/test_nsdp/test_parsers.py::TestParseIGMPSnooping``.
+    """
+
+    def test_enabled(self):
+        result = parsers.parse_igmp_snooping(b"\x00\x01\x00\x01")
+        assert result.enabled is True
+
+    def test_disabled(self):
+        result = parsers.parse_igmp_snooping(b"\x00\x00\x00\x00")
+        assert result.enabled is False
+
+    def test_enabled_with_vlan(self):
+        # enabled, vlan_id = 10 in byte 3
+        result = parsers.parse_igmp_snooping(b"\x00\x01\x00\x0a")
+        assert result.enabled is True
+        assert result.vlan_id == 10
+
+    def test_enabled_no_vlan(self):
+        # enabled, vlan_id = 0 means None
+        result = parsers.parse_igmp_snooping(b"\x00\x01\x00\x00")
+        assert result.enabled is True
+        assert result.vlan_id is None
+
+    def test_invalid_length_too_short(self):
+        with pytest.raises(ValueError, match="2 bytes"):
+            parsers.parse_igmp_snooping(b"\x00")
+
+
+class TestParseDeviceNewTags:
+    """Byte vectors lifted verbatim from
+    ``gdoc2netcfg/tests/test_nsdp/test_parsers.py::TestParseDiscoveryResponseNewTags``
+    -- proves ``parse_device`` decodes QOS_ENGINE/PORT_MIRRORING/IGMP_SNOOPING/
+    BROADCAST_FILTERING/LOOP_DETECTION identically to the gdoc2netcfg original.
+    """
+
+    @staticmethod
+    def _pkt() -> NSDPPacket:
+        return NSDPPacket(
+            op=Op.READ_RESPONSE,
+            client_mac=b"\x00" * 6,
+            server_mac=b"\x00\x09\x5b\xaa\xbb\xcc",
+        )
+
+    def test_qos_engine(self):
+        pkt = self._pkt()
+        pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+        pkt.add_tlv(Tag.MAC, b"\x00\x09\x5b\xaa\xbb\xcc")
+        pkt.add_tlv(Tag.QOS_ENGINE, b"\x02")  # 802.1p mode
+
+        device = parsers.parse_device(pkt)
+        assert device.qos_engine == 2
+
+    def test_port_mirroring(self):
+        pkt = self._pkt()
+        pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+        pkt.add_tlv(Tag.MAC, b"\x00\x09\x5b\xaa\xbb\xcc")
+        # Dest port 10, source ports 1,2 (bitmap 0xC0)
+        pkt.add_tlv(Tag.PORT_MIRRORING, b"\x0a\xc0\x00\x00")
+
+        device = parsers.parse_device(pkt)
+        assert device.port_mirroring is not None
+        assert device.port_mirroring.destination_port == 10
+        assert device.port_mirroring.source_ports == frozenset({1, 2})
+
+    def test_igmp_snooping(self):
+        pkt = self._pkt()
+        pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+        pkt.add_tlv(Tag.MAC, b"\x00\x09\x5b\xaa\xbb\xcc")
+        pkt.add_tlv(Tag.IGMP_SNOOPING, b"\x00\x01\x00\x0a")  # enabled, vlan=10
+
+        device = parsers.parse_device(pkt)
+        assert device.igmp_snooping is not None
+        assert device.igmp_snooping.enabled is True
+        assert device.igmp_snooping.vlan_id == 10
+
+    def test_broadcast_filtering(self):
+        pkt = self._pkt()
+        pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+        pkt.add_tlv(Tag.MAC, b"\x00\x09\x5b\xaa\xbb\xcc")
+        pkt.add_tlv(Tag.BROADCAST_FILTERING, b"\x01")  # enabled
+
+        device = parsers.parse_device(pkt)
+        assert device.broadcast_filtering is True
+
+    def test_loop_detection(self):
+        pkt = self._pkt()
+        pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+        pkt.add_tlv(Tag.MAC, b"\x00\x09\x5b\xaa\xbb\xcc")
+        pkt.add_tlv(Tag.LOOP_DETECTION, b"\x00")  # disabled
+
+        device = parsers.parse_device(pkt)
+        assert device.loop_detection is False
+
+    def test_all_new_tags_together(self):
+        pkt = self._pkt()
+        pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+        pkt.add_tlv(Tag.MAC, b"\x00\x09\x5b\xaa\xbb\xcc")
+        pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")  # 10 ports
+        pkt.add_tlv(Tag.QOS_ENGINE, b"\x01")  # port-based
+        pkt.add_tlv(Tag.PORT_MIRRORING, b"\x05\x80\x00\x00")  # dest=5, source=1
+        pkt.add_tlv(Tag.IGMP_SNOOPING, b"\x00\x01\x00\x00")  # enabled, no vlan
+        pkt.add_tlv(Tag.BROADCAST_FILTERING, b"\x01")
+        pkt.add_tlv(Tag.LOOP_DETECTION, b"\x01")
+
+        device = parsers.parse_device(pkt)
+        assert device.qos_engine == 1
+        assert device.port_mirroring is not None
+        assert device.port_mirroring.destination_port == 5
+        assert device.igmp_snooping is not None
+        assert device.igmp_snooping.enabled is True
+        assert device.broadcast_filtering is True
+        assert device.loop_detection is True
+
+
 def test_parse_device_aggregates_read_response():
     pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
                      server_mac=b"\xaa\xbb\xcc\xdd\xee\xff")
