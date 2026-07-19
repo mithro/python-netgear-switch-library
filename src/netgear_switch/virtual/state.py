@@ -58,6 +58,11 @@ class PortSim:
     tx_ucast: int | None = None
     rx_errors: int | None = None
     tx_errors: int | None = None
+    # ifAlias (operator-set port description). None = this port's ifAlias
+    # column instance is entirely absent (never configured), mirroring real
+    # hardware where an unset alias may not answer at all -- not a fabricated
+    # "".
+    description: str | None = None
 
 
 @dataclass
@@ -150,7 +155,11 @@ class VirtualSwitchState:
     firmware: str = ""
     hostname: str = ""
     nsdp_password: str = "password"
-    nsdp_mac: bytes = b"\x28\xc6\x8e\x00\x00\x01"  # fixed seed MAC for NSDP identity
+    # Fixed seed MAC for device identity: the NSDP identity TLV (Tag.MAC /
+    # server_mac) AND the SNMP dot1dBaseBridgeAddress scalar (see oid_map())
+    # both project this same value -- on real hardware they're the same
+    # physical base MAC.
+    nsdp_mac: bytes = b"\x28\xc6\x8e\x00\x00\x01"
 
     def oid_map(self) -> dict[str, tuple[str, str]]:
         """Project this state onto the full numeric OID -> (type, value) view.
@@ -167,11 +176,20 @@ class VirtualSwitchState:
         vlan_width = vlan_bitmap_width(model)
         m: dict[str, tuple[str, str]] = {}
 
+        # dot1dBaseBridgeAddress (BRIDGE-MIB scalar): the switch's own base
+        # MAC. Reuses `nsdp_mac` -- on a real device the SNMP bridge base
+        # address and the NSDP-reported identity MAC are the same physical
+        # address, so one seed value serves both protocol faces.
+        m[f"{oids.DOT1D_BASE_BRIDGE_ADDRESS}.0"] = (
+            "OCTETSTR", self.nsdp_mac.decode("latin-1"))
+
         for port, sim in self.ports.items():
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")
             m[f"{oids.IF_OPER_STATUS}.{port}"] = ("INTEGER", "1" if sim.link else "2")
             m[f"{oids.IF_HIGH_SPEED}.{port}"] = ("Gauge32", str(sim.speed))
             m[f"{oids.IF_NAME}.{port}"] = ("OCTETSTR", sim.name)
+            if sim.description is not None:
+                m[f"{oids.IF_ALIAS}.{port}"] = ("OCTETSTR", sim.description)
             # Port stats: only emit a counter the port actually exposes
             # (None -> skip, so parse_port_stats yields None there, never a
             # fabricated 0).

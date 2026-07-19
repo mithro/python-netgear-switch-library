@@ -59,6 +59,13 @@ def test_sync_and_async_reads_are_identical(virtual_gsm7252ps: VirtualSwitch) ->
     # not just internally-consistent empty structures.
     port_names = {p.name for p in sync_ports}
     assert "1/0/1" in port_names
+    # ifAlias, over a real transport round-trip (not FakeClient): port 1 has
+    # an operator-set description, others honestly don't.
+    port1 = next(p for p in sync_ports if p.port == 1)
+    assert port1.description == "uplink-to-core"
+    assert any(p.description is None for p in sync_ports)
+    # dot1dBaseBridgeAddress, over a real transport round-trip.
+    assert sync_mgmt.base_mac == "28:C6:8E:00:00:01"
     vlan_names = {v.vlan_id: v.name for v in sync_vlans}
     assert vlan_names[90] == "iot"
     assert 10 in next(v for v in sync_vlans if v.vlan_id == 90).member_ports

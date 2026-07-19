@@ -99,6 +99,7 @@ def parse_port_status(
     oper: Sequence[SnmpRow],
     speed: Sequence[SnmpRow],
     names: Sequence[SnmpRow],
+    aliases: Sequence[SnmpRow],
 ) -> list[PortStatus]:
     from . import oids
 
@@ -106,6 +107,10 @@ def parse_port_status(
     oper_map = index_int_column(oper, oids.IF_OPER_STATUS)
     speed_map = index_int_column(speed, oids.IF_HIGH_SPEED)
     name_map = index_str_column(names, oids.IF_NAME)
+    # ifAlias (operator-set description): distinct column from ifName above.
+    # An absent row for a port (or an empty-string alias) both mean "no
+    # description set" -> honest None, never a fabricated "".
+    alias_map = index_str_column(aliases, oids.IF_ALIAS)
 
     ports = sorted(set(admin_map) | set(oper_map))
     result: list[PortStatus] = []
@@ -119,6 +124,7 @@ def parse_port_status(
                 link_up=oper_map.get(p) == 1,
                 # ifHighSpeed 0 (link down) intentionally maps to None, not 0.
                 speed_mbps=mbps if mbps else None,
+                description=alias_map.get(p) or None,
             )
         )
     return result
@@ -243,20 +249,55 @@ def _format_mac_bytes(byte_strs: Sequence[str]) -> str:
     return ":".join(f"{int(b):02X}" for b in byte_strs)
 
 
-def _format_chassis_id(value: int | str | bytes) -> str:
-    """Format an lldpRemChassisId value.
+def _format_mac_octetstring(value: int | str | bytes) -> str | None:
+    """Format a raw 6-byte MAC-shaped OCTET STRING as ``XX:XX:XX:XX:XX:XX``.
 
-    The MAC-address chassis subtype arrives as a raw 6-byte value: ``bytes``
-    from a Hex-STRING varbind, or (for a transport that normalizes octet
-    strings to latin-1 text) a 6-character ``str``. Either is formatted as
-    ``XX:XX:XX:XX:XX:XX``. Any other chassis-id subtype (e.g. a chassis
-    component name) is returned as plain text.
+    The value arrives as ``bytes`` from a Hex-STRING varbind, or (for a
+    transport that normalizes octet strings to latin-1 text) a 6-character
+    ``str``. Returns ``None`` when ``value`` isn't a 6-byte/6-char octet
+    string -- the caller decides whether that's absence or malformed drift.
     """
     if isinstance(value, bytes) and len(value) == 6:
         return ":".join(f"{b:02X}" for b in value)
     if isinstance(value, str) and len(value) == 6:
         return ":".join(f"{ord(c):02X}" for c in value)
+    return None
+
+
+def _format_chassis_id(value: int | str | bytes) -> str:
+    """Format an lldpRemChassisId value.
+
+    The MAC-address chassis subtype formats as ``XX:XX:XX:XX:XX:XX`` (see
+    ``_format_mac_octetstring``). Any other chassis-id subtype (e.g. a chassis
+    component name) is returned as plain text.
+    """
+    mac = _format_mac_octetstring(value)
+    if mac is not None:
+        return mac
     return value if isinstance(value, str) else str(value)
+
+
+def parse_base_mac(rows: Sequence[SnmpRow]) -> str | None:
+    """Parse dot1dBaseBridgeAddress (BRIDGE-MIB scalar, standard MIB-II) into
+    a colon-separated MAC string.
+
+    An absent scalar (no row under the OID at all) is honestly ``None`` --
+    not every device necessarily answers this instance. A row that IS present
+    but isn't a 6-byte/6-char OCTET STRING is drift, not absence, and raises
+    SnmpError naming the offending OID, consistent with the other column
+    parsers in this module.
+    """
+    from . import oids
+
+    prefix = oids.DOT1D_BASE_BRIDGE_ADDRESS + "."
+    for row in rows:
+        if not row.oid.startswith(prefix):
+            continue
+        mac = _format_mac_octetstring(row.value)
+        if mac is None:
+            raise SnmpError(f"malformed base MAC {row.value!r} at {row.oid}")
+        return mac
+    return None
 
 
 def _column_text(value: int | str | bytes) -> str:
@@ -484,6 +525,7 @@ def parse_mgmt_ip(
     route_dest: Sequence[SnmpRow],
     route_nexthop: Sequence[SnmpRow],
     dhcp_mode: Sequence[SnmpRow],
+    base_mac: Sequence[SnmpRow],
 ) -> MgmtIpConfig:
     """Build the management-IP config from ipAddrTable/ipRouteTable + vendor mode.
 
@@ -496,7 +538,9 @@ def parse_mgmt_ip(
     docstring); only a recognized present value (``1``/``2``) maps to
     DHCP/STATIC, any other present value -- including one that cannot be
     coerced to ``int`` at all -- also yields UNKNOWN rather than raising,
-    since this OID is explicitly best-effort.
+    since this OID is explicitly best-effort. ``base_mac`` is the standard
+    (non-UNVERIFIED) dot1dBaseBridgeAddress scalar walk -- see
+    ``parse_base_mac``; an empty walk (OID absent) yields ``base_mac=None``.
     """
     from . import oids
 
@@ -545,4 +589,7 @@ def parse_mgmt_ip(
             mode = IpMode.STATIC
         break
 
-    return MgmtIpConfig(mode=mode, address=ip, netmask=mask, gateway=gateway)
+    return MgmtIpConfig(
+        mode=mode, address=ip, netmask=mask, gateway=gateway,
+        base_mac=parse_base_mac(base_mac),
+    )

@@ -7,7 +7,9 @@ fan/temperature/PSU sensors (including a "Not Supported" fan slot), >=2
 MAC/FDB entries with their bridge-port->ifIndex mappings, >=1 LLDP
 neighbour, and a static management IP. This makes the Task 16 SNMP<->SNMP
 equivalence test (and the round-trip tests here) exercise real data on every
-parser, not an empty table.
+parser, not an empty table. Port 1 also carries an ifAlias description (ports
+2+ deliberately leave it unset) so the ifAlias column exercises both the
+present and absent-instance paths.
 """
 from __future__ import annotations
 
@@ -49,6 +51,8 @@ def seed_gsm7252ps() -> VirtualSwitchState:
             sim.tx_ucast = 9_000
             sim.rx_errors = 0
             sim.tx_errors = 0
+        if port == 1:
+            sim.description = "uplink-to-core"  # port 2+ left None: absent ifAlias
         ports[port] = sim
 
     vlans = {

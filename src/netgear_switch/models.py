@@ -33,6 +33,11 @@ class PortStatus:
     admin_enabled: bool
     link_up: bool
     speed_mbps: int | None
+    # ifAlias (operator-set port description) -- distinct from `name` (ifName).
+    # Defaults to None so existing positional call sites (name-only backends,
+    # older tests) keep constructing without it; a backend that cannot read
+    # ifAlias (NSDP, HTTP) leaves it honestly None rather than fabricating "".
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +101,11 @@ class MgmtIpConfig:
     address: str | None
     netmask: str | None
     gateway: str | None
+    # dot1dBaseBridgeAddress (BRIDGE-MIB) / the NSDP identity MAC: the switch's
+    # own base MAC, formatted "XX:XX:XX:XX:XX:XX". Defaults to None so existing
+    # positional call sites keep constructing without it; a backend that
+    # genuinely cannot read it (HTTP) leaves it honestly None.
+    base_mac: str | None = None
 
 
 @dataclass(frozen=True)

@@ -16,16 +16,33 @@ def test_parse_port_status_joins_admin_oper_speed_name():
     oper = _rows("1.3.6.1.2.1.2.2.1.8", {1: "1", 2: "2"}, "INTEGER")
     speed = _rows("1.3.6.1.2.1.31.1.1.1.15", {1: "1000", 2: "0"}, "Gauge32")
     names = _rows("1.3.6.1.2.1.31.1.1.1.1", {1: "1/0/1", 2: "1/0/2"}, "OCTETSTR")
+    aliases = _rows("1.3.6.1.2.1.31.1.1.1.18", {1: "uplink"}, "OCTETSTR")
 
-    ports = parse.parse_port_status(admin, oper, speed, names)
+    ports = parse.parse_port_status(admin, oper, speed, names, aliases)
     assert [p.port for p in ports] == [1, 2]
     assert ports[0].admin_enabled is True
     assert ports[0].link_up is True
     assert ports[0].speed_mbps == 1000
     assert ports[0].name == "1/0/1"
+    assert ports[0].description == "uplink"
     assert ports[1].admin_enabled is False
     assert ports[1].link_up is False
     assert ports[1].speed_mbps is None  # 0 Mbps -> None
+    # No ifAlias row for port 2 -> honest None, not "".
+    assert ports[1].description is None
+
+
+def test_parse_port_status_empty_alias_is_none_not_empty_string():
+    admin = _rows("1.3.6.1.2.1.2.2.1.7", {1: "1"}, "INTEGER")
+    oper = _rows("1.3.6.1.2.1.2.2.1.8", {1: "1"}, "INTEGER")
+    speed = _rows("1.3.6.1.2.1.31.1.1.1.15", {1: "1000"}, "Gauge32")
+    names = _rows("1.3.6.1.2.1.31.1.1.1.1", {1: "1/0/1"}, "OCTETSTR")
+    # ifAlias column IS present for port 1 but with an empty value -- a switch
+    # that has an ifAlias instance but no operator-set text.
+    aliases = _rows("1.3.6.1.2.1.31.1.1.1.18", {1: ""}, "OCTETSTR")
+
+    ports = parse.parse_port_status(admin, oper, speed, names, aliases)
+    assert ports[0].description is None
 
 
 def test_parse_port_stats_absent_counter_is_none():

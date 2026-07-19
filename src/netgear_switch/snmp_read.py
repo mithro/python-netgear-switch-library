@@ -46,7 +46,7 @@ class SnmpReader:
         w = self.client.walk
         return parse.parse_port_status(
             w(oids.IF_ADMIN_STATUS), w(oids.IF_OPER_STATUS),
-            w(oids.IF_HIGH_SPEED), w(oids.IF_NAME),
+            w(oids.IF_HIGH_SPEED), w(oids.IF_NAME), w(oids.IF_ALIAS),
         )
 
     def get_stats(self) -> list[PortStats]:
@@ -103,6 +103,7 @@ class SnmpReader:
             w(oids.IP_ADENT_ADDR), w(oids.IP_ADENT_NETMASK),
             w(oids.IP_ROUTE_DEST), w(oids.IP_ROUTE_NEXTHOP),
             w(vendor.dhcp_mode_unverified),  # single named UNVERIFIED OID (Task 4)
+            w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
         )
 
 
@@ -119,6 +120,7 @@ class AsyncSnmpReader:
         return parse.parse_port_status(
             await w(oids.IF_ADMIN_STATUS), await w(oids.IF_OPER_STATUS),
             await w(oids.IF_HIGH_SPEED), await w(oids.IF_NAME),
+            await w(oids.IF_ALIAS),
         )
 
     async def get_stats(self) -> list[PortStats]:
@@ -178,4 +180,5 @@ class AsyncSnmpReader:
             await w(oids.IP_ADENT_ADDR), await w(oids.IP_ADENT_NETMASK),
             await w(oids.IP_ROUTE_DEST), await w(oids.IP_ROUTE_NEXTHOP),
             await w(vendor.dhcp_mode_unverified),  # single named UNVERIFIED OID
+            await w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
         )
