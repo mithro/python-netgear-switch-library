@@ -37,6 +37,16 @@ class SwitchModel:
     poe_port_count: int
     backends: frozenset[Backend]
     snmp_vendor_base: str | None
+    # True (the default) for every model with a real device capture or other
+    # hardware-validated prior art backing its fields. False marks a model
+    # registered from spec sheets/product briefs alone, with NO capture --
+    # its port/PoE counts and (for SNMP models) vendor OID family are a
+    # best-effort guess, and vendor-specific reads (get_sensors, vendor PoE
+    # power, etc.) are UNVERIFIED-pending-capture even though the
+    # model-agnostic standard-MIB/CGI reads should still work. See the
+    # UNVERIFIED-pending-capture entries below (m7300, xs748t, gs728tpp) for
+    # the honesty rationale; do NOT flip this to True without a real capture.
+    verified: bool = True
 
     @property
     def has_mac_table(self) -> bool:
@@ -52,6 +62,8 @@ def _model(
     poe_port_count: int,
     backends: set[Backend],
     snmp_vendor_base: str | None,
+    *,
+    verified: bool = True,
 ) -> SwitchModel:
     return SwitchModel(
         key=key,
@@ -61,6 +73,7 @@ def _model(
         poe_port_count=poe_port_count,
         backends=frozenset(backends),
         snmp_vendor_base=snmp_vendor_base,
+        verified=verified,
     )
 
 
@@ -120,6 +133,86 @@ _MODELS: dict[str, SwitchModel] = {
             4,
             {Backend.NSDP, Backend.HTTP},
             None,
+        ),
+        # --- UNVERIFIED-pending-capture below: no device capture exists for
+        # any of these three models (gdoc2netcfg fleet models with no
+        # prior-art fixture). Registered from spec sheets/product briefs only
+        # so gdoc2netcfg can construct a SyncSwitch for them; see each
+        # entry's comment for what specifically is a guess. The
+        # model-agnostic standard-MIB SNMP reads (ports/vlans/lldp/PoE
+        # admin/stats/mgmt-IP) should work regardless of the vendor OID
+        # family guess below, but get_sensors() and vendor PoE-power
+        # readings are UNVERIFIED until a real capture confirms the
+        # 4526.10 vs 4526.11 subtree. Do NOT treat any of these three as a
+        # source of confirmed behaviour -- confirm via hardware
+        # verification before relying on anything beyond the standard MIBs.
+        _model(
+            "m7300",
+            # M7300-24XF (24x SFP+, 0 PoE) picked as the assumed/documented
+            # variant -- the M7300 family also ships non-XF and other port
+            # counts; which exact SKU gdoc2netcfg's fleet actually runs is
+            # UNVERIFIED. Same FASTPATH fully-managed lineage as M4300, so
+            # the 4526.10 ("_FM") vendor subtree is the best spec-guess, but
+            # that family assignment is itself UNVERIFIED-pending-capture.
+            "M7300-24XF",
+            SwitchClass.FULLY_MANAGED,
+            24,
+            0,
+            {Backend.SNMP},
+            _FM,
+            verified=False,
+        ),
+        _model(
+            "xs748t",
+            # XS748T: 48x 10G copper (+ SFP+ combo), non-PoE per the
+            # documented base spec -- UNVERIFIED-pending-capture. HTTP is
+            # plausible for a Smart Managed Pro switch but is deliberately
+            # OMITTED here (not just unverified): see gsm7228ps for the
+            # SNMP+HTTP shape once a login/read flow is actually captured.
+            # Until then SNMP-only avoids implying a web-UI integration that
+            # does not exist in this codebase.
+            "XS748T",
+            SwitchClass.SMART_MANAGED_PRO,
+            48,
+            0,
+            {Backend.SNMP},
+            _SMP,
+            verified=False,
+        ),
+        _model(
+            "gs728tpp",
+            # GS728TPP: 24x Gigabit PoE+ + 4x SFP combo = 28 total ports,
+            # 24 PoE+ -- UNVERIFIED-pending-capture (port split assumed from
+            # the product name's "28" port count and Gigabit PoE+ line
+            # convention, not a capture).
+            #
+            # HTTP backend deliberately OMITTED even though this model's
+            # web UI is real and reachable: certbot-hook-netgear-switches/
+            # netgear-updater.py's GS728TPPUpdater (grounded prior art) shows
+            # GS728TPP uses a THIRD, distinct login scheme -- a GET / redirect
+            # to a per-session path, then GET {path}/System.xml?action=login&
+            # user=...&password=... (not a POST), with userStatus/usernme/
+            # sessionID cookies set from the response rather than via a
+            # normal Set-Cookie login POST. That is neither MERGE_HASH_CGI,
+            # GAMBIT, nor CHEETAH_FORM (registry.protocols.http.endpoints
+            # .LoginScheme), and transport/http/client.py's login() only
+            # knows how to drive those three. Registering Backend.HTTP here
+            # without real scheme/transport support would either (a) fail
+            # tests/protocols/http/test_endpoints.py::
+            # test_every_http_model_has_a_spec, or (b) force picking an
+            # existing (wrong) LoginScheme and have login() attempt a
+            # garbage POST against a real switch -- both dishonest. Wiring
+            # in a real LoginScheme.XML_API is a dedicated future slice, not
+            # a registry-only change. SNMP-only here is sufficient for
+            # gdoc2netcfg's SyncSwitch construction; only the SNMP vendor
+            # OID family is UNVERIFIED-pending-capture.
+            "GS728TPP",
+            SwitchClass.SMART_MANAGED_PRO,
+            28,
+            24,
+            {Backend.SNMP},
+            _SMP,
+            verified=False,
         ),
     )
 }

@@ -74,6 +74,12 @@ _REALISTIC_SYSDESCR_BY_KEY = {
     "gsm7228ps": "NETGEAR GSM7228PS Managed Switch, firmware 6.4.2.9",
     "gs110emx": "NETGEAR GS110EMX",
     "gs305ep": "NETGEAR GS305EP",
+    # UNVERIFIED-pending-capture models (registry.py) -- these are
+    # illustrative strings, not captured firmware sysDescr text; they only
+    # need to contain the registered display_name/key tokens.
+    "m7300": "NETGEAR M7300-24XF, Software 12.0.4.5",
+    "xs748t": "NETGEAR XS748T Managed Switch",
+    "gs728tpp": "NETGEAR GS728TPP Managed Switch, firmware 6.4.2.9",
 }
 
 
@@ -119,10 +125,36 @@ def test_detect_model_from_sysdescr_matches_xsm_alias_for_m4300_24x():
 
 
 def test_detect_model_from_sysdescr_unregistered_netgear_model_is_none():
-    # M7300 is a real-looking Netgear model NAME that is NOT in the registry.
-    # This must NEVER be coerced onto some other, wrong, registered model --
-    # honestly None.
+    # GS752TP is a real-looking Netgear model NAME that is NOT in the
+    # registry. This must NEVER be coerced onto some other, wrong,
+    # registered model -- honestly None.
+    assert parse.detect_model_from_sysdescr("NETGEAR GS752TP switch", MODELS) is None
+
+
+def test_detect_model_from_sysdescr_rejects_m7300_28g_extension_of_m7300():
+    # CRITICAL safety regression (same shape as GS305EPP/S3300-28X below):
+    # "m7300" IS now registered (UNVERIFIED-pending-capture), but M7300-28G
+    # is a distinct, unregistered M7300-family SKU suffix, not the bare
+    # registered token. Must honestly return None, never "m7300".
     assert parse.detect_model_from_sysdescr("NETGEAR M7300-28G", MODELS) is None
+
+
+def test_detect_model_from_sysdescr_matches_unverified_models():
+    # The three UNVERIFIED-pending-capture models (registry.py) are matched
+    # by both their bare registered key and their full display-name/SKU
+    # token, exactly like the verified models above.
+    assert parse.detect_model_from_sysdescr("NETGEAR M7300 switch", MODELS) == "m7300"
+    assert (
+        parse.detect_model_from_sysdescr("NETGEAR M7300-24XF switch", MODELS)
+        == "m7300"
+    )
+    assert (
+        parse.detect_model_from_sysdescr("NETGEAR XS748T switch", MODELS) == "xs748t"
+    )
+    assert (
+        parse.detect_model_from_sysdescr("NETGEAR GS728TPP switch", MODELS)
+        == "gs728tpp"
+    )
 
 
 def test_detect_model_from_sysdescr_non_netgear_garbage_is_none():

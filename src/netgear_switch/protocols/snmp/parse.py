@@ -704,9 +704,9 @@ def detect_model_from_sysdescr(
     and NEVER a guess:
 
     * A sysDescr containing an unregistered Netgear model name (e.g.
-      ``"M7300"``, not in ``models``) matches no token and correctly returns
-      ``None`` -- it is NEVER coerced onto some other, wrong, registered
-      model just because it looks Netgear-ish.
+      ``"GS752TP"``, not in ``models``) matches no token and correctly
+      returns ``None`` -- it is NEVER coerced onto some other, wrong,
+      registered model just because it looks Netgear-ish.
     * A non-Netgear/garbage string matches nothing and also returns ``None``.
     * CRITICAL (regression that motivated the switch away from substring
       matching): a real, unregistered Netgear model whose name EXTENDS a

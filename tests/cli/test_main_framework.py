@@ -48,6 +48,25 @@ def test_models_json_is_machine_readable() -> None:
     assert "gsm7252ps" in keys
 
 
+def test_models_json_surfaces_verified_flag() -> None:
+    import json
+
+    code, out, _err = run(["--json", "models"])
+    assert code == context.EXIT_OK
+    data = json.loads(out)
+    by_key = {m["key"]: m for m in data}
+    assert by_key["gsm7252ps"]["verified"] is True
+    assert by_key["m7300"]["verified"] is False
+
+
+def test_models_text_flags_unverified_models() -> None:
+    code, out, _err = run(["models"])
+    assert code == context.EXIT_OK
+    lines = {line.split()[0]: line for line in out.splitlines() if line.strip()}
+    assert "[UNVERIFIED]" in lines["m7300"]
+    assert "[UNVERIFIED]" not in lines["gsm7252ps"]
+
+
 def test_bad_subcommand_exits_usage() -> None:
     with pytest.raises(SystemExit) as exc:
         main(["not-a-command"], stdout=io.StringIO(), stderr=io.StringIO())

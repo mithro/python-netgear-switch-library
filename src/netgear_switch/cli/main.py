@@ -94,6 +94,7 @@ _ModelRow = TypedDict(
         "class": str,
         "ports": int,
         "backends": list[str],
+        "verified": bool,
     },
 )
 
@@ -111,6 +112,7 @@ def _cmd_models(
             "class": m.switch_class.value,
             "ports": m.port_count,
             "backends": sorted(b.value for b in m.backends),
+            "verified": m.verified,
         }
         for m in MODELS.values()
     ]
@@ -118,9 +120,13 @@ def _cmd_models(
         print(json.dumps(rows, indent=2), file=ctx.out)
     else:
         for row in rows:
+            # UNVERIFIED-pending-capture models (registry.py's `verified`
+            # flag) are marked so `ngsw models` never implies these are
+            # capture-confirmed like the rest of the registry.
+            suffix = "" if row["verified"] else "  [UNVERIFIED]"
             print(
                 f"{row['key']:<12} {row['display_name']:<24} "
-                f"{'+'.join(row['backends'])}",
+                f"{'+'.join(row['backends'])}{suffix}",
                 file=ctx.out,
             )
     return EXIT_OK
