@@ -67,6 +67,12 @@ class LLDPNeighbor:
     remote_sys_name: str | None
     remote_port_desc: str | None
     remote_chassis_id: str | None
+    # lldpRemPortId (LLDP-MIB column 7): the remote port's IDENTIFIER, distinct
+    # from remote_port_desc (lldpRemPortDesc, column 8) -- e.g. a neighbour can
+    # report port_id "gi24" and port_desc "gi24.uplink" as different values.
+    # Defaults to None so existing positional call sites (older tests, a
+    # backend that cannot read this column) keep constructing without it.
+    remote_port_id: str | None = None
 
 
 @dataclass(frozen=True)

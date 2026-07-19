@@ -76,6 +76,11 @@ def test_seed_emits_nonempty_stats_macs_lldp():
     lldp = parse.parse_lldp(rows(oids.LLDP_REM_TABLE))
     assert len(lldp) >= 1
     assert lldp[0].remote_sys_name == "sw-cisco-shed"
+    # Seed distinguishes remote_port_id ("1/xg51") from remote_port_desc
+    # ("eth0") so the two LLDP-MIB columns provably don't collapse together.
+    assert lldp[0].remote_port_id == "1/xg51"
+    assert lldp[0].remote_port_desc == "eth0"
+    assert lldp[0].remote_port_id != lldp[0].remote_port_desc
 
 
 def test_seed_emits_nonempty_ports_pvids_poe_sensors():

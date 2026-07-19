@@ -137,7 +137,8 @@ def _full_tables() -> dict[str, list[SnmpRow]]:
         # index lives inside each row's OID, not the walk-table key.
         oids.LLDP_REM_TABLE: [
             SnmpRow(f"{lldp_base}.9.75.1.7", "sw-cisco-shed", "OCTETSTR"),
-            SnmpRow(f"{lldp_base}.8.75.1.7", "1/xg1", "OCTETSTR"),
+            SnmpRow(f"{lldp_base}.8.75.1.7", "1/xg1.uplink", "OCTETSTR"),
+            SnmpRow(f"{lldp_base}.7.75.1.7", "1/xg1", "OCTETSTR"),
         ],
         fdb_base: [
             SnmpRow(f"{fdb_base}.5.200.0.132.137.113.112", "1", "INTEGER"),
@@ -219,7 +220,11 @@ def test_get_lldp_via_reader():
     assert len(neighbors) == 1
     assert neighbors[0].local_port == 1
     assert neighbors[0].remote_sys_name == "sw-cisco-shed"
-    assert neighbors[0].remote_port_desc == "1/xg1"
+    assert neighbors[0].remote_port_desc == "1/xg1.uplink"
+    # remote_port_id (lldpRemPortId, col 7) is a distinct value from
+    # remote_port_desc (lldpRemPortDesc, col 8).
+    assert neighbors[0].remote_port_id == "1/xg1"
+    assert neighbors[0].remote_port_id != neighbors[0].remote_port_desc
 
 
 def test_get_macs_via_reader():

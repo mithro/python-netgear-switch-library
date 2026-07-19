@@ -58,6 +58,9 @@ class EquivalencePins:
     # VirtualSwitchState.nsdp_mac to the same bytes, so this pin is identical
     # across the SNMP and NSDP model fixtures below.
     base_mac: str = _DEFAULT_BASE_MAC
+    # lldpRemPortId (LLDP-MIB col 7): distinct from the neighbour's port desc
+    # ("eth0", see seed_gsm7252ps). None for NSDP (no LLDP at all).
+    lldp_port_id: str | None = None
 
 
 GSM7252PS_PINS = EquivalencePins(
@@ -71,6 +74,7 @@ GSM7252PS_PINS = EquivalencePins(
     poe_power_mw=12_800,
     mac="C8:00:84:89:71:70",
     mac_port=110,
+    lldp_port_id="1/xg51",
 )
 
 
@@ -85,6 +89,7 @@ GS110EMX_PINS = EquivalencePins(
     poe_power_mw=0,
     mac="",                 # NSDP exposes no MAC table (unused)
     mac_port=0,
+    lldp_port_id=None,      # NSDP exposes no LLDP (unused)
 )
 
 
@@ -190,6 +195,10 @@ def assert_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> None:
     # from ifName (`name`); a port with no seeded alias stays honestly None.
     assert any(p.description for p in ports)
     assert any(p.description is None for p in ports)
+    # lldpRemPortId: a distinct value from remote_port_desc (proves the two
+    # LLDP-MIB columns are surfaced as separate fields, not collapsed).
+    assert lldp[0].remote_port_id == pins.lldp_port_id
+    assert lldp[0].remote_port_id != lldp[0].remote_port_desc
 
     # Equivalence proper: sync (net-snmp CLI) vs async (pysnmp) must be equal.
     assert ports == asyncio.run(aio.get_ports())

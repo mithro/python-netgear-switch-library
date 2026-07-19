@@ -69,6 +69,21 @@ def test_vlan_and_neighbor_and_sensor_and_mac():
         remote_chassis_id="aa:bb",
     )
     assert n.remote_sys_name == "ap1"
+    # Backward-compat: existing positional/keyword construction (no
+    # remote_port_id) still works and defaults it honestly to None.
+    assert n.remote_port_id is None
+
+    # remote_port_id (lldpRemPortId) is a distinct value from remote_port_desc
+    # (lldpRemPortDesc) -- e.g. port_id "gi24" vs port_desc "gi24.uplink".
+    n2 = LLDPNeighbor(
+        local_port=1,
+        remote_sys_name="ap1",
+        remote_port_desc="gi24.uplink",
+        remote_chassis_id="aa:bb",
+        remote_port_id="gi24",
+    )
+    assert n2.remote_port_id == "gi24"
+    assert n2.remote_port_id != n2.remote_port_desc
     s = Sensor(name="fan1", kind="fan", value=3200.0, unit="RPM")
     assert s.kind == "fan"
     m = MacEntry(mac="aa:bb:cc:dd:ee:ff", port=5, vlan_id=10)
