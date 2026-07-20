@@ -256,10 +256,13 @@ class SyncSwitch:
                 nsdp = build_sync_nsdp_client(self.host, self._nsdp_interface)
             reader = NsdpReader(nsdp, self.model)
         else:  # Backend.HTTP
-            # UNVERIFIED-reads models (gs110emx Gambit, gsm7228ps cheetah) refuse
-            # HERE -- before any session build -- so the per-op loop sees a plain
+            # UNVERIFIED-reads models (gsm7228ps cheetah) refuse HERE -- before
+            # any session build -- so the per-op loop sees a plain
             # UnsupportedCapabilityError, NOT a CredentialError from resolving a
-            # web password this backend will never use.
+            # web password this backend will never use. (gs110emx's HTTP reads
+            # are grounded -- see protocols/http/endpoints.py -- but NSDP is
+            # still authoritative for every op it serves; HTTP only fills the
+            # gaps NSDP itself raises for.)
             if not http_reads_supported(self.model):
                 raise UnsupportedCapabilityError(
                     f"model {self.model.key!r} HTTP reads are "

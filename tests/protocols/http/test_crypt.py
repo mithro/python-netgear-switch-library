@@ -30,3 +30,16 @@ def test_merge_hash_md5_matches_reference() -> None:
     assert merge_hash_md5("s3cr3t", "9917") == expected
     # 32-char lowercase hex.
     assert len(merge_hash_md5("p", "r")) == 32
+
+
+def test_merge_hash_md5_with_gs110emx_captured_rand() -> None:
+    # "1172334327" is the real `rand` nonce captured live from a physical
+    # GS110EMX's login page (see tests/fixtures/http/gs110emx_login.html /
+    # protocols/http/parse.py::parse_login_rand). The real admin password
+    # used during that capture was never recorded, so this only proves the
+    # function runs correctly against the real nonce -- it cannot assert a
+    # specific expected hash without the real password.
+    rand = "1172334327"
+    expected = hashlib.md5(merge("some-password", rand).encode()).hexdigest()
+    assert merge_hash_md5("some-password", rand) == expected
+    assert len(merge_hash_md5("some-password", rand)) == 32

@@ -26,23 +26,30 @@ from urllib.parse import parse_qs
 
 from ...protocols.http.crypt import merge_hash_md5
 from ...protocols.http.endpoints import HttpModelSpec, LoginScheme
-from .. import web
+from .. import web, web_gs110emx
 
 if TYPE_CHECKING:
     from ..state import VirtualSwitchState
 
+# A virtual (non-real) session token issued to a token-session (GAMBIT)
+# login on the mock face -- analogous to `_cookie` below for cookie-session
+# models. Any non-empty string works: real hardware generates one per login,
+# but the mock's job is proving the *shape* of the exchange (see
+# `parse.parse_gambit_token`), not producing a cryptographically-real value.
+_VIRTUAL_TOKEN = "virtual-gambit-session-token-0123456789abcdef"
+
 # Every path-shaped field an HttpModelSpec may populate, other than
-# login_path (handled separately as the login handshake). A model that
-# leaves one of these None does not serve that endpoint at all.
+# login_path/login_post_path (both handled separately as the login
+# handshake, never as a generically-servable read/write page). A model that
+# leaves one of the rest None does not serve that endpoint at all.
 #
 # Derived from the dataclass itself (rather than hand-maintained) so a future
 # spec field ending in "_path" is picked up automatically instead of silently
-# 404ing forever; login_path is filtered back out since it is handled by the
-# login handshake, not the known-path gate.
+# 404ing forever.
 _PATH_FIELDS: tuple[str, ...] = tuple(
     f.name
     for f in dataclasses.fields(HttpModelSpec)
-    if f.name.endswith("_path") and f.name != "login_path"
+    if f.name.endswith("_path") and f.name not in ("login_path", "login_post_path")
 )
 
 
@@ -76,6 +83,7 @@ class VirtualHttpFace:
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._cookie = f"{spec.cookie_name}=virtualsid"
+        self._token = _VIRTUAL_TOKEN
         # ThreadingHTTPServer runs one thread per request; do_GET/do_POST
         # mutate shared VirtualSwitchState via web.render_page/apply_form
         # with no lock of their own, so two overlapping requests (e.g. a
@@ -111,28 +119,42 @@ class VirtualHttpFace:
             def do_GET(self) -> None:
                 path = self.path.split("?", 1)[0]
                 if path == face.spec.login_path:
-                    self._send(web.render_login(face.rand))
+                    if face.spec.session_token_field is not None:
+                        self._send(web_gs110emx.render_login(face.rand))
+                    else:
+                        self._send(web.render_login(face.rand))
                     return
                 if path not in face._known_paths:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    page = web.render_page(face.state, face.spec, path, {})
+                    if face.spec.session_token_field is not None:
+                        page = face._render_token_page(path)
+                    else:
+                        page = web.render_page(face.state, face.spec, path, {})
                 self._send(page)
 
             def do_POST(self) -> None:
                 path = self.path.split("?", 1)[0]
                 form = self._body()
-                if path == face.spec.login_path:
+                login_post_path = face.spec.login_post_path or face.spec.login_path
+                if path == login_post_path:
                     ok = face._login_response(form) == "OK"
-                    self._send("OK" if ok else "Login failed", cookie=ok)
+                    if face.spec.session_token_field is not None:
+                        token = face._token if ok else ""
+                        self._send(web_gs110emx.render_redirect(token))
+                    else:
+                        self._send("OK" if ok else "Login failed", cookie=ok)
                     return
                 if path not in face._known_paths:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    web.apply_form(face.state, face.spec, path, form)
-                    page = web.render_page(face.state, face.spec, path, form)
+                    if face.spec.session_token_field is not None:
+                        page = face._render_token_page(path)
+                    else:
+                        web.apply_form(face.state, face.spec, path, form)
+                        page = web.render_page(face.state, face.spec, path, form)
                 self._send(page)
 
         server = ThreadingHTTPServer((self.host, 0), Handler)
@@ -142,6 +164,21 @@ class VirtualHttpFace:
         )
         self._thread.start()
         return int(server.server_address[1])
+
+    def _render_token_page(self, path: str) -> str:
+        """Render one of a token-session model's known GET/POST paths.
+
+        Only ``sysinfo_path``/``stats_path`` are populated for gs110emx
+        today (see ``HttpModelSpec``); anything else reaching here would be
+        a programming error (``_known_paths`` already gates on the spec's
+        populated fields), not a real device response, so it 404s honestly
+        rather than guessing.
+        """
+        if path == self.spec.sysinfo_path:
+            return web_gs110emx.render_sysinfo(self.state, self._token)
+        if path == self.spec.stats_path:
+            return web_gs110emx.render_interface_stats(self.state, self._token)
+        return "<html><body>Not Found</body></html>"
 
     def _login_response(self, form: dict[str, str]) -> str:
         field = self.spec.password_field

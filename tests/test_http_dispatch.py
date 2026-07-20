@@ -22,11 +22,14 @@ def test_require_http_backend() -> None:
 
 
 def test_http_reads_supported() -> None:
-    # Only gs305ep's web reads/writes are grounded; the others are gated OFF the
-    # per-op HTTP fallback so they stay on their authoritative backend.
+    # gs305ep and gs110emx's web reads are both grounded (gs110emx: login +
+    # sysInfo/interface_stats only -- see protocols/http/endpoints.py); NSDP
+    # stays authoritative for the ops it already serves (see
+    # sync_api.py/aio_api.py's per-op backend preference), so this flag only
+    # ever matters for the ops NSDP genuinely can't serve.
     assert http_reads_supported(get_model("gs305ep")) is True    # NSDP+HTTP, grounded
     assert http_reads_supported(get_model("gsm7228ps")) is False  # SNMP-authoritative
-    assert http_reads_supported(get_model("gs110emx")) is False   # Gambit UNVERIFIED
+    assert http_reads_supported(get_model("gs110emx")) is True    # Gambit, grounded
     assert http_reads_supported(get_model("m4300-24x")) is False  # no HTTP backend
 
 

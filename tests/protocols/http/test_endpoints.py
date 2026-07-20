@@ -40,10 +40,30 @@ def test_gs305ep_spec_is_grounded_merge_hash() -> None:
     assert spec.reads_verified is True
 
 
-def test_gs110emx_gambit_reads_flagged_unverified() -> None:
+def test_gs110emx_gambit_scheme_and_reads_grounded() -> None:
+    """GROUNDED in a live capture from a physical GS110EMX (see
+    tests/fixtures/http/gs110emx_*.html): merge-hash login + a Gambit TOKEN
+    session (not a cookie), and exactly the sysInfo/interface_stats reads
+    the capture proved exist -- everything else 404s on real hardware."""
     spec = http_spec(get_model("gs110emx"))
     assert spec.scheme is LoginScheme.GAMBIT
-    assert spec.reads_verified is False  # UNVERIFIED-pending-capture
+    assert spec.scheme_verified is True
+    assert spec.login_path == "/"
+    assert spec.login_post_path == "/redirect.html"
+    assert spec.password_field == "LoginPassword"
+    assert spec.session_token_field == "Gambit"
+    assert spec.needs_rand is True
+    assert spec.sysinfo_path == "/iss/specific/sysInfo.html"
+    assert spec.stats_path == "/iss/specific/interface_stats.html"
+    # Confirmed-404 on real hardware: no HTTP port-status/PoE/VLAN pages.
+    assert spec.dashboard_path is None
+    assert spec.poe_config_path is None
+    assert spec.poe_status_path is None
+    assert spec.vlan_config_path is None
+    assert spec.vlan_membership_path is None
+    assert spec.pvid_path is None
+    assert spec.is_epx_poe is False
+    assert spec.reads_verified is True
 
 
 def test_gsm7228ps_cheetah_form_snmp_preferred() -> None:

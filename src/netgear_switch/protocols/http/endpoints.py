@@ -18,10 +18,21 @@ flows are grounded in captured prior art or still
   preferred read/write path for this model; no web-UI read/write flow has
   been captured, so ``reads_verified`` is ``False`` and the reader/writer
   refuse rather than fabricate.
-- ``gs110emx`` (Plus EMx / Gambit): the login hash function and Gambit-token
-  extraction are NOT grounded in a captured session (only partially
-  corroborated by ``py_netgear_plus/models.py`` EMxSeries/GS110EMX). Both
-  ``scheme_verified`` and ``reads_verified`` are ``False``.
+- ``gs110emx`` (Plus EMx / Gambit): login + the ``sysInfo``/``interface_stats``
+  reads are GROUNDED in a real capture from a physical GS110EMX (see
+  ``tests/fixtures/http/gs110emx_{login,redirect,sysinfo,interface_stats}.html``).
+  The scheme is ``merge_hash_md5(password, rand)`` (identical function to
+  ``gs305ep``) POSTed as ``LoginPassword`` to ``/redirect.html`` (``rand``
+  scraped from ``GET /``, not from the POST target itself -- see
+  ``login_post_path``); the response carries a ``Gambit`` TOKEN (not a
+  cookie -- no ``Set-Cookie`` is ever sent) that every subsequent request
+  must carry (``session_token_field``). Live capture proved
+  ``/iss/specific/{vlan,port,poePortStatus,neighbor,dashboard}.html`` all
+  404 -- gs110emx has no PoE and serves ports/VLANs/PVIDs via NSDP, not
+  HTTP, so those spec fields stay honestly ``None``. ``scheme_verified`` and
+  ``reads_verified`` are ``True`` for exactly this grounded surface
+  (login + ``sysinfo_path`` + ``stats_path``); ``reboot_path``/
+  ``logout_path`` were never captured and stay ``None`` rather than guessed.
 """
 from __future__ import annotations
 
@@ -41,7 +52,7 @@ if TYPE_CHECKING:
 
 class LoginScheme(enum.Enum):
     MERGE_HASH_CGI = "merge_hash_cgi"   # Plus SID scheme (gs305ep) — GROUNDED
-    GAMBIT = "gambit"                   # EMx scheme (gs110emx) — UNVERIFIED
+    GAMBIT = "gambit"                   # EMx merge-hash + token (gs110emx) — GROUNDED
     CHEETAH_FORM = "cheetah_form"       # Pro/S3300 (gsm7228ps) — plaintext form
 
 
@@ -52,6 +63,9 @@ class HttpModelSpec:
     scheme_verified: bool
     login_path: str
     password_field: str
+    # Cookie session (SID-style): the name of the auth cookie the client
+    # must see after login. Left "" (unused) for a token-session model --
+    # see `session_token_field` below; the two are mutually exclusive.
     cookie_name: str
     needs_rand: bool
     dashboard_path: str | None
@@ -65,6 +79,21 @@ class HttpModelSpec:
     logout_path: str | None
     is_epx_poe: bool
     reads_verified: bool
+    # Token session (GS110EMX Gambit): the form/query-param NAME the session
+    # token is carried under on every request (e.g. "Gambit") once the login
+    # POST response has yielded one. ``None`` (the default) means this model
+    # uses the older cookie session instead -- see ``cookie_name`` above and
+    # ``transport/http/client.py``'s ``_check_authed``/token handling.
+    session_token_field: str | None = None
+    # The login POST target, when it differs from ``login_path`` (the GET
+    # page the ``rand`` nonce/login form is scraped from). ``None`` means
+    # POST goes to ``login_path`` itself (gs305ep/gsm7228ps); GS110EMX GETs
+    # ``/`` for `rand` but POSTs the hashed password to ``/redirect.html``.
+    login_post_path: str | None = None
+    # Device identity + management-IP config page (GS110EMX sysInfo.html).
+    # ``None`` means this model has no such HTTP page (gs305ep/gsm7228ps
+    # read this via NSDP/SNMP instead).
+    sysinfo_path: str | None = None
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -95,27 +124,37 @@ _GS305EP = HttpModelSpec(
     reads_verified=True,
 )
 
-# UNVERIFIED-pending-capture: Gambit login hash + /iss/specific pages not
-# grounded in a captured session. Endpoints from py_netgear_plus EMxSeries.
+# GROUNDED: live capture from a physical GS110EMX (see
+# tests/fixtures/http/gs110emx_{login,redirect,sysinfo,interface_stats}.html).
+# GET / for `rand` -> POST LoginPassword=merge_hash_md5(pw, rand) to
+# /redirect.html -> response carries a Gambit TOKEN (no cookie) that every
+# subsequent request carries as ?Gambit=<token> (GET) or a form field
+# (POST). Confirmed-404 endpoints (/iss/specific/{vlan,port,poePortStatus,
+# neighbor,dashboard}.html) stay None -- gs110emx has no PoE and serves
+# ports/VLANs/PVIDs via NSDP, not HTTP. reboot_path/logout_path were never
+# captured and stay None rather than guessed.
 _GS110EMX = HttpModelSpec(
     model_key="gs110emx",
     scheme=LoginScheme.GAMBIT,
-    scheme_verified=False,
-    login_path="/homepage.html",
+    scheme_verified=True,
+    login_path="/",
+    login_post_path="/redirect.html",
     password_field="LoginPassword",
-    cookie_name="gambitCookie",
+    cookie_name="",  # unused: token session (see session_token_field)
     needs_rand=True,
-    dashboard_path="/iss/specific/sysInfo.html",
+    dashboard_path=None,  # confirmed 404 -- no HTTP port-status page
     stats_path="/iss/specific/interface_stats.html",
+    sysinfo_path="/iss/specific/sysInfo.html",
     poe_config_path=None,
-    poe_status_path=None,
-    vlan_config_path=None,
-    vlan_membership_path=None,
-    pvid_path=None,
-    reboot_path=None,
-    logout_path="/iss/specific/logout.html",
+    poe_status_path=None,  # confirmed 404 -- no PoE on this model
+    vlan_config_path=None,  # confirmed 404 -- VLANs are NSDP-only here
+    vlan_membership_path=None,  # confirmed 404
+    pvid_path=None,  # confirmed 404
+    reboot_path=None,  # never captured -- not guessed
+    logout_path=None,  # never captured -- not guessed
     is_epx_poe=False,
-    reads_verified=False,
+    reads_verified=True,
+    session_token_field="Gambit",
 )
 
 # Login is GROUNDED: certbot-hook-netgear-switches/netgear-updater.py
