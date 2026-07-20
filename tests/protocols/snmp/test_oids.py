@@ -38,3 +38,53 @@ def test_vendor_oids_rejects_model_without_base():
 def test_box_sensor_columns_cover_fan_psu_temp():
     kinds = {kind for kind, _unit, _suffix in oids.BOX_SENSOR_COLUMNS}
     assert kinds == {"fan", "power", "temperature"}
+
+
+def test_unimplemented_roots_empty_for_poe_model():
+    # gsm7252ps has PoE ports -- the PoE MIB IS registered on this model.
+    assert oids.unimplemented_roots(get_model("gsm7252ps")) == []
+
+
+def test_unimplemented_roots_gates_poe_mib_for_non_poe_model():
+    # m4300-24x: 0 PoE ports (verified: real capture, poe=[]) -- the PoE MIB
+    # is entirely unregistered, plus the vendor PoE-power column under the
+    # same model's vendor subtree.
+    roots = oids.unimplemented_roots(get_model("m4300-24x"))
+    assert oids.PETH_PSE_PORT_TABLE in roots
+    vendor = oids.vendor_oids(get_model("m4300-24x"))
+    assert vendor.poe_power_mw in roots
+
+
+def test_unimplemented_roots_skips_vendor_poe_power_when_no_vendor_base():
+    # A hypothetical non-PoE model with no SNMP vendor subtree at all must not
+    # crash trying to resolve vendor_oids() -- only the standard PoE MIB root
+    # is gated in that case.
+    from netgear_switch.registry import SwitchClass, SwitchModel
+
+    stub = SwitchModel(
+        key="stub", display_name="stub", switch_class=SwitchClass.FULLY_MANAGED,
+        port_count=4, poe_port_count=0, backends=frozenset(),
+        snmp_vendor_base=None,
+    )
+    assert oids.unimplemented_roots(stub) == [oids.PETH_PSE_PORT_TABLE]
+
+
+def test_is_oid_implemented_true_for_poe_model_poe_oid():
+    model = get_model("gsm7252ps")
+    assert oids.is_oid_implemented(model, f"{oids.PETH_PSE_PORT_TABLE}.3.1.1")
+
+
+def test_is_oid_implemented_false_for_non_poe_model_poe_root_or_instance():
+    model = get_model("m4300-24x")
+    assert not oids.is_oid_implemented(model, oids.PETH_PSE_PORT_TABLE)
+    assert not oids.is_oid_implemented(model, f"{oids.PETH_PSE_PORT_TABLE}.3.1.1")
+    vendor = oids.vendor_oids(model)
+    assert not oids.is_oid_implemented(model, f"{vendor.poe_power_mw}.1.1")
+
+
+def test_is_oid_implemented_true_for_unrelated_oid_on_non_poe_model():
+    model = get_model("m4300-24x")
+    assert oids.is_oid_implemented(model, oids.SYS_DESCR)
+    assert oids.is_oid_implemented(model, f"{oids.IF_ADMIN_STATUS}.1")
+    vendor = oids.vendor_oids(model)
+    assert oids.is_oid_implemented(model, vendor.box_fan)

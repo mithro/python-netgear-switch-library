@@ -171,6 +171,7 @@ class _StateInstrum:
     def __init__(self, view: StateMibView) -> None:
         self._view = view
         rfc1905 = _pysnmp_rfc1905()
+        self._no_such_object = rfc1905.noSuchObject
         self._no_such_instance = rfc1905.noSuchInstance
         self._end_of_mib_view = rfc1905.endOfMibView
         smi_error = _pysnmp_smi_error()
@@ -180,10 +181,22 @@ class _StateInstrum:
     def read_variables(
         self, *var_binds: tuple[Any, Any], **_context: Any
     ) -> list[tuple[Any, Any]]:
-        """Answer a GET: exact-match lookup per requested OID."""
+        """Answer a GET: exact-match lookup per requested OID.
+
+        A requested OID whose whole subtree this model never registers (e.g.
+        the RFC3621 PoE MIB on a non-PoE model -- see
+        ``StateMibView.is_implemented``) answers ``noSuchObject``, matching
+        real hardware, BEFORE ever consulting the flat bisect view: that view
+        has no notion of "unregistered subtree" and would otherwise report a
+        merely-absent instance the same way as a genuinely unimplemented one.
+        """
         out: list[tuple[Any, Any]] = []
         for name, _val in var_binds:
-            entry = self._view.get(tuple(name))
+            oid = tuple(name)
+            if not self._view.is_implemented(oid):
+                out.append((name, self._no_such_object))
+                continue
+            entry = self._view.get(oid)
             if entry is None:
                 out.append((name, self._no_such_instance))
             else:
@@ -194,10 +207,22 @@ class _StateInstrum:
     def read_next_variables(
         self, *var_binds: tuple[Any, Any], **_context: Any
     ) -> list[tuple[Any, Any]]:
-        """Answer one GETNEXT/GETBULK step: the next OID after each request."""
+        """Answer one GETNEXT/GETBULK step: the next OID after each request.
+
+        Same ``noSuchObject`` short-circuit as ``read_variables`` above for a
+        requested OID under an unregistered subtree -- this is what makes a
+        ``snmpbulkwalk``/``bulk_walk_cmd`` of e.g. the PoE MIB on a non-PoE
+        model answer a single ``noSuchObject`` (verified live) instead of the
+        flat bisect jumping past the gap into whatever unrelated (but
+        implemented) subtree happens to sort next.
+        """
         out: list[tuple[Any, Any]] = []
         for name, _val in var_binds:
-            entry = self._view.get_next(tuple(name))
+            oid = tuple(name)
+            if not self._view.is_implemented(oid):
+                out.append((name, self._no_such_object))
+                continue
+            entry = self._view.get_next(oid)
             if entry is None:
                 out.append((name, self._end_of_mib_view))
             else:

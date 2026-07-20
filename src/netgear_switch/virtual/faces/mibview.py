@@ -37,12 +37,20 @@ class StateMibView:
         self._oids = [e[0] for e in entries]  # parallel key list for bisect
 
     def get(self, oid: tuple[int, ...]) -> _Entry | None:
+        # Callers MUST check `is_implemented(oid)` first (see faces/snmp.py):
+        # this flat bisect has no notion of "this whole subtree is not
+        # registered on this model" -- a None here means only "no instance at
+        # this exact OID within an implemented subtree" (-> NoSuchInstance).
         i = bisect.bisect_left(self._oids, oid)
         if i < len(self._oids) and self._oids[i] == oid:
             return self._entries[i]
         return None  # caller maps None -> NoSuchInstance
 
     def get_next(self, oid: tuple[int, ...]) -> _Entry | None:
+        # Same caveat as `get` above: callers check `is_implemented(oid)`
+        # first, since a bare bisect_right would otherwise happily jump into
+        # a completely unrelated (but implemented) subtree when `oid` itself
+        # is under an unregistered one.
         # bisect_right -> index of the first OID strictly greater than `oid`.
         i = bisect.bisect_right(self._oids, oid)
         if i < len(self._oids):
@@ -90,3 +98,16 @@ class StateMibView:
     def is_writable_oid(self, oid: str) -> bool:
         """Passthrough to ``VirtualSwitchState.is_writable_oid`` (see there)."""
         return self._state.is_writable_oid(oid)
+
+    def is_implemented(self, oid: tuple[int, ...]) -> bool:
+        """False if ``oid`` falls under a subtree root this model's SNMP
+        agent has no registration for at all (e.g. the RFC3621 PoE MIB on a
+        non-PoE model) -- see ``VirtualSwitchState.is_oid_implemented``.
+
+        ``faces/snmp.py`` checks this BEFORE calling ``get``/``get_next``: a
+        real agent answers ``noSuchObject`` for such a request rather than
+        this view's flat bisect silently finding whatever unrelated OID
+        happens to sort next.
+        """
+        oid_str = ".".join(str(x) for x in oid)
+        return self._state.is_oid_implemented(oid_str)

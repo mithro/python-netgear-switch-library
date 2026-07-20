@@ -95,6 +95,48 @@ class VendorOids:
     precedent above. No call site may hard-code these literals."""
 
 
+def unimplemented_roots(model: SwitchModel) -> list[str]:
+    """OID roots this model's real SNMP agent does NOT register at all.
+
+    Real Netgear firmware only instantiates a MIB module when the underlying
+    hardware capability actually exists: the RFC3621 PoE MIB
+    (``PETH_PSE_PORT_TABLE``) -- and Netgear's own vendor PoE-power column --
+    is entirely ABSENT, not merely empty, on a non-PoE model such as the
+    M4300-24X. Verified live: a GETNEXT/bulkwalk of the PoE MIB root on that
+    switch answers a single ``noSuchObject``, never silently falls through to
+    whatever unrelated OID happens to sort next (see ``is_oid_implemented``
+    and ``virtual/faces/mibview.py``). Every other MIB group this library
+    reads (system/if/ifX/BRIDGE/Q-BRIDGE/IP/LLDP) is implemented by every
+    currently-registered SNMP-backend model, so only the PoE-gated roots are
+    tracked here; extend this list if a future model is found to lack some
+    other subtree entirely.
+    """
+    if model.poe_port_count > 0:
+        return []
+    roots = [PETH_PSE_PORT_TABLE]
+    if model.snmp_vendor_base is not None:
+        roots.append(vendor_oids(model).poe_power_mw)
+    return roots
+
+
+def is_oid_implemented(model: SwitchModel, oid: str) -> bool:
+    """False if ``oid`` falls under a subtree root ``unimplemented_roots``
+    says this model's agent has no registration for at all; True otherwise.
+
+    This is deliberately narrower than "does this OID have a value right
+    now": a table that IS registered but simply has no rows yet (or an
+    instance that's absent) is a completely different, honest case already
+    handled by ``StateMibView``'s normal ``noSuchInstance``/``endOfMibView``
+    responses. Only a whole MIB module the device never registers gets
+    ``noSuchObject`` here.
+    """
+    dotted = oid.lstrip(".")
+    for root in unimplemented_roots(model):
+        if dotted == root or dotted.startswith(root + "."):
+            return False
+    return True
+
+
 def vendor_oids(model: SwitchModel) -> VendorOids:
     """Resolve vendor OIDs for a switch model.
 
