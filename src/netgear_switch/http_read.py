@@ -9,9 +9,9 @@ surface genuinely does not expose (e.g. gs110emx has no HTTP port-status/
 PoE/VLAN pages -- those are NSDP-only; see ``protocols/http/endpoints.py``)
 raise ``UnsupportedCapabilityError`` honestly instead of silently returning
 ``[]``, via ``_require_path``'s per-op ``None``-path check below.
-``get_stats``/``get_mgmt_ip`` branch on ``session_token_field``/
-``sysinfo_path`` because gs110emx's HTTP pages have a different wire shape
-than gs305ep's (see ``protocols/http/parse.py``).
+``get_stats`` selects its parser by ``HttpModelSpec.stats_page_shape`` and
+``get_mgmt_ip`` by ``sysinfo_path`` because gs110emx's HTTP pages have a
+different wire shape than gs305ep's (see ``protocols/http/parse.py``).
 
 All page-path selection and HTML-to-model conversion lives in the
 module-level helpers below (pure, I/O-free); ``HttpReader``/``AsyncHttpReader``
