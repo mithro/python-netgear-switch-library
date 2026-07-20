@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0  # full history for hatch-vcs version derivation
 
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v7
 
       - name: Build sdist + wheel
         run: uv build
