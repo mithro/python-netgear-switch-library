@@ -57,7 +57,13 @@ addopts = "-ra --cov=netgear_switch --cov-report=term-missing --cov-fail-under=9
 [tool.ruff]
 target-version = "py311"
 src = ["src", "tests"]
-extend-exclude = ["src/netgear_switch/_version.py"]
+extend-exclude = [
+    "src/netgear_switch/_version.py",
+    # Pure-data module: single-line HTML string constants copied byte-for-byte
+    # from real GS110EMX captures (see virtual/web_gs110emx.py) -- there is no
+    # meaningful line-length/style to enforce on a literal HTML capture.
+    "src/netgear_switch/virtual/web_gs110emx_templates.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "PT", "TC", "C4", "PIE", "RET", "N"]

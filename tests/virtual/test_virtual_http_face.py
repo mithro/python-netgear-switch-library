@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 
-from netgear_switch.models import PoEDetect
+from netgear_switch.http_read import AsyncHttpReader, HttpReader
+from netgear_switch.models import IpMode, PoEDetect
 from netgear_switch.protocols.http.endpoints import http_spec
 from netgear_switch.registry import get_model
-from netgear_switch.transport.http.client import HttpClient
+from netgear_switch.transport.http.client import AsyncHttpClient, HttpClient
 from netgear_switch.virtual.faces.http import VirtualHttpFace
 from netgear_switch.virtual.seed import seed_gs305ep
 from netgear_switch.virtual.server import VirtualSwitch
@@ -100,10 +103,10 @@ def test_gs110emx_has_its_own_bindable_http_face() -> None:
     """gs110emx's registry entry is ``{NSDP, HTTP}`` (see registry.py), not
     NSDP-only, and its HTTP face has never been exercised by a test of its
     own -- only gs305ep's. Prove the gs110emx face binds, serves its login
-    page, gates its known paths, and (since its login scheme resolves
-    through the same rand/merge-hash code path as MERGE_HASH_CGI -- only
-    CHEETAH_FORM differs -- see transport/http/client.py::_login_body and
-    VirtualHttpFace._login_response) can complete a full HttpClient login."""
+    page, gates its known paths, and can complete a full token-session
+    (Gambit, not cookie) ``HttpClient`` login + read of both grounded pages
+    (sysInfo.html + interface_stats.html -- see
+    ``protocols/http/endpoints.py``)."""
     spec = http_spec(get_model("gs110emx"))
     sw = VirtualSwitch(model="gs110emx")
     sw.start()
@@ -118,13 +121,96 @@ def test_gs110emx_has_its_own_bindable_http_face() -> None:
         assert spec.poe_config_path is None
         resp = httpx.get(f"http://127.0.0.1:{sw.http_port}/PoEPortConfig.cgi")
         assert resp.status_code == 404
+        # dashboard_path/vlan/pvid/poe pages all confirmed-404 on the real
+        # device too -- gs110emx serves ports/VLANs/PVIDs via NSDP, not HTTP.
+        assert spec.dashboard_path is None
 
         client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", spec)
         try:
             client.login()
-            page = client.get_page(spec.dashboard_path)
-            assert page
+            assert spec.stats_path is not None
+            stats_page = client.get_page(spec.stats_path)
+            assert stats_page
+            assert spec.sysinfo_path is not None
+            sysinfo_page = client.get_page(spec.sysinfo_path)
+            assert sysinfo_page
         finally:
             client.close()
     finally:
         sw.stop()
+
+
+def test_gs110emx_wrong_password_rejected() -> None:
+    """Token-session (Gambit) twin of ``test_wrong_password_rejected``: a
+    bad password must yield no (or an empty) Gambit token, and the client
+    must raise ``HttpAuthError`` rather than treat an empty token as a
+    session (see transport/http/client.py::_extract_session_token)."""
+    from netgear_switch.errors import HttpAuthError
+
+    spec = http_spec(get_model("gs110emx"))
+    sw = VirtualSwitch(model="gs110emx")
+    sw.start()
+    try:
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "wrong", spec)
+        with pytest.raises(HttpAuthError):
+            client.login()
+        client.close()
+    finally:
+        sw.stop()
+
+
+def test_gs110emx_http_reader_end_to_end() -> None:
+    """Full stack, no hardware: VirtualSwitch("gs110emx") -> token-session
+    (Gambit) login via HttpClient -> HttpReader.get_stats()/get_mgmt_ip()
+    over the real parse.parse_interface_stats/parse_sysinfo path. Asserts
+    against virtual/seed.py::seed_gs110emx's seeded values, proving the
+    mock's byte-faithful pages (web_gs110emx.py) round-trip through the
+    same parsers a real device's pages would."""
+    sw = VirtualSwitch(model="gs110emx")
+    sw.start()
+    try:
+        spec = http_spec(get_model("gs110emx"))
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", spec)
+        try:
+            reader = HttpReader(client, get_model("gs110emx"))
+            stats = {s.port: s for s in reader.get_stats()}
+            assert stats[1].rx_bytes == 1_000_000
+            assert stats[1].tx_bytes == 2_000_000
+            assert stats[1].rx_errors == 0
+            assert stats[3].rx_bytes == 0  # unseeded counter renders as 0
+
+            mgmt = reader.get_mgmt_ip()
+            assert mgmt.address == "10.1.5.20"
+            assert mgmt.netmask == "255.255.255.0"
+            assert mgmt.gateway == "10.1.5.1"
+            assert mgmt.mode is IpMode.STATIC
+            assert mgmt.base_mac == "28:c6:8e:00:00:01"  # VirtualSwitchState.nsdp_mac
+        finally:
+            client.close()
+    finally:
+        sw.stop()
+
+
+def test_gs110emx_async_http_reader_end_to_end() -> None:
+    """Async twin of ``test_gs110emx_http_reader_end_to_end`` -- sync/async
+    parity over the same token-session flow."""
+
+    async def run() -> None:
+        sw = VirtualSwitch(model="gs110emx")
+        sw.start()
+        try:
+            spec = http_spec(get_model("gs110emx"))
+            client = AsyncHttpClient(f"127.0.0.1:{sw.http_port}", "password", spec)
+            try:
+                reader = AsyncHttpReader(client, get_model("gs110emx"))
+                stats = {s.port: s for s in await reader.get_stats()}
+                assert stats[1].rx_bytes == 1_000_000
+                mgmt = await reader.get_mgmt_ip()
+                assert mgmt.address == "10.1.5.20"
+                assert mgmt.mode is IpMode.STATIC
+            finally:
+                await client.aclose()
+        finally:
+            sw.stop()
+
+    asyncio.run(run())

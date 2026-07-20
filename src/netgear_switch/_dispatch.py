@@ -136,11 +136,16 @@ def http_reads_supported(model: SwitchModel) -> bool:
     """True only if the model's web reads/writes are grounded (reads_verified).
 
     The facade uses this to decide whether HTTP may join the per-op backend
-    fallback. UNVERIFIED-pending-capture models (gs110emx Gambit, gsm7228ps
-    cheetah) return False: their HTTP path is never used for read/write dispatch
-    (gsm7228ps stays SNMP-authoritative; HTTP is reserved for firmware/reboot).
-    The lazy import keeps ``import netgear_switch`` clear of the endpoints module
-    on the hot path (endpoints is pure, but this mirrors the other lazy builders).
+    fallback. An UNVERIFIED-pending-capture model (gsm7228ps cheetah) returns
+    False: its HTTP path is never used for read/write dispatch (SNMP stays
+    authoritative; HTTP is reserved for firmware/reboot). gs110emx's Gambit
+    login + sysInfo/interface_stats reads ARE grounded (see
+    ``protocols/http/endpoints.py``), so this returns True for it -- but NSDP
+    is still authoritative for every op it serves (ports/VLANs/PVIDs/stats/
+    mgmt-IP), so HTTP only ever gets used there if NSDP itself raises
+    ``UnsupportedCapabilityError`` for an op. The lazy import keeps ``import
+    netgear_switch`` clear of the endpoints module on the hot path (endpoints
+    is pure, but this mirrors the other lazy builders).
     """
     if Backend.HTTP not in model.backends:
         return False

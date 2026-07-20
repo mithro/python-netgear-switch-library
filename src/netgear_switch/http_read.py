@@ -2,11 +2,16 @@
 
 Parallel to ``snmp_read.py``/``nsdp_read.py``. Construction is gated on
 ``HttpModelSpec.reads_verified``: a model whose web reads are still
-UNVERIFIED-pending-capture (gs110emx Gambit, gsm7228ps cheetah/S3300) refuses
-to construct rather than return fabricated data -- the facade never gets a
-plausible-but-wrong result from an unverified scrape. Web-UI-impossible ops
-(MAC/FDB, box sensors, LLDP, management-IP config) raise
-``UnsupportedCapabilityError`` honestly instead of silently returning ``[]``.
+UNVERIFIED-pending-capture (gsm7228ps cheetah/S3300) refuses to construct
+rather than return fabricated data -- the facade never gets a
+plausible-but-wrong result from an unverified scrape. Ops a model's HTTP
+surface genuinely does not expose (e.g. gs110emx has no HTTP port-status/
+PoE/VLAN pages -- those are NSDP-only; see ``protocols/http/endpoints.py``)
+raise ``UnsupportedCapabilityError`` honestly instead of silently returning
+``[]``, via ``_require_path``'s per-op ``None``-path check below.
+``get_stats``/``get_mgmt_ip`` branch on ``session_token_field``/
+``sysinfo_path`` because gs110emx's HTTP pages have a different wire shape
+than gs305ep's (see ``protocols/http/parse.py``).
 
 All page-path selection and HTML-to-model conversion lives in the
 module-level helpers below (pure, I/O-free); ``HttpReader``/``AsyncHttpReader``
@@ -17,7 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .errors import UnsupportedCapabilityError
-from .models import VLANInfo, VlanMode
+from .models import MgmtIpConfig, VLANInfo, VlanMode
 from .protocols.http import parse
 from .protocols.http.endpoints import http_spec
 
@@ -25,7 +30,6 @@ if TYPE_CHECKING:
     from .models import (
         LLDPNeighbor,
         MacEntry,
-        MgmtIpConfig,
         PoEStatus,
         PortStats,
         PortStatus,
@@ -33,6 +37,7 @@ if TYPE_CHECKING:
     )
     from .protocols.http.endpoints import HttpModelSpec
     from .protocols.http.session import AsyncHttpSession, HttpSession
+    from .protocols.http.types import HttpSysInfo
     from .registry import SwitchModel
 
 
@@ -54,6 +59,31 @@ def _require_path(model_key: str, path: str | None, op: str) -> str:
     if path is None:
         raise _unsupported(model_key, op)
     return path
+
+
+def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
+    """Dispatch ``stats_path``'s HTML to the right parser: gs110emx's
+    interface_stats.html has a different (and, on real hardware, malformed
+    -- see ``parse._OPEN_ROW_RE``) row shape than gs305ep's portStatistics.cgi,
+    so ``session_token_field`` (only ever set for gs110emx today) doubles as
+    the "this model's stats page is GS110EMX-shaped" signal."""
+    if spec.session_token_field is not None:
+        return parse.parse_interface_stats(html)
+    return parse.parse_port_stats(html)
+
+
+def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
+    """GS110EMX sysInfo.html -> the shared ``MgmtIpConfig`` shape. The page's
+    own MAC Address row is the switch's base MAC, so it fills ``base_mac``
+    exactly like the SNMP/NSDP backends' dot1dBaseBridgeAddress/identity-MAC
+    reads do."""
+    return MgmtIpConfig(
+        mode=info.ip_mode,
+        address=info.ip_address,
+        netmask=info.subnet_mask,
+        gateway=info.gateway_address,
+        base_mac=info.mac_address,
+    )
 
 
 def _vlan_info(vid: int, membership_html: str, port_count: int) -> VLANInfo:
@@ -85,7 +115,7 @@ class HttpReader:
 
     def get_stats(self) -> list[PortStats]:
         path = _require_path(self.model.key, self._spec.stats_path, "port statistics")
-        return parse.parse_port_stats(self.session.get_page(path))
+        return _parse_stats(self._spec, self.session.get_page(path))
 
     def get_poe(self) -> list[PoEStatus]:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
@@ -119,7 +149,10 @@ class HttpReader:
         raise _unsupported(self.model.key, "box sensors")
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
-        raise _unsupported(self.model.key, "management-IP config")
+        if self._spec.sysinfo_path is None:
+            raise _unsupported(self.model.key, "management-IP config")
+        info = parse.parse_sysinfo(self.session.get_page(self._spec.sysinfo_path))
+        return _mgmt_ip_from_sysinfo(info)
 
 
 class AsyncHttpReader:
@@ -137,7 +170,7 @@ class AsyncHttpReader:
 
     async def get_stats(self) -> list[PortStats]:
         path = _require_path(self.model.key, self._spec.stats_path, "port statistics")
-        return parse.parse_port_stats(await self.session.get_page(path))
+        return _parse_stats(self._spec, await self.session.get_page(path))
 
     async def get_poe(self) -> list[PoEStatus]:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
@@ -171,4 +204,7 @@ class AsyncHttpReader:
         raise _unsupported(self.model.key, "box sensors")
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
-        raise _unsupported(self.model.key, "management-IP config")
+        if self._spec.sysinfo_path is None:
+            raise _unsupported(self.model.key, "management-IP config")
+        info = parse.parse_sysinfo(await self.session.get_page(self._spec.sysinfo_path))
+        return _mgmt_ip_from_sysinfo(info)

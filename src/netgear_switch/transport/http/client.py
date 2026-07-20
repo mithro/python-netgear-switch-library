@@ -20,7 +20,7 @@ import httpx
 from ...errors import HttpAuthError, HttpError, HttpUnexpectedPageError
 from ...protocols.http.crypt import merge_hash_md5
 from ...protocols.http.endpoints import LoginScheme
-from ...protocols.http.parse import parse_login_rand
+from ...protocols.http.parse import parse_gambit_token, parse_login_rand
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -57,6 +57,38 @@ def _check_authed(spec: HttpModelSpec, cookies: httpx.Cookies) -> None:
             f"web-UI login failed for {spec.model_key} — no {spec.cookie_name} cookie "
             "(check password, or switch may be locked out)"
         )
+
+
+def _extract_session_token(spec: HttpModelSpec, html: str) -> str:
+    """Pull the post-login session token out of the login POST response body
+    for a token-session model (only GAMBIT/gs110emx exists today). Raises
+    ``HttpAuthError`` if the page carries no non-empty token -- a wrong
+    password, or the switch is locked out (pure; shared sync+async)."""
+    token = parse_gambit_token(html)
+    if not token:
+        raise HttpAuthError(
+            f"web-UI login failed for {spec.model_key} — no "
+            f"{spec.session_token_field} token returned (check password, or "
+            "switch may be locked out)"
+        )
+    return token
+
+
+def _token_params(spec: HttpModelSpec, token: str) -> dict[str, str] | None:
+    """The ``?<field>=<token>`` query params a token-session GET must carry,
+    or ``None`` for a cookie-session model (pure; shared sync+async)."""
+    if spec.session_token_field is None:
+        return None
+    return {spec.session_token_field: token}
+
+
+def _token_form_field(spec: HttpModelSpec, token: str) -> dict[str, str]:
+    """The ``{<field>: token}`` form field a token-session POST must carry
+    alongside its own data, or ``{}`` for a cookie-session model (pure;
+    shared sync+async)."""
+    if spec.session_token_field is None:
+        return {}
+    return {spec.session_token_field: token}
 
 
 def _validate_response(
@@ -99,6 +131,7 @@ class HttpClient:
             follow_redirects=True,
         )
         self._logged_in = False
+        self._token = ""
 
     def __enter__(self) -> Self:
         return self
@@ -112,22 +145,27 @@ class HttpClient:
         self.close()
 
     def login(self) -> None:
+        post_path = self._spec.login_post_path or self._spec.login_path
         try:
             page = self._client.get(self._spec.login_path)
             _validate_response(page, context=f"GET {self._spec.login_path}")
             body = _login_body(self._spec, self._password, page.text)
-            resp = self._client.post(self._spec.login_path, data=body)
-            _validate_response(resp, context=f"POST {self._spec.login_path}")
+            resp = self._client.post(post_path, data=body)
+            _validate_response(resp, context=f"POST {post_path}")
         except httpx.HTTPError as exc:
             raise HttpError(f"web-UI login transport error: {exc}") from exc
-        _check_authed(self._spec, self._client.cookies)
+        if self._spec.session_token_field is not None:
+            self._token = _extract_session_token(self._spec, resp.text)
+        else:
+            _check_authed(self._spec, self._client.cookies)
         self._logged_in = True
 
     def get_page(self, path: str) -> str:
         if not self._logged_in:
             self.login()
+        params = _token_params(self._spec, self._token)
         try:
-            resp = self._client.get(path)
+            resp = self._client.get(path, params=params)
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"GET {path}", path=path)
@@ -136,8 +174,9 @@ class HttpClient:
     def post_form(self, path: str, data: dict[str, str]) -> str:
         if not self._logged_in:
             self.login()
+        body = {**data, **_token_form_field(self._spec, self._token)}
         try:
-            resp = self._client.post(path, data=data)
+            resp = self._client.post(path, data=body)
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")
@@ -169,6 +208,7 @@ class AsyncHttpClient:
             follow_redirects=True,
         )
         self._logged_in = False
+        self._token = ""
 
     async def __aenter__(self) -> Self:
         return self
@@ -182,22 +222,27 @@ class AsyncHttpClient:
         await self.aclose()
 
     async def login(self) -> None:
+        post_path = self._spec.login_post_path or self._spec.login_path
         try:
             page = await self._client.get(self._spec.login_path)
             _validate_response(page, context=f"GET {self._spec.login_path}")
             body = _login_body(self._spec, self._password, page.text)
-            resp = await self._client.post(self._spec.login_path, data=body)
-            _validate_response(resp, context=f"POST {self._spec.login_path}")
+            resp = await self._client.post(post_path, data=body)
+            _validate_response(resp, context=f"POST {post_path}")
         except httpx.HTTPError as exc:
             raise HttpError(f"web-UI login transport error: {exc}") from exc
-        _check_authed(self._spec, self._client.cookies)
+        if self._spec.session_token_field is not None:
+            self._token = _extract_session_token(self._spec, resp.text)
+        else:
+            _check_authed(self._spec, self._client.cookies)
         self._logged_in = True
 
     async def get_page(self, path: str) -> str:
         if not self._logged_in:
             await self.login()
+        params = _token_params(self._spec, self._token)
         try:
-            resp = await self._client.get(path)
+            resp = await self._client.get(path, params=params)
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"GET {path}", path=path)
@@ -206,8 +251,9 @@ class AsyncHttpClient:
     async def post_form(self, path: str, data: dict[str, str]) -> str:
         if not self._logged_in:
             await self.login()
+        body = {**data, **_token_form_field(self._spec, self._token)}
         try:
-            resp = await self._client.post(path, data=data)
+            resp = await self._client.post(path, data=body)
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")

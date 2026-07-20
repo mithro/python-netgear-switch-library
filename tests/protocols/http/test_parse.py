@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from netgear_switch.errors import HttpUnexpectedPageError
-from netgear_switch.models import PoEDetect, VlanMode
+from netgear_switch.models import IpMode, PoEDetect, VlanMode
 from netgear_switch.protocols.http import parse
 
 _FIX = Path(__file__).parent.parent.parent / "fixtures" / "http"
@@ -20,6 +20,85 @@ def test_parse_login_rand_and_hash() -> None:
     assert parse.parse_login_rand(html) == "9917"
     assert parse.parse_csrf_hash(html) == "abc123def"
     assert parse.parse_login_rand("<html>no rand here</html>") is None
+
+
+# --- GS110EMX: all tests below are grounded in a LIVE CAPTURE from a ---
+# --- physical GS110EMX (tests/fixtures/http/gs110emx_*.html), not a  ---
+# --- synthetic fixture -- see endpoints.py's _GS110EMX docstring.   ---
+
+_GAMBIT_TOKEN = (
+    "dhrelggkcbjfjgcfnbcfeekfbajfkejgpfkehbnfgbbaigdaggifhedafagfjehbdfljdbhk"
+    "dgcahblfgbgalehadftkkjegeaje"
+)
+
+
+def test_parse_login_rand_gs110emx() -> None:
+    # GET / -- the login page's <input id='rand' value="..." disabled>.
+    assert parse.parse_login_rand(_read("gs110emx_login.html")) == "1172334327"
+
+
+def test_parse_gambit_token() -> None:
+    # POST /redirect.html response: the auto-submit form's Gambit token.
+    assert parse.parse_gambit_token(_read("gs110emx_redirect.html")) == _GAMBIT_TOKEN
+    # sysInfo.html/interface_stats.html also carry the same Gambit field.
+    assert parse.parse_gambit_token(_read("gs110emx_sysinfo.html")) == _GAMBIT_TOKEN
+
+
+def test_parse_gambit_token_absent_or_empty() -> None:
+    assert parse.parse_gambit_token("<html>no token here</html>") is None
+    assert (
+        parse.parse_gambit_token('<input type="hidden" name="Gambit" value="">')
+        == ""
+    )
+
+
+def test_parse_sysinfo_gs110emx() -> None:
+    info = parse.parse_sysinfo(_read("gs110emx_sysinfo.html"))
+    assert info.product_name == "GS110EMX"
+    assert info.switch_name == "sw-netgear-gs110emx1"
+    assert info.serial_number == "53H60253A0032"
+    assert info.mac_address == "bc:a5:11:b8:ec:f1"
+    assert info.firmware_version == "1.0.1.4"
+    assert info.ip_mode is IpMode.STATIC  # data-select-value="0" -> Disable/static
+    assert info.ip_address == "10.1.5.25"
+    assert info.subnet_mask == "255.255.255.0"
+    assert info.gateway_address == "10.1.5.1"
+
+
+def test_parse_sysinfo_rejects_malformed_page() -> None:
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_sysinfo("<html><body>Not Found</body></html>")
+
+
+def test_parse_interface_stats_gs110emx() -> None:
+    # Real hardware NEVER closes a <tr class="portID"> with </tr> (verified
+    # in this exact fixture) -- this is the one parser that must tolerate
+    # that malformed-but-real shape (parse_port_stats, used by gs305ep,
+    # would swallow all 10 rows into a single match).
+    stats = {
+        s.port: s
+        for s in parse.parse_interface_stats(_read("gs110emx_interface_stats.html"))
+    }
+    assert set(stats) == set(range(1, 11))
+    assert stats[1].rx_bytes == 0
+    assert stats[1].tx_bytes == 0
+    assert stats[1].rx_errors == 0
+    assert stats[6].rx_bytes == 0
+    assert stats[6].tx_bytes == 70892018242
+    assert stats[8].rx_bytes == 59921732691
+    assert stats[8].tx_bytes == 78637274870
+    assert stats[9].rx_bytes == 2963140428936
+    assert stats[9].tx_bytes == 1189358575871
+    assert stats[10].rx_bytes == 1195417274187
+    assert stats[10].tx_bytes == 3027396511187
+    assert all(s.rx_errors == 0 for s in stats.values())
+    assert all(s.tx_errors is None for s in stats.values())
+    assert all(s.rx_packets is None and s.tx_packets is None for s in stats.values())
+
+
+def test_parse_interface_stats_rejects_malformed_page() -> None:
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_interface_stats("<html><body>Not Found</body></html>")
 
 
 def test_parse_port_status() -> None:

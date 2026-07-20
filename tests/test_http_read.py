@@ -7,7 +7,7 @@ import pytest
 
 from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.http_read import AsyncHttpReader, HttpReader
-from netgear_switch.models import PoEDetect
+from netgear_switch.models import IpMode, PoEDetect
 from netgear_switch.registry import get_model
 
 _FIX = Path(__file__).parent / "fixtures" / "http"
@@ -97,9 +97,79 @@ def test_mac_table_unsupported_on_plus() -> None:
         reader.get_lldp()
 
 
-def test_unverified_model_read_refused() -> None:
+def test_gsm7228ps_unverified_model_read_refused() -> None:
     with pytest.raises(UnsupportedCapabilityError):
-        HttpReader(_FakeSession({}), get_model("gs110emx"))
+        HttpReader(_FakeSession({}), get_model("gsm7228ps"))
+
+
+def _gs110emx_pages() -> dict[str, str]:
+    return {
+        "/iss/specific/sysInfo.html": (_FIX / "gs110emx_sysinfo.html").read_text(),
+        "/iss/specific/interface_stats.html": (
+            _FIX / "gs110emx_interface_stats.html"
+        ).read_text(),
+    }
+
+
+def test_gs110emx_reads_are_grounded_not_refused() -> None:
+    # Login + sysInfo/interface_stats are GROUNDED in a real capture (see
+    # protocols/http/endpoints.py), so constructing an HttpReader must
+    # succeed (contrast gsm7228ps above, still UNVERIFIED).
+    HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+
+
+def test_gs110emx_get_stats_uses_real_hardware_row_shape() -> None:
+    """gs110emx_interface_stats.html: real hardware never closes a
+    ``<tr class="portID">`` with ``</tr>`` -- parse_interface_stats (not
+    gs305ep's parse_port_stats) must be used, or this raises/mis-parses."""
+    reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    stats = {s.port: s for s in reader.get_stats()}
+    assert stats[1].rx_bytes == 0
+    assert stats[1].tx_bytes == 0
+    assert stats[6].tx_bytes == 70892018242
+    assert stats[8].rx_bytes == 59921732691
+    assert stats[8].tx_bytes == 78637274870
+    assert stats[9].rx_bytes == 2963140428936
+    assert stats[10].tx_bytes == 3027396511187
+    assert all(s.rx_errors == 0 for s in stats.values())
+    assert all(s.rx_packets is None and s.tx_packets is None for s in stats.values())
+
+
+def test_gs110emx_get_mgmt_ip_from_sysinfo() -> None:
+    """sysInfo.html device MAC/IP/netmask/gateway/DHCP-mode -> MgmtIpConfig,
+    grounded in the real capture (gs110emx_sysinfo.html)."""
+    reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    mgmt = reader.get_mgmt_ip()
+    assert mgmt.address == "10.1.5.25"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.gateway == "10.1.5.1"
+    assert mgmt.mode is IpMode.STATIC
+    assert mgmt.base_mac == "bc:a5:11:b8:ec:f1"
+
+
+def test_gs110emx_http_has_no_port_status_poe_or_vlan_pages() -> None:
+    """Live capture proved /iss/specific/{vlan,port,poePortStatus,neighbor,
+    dashboard}.html all 404 on a real GS110EMX -- gs110emx has no PoE and
+    serves ports/VLANs/PVIDs via NSDP, not HTTP. These ops must raise, not
+    silently return an empty/fabricated result."""
+    reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    for op in ("get_ports", "get_poe", "get_pvids", "get_vlans"):
+        with pytest.raises(UnsupportedCapabilityError):
+            getattr(reader, op)()
+
+
+def test_async_gs110emx_get_stats_and_mgmt_ip() -> None:
+    async def run() -> None:
+        reader = AsyncHttpReader(
+            _AsyncFakeSession(_gs110emx_pages()), get_model("gs110emx")
+        )
+        stats = {s.port: s for s in await reader.get_stats()}
+        assert stats[9].rx_bytes == 2963140428936
+        mgmt = await reader.get_mgmt_ip()
+        assert mgmt.address == "10.1.5.25"
+        assert mgmt.mode is IpMode.STATIC
+
+    asyncio.run(run())
 
 
 def test_async_reader_matches_sync() -> None:
