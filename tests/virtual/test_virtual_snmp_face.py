@@ -18,8 +18,11 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import importlib
 import os
+import subprocess
 import warnings
+from typing import Any
 
 import pytest
 
@@ -27,12 +30,19 @@ from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.protocols.snmp import oids
 from netgear_switch.protocols.snmp.client import SnmpRow
 from netgear_switch.registry import get_model
+from netgear_switch.snmp_read import AsyncSnmpReader, SnmpReader
 from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
 from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
 from netgear_switch.virtual.server import VirtualSwitch
 from netgear_switch.virtual.state import encode_port_bitmap
 
 _PORT_1_OPER_STATUS = f"{oids.IF_OPER_STATUS}.1"
+
+
+def _pysnmp_asyncio() -> Any:
+    """Lazily import pysnmp's hlapi, for a raw one-shot GETNEXT below (mirrors
+    transport/aio/snmp_pysnmp.py's own lazy-import seam)."""
+    return importlib.import_module("pysnmp.hlapi.v3arch.asyncio")
 
 
 def test_get_and_walk_against_virtual_face_with_pysnmp_client():
@@ -237,6 +247,98 @@ def test_type_token_round_trips_through_pysnmp_client():
         oid = f"{vendor.poe_power_mw}.1.1"
         rows = asyncio.run(client.get([oid]))
         assert rows == [SnmpRow(oid, sw.state.poe[1].power_mw, "Gauge32")]
+    finally:
+        sw.stop()
+
+
+# --- Gap 2/3: non-PoE model's PoE MIB answers noSuchObject on the wire -----
+#
+# m4300-24x (0 PoE ports, verified real capture: poe=[]) is the faithful,
+# non-PoE M4300 mock seed (see virtual/seed.py::seed_m4300_24x). These tests
+# prove get_poe() degrades to [] through BOTH transports/readers AND that the
+# mock actually answers noSuchObject on the wire for the PoE MIB root -- not
+# merely that the client-side walk boundary check happens to yield [] anyway
+# (which it would even for the old, unfaithful "jump to an unrelated
+# subtree" mock behaviour this replaces).
+
+
+def test_sync_get_poe_on_non_poe_model_is_empty_and_wire_emits_no_such_object():
+    sw = VirtualSwitch(model="m4300-24x")
+    sw.start()
+    try:
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        reader = SnmpReader(client, get_model("m4300-24x"))
+        assert reader.get_poe() == []
+
+        # Wire-level proof: a raw snmpbulkwalk of the PoE MIB root emits the
+        # actual net-snmp text for a noSuchObject varbind, not merely an
+        # empty result the client inferred some other way.
+        result = subprocess.run(
+            [
+                "snmpbulkwalk", "-v2c", "-c", "public", "-On", "-Oe", "-OU", "-Ln",
+                f"{sw.host}:{sw.port}", oids.PETH_PSE_PORT_TABLE,
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 0
+        assert "No Such Object available on this agent at this OID" in result.stdout
+    finally:
+        sw.stop()
+
+
+def test_async_get_poe_on_non_poe_model_is_empty_and_wire_emits_no_such_object():
+    async def run() -> None:
+        sw = VirtualSwitch(model="m4300-24x")
+        sw.start()
+        try:
+            client = PysnmpClient(sw.host, "public", port=sw.port)
+            reader = AsyncSnmpReader(client, get_model("m4300-24x"))
+            assert await reader.get_poe() == []
+
+            # Wire-level proof: a raw one-shot GETNEXT (bypassing the
+            # higher-level bulk_walk_cmd's own subtree-boundary handling)
+            # returns the literal pysnmp NoSuchObject SMI value for the PoE
+            # MIB root, matching real hardware exactly (see
+            # protocols/snmp/oids.py::unimplemented_roots).
+            hlapi = _pysnmp_asyncio()
+            engine = hlapi.SnmpEngine()
+            try:
+                target = await hlapi.UdpTransportTarget.create(
+                    (sw.host, sw.port), timeout=2.0, retries=1
+                )
+                err_ind, err_stat, _idx, binds = await hlapi.next_cmd(
+                    engine, hlapi.CommunityData("public"), target,
+                    hlapi.ContextData(),
+                    hlapi.ObjectType(
+                        hlapi.ObjectIdentity(oids.PETH_PSE_PORT_TABLE)
+                    ),
+                )
+                assert not err_ind
+                assert not err_stat
+                (_name, value), = binds
+                assert value.__class__.__name__ == "NoSuchObject"
+            finally:
+                engine.close_dispatcher()
+        finally:
+            sw.stop()
+
+    asyncio.run(run())
+
+
+def test_m4300_24x_ascii_base_mac_round_trips_through_the_mock_end_to_end():
+    """m4300-24x's dot1dBaseBridgeAddress is VERIFIED to come back as ASCII
+    colon-hex TEXT on real hardware (see protocols/snmp/parse.py's
+    _mac_from_ascii_text) -- unlike the other seeds' raw-bytes encoding, this
+    exercises that exact quirk end-to-end through a real virtual-mock SNMP
+    agent + client + SnmpReader, not just a synthetic unit-test row."""
+    sw = VirtualSwitch(model="m4300-24x")
+    sw.start()
+    try:
+        client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
+        reader = SnmpReader(client, get_model("m4300-24x"))
+        mgmt = reader.get_mgmt_ip()
+        assert mgmt.base_mac == "8C:3B:AD:6B:BB:E0"
+        assert mgmt.address == "10.1.5.13"
     finally:
         sw.stop()
 

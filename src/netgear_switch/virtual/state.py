@@ -186,6 +186,14 @@ class VirtualSwitchState:
     # 1.3.6.1.4.1.4526 vendor subtree, so sysObjectID round-trips end-to-end.
     # Empty means unseeded: oid_map() derives one from the model's vendor base.
     sys_object_id: str = ""
+    # dot1dBaseBridgeAddress wire quirk: VERIFIED on the real M4300-24X (see
+    # protocols/snmp/parse.py::_mac_from_ascii_text) -- that firmware answers
+    # this scalar as a 17-character ASCII colon-hex STRING ("XX:XX:..:XX")
+    # rather than the 6 raw OCTET STRING bytes every other captured model
+    # (gsm7252ps, m4300-16x) uses. False (the default) emits the normal raw
+    # 6-byte encoding; only a seed with hardware evidence of this quirk
+    # should set it True.
+    dot1d_base_mac_ascii: bool = False
 
     def oid_map(self) -> dict[str, tuple[str, str]]:
         """Project this state onto the full numeric OID -> (type, value) view.
@@ -205,9 +213,15 @@ class VirtualSwitchState:
         # dot1dBaseBridgeAddress (BRIDGE-MIB scalar): the switch's own base
         # MAC. Reuses `nsdp_mac` -- on a real device the SNMP bridge base
         # address and the NSDP-reported identity MAC are the same physical
-        # address, so one seed value serves both protocol faces.
-        m[f"{oids.DOT1D_BASE_BRIDGE_ADDRESS}.0"] = (
-            "OCTETSTR", self.nsdp_mac.decode("latin-1"))
+        # address, so one seed value serves both protocol faces. Most models
+        # emit the standard raw 6-byte OCTET STRING; `dot1d_base_mac_ascii`
+        # (verified on the real M4300-24X) instead emits the 17-character
+        # ASCII colon-hex text form -- see `_mac_from_ascii_text`.
+        if self.dot1d_base_mac_ascii:
+            base_mac_wire = ":".join(f"{b:02X}" for b in self.nsdp_mac)
+        else:
+            base_mac_wire = self.nsdp_mac.decode("latin-1")
+        m[f"{oids.DOT1D_BASE_BRIDGE_ADDRESS}.0"] = ("OCTETSTR", base_mac_wire)
 
         # MIB-II System group (Task 2 model detection). sysDescr is a REAL,
         # honestly-matchable signal (a real switch's own sysDescr text
@@ -613,3 +627,15 @@ class VirtualSwitchState:
         ):
             return True
         return oid == f"{v.dhcp_mode_unverified}.0"
+
+    def is_oid_implemented(self, oid: str) -> bool:
+        """True unless ``oid`` falls under a MIB subtree this model's real
+        SNMP agent never registers at all (e.g. the RFC3621 PoE MIB on a
+        non-PoE model) -- see ``protocols.snmp.oids.is_oid_implemented``.
+        Used by ``StateMibView``/``faces/snmp.py`` to answer ``noSuchObject``
+        for such a request instead of silently walking into an unrelated
+        subtree.
+        """
+        from ..protocols.snmp import oids
+
+        return oids.is_oid_implemented(get_model(self.model_key), oid)

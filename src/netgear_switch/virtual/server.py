@@ -17,7 +17,13 @@ from .faces.http import VirtualHttpFace
 from .faces.mibview import StateMibView
 from .faces.nsdp import VirtualNsdpFace
 from .faces.snmp import VirtualSnmpFace
-from .seed import seed_gs110emx, seed_gs305ep, seed_gsm7252ps
+from .seed import (
+    seed_gs110emx,
+    seed_gs305ep,
+    seed_gsm7252ps,
+    seed_m4300_16x,
+    seed_m4300_24x,
+)
 from .state import VirtualSwitchState
 
 # Model key -> hand-authored seed builder. Models without a seed here get a
@@ -27,6 +33,8 @@ _SEEDS = {
     "gsm7252ps": seed_gsm7252ps,
     "gs110emx": seed_gs110emx,
     "gs305ep": seed_gs305ep,
+    "m4300-24x": seed_m4300_24x,
+    "m4300-16x": seed_m4300_16x,
 }
 
 
