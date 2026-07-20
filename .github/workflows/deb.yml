@@ -19,7 +19,7 @@ jobs:
       matrix:
         suite: [trixie, sid]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # full history so deb-version.py can count commits
 
@@ -30,7 +30,7 @@ jobs:
             docker.io/library/debian:${{ matrix.suite }} \
             sh packaging/ci-build.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: debs-${{ matrix.suite }}
           path: built-debs/
@@ -45,16 +45,16 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download trixie debs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: debs-trixie
           path: apt-repo/trixie/
 
       - name: Download sid debs
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: debs-sid
           path: apt-repo/sid/
@@ -97,11 +97,11 @@ jobs:
             cd ../..
           done
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: apt-repo/
 
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
