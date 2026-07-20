@@ -20,6 +20,7 @@ from .faces.snmp import VirtualSnmpFace
 from .seed import (
     seed_gs110emx,
     seed_gs305ep,
+    seed_gsm7228ps,
     seed_gsm7252ps,
     seed_m4300_16x,
     seed_m4300_24x,
@@ -31,6 +32,7 @@ from .state import VirtualSwitchState
 # default, so construction never fails even for a model no one has seeded yet.
 _SEEDS = {
     "gsm7252ps": seed_gsm7252ps,
+    "gsm7228ps": seed_gsm7228ps,
     "gs110emx": seed_gs110emx,
     "gs305ep": seed_gs305ep,
     "m4300-24x": seed_m4300_24x,

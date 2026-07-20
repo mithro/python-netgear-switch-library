@@ -143,6 +143,109 @@ def seed_gsm7252ps() -> VirtualSwitchState:
     )
 
 
+def seed_gsm7228ps() -> VirtualSwitchState:
+    """Build a MINIMAL-BUT-VALID GSM7228PS (S3300, 52-port/48-PoE Smart
+    Managed Pro) virtual switch state.
+
+    ``gsm7228ps`` is registered ``verified=True`` in ``registry.py`` for its
+    SNMP+HTTP backends and port/PoE counts (52/48, matching the real product
+    spec) -- but that registry fact is NOT a claim that any value seeded here
+    is captured-real. Unlike ``seed_gsm7252ps`` (the codebase's original,
+    most-exhaustively-worked illustrative seed) or the M4300 pair (literal
+    capture transcriptions -- see their own docstrings), NO real-hardware
+    capture exists for this model at all. This seed exists purely so
+    ``VirtualSwitch("gsm7228ps")`` can serve every SNMP read op non-vacuously
+    for testing, following the exact shape of ``seed_gsm7252ps`` (same real
+    port/PoE counts) but with entirely illustrative/structural data -- same
+    honesty convention as that function's own ``sys_object_id`` precedent:
+    never a claim about a real GSM7228PS's actual configuration.
+    """
+    ports: dict[int, PortSim] = {}
+    for port in range(1, _TOTAL_PORT_COUNT + 1):
+        sim = PortSim(
+            name=_port_name(port),
+            admin=True,
+            link=port != 3,  # port 3 is admin-up but link-down
+            speed=1000,
+        )
+        if port in (1, 2):
+            sim.rx_octets = 500_000
+            sim.tx_octets = 700_000
+            sim.rx_ucast = 4_000
+            sim.tx_ucast = 4_500
+            sim.rx_errors = 0
+            sim.tx_errors = 0
+        if port == 1:
+            sim.description = "uplink-to-core"  # port 2+ left None: absent ifAlias
+        ports[port] = sim
+
+    vlans = {
+        1: VlanSim(
+            name="default",
+            member=set(range(1, _TOTAL_PORT_COUNT + 1)),
+            untagged=set(range(3, _TOTAL_PORT_COUNT + 1)),
+        ),
+        50: VlanSim(name="lab", member={1, 2, 5}, untagged={1, 2}),
+    }
+
+    pvids = dict.fromkeys(range(1, _TOTAL_PORT_COUNT + 1), 1)
+    pvids[1] = 50
+    pvids[2] = 50
+
+    poe: dict[int, PoeSim] = {}
+    for port in range(1, _POE_PORT_COUNT + 1):
+        if port == 1:
+            poe[port] = PoeSim(admin=True, detect=3, power_mw=9_000)
+        else:
+            poe[port] = PoeSim(admin=True, detect=1, power_mw=0)
+
+    sensors = [
+        SensorSim(kind="fan", instance="0", raw="3200"),
+        SensorSim(kind="power", instance="0", raw="45"),
+        SensorSim(kind="temperature", instance="0", raw="40"),
+    ]
+
+    macs = [
+        MacSim(vlan=50, mac_bytes=(0x00, 0x11, 0x22, 0x33, 0x44, 0x55), bridge_port=1),
+        MacSim(vlan=1, mac_bytes=(0x00, 0x11, 0x22, 0x33, 0x44, 0x56), bridge_port=2),
+    ]
+
+    lldp = [
+        LldpSim(
+            time_mark=1,
+            local_port=1,
+            rem_idx=1,
+            chassis="".join(chr(b) for b in (0x00, 0x11, 0x22, 0x33, 0x44, 0x55)),
+            port_id="eth0",
+            port_desc="lab-uplink",
+            sys_name="sw-lab-example",
+        ),
+    ]
+
+    mgmt = MgmtSim(
+        address="10.1.5.21", netmask="255.255.255.0", gateway="10.1.5.1", mode="static"
+    )
+
+    return VirtualSwitchState(
+        model_key="gsm7228ps",
+        ports=ports,
+        vlans=vlans,
+        pvids=pvids,
+        poe=poe,
+        sensors=sensors,
+        macs=macs,
+        lldp=lldp,
+        mgmt=mgmt,
+        # Illustrative sysDescr/sysObjectID -- same honesty convention as
+        # seed_gsm7252ps: sysDescr just needs to contain the real model name;
+        # sysObjectID is a plausible-looking UNVERIFIED placeholder under this
+        # model's own 4526.11 (Smart Managed Pro) vendor subtree, never a
+        # claim about real hardware (no capture exists to confirm either).
+        sys_descr="NETGEAR GSM7228PS (S3300) Managed Switch",
+        sys_object_id="1.3.6.1.4.1.4526.11.100.28",
+    )
+
+
 def seed_gs110emx() -> VirtualSwitchState:
     """Build a realistic GS110EMX (10-port Plus, NSDP) virtual switch state."""
     ports: dict[int, PortSim] = {}

@@ -25,6 +25,18 @@ def virtual_gsm7252ps() -> Iterator[VirtualSwitch]:
 
 
 @pytest.fixture
+def virtual_gsm7228ps() -> Iterator[VirtualSwitch]:
+    """Start a seeded gsm7228ps (S3300, Smart Managed Pro) VirtualSwitch on
+    an ephemeral port; stop it after the test, even on failure."""
+    sw = VirtualSwitch(model="gsm7228ps")
+    sw.start()
+    try:
+        yield sw
+    finally:
+        sw.stop()
+
+
+@pytest.fixture
 def virtual_gs110emx() -> Iterator[VirtualSwitch]:
     """Start a seeded gs110emx (NSDP) VirtualSwitch on an ephemeral UDP port."""
     sw = VirtualSwitch(model="gs110emx")
