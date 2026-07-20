@@ -1,0 +1,4009 @@
+{
+ "model": "m4300-16x",
+ "host": "10.1.5.20",
+ "snapshot": {
+  "model": "m4300-16x",
+  "host": "10.1.5.20",
+  "ports": [
+   {
+    "port": 1,
+    "name": "1/0/1",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 2,
+    "name": "1/0/2",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 3,
+    "name": "1/0/3",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 4,
+    "name": "1/0/4",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 5,
+    "name": "1/0/5",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 6,
+    "name": "1/0/6",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 7,
+    "name": "1/0/7",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 8,
+    "name": "1/0/8",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 9,
+    "name": "1/0/9",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 10,
+    "name": "1/0/10",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 11,
+    "name": "1/0/11",
+    "admin_enabled": true,
+    "link_up": true,
+    "speed_mbps": 1000,
+    "description": null
+   },
+   {
+    "port": 12,
+    "name": "1/0/12",
+    "admin_enabled": true,
+    "link_up": true,
+    "speed_mbps": 1000,
+    "description": null
+   },
+   {
+    "port": 13,
+    "name": "1/0/13",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 14,
+    "name": "1/0/14",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 15,
+    "name": "1/0/15",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 16,
+    "name": "1/0/16",
+    "admin_enabled": true,
+    "link_up": true,
+    "speed_mbps": 10000,
+    "description": null
+   },
+   {
+    "port": 769,
+    "name": "CPU Interface:  0/15/1",
+    "admin_enabled": true,
+    "link_up": true,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 770,
+    "name": "lag 1",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 771,
+    "name": "lag 2",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 772,
+    "name": "lag 3",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 773,
+    "name": "lag 4",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 774,
+    "name": "lag 5",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 775,
+    "name": "lag 6",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 776,
+    "name": "lag 7",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 777,
+    "name": "lag 8",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 778,
+    "name": "lag 9",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 779,
+    "name": "lag 10",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 780,
+    "name": "lag 11",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 781,
+    "name": "lag 12",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 782,
+    "name": "lag 13",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 783,
+    "name": "lag 14",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 784,
+    "name": "lag 15",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 785,
+    "name": "lag 16",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 786,
+    "name": "lag 17",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 787,
+    "name": "lag 18",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 788,
+    "name": "lag 19",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 789,
+    "name": "lag 20",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 790,
+    "name": "lag 21",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 791,
+    "name": "lag 22",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 792,
+    "name": "lag 23",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 793,
+    "name": "lag 24",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 794,
+    "name": "lag 25",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 795,
+    "name": "lag 26",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 796,
+    "name": "lag 27",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 797,
+    "name": "lag 28",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 798,
+    "name": "lag 29",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 799,
+    "name": "lag 30",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 800,
+    "name": "lag 31",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 801,
+    "name": "lag 32",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 802,
+    "name": "lag 33",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 803,
+    "name": "lag 34",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 804,
+    "name": "lag 35",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 805,
+    "name": "lag 36",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 806,
+    "name": "lag 37",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 807,
+    "name": "lag 38",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 808,
+    "name": "lag 39",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 809,
+    "name": "lag 40",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 810,
+    "name": "lag 41",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 811,
+    "name": "lag 42",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 812,
+    "name": "lag 43",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 813,
+    "name": "lag 44",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 814,
+    "name": "lag 45",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 815,
+    "name": "lag 46",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 816,
+    "name": "lag 47",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 817,
+    "name": "lag 48",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 818,
+    "name": "lag 49",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 819,
+    "name": "lag 50",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 820,
+    "name": "lag 51",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 821,
+    "name": "lag 52",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 822,
+    "name": "lag 53",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 823,
+    "name": "lag 54",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 824,
+    "name": "lag 55",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 825,
+    "name": "lag 56",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 826,
+    "name": "lag 57",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 827,
+    "name": "lag 58",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 828,
+    "name": "lag 59",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 829,
+    "name": "lag 60",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 830,
+    "name": "lag 61",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 831,
+    "name": "lag 62",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 832,
+    "name": "lag 63",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 833,
+    "name": "lag 64",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 834,
+    "name": "lag 65",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 835,
+    "name": "lag 66",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 836,
+    "name": "lag 67",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 837,
+    "name": "lag 68",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 838,
+    "name": "lag 69",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 839,
+    "name": "lag 70",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 840,
+    "name": "lag 71",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 841,
+    "name": "lag 72",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 842,
+    "name": "lag 73",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 843,
+    "name": "lag 74",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 844,
+    "name": "lag 75",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 845,
+    "name": "lag 76",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 846,
+    "name": "lag 77",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 847,
+    "name": "lag 78",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 848,
+    "name": "lag 79",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 849,
+    "name": "lag 80",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 850,
+    "name": "lag 81",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 851,
+    "name": "lag 82",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 852,
+    "name": "lag 83",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 853,
+    "name": "lag 84",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 854,
+    "name": "lag 85",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 855,
+    "name": "lag 86",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 856,
+    "name": "lag 87",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 857,
+    "name": "lag 88",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 858,
+    "name": "lag 89",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 859,
+    "name": "lag 90",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 860,
+    "name": "lag 91",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 861,
+    "name": "lag 92",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 862,
+    "name": "lag 93",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 863,
+    "name": "lag 94",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 864,
+    "name": "lag 95",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 865,
+    "name": "lag 96",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 866,
+    "name": "lag 97",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 867,
+    "name": "lag 98",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 868,
+    "name": "lag 99",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 869,
+    "name": "lag 100",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 870,
+    "name": "lag 101",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 871,
+    "name": "lag 102",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 872,
+    "name": "lag 103",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 873,
+    "name": "lag 104",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 874,
+    "name": "lag 105",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 875,
+    "name": "lag 106",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 876,
+    "name": "lag 107",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 877,
+    "name": "lag 108",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 878,
+    "name": "lag 109",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 879,
+    "name": "lag 110",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 880,
+    "name": "lag 111",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 881,
+    "name": "lag 112",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 882,
+    "name": "lag 113",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 883,
+    "name": "lag 114",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 884,
+    "name": "lag 115",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 885,
+    "name": "lag 116",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 886,
+    "name": "lag 117",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 887,
+    "name": "lag 118",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 888,
+    "name": "lag 119",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 889,
+    "name": "lag 120",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 890,
+    "name": "lag 121",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 891,
+    "name": "lag 122",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 892,
+    "name": "lag 123",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 893,
+    "name": "lag 124",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 894,
+    "name": "lag 125",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 895,
+    "name": "lag 126",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 896,
+    "name": "lag 127",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 897,
+    "name": "lag 128",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 898,
+    "name": "vlan 5",
+    "admin_enabled": true,
+    "link_up": true,
+    "speed_mbps": 10,
+    "description": null
+   }
+  ],
+  "poe": [
+   {
+    "port": 1,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 2,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 3,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 4,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 5,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 6,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 7,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 8,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 9,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 10,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 11,
+    "admin_enabled": true,
+    "detect": "delivering",
+    "power_mw": 5000
+   },
+   {
+    "port": 12,
+    "admin_enabled": true,
+    "detect": "delivering",
+    "power_mw": 2100
+   },
+   {
+    "port": 13,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 14,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 15,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 16,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   }
+  ],
+  "vlans": [
+   {
+    "vlan_id": 1,
+    "name": "default",
+    "member_ports": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     770,
+     771,
+     772,
+     773,
+     774,
+     775,
+     776,
+     777,
+     778,
+     779,
+     780,
+     781,
+     782,
+     783,
+     784,
+     785,
+     786,
+     787,
+     788,
+     789,
+     790,
+     791,
+     792,
+     793,
+     794,
+     795,
+     796,
+     797,
+     798,
+     799,
+     800,
+     801,
+     802,
+     803,
+     804,
+     805,
+     806,
+     807,
+     808,
+     809,
+     810,
+     811,
+     812,
+     813,
+     814,
+     815,
+     816,
+     817,
+     818,
+     819,
+     820,
+     821,
+     822,
+     823,
+     824,
+     825,
+     826,
+     827,
+     828,
+     829,
+     830,
+     831,
+     832,
+     833,
+     834,
+     835,
+     836,
+     837,
+     838,
+     839,
+     840,
+     841,
+     842,
+     843,
+     844,
+     845,
+     846,
+     847,
+     848,
+     849,
+     850,
+     851,
+     852,
+     853,
+     854,
+     855,
+     856,
+     857,
+     858,
+     859,
+     860,
+     861,
+     862,
+     863,
+     864,
+     865,
+     866,
+     867,
+     868,
+     869,
+     870,
+     871,
+     872,
+     873,
+     874,
+     875,
+     876,
+     877,
+     878,
+     879,
+     880,
+     881,
+     882,
+     883,
+     884,
+     885,
+     886,
+     887,
+     888,
+     889,
+     890,
+     891,
+     892,
+     893,
+     894,
+     895,
+     896,
+     897
+    ],
+    "tagged_ports": [],
+    "untagged_ports": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     770,
+     771,
+     772,
+     773,
+     774,
+     775,
+     776,
+     777,
+     778,
+     779,
+     780,
+     781,
+     782,
+     783,
+     784,
+     785,
+     786,
+     787,
+     788,
+     789,
+     790,
+     791,
+     792,
+     793,
+     794,
+     795,
+     796,
+     797,
+     798,
+     799,
+     800,
+     801,
+     802,
+     803,
+     804,
+     805,
+     806,
+     807,
+     808,
+     809,
+     810,
+     811,
+     812,
+     813,
+     814,
+     815,
+     816,
+     817,
+     818,
+     819,
+     820,
+     821,
+     822,
+     823,
+     824,
+     825,
+     826,
+     827,
+     828,
+     829,
+     830,
+     831,
+     832,
+     833,
+     834,
+     835,
+     836,
+     837,
+     838,
+     839,
+     840,
+     841,
+     842,
+     843,
+     844,
+     845,
+     846,
+     847,
+     848,
+     849,
+     850,
+     851,
+     852,
+     853,
+     854,
+     855,
+     856,
+     857,
+     858,
+     859,
+     860,
+     861,
+     862,
+     863,
+     864,
+     865,
+     866,
+     867,
+     868,
+     869,
+     870,
+     871,
+     872,
+     873,
+     874,
+     875,
+     876,
+     877,
+     878,
+     879,
+     880,
+     881,
+     882,
+     883,
+     884,
+     885,
+     886,
+     887,
+     888,
+     889,
+     890,
+     891,
+     892,
+     893,
+     894,
+     895,
+     896,
+     897
+    ]
+   },
+   {
+    "vlan_id": 4,
+    "name": "wifi",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 5,
+    "name": "net",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 6,
+    "name": "pwr",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 7,
+    "name": "store",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 10,
+    "name": "int",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 20,
+    "name": "roam",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 21,
+    "name": "fpgas",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 41,
+    "name": "sm",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 89,
+    "name": "sdr",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 90,
+    "name": "iot",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 99,
+    "name": "guest",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 121,
+    "name": "t-fpgas",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   },
+   {
+    "vlan_id": 141,
+    "name": "t-sm",
+    "member_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "tagged_ports": [
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16
+    ],
+    "untagged_ports": []
+   }
+  ],
+  "pvids": [
+   [
+    1,
+    1
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    3,
+    1
+   ],
+   [
+    4,
+    1
+   ],
+   [
+    5,
+    1
+   ],
+   [
+    6,
+    1
+   ],
+   [
+    7,
+    1
+   ],
+   [
+    8,
+    1
+   ],
+   [
+    9,
+    1
+   ],
+   [
+    10,
+    1
+   ],
+   [
+    11,
+    1
+   ],
+   [
+    12,
+    1
+   ],
+   [
+    13,
+    1
+   ],
+   [
+    14,
+    1
+   ],
+   [
+    15,
+    1
+   ],
+   [
+    16,
+    1
+   ],
+   [
+    770,
+    1
+   ],
+   [
+    771,
+    1
+   ],
+   [
+    772,
+    1
+   ],
+   [
+    773,
+    1
+   ],
+   [
+    774,
+    1
+   ],
+   [
+    775,
+    1
+   ],
+   [
+    776,
+    1
+   ],
+   [
+    777,
+    1
+   ],
+   [
+    778,
+    1
+   ],
+   [
+    779,
+    1
+   ],
+   [
+    780,
+    1
+   ],
+   [
+    781,
+    1
+   ],
+   [
+    782,
+    1
+   ],
+   [
+    783,
+    1
+   ],
+   [
+    784,
+    1
+   ],
+   [
+    785,
+    1
+   ],
+   [
+    786,
+    1
+   ],
+   [
+    787,
+    1
+   ],
+   [
+    788,
+    1
+   ],
+   [
+    789,
+    1
+   ],
+   [
+    790,
+    1
+   ],
+   [
+    791,
+    1
+   ],
+   [
+    792,
+    1
+   ],
+   [
+    793,
+    1
+   ],
+   [
+    794,
+    1
+   ],
+   [
+    795,
+    1
+   ],
+   [
+    796,
+    1
+   ],
+   [
+    797,
+    1
+   ],
+   [
+    798,
+    1
+   ],
+   [
+    799,
+    1
+   ],
+   [
+    800,
+    1
+   ],
+   [
+    801,
+    1
+   ],
+   [
+    802,
+    1
+   ],
+   [
+    803,
+    1
+   ],
+   [
+    804,
+    1
+   ],
+   [
+    805,
+    1
+   ],
+   [
+    806,
+    1
+   ],
+   [
+    807,
+    1
+   ],
+   [
+    808,
+    1
+   ],
+   [
+    809,
+    1
+   ],
+   [
+    810,
+    1
+   ],
+   [
+    811,
+    1
+   ],
+   [
+    812,
+    1
+   ],
+   [
+    813,
+    1
+   ],
+   [
+    814,
+    1
+   ],
+   [
+    815,
+    1
+   ],
+   [
+    816,
+    1
+   ],
+   [
+    817,
+    1
+   ],
+   [
+    818,
+    1
+   ],
+   [
+    819,
+    1
+   ],
+   [
+    820,
+    1
+   ],
+   [
+    821,
+    1
+   ],
+   [
+    822,
+    1
+   ],
+   [
+    823,
+    1
+   ],
+   [
+    824,
+    1
+   ],
+   [
+    825,
+    1
+   ],
+   [
+    826,
+    1
+   ],
+   [
+    827,
+    1
+   ],
+   [
+    828,
+    1
+   ],
+   [
+    829,
+    1
+   ],
+   [
+    830,
+    1
+   ],
+   [
+    831,
+    1
+   ],
+   [
+    832,
+    1
+   ],
+   [
+    833,
+    1
+   ],
+   [
+    834,
+    1
+   ],
+   [
+    835,
+    1
+   ],
+   [
+    836,
+    1
+   ],
+   [
+    837,
+    1
+   ],
+   [
+    838,
+    1
+   ],
+   [
+    839,
+    1
+   ],
+   [
+    840,
+    1
+   ],
+   [
+    841,
+    1
+   ],
+   [
+    842,
+    1
+   ],
+   [
+    843,
+    1
+   ],
+   [
+    844,
+    1
+   ],
+   [
+    845,
+    1
+   ],
+   [
+    846,
+    1
+   ],
+   [
+    847,
+    1
+   ],
+   [
+    848,
+    1
+   ],
+   [
+    849,
+    1
+   ],
+   [
+    850,
+    1
+   ],
+   [
+    851,
+    1
+   ],
+   [
+    852,
+    1
+   ],
+   [
+    853,
+    1
+   ],
+   [
+    854,
+    1
+   ],
+   [
+    855,
+    1
+   ],
+   [
+    856,
+    1
+   ],
+   [
+    857,
+    1
+   ],
+   [
+    858,
+    1
+   ],
+   [
+    859,
+    1
+   ],
+   [
+    860,
+    1
+   ],
+   [
+    861,
+    1
+   ],
+   [
+    862,
+    1
+   ],
+   [
+    863,
+    1
+   ],
+   [
+    864,
+    1
+   ],
+   [
+    865,
+    1
+   ],
+   [
+    866,
+    1
+   ],
+   [
+    867,
+    1
+   ],
+   [
+    868,
+    1
+   ],
+   [
+    869,
+    1
+   ],
+   [
+    870,
+    1
+   ],
+   [
+    871,
+    1
+   ],
+   [
+    872,
+    1
+   ],
+   [
+    873,
+    1
+   ],
+   [
+    874,
+    1
+   ],
+   [
+    875,
+    1
+   ],
+   [
+    876,
+    1
+   ],
+   [
+    877,
+    1
+   ],
+   [
+    878,
+    1
+   ],
+   [
+    879,
+    1
+   ],
+   [
+    880,
+    1
+   ],
+   [
+    881,
+    1
+   ],
+   [
+    882,
+    1
+   ],
+   [
+    883,
+    1
+   ],
+   [
+    884,
+    1
+   ],
+   [
+    885,
+    1
+   ],
+   [
+    886,
+    1
+   ],
+   [
+    887,
+    1
+   ],
+   [
+    888,
+    1
+   ],
+   [
+    889,
+    1
+   ],
+   [
+    890,
+    1
+   ],
+   [
+    891,
+    1
+   ],
+   [
+    892,
+    1
+   ],
+   [
+    893,
+    1
+   ],
+   [
+    894,
+    1
+   ],
+   [
+    895,
+    1
+   ],
+   [
+    896,
+    1
+   ],
+   [
+    897,
+    1
+   ]
+  ],
+  "lldp": [
+   {
+    "local_port": 12,
+    "remote_sys_name": "sw-poe-micro2",
+    "remote_port_desc": "Device Port 5",
+    "remote_chassis_id": "80:CC:9C:91:4F:8C",
+    "remote_port_id": "5"
+   },
+   {
+    "local_port": 16,
+    "remote_sys_name": "ten64.welland.mithis.com",
+    "remote_port_desc": "eth8",
+    "remote_chassis_id": "00:0A:FA:24:28:25",
+    "remote_port_id": "00:0A:FA:24:28:1F"
+   },
+   {
+    "local_port": 16,
+    "remote_sys_name": "ten64.welland.mithis.com",
+    "remote_port_desc": "br-raw",
+    "remote_chassis_id": "00:0A:FA:24:28:25",
+    "remote_port_id": "02:00:0A:01:00:01"
+   }
+  ],
+  "macs": [
+   {
+    "mac": "80:CC:9C:91:4F:8C",
+    "port": 12,
+    "vlan_id": 1
+   },
+   {
+    "mac": "00:08:A2:09:EF:ED",
+    "port": 16,
+    "vlan_id": 90
+   },
+   {
+    "mac": "00:0A:FA:24:28:1F",
+    "port": 16,
+    "vlan_id": 1
+   },
+   {
+    "mac": "00:13:20:FE:41:64",
+    "port": 16,
+    "vlan_id": 90
+   },
+   {
+    "mac": "00:E0:4C:36:02:7A",
+    "port": 16,
+    "vlan_id": 90
+   },
+   {
+    "mac": "00:E0:4C:36:0B:0A",
+    "port": 16,
+    "vlan_id": 90
+   },
+   {
+    "mac": "00:E0:4C:68:36:95",
+    "port": 16,
+    "vlan_id": 90
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 1
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 4
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 5
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 6
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 7
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 10
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 20
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 41
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 90
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 99
+   },
+   {
+    "mac": "02:00:0A:01:00:01",
+    "port": 16,
+    "vlan_id": 121
+   },
+   {
+    "mac": "02:00:0A:01:01:01",
+    "port": 16,
+    "vlan_id": 1
+   },
+   {
+    "mac": "02:00:0A:01:04:01",
+    "port": 16,
+    "vlan_id": 4
+   },
+   {
+    "mac": "02:00:0A:01:04:02",
+    "port": 16,
+    "vlan_id": 4
+   },
+   {
+    "mac": "02:00:0A:01:05:01",
+    "port": 16,
+    "vlan_id": 5
+   },
+   {
+    "mac": "02:00:0A:01:06:01",
+    "port": 16,
+    "vlan_id": 6
+   },
+   {
+    "mac": "02:00:0A:01:07:01",
+    "port": 16,
+    "vlan_id": 7
+   },
+   {
+    "mac": "02:00:0A:01:10:01",
+    "port": 16,
+    "vlan_id": 10
+   },
+   {
+    "mac": "02:00:0A:01:20:01",
+    "port": 16,
+    "vlan_id": 20
+   },
+   {
+    "mac": "02:00:0A:01:21:01",
+    "port": 16,
+    "vlan_id": 121
+   },
+   {
+    "mac": "02:00:0A:01:41:01",
+    "port": 16,
+    "vlan_id": 41
+   },
+   {
+    "mac": "02:00:0A:01:90:01",
+    "port": 16,
+    "vlan_id": 90
+   },
+   {
+    "mac": "02:00:0A:01:99:01",
+    "port": 16,
+    "vlan_id": 99
+   }
+  ],
+  "sensors": [
+   {
+    "name": "fan0",
+    "kind": "fan",
+    "value": 4200.0,
+    "unit": "RPM"
+   },
+   {
+    "name": "fan1",
+    "kind": "fan",
+    "value": 4080.0,
+    "unit": "RPM"
+   },
+   {
+    "name": "power0",
+    "kind": "power",
+    "value": 40.0,
+    "unit": "W"
+   },
+   {
+    "name": "power1",
+    "kind": "power",
+    "value": 42.0,
+    "unit": "W"
+   },
+   {
+    "name": "temperature1",
+    "kind": "temperature",
+    "value": 42.0,
+    "unit": "C"
+   }
+  ],
+  "stats": [
+   {
+    "port": 1,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 2,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 3,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 4,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 5,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 6,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 7,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 8,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 9,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 10,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 11,
+    "rx_bytes": 0,
+    "tx_bytes": 7813924,
+    "rx_packets": 0,
+    "tx_packets": 1305,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 12,
+    "rx_bytes": 30388,
+    "tx_bytes": 7819868,
+    "rx_packets": 0,
+    "tx_packets": 1306,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 13,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 14,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 15,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 16,
+    "rx_bytes": 3347925876,
+    "tx_bytes": 7868391,
+    "rx_packets": 12604018,
+    "tx_packets": 69566,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 769,
+    "rx_bytes": 62597443,
+    "tx_bytes": 30348668,
+    "rx_packets": 69577,
+    "tx_packets": 69574,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 770,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 771,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 772,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 773,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 774,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 775,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 776,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 777,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 778,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 779,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 780,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 781,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 782,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 783,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 784,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 785,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 786,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 787,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 788,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 789,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 790,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 791,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 792,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 793,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 794,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 795,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 796,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 797,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 798,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 799,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 800,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 801,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 802,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 803,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 804,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 805,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 806,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 807,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 808,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 809,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 810,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 811,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 812,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 813,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 814,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 815,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 816,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 817,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 818,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 819,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 820,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 821,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 822,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 823,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 824,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 825,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 826,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 827,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 828,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 829,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 830,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 831,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 832,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 833,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 834,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 835,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 836,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 837,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 838,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 839,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 840,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 841,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 842,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 843,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 844,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 845,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 846,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 847,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 848,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 849,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 850,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 851,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 852,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 853,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 854,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 855,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 856,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 857,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 858,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 859,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 860,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 861,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 862,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 863,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 864,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 865,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 866,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 867,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 868,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 869,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 870,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 871,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 872,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 873,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 874,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 875,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 876,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 877,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 878,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 879,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 880,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 881,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 882,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 883,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 884,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 885,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 886,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 887,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 888,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 889,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 890,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 891,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 892,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 893,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 894,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 895,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 896,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 897,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 898,
+    "rx_bytes": null,
+    "tx_bytes": null,
+    "rx_packets": null,
+    "tx_packets": null,
+    "rx_errors": 0,
+    "tx_errors": 0
+   }
+  ],
+  "mgmt_ip": {
+   "mode": "unknown",
+   "address": null,
+   "netmask": null,
+   "gateway": null,
+   "base_mac": "8C:3B:AD:69:1C:38"
+  }
+ },
+ "note": "Trimmed real-hardware capture (MACs capped at 30) for mock seeding + parity tests."
+}
