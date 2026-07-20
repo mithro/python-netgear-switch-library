@@ -343,6 +343,27 @@ def test_m4300_24x_ascii_base_mac_round_trips_through_the_mock_end_to_end():
         sw.stop()
 
 
+def test_m4300_24x_ascii_base_mac_round_trips_through_the_mock_end_to_end_async():
+    """Async twin of the sync test above: same VERIFIED real-hardware ASCII
+    colon-hex TEXT quirk (see protocols/snmp/parse.py's _mac_from_ascii_text),
+    exercised through AsyncSnmpReader + PysnmpClient instead of
+    SnmpReader + NetsnmpCliClient -- proves the quirk round-trips end-to-end
+    over BOTH transports, not just the sync one."""
+    async def run() -> None:
+        sw = VirtualSwitch(model="m4300-24x")
+        sw.start()
+        try:
+            client = PysnmpClient(sw.host, "public", port=sw.port)
+            reader = AsyncSnmpReader(client, get_model("m4300-24x"))
+            mgmt = await reader.get_mgmt_ip()
+            assert mgmt.base_mac == "8C:3B:AD:6B:BB:E0"
+            assert mgmt.address == "10.1.5.13"
+        finally:
+            sw.stop()
+
+    asyncio.run(run())
+
+
 def test_ip_address_and_bitmap_round_trip_through_netsnmp_cli_client():
     """The two parity-critical types (raw-bytes bitmap + IpAddress) pinned
     through the OTHER transport too: Task 16's sync/async equivalence relies
