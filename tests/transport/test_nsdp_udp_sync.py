@@ -15,10 +15,18 @@ _MAC = b"\x00\x00\x00\x00\x00\x01"
 
 
 class _FakeSocket:
-    """Records sendto and returns a scripted recvfrom response (or raises)."""
+    """Records sendto and returns a scripted recvfrom response (or raises).
 
-    def __init__(self, response: bytes | None):
+    ``fail_on_opt`` (e.g. ``socket.SO_BINDTODEVICE``) makes ``setsockopt``
+    raise ``OSError`` for that specific option only -- mirrors the async
+    ``_FakeAioSocket``'s same-named parameter, for proving the sync
+    ``UdpNsdpClient._exchange``'s SO_BINDTODEVICE ``contextlib.suppress``
+    actually suppresses a real failure (not just never hitting one).
+    """
+
+    def __init__(self, response: bytes | None, *, fail_on_opt: int | None = None):
         self._response = response
+        self._fail_on_opt = fail_on_opt
         self.sent: list[tuple[bytes, tuple[str, int]]] = []
         self.opts: list[tuple[int, int]] = []
         self.bound: tuple[str, int] | None = None
@@ -26,6 +34,8 @@ class _FakeSocket:
 
     def setsockopt(self, level, opt, val):
         self.opts.append((level, opt))
+        if opt == self._fail_on_opt:
+            raise OSError("Operation not permitted")
 
     def bind(self, addr):
         self.bound = addr
@@ -98,6 +108,70 @@ def test_interface_binds_to_device_and_unicasts_to_host(monkeypatch):
     assert pkt.op == Op.READ_RESPONSE
     assert fake.sent[0][1] == ("10.1.5.25", 63322)  # unicast to the switch
     assert socket.SO_BINDTODEVICE in [o for _lvl, o in fake.opts]
+    assert fake.closed is True
+
+
+def test_async_interface_binds_to_device_and_unicasts_to_host(monkeypatch):
+    """Async twin of ``test_interface_binds_to_device_and_unicasts_to_host``:
+    a real switch (interface set) is queried by UNICAST to the host, with
+    SO_BINDTODEVICE attempted (best-effort). Exercised against a REAL
+    ``VirtualNsdpFace`` over loopback with the real (non-fake) ``_udp_transceive``
+    -- unlike the sync test's fully-faked socket, the async transport's real
+    work happens inside asyncio's datagram-endpoint machinery, so this
+    subclasses the real ``socket.socket`` (rather than replacing it with a
+    bare fake) to both record the SO_BINDTODEVICE attempt AND stay a fully
+    working socket for asyncio to bind/send/receive on.
+    """
+    from netgear_switch.virtual.faces.nsdp import VirtualNsdpFace
+    from netgear_switch.virtual.seed import seed_gs110emx
+
+    recorded_opts: list[tuple[int, int]] = []
+    real_socket_cls = socket.socket
+
+    class _RecordingSocket(real_socket_cls):
+        def setsockopt(self, level, optname, *a, **kw):
+            recorded_opts.append((level, optname))
+            return super().setsockopt(level, optname, *a, **kw)
+
+    monkeypatch.setattr(
+        "netgear_switch.transport.aio.nsdp_udp.socket.socket",
+        lambda *a, **k: _RecordingSocket(*a, **k),
+    )
+
+    state = seed_gs110emx()
+    face = VirtualNsdpFace(state, host="127.0.0.1")
+    port = face.start()
+    try:
+        client = AsyncUdpNsdpClient(
+            "127.0.0.1", interface="lo", client_mac=_MAC,
+            client_port=0, server_port=port,
+        )
+        pkt = asyncio.run(client.read([Tag.MODEL]))
+    finally:
+        face.stop()
+
+    assert pkt.op == Op.READ_RESPONSE  # the unicast query really reached the switch
+    assert socket.SO_BINDTODEVICE in [opt for _lvl, opt in recorded_opts]
+
+
+def test_sync_bindtodevice_is_best_effort(monkeypatch):
+    # SO_BINDTODEVICE requires CAP_NET_RAW/root; an unprivileged caller must
+    # NOT be broken by its failure. Sync twin of the async
+    # test_udp_transceive_bindtodevice_is_best_effort: a SO_BINDTODEVICE-only
+    # OSError from setsockopt must be suppressed by UdpNsdpClient._exchange's
+    # contextlib.suppress, so execution still reaches bind/sendto/recvfrom
+    # and completes the read successfully.
+    monkeypatch.setattr(
+        "netgear_switch.transport.sync.nsdp_udp.read_interface_mac", lambda _i: _MAC
+    )
+    fake = _FakeSocket(_response_packet(), fail_on_opt=socket.SO_BINDTODEVICE)
+    client = UdpNsdpClient(
+        "10.1.5.25", interface="br-net", client_port=63321,
+        server_port=63322, sock_factory=lambda *a, **k: fake,
+    )
+    pkt = client.read([Tag.MODEL])
+    assert pkt.op == Op.READ_RESPONSE  # the read still completed
+    assert socket.SO_BINDTODEVICE in [o for _lvl, o in fake.opts]  # attempted
     assert fake.closed is True
 
 
