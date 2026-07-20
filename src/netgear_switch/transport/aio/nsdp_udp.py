@@ -9,11 +9,17 @@ analogue of the sync client's ``sock_factory`` seam. As with the sync client,
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-from ...protocols.nsdp.client import NsdpError, check_result, read_interface_mac
+from ...protocols.nsdp.client import (
+    NsdpError,
+    check_result,
+    interface_broadcast,
+    read_interface_mac,
+)
 from ...protocols.nsdp.protocol import NSDPPacket, Op
 from ...protocols.nsdp.write import build_read_request, build_write_request
 
@@ -27,12 +33,24 @@ _BROADCAST_MAC = b"\x00" * 6
 
 
 class _OneShotProtocol(asyncio.DatagramProtocol):
-    """Resolves a future with the first datagram (or an error) received."""
+    """Resolves a future with the first datagram (or an error) received.
 
-    def __init__(self, future: asyncio.Future[bytes]) -> None:
+    When ``expect_host`` is set (a broadcast query), datagrams from any OTHER
+    source are ignored: a directed broadcast elicits replies from every switch
+    on the segment, and only the target's reply should resolve the future.
+    """
+
+    def __init__(
+        self, future: asyncio.Future[bytes], expect_host: str | None = None
+    ) -> None:
         self._future = future
+        self._expect_host = expect_host
 
-    def datagram_received(self, data: bytes, _addr: object) -> None:
+    def datagram_received(self, data: bytes, addr: object) -> None:
+        if self._expect_host is not None and not (
+            isinstance(addr, tuple) and addr[0] == self._expect_host
+        ):
+            return  # reply from a different switch; keep waiting
         if not self._future.done():
             self._future.set_result(data)
 
@@ -53,14 +71,28 @@ async def _udp_transceive(
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Real switches (interface set) answer NSDP only over broadcast; a
+        # loopback/virtual target (no interface) uses plain unicast. Mirrors
+        # the sync UdpNsdpClient._exchange broadcast handling.
+        dest = addr
+        expect_host: str | None = None
         if interface is not None:
-            sock.setsockopt(
-                socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface.encode() + b"\0"
-            )
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            # SO_BINDTODEVICE needs CAP_NET_RAW/root; best-effort only (the
+            # directed subnet broadcast is already routed out the right
+            # interface), so an unprivileged process still works.
+            with contextlib.suppress(OSError):
+                sock.setsockopt(
+                    socket.SOL_SOCKET,
+                    socket.SO_BINDTODEVICE,
+                    interface.encode() + b"\0",
+                )
+            dest = (interface_broadcast(interface) or addr[0], addr[1])
+            expect_host = addr[0]
         sock.bind(("", client_port))
         future: asyncio.Future[bytes] = loop.create_future()
         transport, _proto = await loop.create_datagram_endpoint(
-            lambda: _OneShotProtocol(future), sock=sock
+            lambda: _OneShotProtocol(future, expect_host), sock=sock
         )
     except BaseException:
         # setsockopt/bind (or the endpoint handoff itself) failed before
@@ -71,7 +103,7 @@ async def _udp_transceive(
         sock.close()
         raise
     try:
-        transport.sendto(payload, addr)
+        transport.sendto(payload, dest)
         return await asyncio.wait_for(future, timeout)
     finally:
         transport.close()

@@ -11,13 +11,16 @@ password) surface as ``NsdpError``, never silently.
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import socket
-import struct
 import time
 from typing import TYPE_CHECKING, Any
 
-from ...protocols.nsdp.client import NsdpError, check_result, read_interface_mac
+from ...protocols.nsdp.client import (
+    NsdpError,
+    check_result,
+    interface_broadcast,
+    read_interface_mac,
+)
 from ...protocols.nsdp.protocol import NSDPPacket, Op
 from ...protocols.nsdp.write import build_read_request, build_write_request
 
@@ -28,35 +31,6 @@ if TYPE_CHECKING:
 
 _DUMMY_MAC = b"\x00\x00\x00\x00\x00\x01"
 _BROADCAST_MAC = b"\x00" * 6
-
-_SIOCGIFADDR = 0x8915
-_SIOCGIFNETMASK = 0x891B
-
-
-def _interface_broadcast(interface: str) -> str | None:
-    """Return the directed IPv4 broadcast address of ``interface``, or None.
-
-    Real Netgear switches answer NSDP only over broadcast, and a non-root
-    process cannot force a global 255.255.255.255 datagram out a specific
-    interface (that needs SO_BINDTODEVICE / CAP_NET_RAW). The DIRECTED subnet
-    broadcast (e.g. 10.1.5.255) is instead delivered by the ordinary connected
-    route for the switch's subnet, so it works unprivileged. Derived from the
-    interface's own address + netmask via ioctl (Linux). Returns None if the
-    interface has no IPv4 address (caller falls back to unicast to the host).
-    """
-    ifname = struct.pack("256s", interface.encode()[:15])
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        addr = fcntl.ioctl(sock.fileno(), _SIOCGIFADDR, ifname)[20:24]
-        mask = fcntl.ioctl(sock.fileno(), _SIOCGIFNETMASK, ifname)[20:24]
-    except OSError:
-        return None
-    finally:
-        sock.close()
-    ip = int.from_bytes(addr, "big")
-    netmask = int.from_bytes(mask, "big")
-    broadcast = ip | (~netmask & 0xFFFFFFFF)
-    return socket.inet_ntoa(broadcast.to_bytes(4, "big"))
 
 
 class UdpNsdpClient:
@@ -99,7 +73,7 @@ class UdpNsdpClient:
             # loopback/virtual target (no interface) uses plain unicast.
             broadcast = self._interface is not None
             dest = self.host
-            if broadcast:
+            if self._interface is not None:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 # SO_BINDTODEVICE needs CAP_NET_RAW/root; it's a best-effort
                 # refinement, not required -- the directed subnet broadcast is
@@ -111,7 +85,7 @@ class UdpNsdpClient:
                         socket.SO_BINDTODEVICE,
                         self._interface.encode() + b"\0",
                     )
-                dest = _interface_broadcast(self._interface) or self.host
+                dest = interface_broadcast(self._interface) or self.host
             sock.bind(("", self._client_port))
             sock.sendto(request.encode(), (dest, self._server_port))
             # A broadcast query elicits replies from EVERY switch on the segment;

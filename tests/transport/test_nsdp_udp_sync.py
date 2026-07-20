@@ -119,7 +119,7 @@ def test_broadcast_when_interface_set_and_filters_by_source(monkeypatch):
     # and a reply from a DIFFERENT switch is ignored until the target replies.
     import netgear_switch.transport.sync.nsdp_udp as mod
 
-    monkeypatch.setattr(mod, "_interface_broadcast", lambda _i: "10.1.5.255")
+    monkeypatch.setattr(mod, "interface_broadcast", lambda _i: "10.1.5.255")
     monkeypatch.setattr(mod, "read_interface_mac", lambda _i: _MAC)
 
     other = (_response_packet(), ("10.1.5.99", 63321))   # different switch
@@ -228,26 +228,35 @@ def test_async_read_malformed_response_raises_nsdperror():
 
 
 class _FakeAioSocket:
-    """Fake raw socket for ``_udp_transceive``: records setsockopt/close,
-    and can be told to raise OSError from setsockopt or bind to simulate a
-    real-world failure (port conflict, or permission denied on
-    SO_BINDTODEVICE without CAP_NET_RAW/root)."""
+    """Fake raw socket for ``_udp_transceive``: records setsockopt/close, and
+    can be told to raise OSError from every setsockopt (``fail_on='setsockopt'``),
+    from a SPECIFIC option only (``fail_on_opt=<opt>``, e.g. SO_BINDTODEVICE), or
+    from bind (``fail_on='bind'``) to simulate real-world failures."""
 
-    def __init__(self, fail_on: str) -> None:
+    def __init__(
+        self, fail_on: str | None = None, fail_on_opt: int | None = None
+    ) -> None:
         self._fail_on = fail_on
-        self.opts: list[tuple[int, int]] = []
+        self._fail_on_opt = fail_on_opt
+        self.opts: list[int] = []
         self.bound: tuple[str, int] | None = None
         self.closed = False
 
     def setsockopt(self, level, opt, val):
-        self.opts.append((level, opt))
-        if self._fail_on == "setsockopt":
+        self.opts.append(opt)
+        if self._fail_on == "setsockopt" or opt == self._fail_on_opt:
             raise OSError("Operation not permitted")
 
     def bind(self, addr):
         if self._fail_on == "bind":
             raise OSError("Address already in use")
         self.bound = addr
+
+    def fileno(self):
+        # interface_broadcast() ioctls a socket fd; the socket.socket patch is
+        # module-global so it reaches here too. -1 makes its ioctl raise OSError,
+        # which interface_broadcast catches -> None (falls back to unicast host).
+        return -1
 
     def close(self):
         self.closed = True
@@ -284,10 +293,16 @@ def test_udp_transceive_closes_socket_when_bind_fails(monkeypatch):
     assert fake.closed is True
 
 
-def test_udp_transceive_closes_socket_when_bindtodevice_fails(monkeypatch):
-    # SO_BINDTODEVICE requires CAP_NET_RAW/root; a caller-supplied interface
-    # without privilege is a realistic way for this to raise.
-    fake = _FakeAioSocket(fail_on="setsockopt")
-    with pytest.raises(OSError, match="Operation not permitted"):
+def test_udp_transceive_bindtodevice_is_best_effort(monkeypatch):
+    # SO_BINDTODEVICE requires CAP_NET_RAW/root; an unprivileged caller must
+    # NOT be broken by its failure (the directed subnet broadcast is already
+    # routed correctly). With an interface set, the broadcast path attempts
+    # SO_BROADCAST then SO_BINDTODEVICE; a SO_BINDTODEVICE-only failure is
+    # suppressed, so execution reaches bind() -- here bind is what raises,
+    # proving the SO_BINDTODEVICE failure did not short-circuit the setup.
+    fake = _FakeAioSocket(fail_on="bind", fail_on_opt=socket.SO_BINDTODEVICE)
+    with pytest.raises(OSError, match="Address already in use"):
         _run_transceive_with_fake_socket(fake, monkeypatch, interface="eth0")
+    assert socket.SO_BROADCAST in fake.opts       # broadcast mode engaged
+    assert socket.SO_BINDTODEVICE in fake.opts     # attempted (then suppressed)
     assert fake.closed is True
