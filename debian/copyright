@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: python-netgear-switch-library
 Upstream-Contact: Tim Ansell <me@mith.ro>
-Source: https://github.com/mithro/netgear-stupid-control
+Source: https://github.com/mithro/python-netgear-switch-library
 
 Files: *
 Copyright: 2026 Tim Ansell

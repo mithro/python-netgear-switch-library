@@ -2,7 +2,7 @@ name: Debian Packages + apt repo
 
 # Rolling release: every push to main builds python3-netgear-switch-library for
 # Debian trixie AND sid and republishes a signed flat apt repository on GitHub
-# Pages (https://mithro.github.io/netgear-stupid-control/). Mirrors the pattern
+# Pages (https://mithro.github.io/python-netgear-switch-library/). Mirrors the pattern
 # used by other mithro apt-repo projects (sensors2mqtt, ten64-controller). The
 # package is Architecture: all (pure Python), so it builds on the default x86
 # runner and installs on any Debian arch. No tags: the version is git-derived.

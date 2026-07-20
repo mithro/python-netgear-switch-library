@@ -10,9 +10,9 @@ Build-Depends: debhelper-compat (= 13),
                python3-hatch-vcs,
                python3-setuptools-scm,
 Standards-Version: 4.7.0
-Homepage: https://github.com/mithro/netgear-stupid-control
-Vcs-Git: https://github.com/mithro/netgear-stupid-control.git
-Vcs-Browser: https://github.com/mithro/netgear-stupid-control
+Homepage: https://github.com/mithro/python-netgear-switch-library
+Vcs-Git: https://github.com/mithro/python-netgear-switch-library.git
+Vcs-Browser: https://github.com/mithro/python-netgear-switch-library
 Rules-Requires-Root: no
 
 Package: python3-netgear-switch-library

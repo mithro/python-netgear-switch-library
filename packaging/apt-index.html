@@ -4,7 +4,7 @@
 <body>
 <h1>python-netgear-switch-library apt repository</h1>
 <p>Debian packages of
-<a href="https://github.com/mithro/netgear-stupid-control">python-netgear-switch-library</a>:
+<a href="https://github.com/mithro/python-netgear-switch-library">python-netgear-switch-library</a>:
 a Python library (<code>import netgear_switch</code>) and CLI (<code>ngsw</code>)
 to query and control Netgear managed and Plus switches over SNMP, NSDP and HTTP.
 Rolling release &mdash; every push to <code>main</code> publishes a new version
@@ -14,10 +14,10 @@ Rolling release &mdash; every push to <code>main</code> publishes a new version
 <h2>Setup (Debian trixie)</h2>
 <pre>
 sudo install -d -m0755 /etc/apt/keyrings
-curl -fsSL https://mithro.github.io/netgear-stupid-control/netgear-switch.gpg \
+curl -fsSL https://mithro.github.io/python-netgear-switch-library/netgear-switch.gpg \
   | sudo tee /etc/apt/keyrings/netgear-switch.gpg > /dev/null
 
-echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/netgear-stupid-control/trixie/ ./" \
+echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/python-netgear-switch-library/trixie/ ./" \
   | sudo tee /etc/apt/sources.list.d/netgear-switch.list
 
 sudo apt update
@@ -27,10 +27,10 @@ sudo apt install python3-netgear-switch-library
 <h2>Setup (Debian sid)</h2>
 <pre>
 sudo install -d -m0755 /etc/apt/keyrings
-curl -fsSL https://mithro.github.io/netgear-stupid-control/netgear-switch.gpg \
+curl -fsSL https://mithro.github.io/python-netgear-switch-library/netgear-switch.gpg \
   | sudo tee /etc/apt/keyrings/netgear-switch.gpg > /dev/null
 
-echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/netgear-stupid-control/sid/ ./" \
+echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/python-netgear-switch-library/sid/ ./" \
   | sudo tee /etc/apt/sources.list.d/netgear-switch.list
 
 sudo apt update

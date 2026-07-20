@@ -28,7 +28,7 @@ are safely gated (PyPI publish needs the trusted publisher; signing is skipped i
 2. On PyPI, go to the project (or your account's "Publishing" page) and add a
    **Trusted Publisher** with:
    - Owner: `mithro`
-   - Repository: `netgear-stupid-control`
+   - Repository: `python-netgear-switch-library`
    - Workflow filename: `publish-pypi.yml`
    - Environment name: `pypi`
 3. In the GitHub repo, create an **Environment** named `pypi`
@@ -83,7 +83,7 @@ re-runs idempotent.
 
 1. Settings → Pages → Source: **GitHub Actions**.
 2. The `deb.yml` `publish-apt` job deploys the apt repo to
-   `https://mithro.github.io/netgear-stupid-control/`. It targets the
+   `https://mithro.github.io/python-netgear-switch-library/`. It targets the
    `github-pages` deployment environment, which GitHub creates automatically
    once Pages is enabled — no separate environment setup is needed for this
    one (unlike the `pypi` environment above, which must be created by hand).

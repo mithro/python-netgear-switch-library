@@ -30,14 +30,14 @@ GitHub Pages apt repository. Pick the line matching your suite:
 
 ```sh
 sudo install -d -m0755 /etc/apt/keyrings
-curl -fsSL https://mithro.github.io/netgear-stupid-control/netgear-switch.gpg \
+curl -fsSL https://mithro.github.io/python-netgear-switch-library/netgear-switch.gpg \
   | sudo tee /etc/apt/keyrings/netgear-switch.gpg > /dev/null
 
 # trixie:
-echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/netgear-stupid-control/trixie/ ./" \
+echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/python-netgear-switch-library/trixie/ ./" \
   | sudo tee /etc/apt/sources.list.d/netgear-switch.list
 # sid:
-echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/netgear-stupid-control/sid/ ./" \
+echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/python-netgear-switch-library/sid/ ./" \
   | sudo tee /etc/apt/sources.list.d/netgear-switch.list
 
 sudo apt update
