@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 
 import pytest
 
@@ -78,6 +79,63 @@ def test_timeout_raises_nsdperror():
     client, _ = _client(None)
     with pytest.raises(NsdpError, match="timed out"):
         client.read([Tag.MODEL])
+
+
+class _BcastFakeSocket:
+    """Fake socket scripting a sequence of (data, (src_ip, port)) recvfrom
+    results, so a broadcast reply from a NON-target switch can be tested as
+    ignored before the target's reply arrives."""
+
+    def __init__(self, replies):
+        self._replies = list(replies)
+        self.sent: list[tuple[bytes, tuple[str, int]]] = []
+        self.opts: list[int] = []
+        self.closed = False
+
+    def setsockopt(self, level, opt, val):
+        self.opts.append(opt)
+
+    def bind(self, addr):
+        pass
+
+    def settimeout(self, t):
+        pass
+
+    def sendto(self, data, addr):
+        self.sent.append((data, addr))
+
+    def recvfrom(self, bufsize):
+        if not self._replies:
+            raise TimeoutError("timed out")
+        return self._replies.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+def test_broadcast_when_interface_set_and_filters_by_source(monkeypatch):
+    # A real switch (interface set) is queried via directed subnet broadcast:
+    # SO_BROADCAST is set, the datagram goes to the derived broadcast address,
+    # and a reply from a DIFFERENT switch is ignored until the target replies.
+    import netgear_switch.transport.sync.nsdp_udp as mod
+
+    monkeypatch.setattr(mod, "_interface_broadcast", lambda _i: "10.1.5.255")
+    monkeypatch.setattr(mod, "read_interface_mac", lambda _i: _MAC)
+
+    other = (_response_packet(), ("10.1.5.99", 63321))   # different switch
+    target = (_response_packet(), ("10.1.5.25", 63321))  # the one we want
+    fake = _BcastFakeSocket([other, target])
+
+    client = UdpNsdpClient(
+        "10.1.5.25", interface="br-net", client_port=63321,
+        server_port=63322, sock_factory=lambda *a, **k: fake,
+    )
+    pkt = client.read([Tag.MODEL])
+    assert pkt.op == Op.READ_RESPONSE
+    # Datagram was broadcast to the directed subnet broadcast, SO_BROADCAST set.
+    assert fake.sent[0][1] == ("10.1.5.255", 63322)
+    assert socket.SO_BROADCAST in fake.opts
+    assert fake.closed is True
 
 
 def test_malformed_response_raises_nsdperror():
