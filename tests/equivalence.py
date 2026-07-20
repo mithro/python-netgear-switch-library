@@ -93,6 +93,150 @@ GS110EMX_PINS = EquivalencePins(
 )
 
 
+@dataclass(frozen=True)
+class M4300Pins:
+    """Known capture-grounded seed values for one M4300 variant (see
+    ``virtual/seed.py``'s ``seed_m4300_24x``/``seed_m4300_16x``, both literal
+    transcriptions of ``tests/fixtures/captures/m4300-*.json``)."""
+
+    port_name: str
+    vlan_id: int
+    vlan_name: str
+    vlan_member_port: int
+    mac: str
+    mac_port: int
+    lldp_port_id: str
+    lldp_port_desc: str
+    base_mac: str
+    mgmt_address: str
+    mgmt_mode: IpMode
+    # None on both = this model has NO PoE at all (m4300-24x, verified real
+    # capture poe=[]); otherwise a verified-delivering (port, power_mw) pair
+    # (m4300-16x, ports 11+12 delivering live).
+    poe_port: int | None = None
+    poe_power_mw: int | None = None
+
+
+M4300_24X_PINS = M4300Pins(
+    port_name="1/0/1",
+    vlan_id=90,
+    vlan_name="iot",
+    vlan_member_port=6,
+    mac="00:0A:FA:24:28:20",
+    mac_port=1,
+    lldp_port_id="88:A2:9E:80:87:01",
+    lldp_port_desc="eth0",
+    base_mac="8C:3B:AD:6B:BB:E0",
+    mgmt_address="10.1.5.13",
+    mgmt_mode=IpMode.STATIC,
+)
+
+M4300_16X_PINS = M4300Pins(
+    port_name="1/0/1",
+    vlan_id=90,
+    vlan_name="iot",
+    vlan_member_port=9,
+    mac="00:08:A2:09:EF:ED",
+    mac_port=16,
+    lldp_port_id="5",
+    lldp_port_desc="Device Port 5",
+    base_mac="8C:3B:AD:69:1C:38",
+    # This model's captured mgmt_ip.address was never discovered (see
+    # seed_m4300_16x's docstring): the honest blank-default MgmtSim, not a
+    # fabricated static address.
+    mgmt_address="0.0.0.0",
+    mgmt_mode=IpMode.DHCP,
+    poe_port=11,
+    poe_power_mw=5_000,
+)
+
+
+def assert_m4300_facades_equivalent(sw: VirtualSwitch, pins: M4300Pins) -> None:
+    """Run every applicable read op through both facades for an M4300
+    variant; assert non-empty (except PoE on the non-PoE 24X, which is
+    honestly ``[]``), content-pinned to the real capture-grounded seed (see
+    ``M4300Pins``), and byte-for-byte identical between sync (net-snmp CLI)
+    and async (pysnmp).
+
+    Deliberately does NOT assert ifAlias (``description``) presence/absence
+    the way ``assert_facades_equivalent`` does for gsm7252ps: m4300-16x's
+    seed carries no ifAlias on ANY port at all (unlike gsm7252ps's mix of set
+    and absent), so a shared assumption there would be false for one variant.
+    """
+    sync, aio = facades_for(sw)
+
+    ports = sync.get_ports()
+    stats = sync.get_stats()
+    vlans = sync.get_vlans()
+    pvids = sync.get_pvids()
+    lldp = sync.get_lldp()
+    macs = sync.get_macs()
+    poe = sync.get_poe()
+    sensors = sync.get_sensors()
+    mgmt = sync.get_mgmt_ip()
+
+    # Non-empty: guard against a vacuous [] == [] equivalence pass.
+    assert ports, "ports must be non-empty"
+    assert [s for s in stats if s.rx_bytes is not None], "stats must be non-empty"
+    assert vlans, "vlans must be non-empty"
+    assert pvids, "pvids must be non-empty"
+    assert lldp, "lldp must be non-empty"
+    assert macs, "macs must be non-empty"
+    assert sensors, "sensors must be non-empty"
+    assert mgmt.address, "mgmt-ip must be populated"
+    if pins.poe_port is None:
+        assert poe == [], "this model has no PoE (verified real capture poe=[])"
+    else:
+        assert any(p.power_mw for p in poe), "poe must show delivered power"
+
+    # Content pins: prove equivalence is over real, capture-grounded data.
+    assert pins.port_name in {p.name for p in ports}
+    target_vlan = next(v for v in vlans if v.vlan_id == pins.vlan_id)
+    assert target_vlan.name == pins.vlan_name
+    assert pins.vlan_member_port in target_vlan.member_ports
+    assert mgmt.address == pins.mgmt_address
+    assert mgmt.mode is pins.mgmt_mode
+    # dot1dBaseBridgeAddress: device base MAC, proven over real seed data.
+    assert mgmt.base_mac == pins.base_mac
+    # MAC/FDB join proof (identity bridge_port->ifIndex on both M4300 seeds).
+    joined = next(m for m in macs if m.mac == pins.mac)
+    assert joined.port == pins.mac_port
+    # lldpRemPortId: a distinct value from remote_port_desc.
+    assert lldp[0].remote_port_id == pins.lldp_port_id
+    assert lldp[0].remote_port_desc == pins.lldp_port_desc
+    assert lldp[0].remote_port_id != lldp[0].remote_port_desc
+    if pins.poe_port is not None:
+        delivering = [p for p in poe if p.power_mw]
+        assert any(
+            p.port == pins.poe_port and p.power_mw == pins.poe_power_mw
+            for p in delivering
+        )
+
+    # Equivalence proper: sync (net-snmp CLI) vs async (pysnmp) must be equal.
+    assert ports == asyncio.run(aio.get_ports())
+    assert stats == asyncio.run(aio.get_stats())
+    assert vlans == asyncio.run(aio.get_vlans())
+    assert pvids == asyncio.run(aio.get_pvids())
+    assert lldp == asyncio.run(aio.get_lldp())
+    assert macs == asyncio.run(aio.get_macs())
+    assert poe == asyncio.run(aio.get_poe())
+    assert sensors == asyncio.run(aio.get_sensors())
+    aio_mgmt = asyncio.run(aio.get_mgmt_ip())
+    assert mgmt == aio_mgmt
+    assert mgmt.mode is pins.mgmt_mode
+    assert aio_mgmt.mode is pins.mgmt_mode
+
+    # snapshot() aggregates the same objects and is equivalent across facades.
+    sync_snap = sync.snapshot()
+    aio_snap = asyncio.run(aio.snapshot())
+    assert sync_snap == aio_snap
+    assert sync_snap.model == sw.model
+    assert sync_snap.ports == tuple(ports)
+    assert sync_snap.macs == tuple(macs)
+
+    gc.collect()  # finalize pysnmp transport before -W error::ResourceWarning
+
+
 def facades_for(sw: VirtualSwitch) -> tuple[SyncSwitch, AsyncSwitch]:
     """Build both facades wired to a running VirtualSwitch via injected clients.
 

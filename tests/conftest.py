@@ -45,3 +45,27 @@ def virtual_gs305ep() -> Iterator[VirtualSwitch]:
         yield sw
     finally:
         sw.stop()
+
+
+@pytest.fixture
+def virtual_m4300_24x() -> Iterator[VirtualSwitch]:
+    """Start a seeded m4300-24x (non-PoE, Fully Managed) VirtualSwitch on an
+    ephemeral SNMP port; stop it after the test, even on failure."""
+    sw = VirtualSwitch(model="m4300-24x")
+    sw.start()
+    try:
+        yield sw
+    finally:
+        sw.stop()
+
+
+@pytest.fixture
+def virtual_m4300_16x() -> Iterator[VirtualSwitch]:
+    """Start a seeded m4300-16x (all-16-ports-PoE, Fully Managed) VirtualSwitch
+    on an ephemeral SNMP port; stop it after the test, even on failure."""
+    sw = VirtualSwitch(model="m4300-16x")
+    sw.start()
+    try:
+        yield sw
+    finally:
+        sw.stop()
