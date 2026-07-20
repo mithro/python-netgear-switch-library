@@ -76,12 +76,21 @@ def _from_inventory(
         snmp_backend=Backend.SNMP in cfg.model.backends,
     )
     write_override = _write_community_override(args, env)
+    # Pass the NSDP interface and web password through from the inventory: a
+    # Plus switch (NSDP/HTTP) is unusable without them. The password specs are
+    # resolved lazily (mirrors SyncSwitch.from_config) so a read-only op on an
+    # SNMP switch never forces resolution of an absent web password. Plus
+    # models share one web-admin secret across HTTP and NSDP, so http_password
+    # feeds both resolvers.
     return SyncSwitch(
         cfg.model,
         cfg.host,
         snmp_community=community,
         snmp_write_community=write_override,
         snmp_write_community_resolver=lambda: cfg.snmp_write_community(env=env),
+        nsdp_interface=cfg.nsdp_interface,
+        nsdp_password_resolver=lambda: cfg.http_password(env=env),
+        http_password_resolver=lambda: cfg.http_password(env=env),
         protected_ports=cfg.protected_ports,
     )
 
