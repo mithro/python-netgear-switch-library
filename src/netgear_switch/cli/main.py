@@ -71,6 +71,21 @@ def _global_parser(*, suppress_defaults: bool = False) -> argparse.ArgumentParse
         default=default,
     )
     gp.add_argument(
+        "--nsdp-interface",
+        metavar="IFACE",
+        help="network interface for NSDP (Plus switch) queries, e.g. eth0; "
+        "overrides the inventory's nsdp.interface when both are set",
+        default=default,
+    )
+    gp.add_argument(
+        "--http-password",
+        metavar="STR",
+        help="web-UI/NSDP admin password for a Plus switch (HTTP + NSDP v1 "
+        "auth share this one secret); overrides the inventory's http.password "
+        "when both are set",
+        default=default,
+    )
+    gp.add_argument(
         "--json",
         action="store_true",
         help="emit machine-readable JSON output",

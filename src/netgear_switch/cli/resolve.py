@@ -57,6 +57,34 @@ def _write_community_override(
     return env.get("NGSW_WRITE_COMMUNITY")
 
 
+def _nsdp_interface(args: argparse.Namespace, config_value: str | None) -> str | None:
+    """``--nsdp-interface`` wins when given; otherwise the inventory's
+    ``nsdp.interface`` (``None`` on the ``--host``/``--model`` path, which
+    has no inventory)."""
+    if args.nsdp_interface:
+        return str(args.nsdp_interface)
+    return config_value
+
+
+def _http_password_resolver(
+    args: argparse.Namespace, config_resolver: Callable[[], str | None] | None
+) -> Callable[[], str | None]:
+    """``--http-password`` wins when given; otherwise falls back to the
+    inventory's ``http.password`` spec resolver (``None`` on the
+    ``--host``/``--model`` path). Lazy, like the inventory resolver it
+    wraps: a read-only op on an SNMP switch never forces resolution of an
+    absent web password."""
+
+    def resolve() -> str | None:
+        if args.http_password:
+            return str(args.http_password)
+        if config_resolver is not None:
+            return config_resolver()
+        return None
+
+    return resolve
+
+
 def _from_inventory(
     args: argparse.Namespace,
     env: Mapping[str, str],
@@ -81,16 +109,20 @@ def _from_inventory(
     # resolved lazily (mirrors SyncSwitch.from_config) so a read-only op on an
     # SNMP switch never forces resolution of an absent web password. Plus
     # models share one web-admin secret across HTTP and NSDP, so http_password
-    # feeds both resolvers.
+    # feeds both resolvers. --nsdp-interface/--http-password (if given) win
+    # over the inventory's own nsdp.interface/http.password.
+    password_resolver = _http_password_resolver(
+        args, lambda: cfg.http_password(env=env)
+    )
     return SyncSwitch(
         cfg.model,
         cfg.host,
         snmp_community=community,
         snmp_write_community=write_override,
         snmp_write_community_resolver=lambda: cfg.snmp_write_community(env=env),
-        nsdp_interface=cfg.nsdp_interface,
-        nsdp_password_resolver=lambda: cfg.http_password(env=env),
-        http_password_resolver=lambda: cfg.http_password(env=env),
+        nsdp_interface=_nsdp_interface(args, cfg.nsdp_interface),
+        nsdp_password_resolver=password_resolver,
+        http_password_resolver=password_resolver,
         protected_ports=cfg.protected_ports,
     )
 
@@ -119,11 +151,19 @@ def resolve_switch(
             args, env, None, prompt,
             snmp_backend=Backend.SNMP in model.backends,
         )
+        # A Plus switch (NSDP/HTTP) reached via --host/--model (no inventory)
+        # still needs --nsdp-interface/--http-password to be usable -- there
+        # is no config value to fall back to on this path, only the CLI flags
+        # themselves (see _nsdp_interface/_http_password_resolver above).
+        password_resolver = _http_password_resolver(args, None)
         return SyncSwitch(
             model,
             args.host,
             snmp_community=community,
             snmp_write_community=_write_community_override(args, env),
+            nsdp_interface=_nsdp_interface(args, None),
+            nsdp_password_resolver=password_resolver,
+            http_password_resolver=password_resolver,
         )
     raise ConfigError(
         "specify --switch <name> (with --config) or both --host and --model"

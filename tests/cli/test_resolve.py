@@ -20,6 +20,8 @@ def _args(**kw: object) -> argparse.Namespace:
         "model": None,
         "community": None,
         "write_community": None,
+        "nsdp_interface": None,
+        "http_password": None,
     }
     base.update(kw)
     return argparse.Namespace(**base)
@@ -219,3 +221,92 @@ def test_whitespace_only_prompt_result_is_treated_as_unresolved() -> None:
         _args(host="h", model="gsm7252ps"), env={}, prompt=lambda _: "   "
     )
     assert sw._snmp_community is None
+
+
+# --- Inventory passthrough: nsdp_interface + http/nsdp password resolvers --
+
+
+def test_inventory_switch_passes_nsdp_interface_and_password_resolvers(
+    tmp_path: Path,
+) -> None:
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.plus1]\nmodel = "gs110emx"\nhost = "10.1.5.25"\n'
+        'nsdp.interface = "br-net"\nhttp.password = "s3cr3t"\n'
+    )
+    inv.chmod(0o600)  # a literal http.password secret requires secure perms
+    sw = resolve_switch(_args(config=str(inv), switch="plus1"), env={})
+    # The SyncSwitch actually received the inventory's nsdp_interface (not
+    # just that construction succeeded) -- this is what build_sync_nsdp_client
+    # uses for SO_BINDTODEVICE/read_interface_mac.
+    assert sw._nsdp_interface == "br-net"
+    # Both the NSDP write password and the HTTP password resolvers are wired
+    # to the same inventory http.password secret (Plus switches share one
+    # web-admin secret across HTTP and NSDP v1 auth).
+    assert sw._resolve_nsdp_password() == "s3cr3t"
+    assert sw._resolve_http_password() == "s3cr3t"
+
+
+def test_no_snmp_community_prompt_for_nsdp_only_switch_via_inventory(
+    tmp_path: Path,
+) -> None:
+    # Mirrors test_no_snmp_community_prompt_for_nsdp_only_switch (the
+    # --host/--model path) on the --switch (inventory) path: a Plus switch
+    # (gs110emx = HTTP+NSDP, no SNMP backend) must never be prompted for an
+    # SNMP read community.
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.plus1]\nmodel = "gs110emx"\nhost = "10.1.5.25"\n'
+    )
+
+    def exploding_prompt(text: str) -> str:
+        raise AssertionError("must not prompt for SNMP community on a Plus switch")
+
+    sw = resolve_switch(
+        _args(config=str(inv), switch="plus1"), env={}, prompt=exploding_prompt
+    )
+    assert sw._snmp_community is None
+
+
+# --- --nsdp-interface / --http-password CLI flags --------------------------
+
+
+def test_cli_nsdp_interface_reaches_switch_on_host_model_path() -> None:
+    sw = resolve_switch(
+        _args(host="10.1.5.25", model="gs110emx", nsdp_interface="eth1"), env={}
+    )
+    assert sw._nsdp_interface == "eth1"
+
+
+def test_cli_http_password_reaches_switch_on_host_model_path() -> None:
+    sw = resolve_switch(
+        _args(host="10.1.5.25", model="gs110emx", http_password="clipass"), env={}
+    )
+    assert sw._resolve_http_password() == "clipass"
+    assert sw._resolve_nsdp_password() == "clipass"
+
+
+def test_cli_nsdp_interface_overrides_inventory_value(tmp_path: Path) -> None:
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.plus1]\nmodel = "gs110emx"\nhost = "10.1.5.25"\n'
+        'nsdp.interface = "br-net"\n'
+    )
+    sw = resolve_switch(
+        _args(config=str(inv), switch="plus1", nsdp_interface="cli-eth0"), env={}
+    )
+    assert sw._nsdp_interface == "cli-eth0"
+
+
+def test_cli_http_password_overrides_inventory_value(tmp_path: Path) -> None:
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.plus1]\nmodel = "gs110emx"\nhost = "10.1.5.25"\n'
+        'http.password = "inv_secret"\n'
+    )
+    inv.chmod(0o600)  # a literal http.password secret requires secure perms
+    sw = resolve_switch(
+        _args(config=str(inv), switch="plus1", http_password="cli_secret"), env={}
+    )
+    assert sw._resolve_http_password() == "cli_secret"
+    assert sw._resolve_nsdp_password() == "cli_secret"
