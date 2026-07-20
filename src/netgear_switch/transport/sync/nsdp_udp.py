@@ -12,15 +12,9 @@ from __future__ import annotations
 
 import contextlib
 import socket
-import time
 from typing import TYPE_CHECKING, Any
 
-from ...protocols.nsdp.client import (
-    NsdpError,
-    check_result,
-    interface_broadcast,
-    read_interface_mac,
-)
+from ...protocols.nsdp.client import NsdpError, check_result, read_interface_mac
 from ...protocols.nsdp.protocol import NSDPPacket, Op
 from ...protocols.nsdp.write import build_read_request, build_write_request
 
@@ -69,48 +63,34 @@ class UdpNsdpClient:
         sock = self._sock_factory(socket.AF_INET, socket.SOCK_DGRAM)
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            # Real switches (interface set) answer NSDP only over broadcast; a
-            # loopback/virtual target (no interface) uses plain unicast.
-            broadcast = self._interface is not None
-            dest = self.host
             if self._interface is not None:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                # SO_BINDTODEVICE needs CAP_NET_RAW/root; it's a best-effort
-                # refinement, not required -- the directed subnet broadcast is
-                # already routed out the right interface. Never let its absence
-                # (unprivileged CLI) break the exchange.
+                # Bind the query to the switch's interface so it egresses that
+                # segment (and its unicast reply is captured here) even on a
+                # multi-homed host. This is what makes a UNICAST NSDP query to a
+                # known switch reliable -- verified against real hardware and
+                # matching the reference implementation. SO_BINDTODEVICE needs
+                # CAP_NET_RAW/root, so it is BEST-EFFORT: an unprivileged caller
+                # still attempts the query (and succeeds on a directly-attached
+                # segment), never crashing on the missing privilege.
                 with contextlib.suppress(OSError):
                     sock.setsockopt(
                         socket.SOL_SOCKET,
                         socket.SO_BINDTODEVICE,
                         self._interface.encode() + b"\0",
                     )
-                dest = interface_broadcast(self._interface) or self.host
             sock.bind(("", self._client_port))
-            sock.sendto(request.encode(), (dest, self._server_port))
-            # A broadcast query elicits replies from EVERY switch on the segment;
-            # keep reading (within the timeout budget) until the target host's
-            # own reply arrives, ignoring the others.
-            deadline = time.monotonic() + self._timeout
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise NsdpError(f"NSDP request to {self.host} timed out")
-                sock.settimeout(remaining)
-                try:
-                    data, addr = sock.recvfrom(4096)
-                except TimeoutError as exc:
-                    raise NsdpError(
-                        f"NSDP request to {self.host} timed out"
-                    ) from exc
-                if broadcast and addr[0] != self.host:
-                    continue  # a reply from a different switch; keep waiting
-                try:
-                    return NSDPPacket.decode(data)
-                except ValueError as exc:
-                    raise NsdpError(
-                        f"malformed NSDP response from {self.host}: {exc}"
-                    ) from exc
+            sock.settimeout(self._timeout)
+            sock.sendto(request.encode(), (self.host, self._server_port))
+            try:
+                data, _addr = sock.recvfrom(4096)
+            except TimeoutError as exc:
+                raise NsdpError(f"NSDP request to {self.host} timed out") from exc
+            try:
+                return NSDPPacket.decode(data)
+            except ValueError as exc:
+                raise NsdpError(
+                    f"malformed NSDP response from {self.host}: {exc}"
+                ) from exc
         finally:
             sock.close()
 

@@ -81,60 +81,23 @@ def test_timeout_raises_nsdperror():
         client.read([Tag.MODEL])
 
 
-class _BcastFakeSocket:
-    """Fake socket scripting a sequence of (data, (src_ip, port)) recvfrom
-    results, so a broadcast reply from a NON-target switch can be tested as
-    ignored before the target's reply arrives."""
-
-    def __init__(self, replies):
-        self._replies = list(replies)
-        self.sent: list[tuple[bytes, tuple[str, int]]] = []
-        self.opts: list[int] = []
-        self.closed = False
-
-    def setsockopt(self, level, opt, val):
-        self.opts.append(opt)
-
-    def bind(self, addr):
-        pass
-
-    def settimeout(self, t):
-        pass
-
-    def sendto(self, data, addr):
-        self.sent.append((data, addr))
-
-    def recvfrom(self, bufsize):
-        if not self._replies:
-            raise TimeoutError("timed out")
-        return self._replies.pop(0)
-
-    def close(self):
-        self.closed = True
-
-
-def test_broadcast_when_interface_set_and_filters_by_source(monkeypatch):
-    # A real switch (interface set) is queried via directed subnet broadcast:
-    # SO_BROADCAST is set, the datagram goes to the derived broadcast address,
-    # and a reply from a DIFFERENT switch is ignored until the target replies.
-    import netgear_switch.transport.sync.nsdp_udp as mod
-
-    monkeypatch.setattr(mod, "interface_broadcast", lambda _i: "10.1.5.255")
-    monkeypatch.setattr(mod, "read_interface_mac", lambda _i: _MAC)
-
-    other = (_response_packet(), ("10.1.5.99", 63321))   # different switch
-    target = (_response_packet(), ("10.1.5.25", 63321))  # the one we want
-    fake = _BcastFakeSocket([other, target])
-
+def test_interface_binds_to_device_and_unicasts_to_host(monkeypatch):
+    # A real switch (interface set) is queried by UNICAST to the host, with the
+    # socket bound to the switch's interface (SO_BINDTODEVICE) so the query
+    # egresses that segment on a multi-homed host. This is the reliable path
+    # verified against real hardware.
+    monkeypatch.setattr(
+        "netgear_switch.transport.sync.nsdp_udp.read_interface_mac", lambda _i: _MAC
+    )
+    fake = _FakeSocket(_response_packet())
     client = UdpNsdpClient(
         "10.1.5.25", interface="br-net", client_port=63321,
         server_port=63322, sock_factory=lambda *a, **k: fake,
     )
     pkt = client.read([Tag.MODEL])
     assert pkt.op == Op.READ_RESPONSE
-    # Datagram was broadcast to the directed subnet broadcast, SO_BROADCAST set.
-    assert fake.sent[0][1] == ("10.1.5.255", 63322)
-    assert socket.SO_BROADCAST in fake.opts
+    assert fake.sent[0][1] == ("10.1.5.25", 63322)  # unicast to the switch
+    assert socket.SO_BINDTODEVICE in [o for _lvl, o in fake.opts]
     assert fake.closed is True
 
 
@@ -252,12 +215,6 @@ class _FakeAioSocket:
             raise OSError("Address already in use")
         self.bound = addr
 
-    def fileno(self):
-        # interface_broadcast() ioctls a socket fd; the socket.socket patch is
-        # module-global so it reaches here too. -1 makes its ioctl raise OSError,
-        # which interface_broadcast catches -> None (falls back to unicast host).
-        return -1
-
     def close(self):
         self.closed = True
 
@@ -295,14 +252,11 @@ def test_udp_transceive_closes_socket_when_bind_fails(monkeypatch):
 
 def test_udp_transceive_bindtodevice_is_best_effort(monkeypatch):
     # SO_BINDTODEVICE requires CAP_NET_RAW/root; an unprivileged caller must
-    # NOT be broken by its failure (the directed subnet broadcast is already
-    # routed correctly). With an interface set, the broadcast path attempts
-    # SO_BROADCAST then SO_BINDTODEVICE; a SO_BINDTODEVICE-only failure is
-    # suppressed, so execution reaches bind() -- here bind is what raises,
-    # proving the SO_BINDTODEVICE failure did not short-circuit the setup.
+    # NOT be broken by its failure. With an interface set, a SO_BINDTODEVICE-only
+    # failure is suppressed, so execution reaches bind() -- here bind is what
+    # raises, proving the SO_BINDTODEVICE failure did not short-circuit setup.
     fake = _FakeAioSocket(fail_on="bind", fail_on_opt=socket.SO_BINDTODEVICE)
     with pytest.raises(OSError, match="Address already in use"):
         _run_transceive_with_fake_socket(fake, monkeypatch, interface="eth0")
-    assert socket.SO_BROADCAST in fake.opts       # broadcast mode engaged
     assert socket.SO_BINDTODEVICE in fake.opts     # attempted (then suppressed)
     assert fake.closed is True
