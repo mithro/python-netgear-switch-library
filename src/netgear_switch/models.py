@@ -107,10 +107,15 @@ class MgmtIpConfig:
     address: str | None
     netmask: str | None
     gateway: str | None
-    # dot1dBaseBridgeAddress (BRIDGE-MIB) / the NSDP identity MAC: the switch's
-    # own base MAC, formatted "XX:XX:XX:XX:XX:XX". Defaults to None so existing
-    # positional call sites keep constructing without it; a backend that
-    # genuinely cannot read it (HTTP) leaves it honestly None.
+    # dot1dBaseBridgeAddress (BRIDGE-MIB) / the NSDP identity MAC / the HTTP
+    # sysInfo.html "MAC Address" row: the switch's own base MAC, formatted
+    # "XX:XX:XX:XX:XX:XX" (uppercase) by every backend that reads it (SNMP's
+    # parse_base_mac, NSDP's .upper(), HTTP's _mgmt_ip_from_sysinfo -- the
+    # real captured HTTP page text is lowercase and gets normalized). Defaults
+    # to None so existing positional call sites keep constructing without it;
+    # a backend/model whose web UI has no such page at all (gs305ep,
+    # gsm7228ps) leaves it honestly None via UnsupportedCapabilityError
+    # rather than fabricating a value.
     base_mac: str | None = None
 
 

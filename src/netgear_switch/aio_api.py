@@ -26,8 +26,17 @@ _DEFAULT_POE_TIMEOUTS = PoeCycleTimeouts()
 
 _R = TypeVar("_R")
 # Per-op backend preference: try SNMP, then NSDP, then HTTP; the first backend
-# whose reader/writer serves an op wins. HTTP only ever fills the gaps the
-# higher-priority backends raise UnsupportedCapabilityError for.
+# whose reader/writer serves an op wins. HTTP joins this fallback only when a
+# higher-priority backend's reader/writer CONSTRUCTION raises
+# UnsupportedCapabilityError, or the op method itself explicitly raises it
+# (e.g. NSDP's get_macs/get_lldp/get_sensors/get_poe -- see nsdp_read.py's
+# "_NO_*" constants). NSDP's get_stats/get_mgmt_ip are NOT such ops: they
+# always return a (possibly sparse) result rather than raising
+# UnsupportedCapabilityError, so for a {NSDP, HTTP} model (e.g. gs110emx)
+# those two ops are ALWAYS served by NSDP through this facade -- their real
+# HTTP implementations in http_read.py are unreachable here; only a
+# directly-constructed AsyncHttpReader ever exercises them. Do not read this
+# preference order as "HTTP only fills gaps" more broadly than that.
 _BACKEND_PREFERENCE = (Backend.SNMP, Backend.NSDP, Backend.HTTP)
 
 

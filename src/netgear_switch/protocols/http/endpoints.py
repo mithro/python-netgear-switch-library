@@ -56,6 +56,22 @@ class LoginScheme(enum.Enum):
     CHEETAH_FORM = "cheetah_form"       # Pro/S3300 (gsm7228ps) — plaintext form
 
 
+class StatsPageShape(enum.Enum):
+    """Which HTML row-shape ``http_read.py``'s ``_parse_stats`` must parse a
+    model's ``stats_path`` page with.
+
+    Previously keyed off ``session_token_field is not None`` as a proxy for
+    "this is gs110emx" -- that happened to work only because gs110emx is
+    currently the one and only token-session model, but a FUTURE token-session
+    model with an ordinary (closed-``<tr>``) stats page would have been
+    silently misparsed by that proxy. A dedicated field says exactly what it
+    means.
+    """
+
+    STANDARD = "standard"  # closed <tr class="portID">...</tr> (gs305ep)
+    GS110EMX_OPEN_ROW = "gs110emx_open_row"  # real hardware never closes the row
+
+
 @dataclass(frozen=True)
 class HttpModelSpec:
     model_key: str
@@ -94,6 +110,9 @@ class HttpModelSpec:
     # ``None`` means this model has no such HTTP page (gs305ep/gsm7228ps
     # read this via NSDP/SNMP instead).
     sysinfo_path: str | None = None
+    # Which HTML row-shape stats_path uses -- see StatsPageShape. Defaults to
+    # the ordinary closed-<tr> shape every model but gs110emx uses.
+    stats_page_shape: StatsPageShape = StatsPageShape.STANDARD
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -133,6 +152,15 @@ _GS305EP = HttpModelSpec(
 # neighbor,dashboard}.html) stay None -- gs110emx has no PoE and serves
 # ports/VLANs/PVIDs via NSDP, not HTTP. reboot_path/logout_path were never
 # captured and stay None rather than guessed.
+#
+# reads_verified=True covers exactly the grounded surface above -- but within
+# sysInfo.html specifically, only the STATIC-IP case (the real capture's own
+# `data-select-value="0"`) was directly observed; parse_sysinfo's DHCP branch
+# (`data-select-value="1"` -> IpMode.DHCP) is inferred from the same
+# <select>'s option ordering, never itself captured from a real
+# DHCP-configured device -- see HttpSysInfo's docstring. Don't read
+# reads_verified=True as a claim that the DHCP branch was independently
+# verified; it wasn't.
 _GS110EMX = HttpModelSpec(
     model_key="gs110emx",
     scheme=LoginScheme.GAMBIT,
@@ -155,6 +183,7 @@ _GS110EMX = HttpModelSpec(
     is_epx_poe=False,
     reads_verified=True,
     session_token_field="Gambit",
+    stats_page_shape=StatsPageShape.GS110EMX_OPEN_ROW,
 )
 
 # Login is GROUNDED: certbot-hook-netgear-switches/netgear-updater.py

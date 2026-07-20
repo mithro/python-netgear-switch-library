@@ -142,10 +142,16 @@ def http_reads_supported(model: SwitchModel) -> bool:
     login + sysInfo/interface_stats reads ARE grounded (see
     ``protocols/http/endpoints.py``), so this returns True for it -- but NSDP
     is still authoritative for every op it serves (ports/VLANs/PVIDs/stats/
-    mgmt-IP), so HTTP only ever gets used there if NSDP itself raises
-    ``UnsupportedCapabilityError`` for an op. The lazy import keeps ``import
-    netgear_switch`` clear of the endpoints module on the hot path (endpoints
-    is pure, but this mirrors the other lazy builders).
+    mgmt-IP). In practice this means gs110emx's HTTP get_stats/get_mgmt_ip
+    are NEVER actually reached through the SyncSwitch/AsyncSwitch facade:
+    NSDP's own get_stats/get_mgmt_ip always return a result rather than
+    raising ``UnsupportedCapabilityError`` (unlike get_macs/get_lldp/
+    get_sensors/get_poe, which NSDP genuinely doesn't have and does raise for),
+    so the facade's per-op backend loop never falls through to HTTP for those
+    two ops -- only a directly-constructed ``HttpReader``/``AsyncHttpReader``
+    exercises them. The lazy import keeps ``import netgear_switch`` clear of
+    the endpoints module on the hot path (endpoints is pure, but this mirrors
+    the other lazy builders).
     """
     if Backend.HTTP not in model.backends:
         return False

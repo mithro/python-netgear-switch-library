@@ -144,7 +144,10 @@ def test_gs110emx_get_mgmt_ip_from_sysinfo() -> None:
     assert mgmt.netmask == "255.255.255.0"
     assert mgmt.gateway == "10.1.5.1"
     assert mgmt.mode is IpMode.STATIC
-    assert mgmt.base_mac == "bc:a5:11:b8:ec:f1"
+    # Uppercased to match the SNMP/NSDP backends' base_mac formatting -- the
+    # real captured page text itself is lowercase ("bc:a5:11:b8:ec:f1"; see
+    # protocols/http/test_parse.py's parse_sysinfo test for that raw value).
+    assert mgmt.base_mac == "BC:A5:11:B8:EC:F1"
 
 
 def test_gs110emx_http_has_no_port_status_poe_or_vlan_pages() -> None:

@@ -26,6 +26,14 @@ class HttpSysInfo:
     best-grounded reading available; it is corroborated by the same capture
     carrying a fully-populated static IP/netmask/gateway alongside
     ``data-select-value="0"``.
+
+    CAVEAT: only the STATIC-IP branch above (``data-select-value="0"``) was
+    directly observed in the one real capture that exists. The DHCP branch
+    (``data-select-value="1"`` -> ``IpMode.DHCP``) is inferred from the same
+    ``<select>``'s option ordering, not itself captured from a real
+    DHCP-configured device -- treat it as plausible-but-unverified until a
+    DHCP-mode capture confirms it, even though ``HttpModelSpec.reads_verified``
+    is ``True`` for this model's grounded surface overall.
     """
 
     product_name: str

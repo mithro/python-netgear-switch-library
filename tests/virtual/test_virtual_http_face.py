@@ -184,7 +184,9 @@ def test_gs110emx_http_reader_end_to_end() -> None:
             assert mgmt.netmask == "255.255.255.0"
             assert mgmt.gateway == "10.1.5.1"
             assert mgmt.mode is IpMode.STATIC
-            assert mgmt.base_mac == "28:c6:8e:00:00:01"  # VirtualSwitchState.nsdp_mac
+            # Uppercased (VirtualSwitchState.nsdp_mac is the same bytes the
+            # SNMP/NSDP mock faces serve, so this must match their casing).
+            assert mgmt.base_mac == "28:C6:8E:00:00:01"
         finally:
             client.close()
     finally:

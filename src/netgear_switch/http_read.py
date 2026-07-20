@@ -62,12 +62,16 @@ def _require_path(model_key: str, path: str | None, op: str) -> str:
 
 
 def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
-    """Dispatch ``stats_path``'s HTML to the right parser: gs110emx's
-    interface_stats.html has a different (and, on real hardware, malformed
-    -- see ``parse._OPEN_ROW_RE``) row shape than gs305ep's portStatistics.cgi,
-    so ``session_token_field`` (only ever set for gs110emx today) doubles as
-    the "this model's stats page is GS110EMX-shaped" signal."""
-    if spec.session_token_field is not None:
+    """Dispatch ``stats_path``'s HTML to the right parser, keyed off
+    ``spec.stats_page_shape`` (a dedicated field -- NOT ``session_token_field
+    is not None``, which was only ever a proxy for "this is gs110emx" and
+    would misparse a future token-session model with an ordinary stats
+    page): gs110emx's interface_stats.html has a different (and, on real
+    hardware, malformed -- see ``parse._OPEN_ROW_RE``) row shape than
+    gs305ep's portStatistics.cgi."""
+    from .protocols.http.endpoints import StatsPageShape
+
+    if spec.stats_page_shape is StatsPageShape.GS110EMX_OPEN_ROW:
         return parse.parse_interface_stats(html)
     return parse.parse_port_stats(html)
 
@@ -76,13 +80,15 @@ def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
     """GS110EMX sysInfo.html -> the shared ``MgmtIpConfig`` shape. The page's
     own MAC Address row is the switch's base MAC, so it fills ``base_mac``
     exactly like the SNMP/NSDP backends' dot1dBaseBridgeAddress/identity-MAC
-    reads do."""
+    reads do -- uppercased to match those backends' formatting (the real
+    capture's page text is lowercase, e.g. "bc:a5:11:b8:ec:f1"; see
+    ``models.MgmtIpConfig.base_mac``)."""
     return MgmtIpConfig(
         mode=info.ip_mode,
         address=info.ip_address,
         netmask=info.subnet_mask,
         gateway=info.gateway_address,
-        base_mac=info.mac_address,
+        base_mac=info.mac_address.upper() or None,
     )
 
 

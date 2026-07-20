@@ -16,7 +16,10 @@ from netgear_switch.registry import get_model
 from netgear_switch.transport.http.client import (
     AsyncHttpClient,
     HttpClient,
+    _extract_session_token,
     _login_body,
+    _token_form_field,
+    _token_params,
 )
 
 # Fail this module's tests if they leak a ResourceWarning (e.g. an
@@ -27,9 +30,40 @@ pytestmark = pytest.mark.filterwarnings("error::ResourceWarning")
 
 _SPEC = http_spec(get_model("gs305ep"))
 _CHEETAH_SPEC = http_spec(get_model("gsm7228ps"))
+_GAMBIT_SPEC = http_spec(get_model("gs110emx"))
 _RAND = "9917"
 _PASSWORD = "s3cr3t"
 _LOGIN_HTML = f'<input id="rand" name="rand" value="{_RAND}">'
+
+_GAMBIT_RAND = "4242"
+_GAMBIT_PASSWORD = "gambitpass"
+_GAMBIT_TOKEN = "realtoken789"
+_GAMBIT_LOGIN_HTML = f'<input id="rand" name="rand" value="{_GAMBIT_RAND}">'
+
+
+def _gambit_handler(request: httpx.Request) -> httpx.Response:
+    """Minimal GAMBIT (gs110emx-shaped) token-session server: GET "/" for
+    `rand`, POST hashed password to /redirect.html for a Gambit token, then
+    require ?Gambit=<token> on every subsequent GET -- mirrors the real
+    scheme (see protocols/http/endpoints.py's _GS110EMX) without depending on
+    the virtual mock (VirtualHttpFace)."""
+    if request.url.path == _GAMBIT_SPEC.login_path and request.method == "GET":
+        return httpx.Response(200, html=_GAMBIT_LOGIN_HTML)
+    if request.url.path == _GAMBIT_SPEC.login_post_path and request.method == "POST":
+        body = dict(httpx.QueryParams(request.content.decode()))
+        expected = merge_hash_md5(_GAMBIT_PASSWORD, _GAMBIT_RAND)
+        if body.get("LoginPassword") != expected:
+            return httpx.Response(
+                200, html='<input type="hidden" name="Gambit" value="">'
+            )
+        return httpx.Response(
+            200, html=f'<input type="hidden" name="Gambit" value="{_GAMBIT_TOKEN}">'
+        )
+    if request.url.path == _GAMBIT_SPEC.sysinfo_path:
+        if request.url.params.get("Gambit") != _GAMBIT_TOKEN:
+            return httpx.Response(200, html="Redirect to login")
+        return httpx.Response(200, html="<html>sysinfo ok</html>")
+    return httpx.Response(404)
 
 
 def _handler(request: httpx.Request) -> httpx.Response:
@@ -264,6 +298,139 @@ def test_sync_get_page_mid_session_redirect_to_login_raises_auth() -> None:
     ):
         client.get_page("/dashboard.cgi")
     client.close()
+
+
+# -- Gap 3: token-session (GAMBIT) transport-unit coverage ------------------
+
+
+def test_extract_session_token_returns_token_when_present() -> None:
+    html = f'<input type="hidden" name="Gambit" value="{_GAMBIT_TOKEN}">'
+    assert _extract_session_token(_GAMBIT_SPEC, html) == _GAMBIT_TOKEN
+
+
+def test_extract_session_token_raises_auth_error_when_empty() -> None:
+    html = '<input type="hidden" name="Gambit" value="">'
+    with pytest.raises(HttpAuthError):
+        _extract_session_token(_GAMBIT_SPEC, html)
+
+
+def test_extract_session_token_raises_auth_error_when_field_absent() -> None:
+    with pytest.raises(HttpAuthError):
+        _extract_session_token(_GAMBIT_SPEC, "<html>no token field here</html>")
+
+
+def test_token_params_carries_field_for_token_session_spec() -> None:
+    assert _token_params(_GAMBIT_SPEC, _GAMBIT_TOKEN) == {"Gambit": _GAMBIT_TOKEN}
+
+
+def test_token_params_none_for_cookie_session_spec() -> None:
+    # gs305ep is cookie-session (session_token_field is None) -- no query
+    # params are added; the SID cookie carries the session instead.
+    assert _token_params(_SPEC, "unused") is None
+
+
+def test_token_form_field_carries_field_for_token_session_spec() -> None:
+    assert _token_form_field(_GAMBIT_SPEC, _GAMBIT_TOKEN) == {
+        "Gambit": _GAMBIT_TOKEN
+    }
+
+
+def test_token_form_field_empty_for_cookie_session_spec() -> None:
+    assert _token_form_field(_SPEC, "unused") == {}
+
+
+def test_sync_gambit_login_gets_login_path_but_posts_to_login_post_path() -> None:
+    # GAMBIT's rand nonce is scraped from a GET of login_path ("/"), but the
+    # hashed password is POSTed to a DIFFERENT path (login_post_path,
+    # "/redirect.html") -- unlike gs305ep/gsm7228ps, where POST goes back to
+    # login_path itself (login_post_path is None there).
+    assert _GAMBIT_SPEC.login_path == "/"
+    assert _GAMBIT_SPEC.login_post_path == "/redirect.html"
+    client = HttpClient(
+        "sw.example", _GAMBIT_PASSWORD, _GAMBIT_SPEC,
+        transport=httpx.MockTransport(_gambit_handler),
+    )
+    try:
+        client.login()
+        assert client._token == _GAMBIT_TOKEN
+        page = client.get_page(_GAMBIT_SPEC.sysinfo_path)
+        assert "sysinfo ok" in page
+    finally:
+        client.close()
+
+
+def test_sync_gambit_wrong_password_raises_auth_error() -> None:
+    client = HttpClient(
+        "sw.example", "wrong-password", _GAMBIT_SPEC,
+        transport=httpx.MockTransport(_gambit_handler),
+    )
+    try:
+        with pytest.raises(HttpAuthError):
+            client.login()
+    finally:
+        client.close()
+
+
+def test_async_gambit_wrong_password_raises_auth_error() -> None:
+    """Async twin of test_sync_gambit_wrong_password_raises_auth_error: a
+    rejected Gambit token (empty value) must raise HttpAuthError, not be
+    treated as a valid (empty-string) session."""
+
+    async def run() -> None:
+        client = AsyncHttpClient(
+            "sw.example", "wrong-password", _GAMBIT_SPEC,
+            transport=httpx.MockTransport(_gambit_handler),
+        )
+        try:
+            with pytest.raises(HttpAuthError):
+                await client.login()
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
+
+
+def test_sync_get_page_mid_session_stale_gambit_token_raises_auth() -> None:
+    """A token session that gets a login page back mid-read (a stale/
+    invalidated token the server no longer honours) must raise HttpAuthError,
+    not silently misparse the login page as if it were real content --
+    mirrors the cookie path's test_sync_get_page_mid_session_redirect_to_
+    login_raises_auth above."""
+    client = HttpClient(
+        "sw.example", _GAMBIT_PASSWORD, _GAMBIT_SPEC,
+        transport=httpx.MockTransport(_gambit_handler),
+    )
+    client._logged_in = True
+    client._token = "stale-token"  # the server no longer recognizes this
+    try:
+        with pytest.raises(
+            HttpAuthError, match=r"session lost fetching /iss/specific/sysInfo\.html"
+        ):
+            client.get_page(_GAMBIT_SPEC.sysinfo_path)
+    finally:
+        client.close()
+
+
+def test_async_get_page_mid_session_stale_gambit_token_raises_auth() -> None:
+    """Async twin of the stale-token test above."""
+
+    async def run() -> None:
+        client = AsyncHttpClient(
+            "sw.example", _GAMBIT_PASSWORD, _GAMBIT_SPEC,
+            transport=httpx.MockTransport(_gambit_handler),
+        )
+        client._logged_in = True
+        client._token = "stale-token"
+        try:
+            with pytest.raises(
+                HttpAuthError,
+                match=r"session lost fetching /iss/specific/sysInfo\.html",
+            ):
+                await client.get_page(_GAMBIT_SPEC.sysinfo_path)
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
 
 
 def test_async_get_page_mid_session_redirect_to_login_raises_auth() -> None:
