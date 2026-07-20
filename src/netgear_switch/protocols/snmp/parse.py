@@ -267,6 +267,29 @@ def _format_mac_octetstring(value: int | str | bytes) -> str | None:
     return None
 
 
+def _mac_from_ascii_text(value: int | str | bytes) -> str | None:
+    """Recognize a MAC already rendered as ASCII text ``XX:XX:XX:XX:XX:XX``.
+
+    Some firmware (verified: the M4300-24X's dot1dBaseBridgeAddress) returns a
+    MAC OCTET STRING as a 17-character human-readable colon-hex STRING rather
+    than the proper 6 raw bytes. Returns the normalized upper-case MAC, or
+    ``None`` when ``value`` isn't such a string (so callers fall through to the
+    raw-octet path / malformed handling).
+    """
+    if not isinstance(value, str):
+        return None
+    parts = value.split(":")
+    if len(parts) != 6:
+        return None
+    try:
+        octets = [int(p, 16) for p in parts]
+    except ValueError:
+        return None
+    if any(len(p) != 2 for p in parts) or any(not 0 <= o <= 0xFF for o in octets):
+        return None
+    return ":".join(f"{o:02X}" for o in octets)
+
+
 def _format_chassis_id(value: int | str | bytes) -> str:
     """Format an lldpRemChassisId value.
 
@@ -296,7 +319,7 @@ def parse_base_mac(rows: Sequence[SnmpRow]) -> str | None:
     for row in rows:
         if not row.oid.startswith(prefix):
             continue
-        mac = _format_mac_octetstring(row.value)
+        mac = _format_mac_octetstring(row.value) or _mac_from_ascii_text(row.value)
         if mac is None:
             raise SnmpError(f"malformed base MAC {row.value!r} at {row.oid}")
         return mac

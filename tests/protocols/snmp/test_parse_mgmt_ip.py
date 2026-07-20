@@ -112,6 +112,18 @@ def test_parse_mgmt_ip_malformed_base_mac_raises_snmp_error():
         parse.parse_mgmt_ip(addr, [], [], [], [], base_mac)
 
 
+def test_parse_mgmt_ip_base_mac_from_ascii_colon_hex_string():
+    # The M4300-24X (verified live) returns dot1dBaseBridgeAddress as a
+    # 17-char ASCII string "8C:3B:AD:6B:BB:E0" rather than 6 raw bytes; it
+    # must parse to the normalized upper-case MAC, not raise "malformed".
+    addr = [SnmpRow("1.3.6.1.2.1.4.20.1.1.10.1.5.13", "10.1.5.13", "IPADDR")]
+    base_mac = [
+        SnmpRow(f"{oids.DOT1D_BASE_BRIDGE_ADDRESS}.0", "8c:3b:ad:6b:bb:e0", "STRING")
+    ]
+    cfg = parse.parse_mgmt_ip(addr, [], [], [], [], base_mac)
+    assert cfg.base_mac == "8C:3B:AD:6B:BB:E0"
+
+
 def test_parse_base_mac_absent_is_none():
     assert parse.parse_base_mac([]) is None
 

@@ -331,20 +331,41 @@ def test_do_walk_raises_on_error_indication(monkeypatch):
     assert calls["closed"] is True
 
 
-def test_do_walk_raises_on_no_such_instance_mid_walk(monkeypatch):
-    """A noSuchObject/noSuchInstance varbind mid-walk is a real absence, not
-    a benign terminator, and must raise (only endOfMibView is benign)."""
+def test_do_walk_empty_subtree_returns_rows_so_far(monkeypatch):
+    """A noSuchObject/noSuchInstance varbind in a WALK is the normal response
+    when the walked subtree has no entries (e.g. the PoE MIB on a non-PoE
+    switch). Verified against live hardware. It is a benign terminator like
+    endOfMibView: stop and return the rows collected so far ([] here), not
+    raise. (GET still raises on absent -- see test_get_raises_on_absent_oid.)"""
     c = PysnmpClient("h", "public")
 
     async def fake_bulk_walk_cmd(
         engine, community, target, context, non_rep, max_rep, obj,
         *, lexicographicMode,  # noqa: N803
     ):
-        yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.1", NoSuchInstance())]
+        yield None, 0, 0, [("1.3.6.1.2.1.105.1.1.1", NoSuchObject())]
 
     calls = _install_fake_pysnmp(monkeypatch, bulk_walk_cmd=fake_bulk_walk_cmd)
-    with pytest.raises(SnmpError, match=re.escape("1.3.6.1.2.1.2.2.1.8.1")):
-        asyncio.run(c._do_walk("1.3.6.1.2.1.2.2.1.8"))
+    rows = asyncio.run(c._do_walk("1.3.6.1.2.1.105.1.1.1"))
+    assert rows == []
+    assert calls["closed"] is True
+
+
+def test_do_walk_absent_after_rows_stops_and_keeps_rows(monkeypatch):
+    """An absent varbind after real rows also terminates the walk, keeping the
+    rows already collected (an empty-subtree marker never discards data)."""
+    c = PysnmpClient("h", "public")
+
+    async def fake_bulk_walk_cmd(
+        engine, community, target, context, non_rep, max_rep, obj,
+        *, lexicographicMode,  # noqa: N803
+    ):
+        yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.1", Integer32(1))]
+        yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.2", NoSuchInstance())]
+
+    calls = _install_fake_pysnmp(monkeypatch, bulk_walk_cmd=fake_bulk_walk_cmd)
+    rows = asyncio.run(c._do_walk("1.3.6.1.2.1.2.2.1.8"))
+    assert rows == [("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")]
     assert calls["closed"] is True
 
 

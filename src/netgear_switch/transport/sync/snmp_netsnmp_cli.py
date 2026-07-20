@@ -125,16 +125,28 @@ def _split_typed(rest: str) -> tuple[str, str] | None:
     return None
 
 
-def parse_netsnmp_lines(text: str) -> list[SnmpRow]:
+def parse_netsnmp_lines(text: str, *, empty_subtree_ok: bool = False) -> list[SnmpRow]:
     """Parse `snmpget`/`snmpbulkwalk` output (-On -Oe -OU -Ln) into SnmpRows.
 
-    Raises SnmpError on a "No Such Object/Instance" line — an absent OID is
-    surfaced early, never returned as an empty/None row. The benign
-    "No more variables left in this MIB View .../ past the end of the MIB
-    tree" terminator that snmpbulkwalk appends at the end of a successful
-    walk is skipped rather than treated as an error, so previously parsed
-    rows are still returned. Multi-line Hex-STRING continuations are joined
-    into one bytes value.
+    For a GET (``empty_subtree_ok=False``, the default) a "No Such
+    Object/Instance" line raises SnmpError: the caller asked for a specific
+    scalar and its absence must be surfaced, never fabricated as empty.
+
+    For a WALK (``empty_subtree_ok=True``) a "No Such Object/Instance" line is
+    the NORMAL response a real agent gives when the walked subtree has no
+    entries at all (e.g. the RFC3621 PoE MIB on a non-PoE switch, an
+    unimplemented sensor table, or an unpopulated ``ipAddrTable``). Verified
+    against live hardware: ``snmpbulkwalk`` of an absent subtree emits exactly
+    one ``<base> = No Such Object available on this agent at this OID`` line.
+    In walk mode that line is treated like the benign end-of-MIB terminator —
+    skipped, returning the rows collected so far (``[]`` for an empty subtree)
+    instead of raising. This is what lets optional reads degrade to an empty
+    result rather than crashing the whole call.
+
+    The benign "No more variables left in this MIB View .../ past the end of
+    the MIB tree" terminator that snmpbulkwalk appends at the end of a
+    successful walk is always skipped. Multi-line Hex-STRING continuations are
+    joined into one bytes value.
     """
     rows: list[SnmpRow] = []
     pending_oid: str | None = None
@@ -177,6 +189,10 @@ def parse_netsnmp_lines(text: str) -> list[SnmpRow]:
         if any(marker in rest_lower for marker in _END_OF_MIB_MARKERS):
             continue
         if any(marker in rest_lower for marker in _ABSENT_MARKERS):
+            if empty_subtree_ok:
+                # Empty subtree: a walk of a base OID with no entries. Skip the
+                # marker (like end-of-MIB) and return rows collected so far.
+                continue
             raise SnmpError(f"absent OID in net-snmp output: {oid} = {rest}")
         raise SnmpError(f"unrecognized net-snmp output line: {oid} = {rest}")
     flush_hex()
@@ -222,7 +238,9 @@ class NetsnmpCliClient:
 
     def walk(self, base_oid: str) -> list[SnmpRow]:
         argv = [*self._base_args("snmpbulkwalk"), self.host, base_oid]
-        return self._invoke(argv)
+        # A walk of an absent subtree is not an error: real agents answer with a
+        # lone "No Such Object" line, which parse_netsnmp_lines treats as empty.
+        return self._invoke(argv, empty_subtree_ok=True)
 
     def set(self, varbind: SetVarbind) -> None:
         self.set_many([varbind])
@@ -238,7 +256,9 @@ class NetsnmpCliClient:
         # noSuchName, wrong type). The echoed varbinds it parses are discarded.
         self._invoke(argv)
 
-    def _invoke(self, argv: Sequence[str]) -> list[SnmpRow]:
+    def _invoke(
+        self, argv: Sequence[str], *, empty_subtree_ok: bool = False
+    ) -> list[SnmpRow]:
         kwargs: dict[str, Any] = {
             "capture_output": True,
             "text": True,
@@ -254,4 +274,4 @@ class NetsnmpCliClient:
                 f"{argv[0]} exited {proc.returncode} for {self.host}: "
                 f"{stderr or 'unknown error'}"
             )
-        return parse_netsnmp_lines(proc.stdout)
+        return parse_netsnmp_lines(proc.stdout, empty_subtree_ok=empty_subtree_ok)

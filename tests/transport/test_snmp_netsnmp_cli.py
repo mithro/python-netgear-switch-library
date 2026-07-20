@@ -65,6 +65,26 @@ def test_parse_no_such_instance_raises():
         parse_netsnmp_lines(".1.3.6.1.2.1.2.2.1.8.99 = No Such Instance\n")
 
 
+def test_parse_walk_empty_subtree_returns_empty_not_error():
+    # A walk (empty_subtree_ok=True) of a base OID with no entries: real
+    # hardware answers with exactly this one "No Such Object" line (captured
+    # live from a non-PoE M4300-24X walking the PoE MIB). It must parse to []
+    # rather than raise, so optional reads degrade to an empty result.
+    text = ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this agent at this OID\n"
+    assert parse_netsnmp_lines(text, empty_subtree_ok=True) == []
+
+
+def test_parse_walk_keeps_rows_before_absent_marker():
+    # An absent marker never discards rows already parsed in walk mode.
+    text = (
+        ".1.3.6.1.2.1.2.2.1.8.1 = INTEGER: 1\n"
+        ".1.3.6.1.2.1.2.2.1.8.99 = No Such Instance\n"
+    )
+    assert parse_netsnmp_lines(text, empty_subtree_ok=True) == [
+        SnmpRow("1.3.6.1.2.1.2.2.1.8.1", 1, "INTEGER")
+    ]
+
+
 def test_parse_walk_end_of_mib_terminator_is_not_an_error():
     # snmpbulkwalk appends this benign line once it reaches the end of the
     # agent's MIB tree. It must not discard the rows already parsed.
@@ -155,6 +175,33 @@ def test_walk_builds_bulkwalk_argv(monkeypatch):
     assert captured["argv"][0] == "/usr/bin/snmpbulkwalk"
     assert captured["argv"][-1] == "1.3.6.1.2.1.2.2.1.8"
     assert [r.value for r in rows] == [1, 2]
+
+
+def test_walk_empty_subtree_returns_empty(monkeypatch):
+    # walk() opts into empty_subtree_ok, so a "No Such Object" subtree is [].
+    def fake_runner(argv, **_kw):
+        return _FakeProc(
+            0,
+            ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this agent at this OID\n",
+        )
+
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.1.5.13", "public", runner=fake_runner)
+    assert c.walk("1.3.6.1.2.1.105.1.1.1") == []
+
+
+def test_get_still_raises_on_absent_oid(monkeypatch):
+    # get() does NOT opt in: an absent scalar is still surfaced as an error.
+    def fake_runner(argv, **_kw):
+        return _FakeProc(
+            0,
+            ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this agent at this OID\n",
+        )
+
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.1.5.13", "public", runner=fake_runner)
+    with pytest.raises(SnmpError):
+        c.get(["1.3.6.1.2.1.105.1.1.1"])
 
 
 def test_nonzero_exit_raises_with_stderr(monkeypatch):

@@ -169,9 +169,16 @@ class PysnmpClient:
                         done = True
                         break
                     if typ.upper() in ABSENT_TYPES:
-                        raise SnmpError(
-                            f"absent OID in pysnmp WALK response: {oid}"
-                        )
+                        # Empty subtree: a real agent answers a walk of a base
+                        # OID with no entries (e.g. PoE MIB on a non-PoE switch)
+                        # with noSuchObject/noSuchInstance. Treat it like the
+                        # benign endOfMibView terminator -- stop and return the
+                        # rows collected so far ([] for a wholly empty subtree)
+                        # rather than raising. Mirrors the sync CLI client's
+                        # empty_subtree_ok walk handling; verified against live
+                        # hardware. GET keeps raising on absent (see get()).
+                        done = True
+                        break
                     rows.append((oid, value, typ))
                 if done:
                     break
