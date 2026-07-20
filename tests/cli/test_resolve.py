@@ -55,6 +55,19 @@ def test_prompt_used_when_no_flag_env_or_config() -> None:
     assert seen  # prompt was actually invoked
 
 
+def test_no_snmp_community_prompt_for_nsdp_only_switch() -> None:
+    # A Plus switch (gs110emx = HTTP+NSDP, no SNMP backend) must NEVER be
+    # prompted for an SNMP read community: it is irrelevant, and a prompt on
+    # piped stdin raises EOFError, blocking the NSDP/HTTP reads entirely.
+    def exploding_prompt(text: str) -> str:
+        raise AssertionError("must not prompt for SNMP community on a Plus switch")
+
+    sw = resolve_switch(
+        _args(host="10.1.5.25", model="gs110emx"), env={}, prompt=exploding_prompt
+    )
+    assert sw._snmp_community is None
+
+
 def test_inventory_switch_resolves_by_name(tmp_path: Path) -> None:
     inv = tmp_path / "inv.toml"
     inv.write_text(

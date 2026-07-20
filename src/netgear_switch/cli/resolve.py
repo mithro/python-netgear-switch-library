@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from netgear_switch.config import load_inventory
 from netgear_switch.errors import ConfigError
-from netgear_switch.registry import get_model
+from netgear_switch.registry import Backend, get_model
 from netgear_switch.sync_api import SyncSwitch
 
 if TYPE_CHECKING:
@@ -26,6 +26,8 @@ def _read_community(
     env: Mapping[str, str],
     config_value: str | None,
     prompt: Callable[[str], str] | None,
+    *,
+    snmp_backend: bool,
 ) -> str | None:
     if args.community:
         return str(args.community)
@@ -33,7 +35,11 @@ def _read_community(
         return env["NGSW_COMMUNITY"]
     if config_value:
         return config_value
-    if prompt is not None:
+    # Only an SNMP-capable model needs a read community. A Plus (NSDP/HTTP-only)
+    # switch has no SNMP backend, so prompting for one is both pointless and, in
+    # a non-interactive context (piped stdin), a hard EOFError that blocks the
+    # NSDP/HTTP reads entirely. Skip the prompt for such models.
+    if snmp_backend and prompt is not None:
         typed = prompt("SNMP read community: ")
         # A bare Enter at the prompt must NOT become a literal empty-string
         # SNMP community; treat it as unresolved so the library's existing
@@ -65,7 +71,10 @@ def _from_inventory(
         raise ConfigError(
             f"switch {args.switch!r} not found in {args.config}"
         ) from None
-    community = _read_community(args, env, cfg.snmp_community, prompt)
+    community = _read_community(
+        args, env, cfg.snmp_community, prompt,
+        snmp_backend=Backend.SNMP in cfg.model.backends,
+    )
     write_override = _write_community_override(args, env)
     return SyncSwitch(
         cfg.model,
@@ -96,9 +105,13 @@ def resolve_switch(
     if args.switch:
         return _from_inventory(args, env, prompt)
     if args.host and args.model:
-        community = _read_community(args, env, None, prompt)
+        model = get_model(args.model)
+        community = _read_community(
+            args, env, None, prompt,
+            snmp_backend=Backend.SNMP in model.backends,
+        )
         return SyncSwitch(
-            get_model(args.model),
+            model,
             args.host,
             snmp_community=community,
             snmp_write_community=_write_community_override(args, env),
