@@ -80,3 +80,19 @@ def test_gsm7228ps_cheetah_form_snmp_preferred() -> None:
 def test_http_spec_rejects_snmp_only_model() -> None:
     with pytest.raises(UnsupportedCapabilityError):
         http_spec(get_model("m4300-24x"))
+
+
+def test_gs105pe_spec_reuses_merge_hash_but_stays_unverified() -> None:
+    """gs105pe (registered verified=False, spec-only -- see registry.py) gets
+    a real HttpModelSpec so get_model/http_spec both work, but neither
+    scheme_verified nor reads_verified is claimed True: the login SCHEME is
+    grounded (netgear-smp-vlan), the read endpoints below are only a
+    same-family shape guess copied from gs305ep, never confirmed."""
+    spec = http_spec(get_model("gs105pe"))
+    assert spec.scheme is LoginScheme.MERGE_HASH_CGI
+    assert spec.scheme_verified is False
+    assert spec.login_path == "/login.cgi"
+    assert spec.password_field == "password"
+    assert spec.cookie_name == "SID"
+    assert spec.needs_rand is True
+    assert spec.reads_verified is False

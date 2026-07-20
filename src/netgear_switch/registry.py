@@ -214,6 +214,37 @@ _MODELS: dict[str, SwitchModel] = {
             _SMP,
             verified=False,
         ),
+        _model(
+            "gs105pe",
+            # GS105PE: a real, DISTINCT SKU from gs305ep -- a 5-port Gigabit
+            # "Smart Plus" switch (Gen-2 Broadcom BCM53125), per
+            # ~/github/mithro/ai-shenanigans-for-netgear-smart-switches/
+            # gs105pe.md. Backends {NSDP, HTTP} (no SNMP -- Plus switches
+            # never expose SNMP): HTTP login uses the MERGE_HASH_CGI scheme,
+            # identical to gs305ep, per netgear-smp-vlan (grounded prior art
+            # -- see endpoints.py's HttpModelSpec for this model). That doc
+            # also confirms a hard vendor limitation: this model exposes NO
+            # MAC/FDB table over ANY interface (not NSDP, not the web UI --
+            # a confirmed Netgear firmware limitation, not merely unread).
+            #
+            # PoE port count: the doc describes this model as having "PoE
+            # pass-through" (it can itself be POWERED via PoE on port 5 and
+            # pass that budget through), which is NOT the same claim as "acts
+            # as a PSE delivering power to N downstream ports" -- no capture
+            # or spec confirms how many (if any) of its OTHER 4 ports can
+            # source PoE to a connected PD. Rather than fabricate a count
+            # (unlike gs728tpp's port-count guess above, which at least had a
+            # product-name convention to lean on), this is left at 0 --
+            # UNVERIFIED-pending-capture, exactly like this section's other
+            # spec-only entries.
+            "GS105PE",
+            SwitchClass.PLUS,
+            5,
+            0,
+            {Backend.NSDP, Backend.HTTP},
+            None,
+            verified=False,
+        ),
     )
 }
 

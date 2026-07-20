@@ -33,6 +33,13 @@ flows are grounded in captured prior art or still
   ``reads_verified`` are ``True`` for exactly this grounded surface
   (login + ``sysinfo_path`` + ``stats_path``); ``reboot_path``/
   ``logout_path`` were never captured and stay ``None`` rather than guessed.
+- ``gs105pe`` (Plus, 5-port, spec-only -- registered ``verified=False`` in
+  ``registry.py``, no capture exists): the login SCHEME is well-grounded
+  (``rcfiles/bin/netgear-smp-vlan`` shows a GS105PE session byte-identical to
+  ``gs305ep``'s), but the read-endpoint paths below are copied from
+  ``gs305ep``'s spec as a same-family shape guess, never confirmed against a
+  real GS105PE response -- both ``scheme_verified`` and ``reads_verified``
+  stay ``False`` accordingly.
 """
 from __future__ import annotations
 
@@ -212,8 +219,41 @@ _GSM7228PS = HttpModelSpec(
     reads_verified=False,
 )
 
+# gs105pe (Plus, 5-port, NSDP+HTTP -- see registry.py's entry for the
+# port/PoE-count honesty notes) is registered verified=False: NO capture
+# exists for this model. The login SCHEME itself is well-grounded --
+# rcfiles/bin/netgear-smp-vlan's GS105PE session flow is byte-identical to
+# gs305ep's (GET /login.cgi for `rand`, POST password=MD5(merge(pw, rand))
+# back to /login.cgi, SID cookie back) -- but this entry deliberately still
+# marks scheme_verified=False/reads_verified=False rather than claim
+# verification: the *read* endpoints below (dashboard/stats/PoE/VLAN paths)
+# are copied from gs305ep's spec as a same-family SHAPE guess, not confirmed
+# against an actual GS105PE response, and per-task honesty policy this
+# registration must not claim more than that. See gs305ep's own docstring
+# entry above for the grounded VLAN CGI paths this reuses.
+_GS105PE = HttpModelSpec(
+    model_key="gs105pe",
+    scheme=LoginScheme.MERGE_HASH_CGI,
+    scheme_verified=False,
+    login_path="/login.cgi",
+    password_field="password",
+    cookie_name="SID",
+    needs_rand=True,
+    dashboard_path="/dashboard.cgi",
+    stats_path="/portStatistics.cgi",
+    poe_config_path="/PoEPortConfig.cgi",
+    poe_status_path="/getPoePortStatus.cgi",
+    vlan_config_path="/8021qCf.cgi",
+    vlan_membership_path="/8021qMembe.cgi",
+    pvid_path="/portPVID.cgi",
+    reboot_path="/device_reboot.cgi",
+    logout_path="/logout.cgi",
+    is_epx_poe=False,
+    reads_verified=False,
+)
+
 _SPECS: dict[str, HttpModelSpec] = {
-    s.model_key: s for s in (_GS305EP, _GS110EMX, _GSM7228PS)
+    s.model_key: s for s in (_GS305EP, _GS110EMX, _GSM7228PS, _GS105PE)
 }
 
 HTTP_SPECS: Mapping[str, HttpModelSpec] = MappingProxyType(_SPECS)

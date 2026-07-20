@@ -6,7 +6,7 @@ from netgear_switch.registry import MODELS, Backend, SwitchClass, get_model
 _VERIFIED_KEYS = (
     "m4300-24x", "m4300-16x", "gsm7252ps", "gsm7228ps", "gs110emx", "gs305ep",
 )
-_UNVERIFIED_KEYS = ("m7300", "xs748t", "gs728tpp")
+_UNVERIFIED_KEYS = ("m7300", "xs748t", "gs728tpp", "gs105pe")
 
 
 def test_known_models_present():
@@ -83,6 +83,36 @@ def test_gs728tpp_registered_smart_managed_pro_snmp_only():
     assert m.port_count == 28
     assert m.poe_port_count == 24
     assert m.verified is False
+
+
+def test_gs105pe_registered_plus_nsdp_http_spec_only():
+    """gs105pe (a real, DISTINCT SKU from gs305ep -- see registry.py's own
+    comment) is spec-only: registered so it's constructible, honestly
+    UNVERIFIED-pending-capture (no seed, no verified reads), exactly like
+    m7300/xs748t/gs728tpp above."""
+    m = get_model("gs105pe")
+    assert m.switch_class is SwitchClass.PLUS
+    assert m.backends == frozenset({Backend.NSDP, Backend.HTTP})
+    assert Backend.SNMP not in m.backends
+    assert m.snmp_vendor_base is None
+    assert m.port_count == 5
+    # PoE port count deliberately NOT fabricated (the doc says "PoE
+    # pass-through", not "delivers PoE to N ports") -- see registry.py's
+    # comment on this entry.
+    assert m.poe_port_count == 0
+    assert m.verified is False
+
+
+def test_gs105pe_has_no_virtual_seed():
+    """No capture exists for gs105pe, so unlike the seeded verified=True
+    models, VirtualSwitch("gs105pe") gets the honest blank default state --
+    it must never silently gain a seed_gs105pe()/fabricated data."""
+    from netgear_switch.virtual.server import VirtualSwitch
+
+    sw = VirtualSwitch(model="gs105pe")
+    assert sw.state.ports == {}
+    assert sw.state.poe == {}
+    assert sw.state.macs == []
 
 
 def test_registry_has_no_duplicate_keys_and_valid_enums():
