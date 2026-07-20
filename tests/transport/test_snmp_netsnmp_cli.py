@@ -70,7 +70,9 @@ def test_parse_walk_empty_subtree_returns_empty_not_error():
     # hardware answers with exactly this one "No Such Object" line (captured
     # live from a non-PoE M4300-24X walking the PoE MIB). It must parse to []
     # rather than raise, so optional reads degrade to an empty result.
-    text = ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this agent at this OID\n"
+    text = (
+        ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this agent at this OID\n"
+    )
     assert parse_netsnmp_lines(text, empty_subtree_ok=True) == []
 
 
@@ -182,7 +184,8 @@ def test_walk_empty_subtree_returns_empty(monkeypatch):
     def fake_runner(argv, **_kw):
         return _FakeProc(
             0,
-            ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this agent at this OID\n",
+            ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this "
+            "agent at this OID\n",
         )
 
     monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
@@ -195,7 +198,8 @@ def test_get_still_raises_on_absent_oid(monkeypatch):
     def fake_runner(argv, **_kw):
         return _FakeProc(
             0,
-            ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this agent at this OID\n",
+            ".1.3.6.1.2.1.105.1.1.1 = No Such Object available on this "
+            "agent at this OID\n",
         )
 
     monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
