@@ -54,3 +54,6 @@ tmp/
 /.vscode
 /.zprofile
 /.zshrc
+
+# Playwright MCP scratch output
+.playwright-mcp/
