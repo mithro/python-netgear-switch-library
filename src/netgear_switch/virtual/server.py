@@ -18,6 +18,7 @@ from .faces.mibview import StateMibView
 from .faces.nsdp import VirtualNsdpFace
 from .faces.snmp import VirtualSnmpFace
 from .seed import (
+    seed_gs105pe,
     seed_gs110emx,
     seed_gs305ep,
     seed_gsm7228ps,
@@ -35,6 +36,7 @@ _SEEDS = {
     "gsm7228ps": seed_gsm7228ps,
     "gs110emx": seed_gs110emx,
     "gs305ep": seed_gs305ep,
+    "gs105pe": seed_gs105pe,
     "m4300-24x": seed_m4300_24x,
     "m4300-16x": seed_m4300_16x,
 }

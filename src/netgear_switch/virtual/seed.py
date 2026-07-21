@@ -330,6 +330,61 @@ def seed_gs305ep() -> VirtualSwitchState:
     )
 
 
+def seed_gs105pe() -> VirtualSwitchState:
+    """Build a GS105PE (5-port Plus, NSDP+HTTP) virtual state from a REAL live
+    capture (host 10.1.5.30 / poe-micro3, 2026-07-21 -- see
+    netgear-m4300-http-cheetah / the gs105pe live findings). Every value below
+    is transcribed from the captured NsdpDevice: ports 3 (100M) and 5 (1G) up,
+    the rest down; VLANs 1/41/90 with their real member/untagged sets; real
+    PVIDs; DHCP mgmt-IP; and the QoS/mirroring/IGMP engine tags. Port mirroring
+    is OFF on this unit (dest 0, no sources) -- the 3-byte PORT_MIRRORING TLV
+    that exposed the fixed-width parser bug (see parse_port_mirroring)."""
+    ports = {
+        p: PortSim(
+            name=f"Port {p}",
+            admin=True,
+            link=p in (3, 5),
+            speed={3: 100, 5: 1000}.get(p, 0),
+        )
+        for p in range(1, 6)
+    }
+    ports[3].tx_octets = 10_246_512
+    ports[5].rx_octets = 29_303_468
+    ports[5].tx_octets = 289_149
+    ports[5].rx_errors = 228_666
+    vlans = {
+        1: VlanSim(name="", member={5}, untagged={5}),
+        41: VlanSim(name="", member={1, 2, 4, 5}, untagged={1, 2, 4}),
+        90: VlanSim(name="", member={3, 5}, untagged={3}),
+    }
+    pvids = {1: 41, 2: 41, 3: 90, 4: 41, 5: 1}
+    return VirtualSwitchState(
+        model_key="gs105pe",
+        ports=ports,
+        vlans=vlans,
+        pvids=pvids,
+        mgmt=MgmtSim(
+            address="10.1.5.30",
+            netmask="255.255.255.0",
+            gateway="10.1.5.1",
+            mode="dhcp",
+        ),
+        model_name="GS105PE",
+        serial="61W19753A00A8",
+        firmware="V1.6.0.4",
+        hostname="poe-micro3",
+        nsdp_mac=b"\x38\x94\xed\xb7\xcd\xe0",
+        nsdp_password="password",
+        nsdp_qos_engine=2,
+        nsdp_port_mirroring_dest=0,
+        nsdp_port_mirroring_sources=frozenset(),
+        nsdp_igmp_snooping_enabled=True,
+        nsdp_igmp_snooping_vlan=1,
+        nsdp_broadcast_filtering=False,
+        nsdp_loop_detection=False,
+    )
+
+
 def _mac_hex_to_raw(hexstr: str) -> str:
     """``"88:A2:9E:80:87:01"`` -> the 6 raw latin-1 bytes it represents.
 

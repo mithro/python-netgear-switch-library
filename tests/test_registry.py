@@ -5,8 +5,9 @@ from netgear_switch.registry import MODELS, Backend, SwitchClass, get_model
 
 _VERIFIED_KEYS = (
     "m4300-24x", "m4300-16x", "gsm7252ps", "gsm7228ps", "gs110emx", "gs305ep",
+    "gs105pe",
 )
-_UNVERIFIED_KEYS = ("m7300", "xs748t", "gs728tpp", "gs105pe")
+_UNVERIFIED_KEYS = ("m7300", "xs748t", "gs728tpp")
 
 
 def test_known_models_present():
@@ -85,34 +86,38 @@ def test_gs728tpp_registered_smart_managed_pro_snmp_only():
     assert m.verified is False
 
 
-def test_gs105pe_registered_plus_nsdp_http_spec_only():
-    """gs105pe (a real, DISTINCT SKU from gs305ep -- see registry.py's own
-    comment) is spec-only: registered so it's constructible, honestly
-    UNVERIFIED-pending-capture (no seed, no verified reads), exactly like
-    m7300/xs748t/gs728tpp above."""
+def test_gs105pe_registered_plus_nsdp_http_verified():
+    """gs105pe (a real, DISTINCT SKU from gs305ep) is now LIVE-VERIFIED
+    (poe-micro2/3 @ 10.1.5.29/.30, 2026-07-21): NSDP MODEL="GS105PE",
+    port_count=5. verified=True; PoE=0 confirmed (getPoePortStatus.cgi 404s)."""
     m = get_model("gs105pe")
     assert m.switch_class is SwitchClass.PLUS
     assert m.backends == frozenset({Backend.NSDP, Backend.HTTP})
     assert Backend.SNMP not in m.backends
     assert m.snmp_vendor_base is None
     assert m.port_count == 5
-    # PoE port count deliberately NOT fabricated (the doc says "PoE
-    # pass-through", not "delivers PoE to N ports") -- see registry.py's
-    # comment on this entry.
     assert m.poe_port_count == 0
-    assert m.verified is False
+    assert m.verified is True
 
 
-def test_gs105pe_has_no_virtual_seed():
-    """No capture exists for gs105pe, so unlike the seeded verified=True
-    models, VirtualSwitch("gs105pe") gets the honest blank default state --
-    it must never silently gain a seed_gs105pe()/fabricated data."""
+def test_gs105pe_virtual_seed_matches_live_capture():
+    """VirtualSwitch("gs105pe") is seeded from the real live capture (host
+    10.1.5.30): ports 3 (100M) and 5 (1G) up, VLANs 1/41/90, real PVIDs, and
+    the real base MAC -- never blank, never fabricated."""
     from netgear_switch.virtual.server import VirtualSwitch
 
     sw = VirtualSwitch(model="gs105pe")
-    assert sw.state.ports == {}
-    assert sw.state.poe == {}
-    assert sw.state.macs == []
+    st = sw.state
+    assert st.model_name == "GS105PE"
+    assert st.nsdp_mac == b"\x38\x94\xed\xb7\xcd\xe0"
+    assert {p: (s.link, s.speed) for p, s in st.ports.items()} == {
+        1: (False, 0), 2: (False, 0), 3: (True, 100), 4: (False, 0), 5: (True, 1000)
+    }
+    assert set(st.vlans) == {1, 41, 90}
+    assert st.pvids == {1: 41, 2: 41, 3: 90, 4: 41, 5: 1}
+    # Plus family: no PoE PSE, no MAC/FDB
+    assert st.poe == {}
+    assert st.macs == []
 
 
 def test_registry_has_no_duplicate_keys_and_valid_enums():

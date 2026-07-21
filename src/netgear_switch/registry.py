@@ -227,23 +227,25 @@ _MODELS: dict[str, SwitchModel] = {
             # MAC/FDB table over ANY interface (not NSDP, not the web UI --
             # a confirmed Netgear firmware limitation, not merely unread).
             #
-            # PoE port count: the doc describes this model as having "PoE
-            # pass-through" (it can itself be POWERED via PoE on port 5 and
-            # pass that budget through), which is NOT the same claim as "acts
-            # as a PSE delivering power to N downstream ports" -- no capture
-            # or spec confirms how many (if any) of its OTHER 4 ports can
-            # source PoE to a connected PD. Rather than fabricate a count
-            # (unlike gs728tpp's port-count guess above, which at least had a
-            # product-name convention to lean on), this is left at 0 --
-            # UNVERIFIED-pending-capture, exactly like this section's other
-            # spec-only entries.
+            # LIVE-VERIFIED 2026-07-21 against real GS105PE units (poe-micro2/3
+            # @ 10.1.5.29/.30): NSDP reports MODEL="GS105PE", port_count=5,
+            # firmware V1.6.0.x. All NSDP reads (ports/stats/VLANs/PVIDs/mgmt +
+            # full get_device) confirmed live -- see seed_gs105pe() and the
+            # two real NSDP bugs this model exposed (parse_device MODEL
+            # requirement + variable-width PORT_MIRRORING).
+            #
+            # PoE port count = 0, now CONFIRMED (not merely unverified): the
+            # web UI's getPoePortStatus.cgi returns HTTP 404 on the real unit,
+            # i.e. it exposes no PSE PoE-status page. The product's "PoE
+            # pass-through" (it can be POWERED via PoE) is not a PSE claim, so
+            # it sources power to no downstream ports -> 0.
             "GS105PE",
             SwitchClass.PLUS,
             5,
             0,
             {Backend.NSDP, Backend.HTTP},
             None,
-            verified=False,
+            verified=True,
         ),
     )
 }
