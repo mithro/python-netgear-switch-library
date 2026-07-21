@@ -129,7 +129,7 @@ class VirtualHttpFace:
                     return
                 with face._lock:
                     if face.spec.session_token_field is not None:
-                        page = face._render_token_page(path)
+                        page = face._render_token_page(path, {})
                     else:
                         page = web.render_page(face.state, face.spec, path, {})
                 self._send(page)
@@ -151,7 +151,7 @@ class VirtualHttpFace:
                     return
                 with face._lock:
                     if face.spec.session_token_field is not None:
-                        page = face._render_token_page(path)
+                        page = face._render_token_page(path, form)
                     else:
                         web.apply_form(face.state, face.spec, path, form)
                         page = web.render_page(face.state, face.spec, path, form)
@@ -165,19 +165,26 @@ class VirtualHttpFace:
         self._thread.start()
         return int(server.server_address[1])
 
-    def _render_token_page(self, path: str) -> str:
-        """Render one of a token-session model's known GET/POST paths.
-
-        Only ``sysinfo_path``/``stats_path`` are populated for gs110emx
-        today (see ``HttpModelSpec``); anything else reaching here would be
-        a programming error (``_known_paths`` already gates on the spec's
-        populated fields), not a real device response, so it 404s honestly
-        rather than guessing.
-        """
+    def _render_token_page(self, path: str, form: dict[str, str]) -> str:
+        """Render one of a token-session model's known GET/POST paths from
+        state, so the gs110emx HTTP face serves the FULL NSDP read surface
+        (ports/stats/VLANs/PVIDs/mgmt-IP) that real hardware does -- see
+        ``web_gs110emx.render_*``. ``form`` carries the VLAN_ID for a
+        vlanMembership POST. Any path not populated in the spec 404s honestly
+        (``_known_paths`` already gates on the spec's populated fields)."""
         if path == self.spec.sysinfo_path:
             return web_gs110emx.render_sysinfo(self.state, self._token)
         if path == self.spec.stats_path:
             return web_gs110emx.render_interface_stats(self.state, self._token)
+        if path == self.spec.dashboard_path:
+            return web_gs110emx.render_port_settings(self.state, self._token)
+        if path == self.spec.pvid_path:
+            return web_gs110emx.render_pvid(self.state, self._token)
+        if path == self.spec.vlan_config_path:
+            return web_gs110emx.render_cf8021q(self.state, self._token)
+        if path == self.spec.vlan_membership_path:
+            vid = int(form.get("VLAN_ID", "1"))
+            return web_gs110emx.render_vlan_membership(self.state, self._token, vid)
         return "<html><body>Not Found</body></html>"
 
     def _login_response(self, form: dict[str, str]) -> str:

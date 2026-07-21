@@ -101,12 +101,11 @@ def test_stop_closes_listening_socket_deterministically(face) -> None:
 
 def test_gs110emx_has_its_own_bindable_http_face() -> None:
     """gs110emx's registry entry is ``{NSDP, HTTP}`` (see registry.py), not
-    NSDP-only, and its HTTP face has never been exercised by a test of its
-    own -- only gs305ep's. Prove the gs110emx face binds, serves its login
-    page, gates its known paths, and can complete a full token-session
-    (Gambit, not cookie) ``HttpClient`` login + read of both grounded pages
-    (sysInfo.html + interface_stats.html -- see
-    ``protocols/http/endpoints.py``)."""
+    NSDP-only, and its HTTP face serves the FULL NSDP read surface
+    (ports/stats/VLANs/PVIDs/mgmt-IP -- see ``protocols/http/endpoints.py``).
+    Prove the gs110emx face binds, serves its login page, gates its known
+    paths, and can complete a full token-session (Gambit, not cookie)
+    ``HttpClient`` login + read of every grounded page."""
     spec = http_spec(get_model("gs110emx"))
     sw = VirtualSwitch(model="gs110emx")
     sw.start()
@@ -121,19 +120,21 @@ def test_gs110emx_has_its_own_bindable_http_face() -> None:
         assert spec.poe_config_path is None
         resp = httpx.get(f"http://127.0.0.1:{sw.http_port}/PoEPortConfig.cgi")
         assert resp.status_code == 404
-        # dashboard_path/vlan/pvid/poe pages all confirmed-404 on the real
-        # device too -- gs110emx serves ports/VLANs/PVIDs via NSDP, not HTTP.
-        assert spec.dashboard_path is None
+        # HTTP now covers the full NSDP read surface (real URLs, live 2026-07-21).
+        assert spec.dashboard_path == "/iss/specific/port_settings.html"
 
         client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", spec)
         try:
             client.login()
-            assert spec.stats_path is not None
-            stats_page = client.get_page(spec.stats_path)
-            assert stats_page
-            assert spec.sysinfo_path is not None
-            sysinfo_page = client.get_page(spec.sysinfo_path)
-            assert sysinfo_page
+            for path in (
+                spec.stats_path,
+                spec.sysinfo_path,
+                spec.dashboard_path,
+                spec.pvid_path,
+                spec.vlan_config_path,
+            ):
+                assert path is not None
+                assert client.get_page(path)
         finally:
             client.close()
     finally:

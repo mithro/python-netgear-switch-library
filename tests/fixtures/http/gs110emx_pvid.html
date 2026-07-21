@@ -1,0 +1,147 @@
+<!DOCTYPE html> 
+ <html> 
+ <title>PVID Configuration</title> 
+ <meta http-equiv="Content-Type" content="text/html; charset=utf-8"> 
+ <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"> 
+ <link rel="stylesheet" type="text/css" href="/style.css"> 
+ <script src="/frame.js" type="text/javascript"></script> 
+ <script src="/function.js" type="text/javascript"></script> 
+ </head> 
+ <body onload="initTableCss();initErrMsg('Port PVID');"> 
+ <form method="post" action="/iss/specific/vlan_pvidsetting.html">
+ <input type="hidden" name="Gambit" value="GAMBITTOKEN">
+ <input type="hidden" name="PORT_NO" value="">
+ <input type="hidden" name="PORT_PVID" value="">
+ <input type="hidden" name="ACTION" value="">
+ </form>
+ <form method="post" action="/iss/specific/vlan_pvidsetting.html">
+ <table class="detailsAreaContainer"> 
+   <tr>
+     <td>
+       <table class="tableStyle">
+         <tr> 
+		 <script>tbhdrTable('PVID Configuration','advance8021qPvid')</script> 
+		 </tr> 
+		 <tr>
+		   <td class="paddingTableBody" colspan="2">
+		     <table class="tableStyle" id="tbl1" style='width:360px;'>
+		       <tr>
+		         <td class="def_TH spacer4Percent def_center"><input type="checkbox" name="checkALL" rownumber="" value="notchecked" onclick="checkAllCheckedRows('portID');saveSelectedPorts('tbl1');" /></td> 
+		         <td class="def_TH secCell">Port</td>
+		         <td class="def_TH thirCell">PVID</td>
+		       </tr> 
+		       <tr id="g_1_1" exclusive="">
+		         <td class="def_TH def_center"></td> 
+                 <td class="def_TH" sel="text"></td>
+                 <td class="def_TH" sel="input"><input type="text" name="pvid" value="" maxlength="4" size="20" disabled onkeypress="return checkForNumber(1,4094,event,this);" onkeyup="return checkForNumber(1,4094,event,this);"> 
+                 </td>  
+		       </tr>
+		       
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">1
+		         
+		         <input type="hidden" value="1">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">2
+		         
+		         <input type="hidden" value="2">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">3
+		         
+		         <input type="hidden" value="3">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">4
+		         
+		         <input type="hidden" value="4">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">5
+		         
+		         <input type="hidden" value="5">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">6
+		         
+		         <input type="hidden" value="6">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">7
+		         
+		         <input type="hidden" value="7">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">8
+		         
+		         <input type="hidden" value="8">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">9
+		         
+		         <input type="hidden" value="9">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		       <tr class="portID">
+		         <td class="def firstCol def_center"><input type="checkbox" class='checkbox' name="checkbox" rownumber="" value="checked" onclick="checkBoxOnclick();saveSelectedPorts('tbl1');" /></td>
+		         <td class="def" sel="text">10
+		         
+		         <input type="hidden" value="10">
+		         </td>
+		         
+		         <td class="def" sel="input">1</td>
+		         
+		     </table>
+		   </td>
+		 </tr>
+       </table>
+     </td>
+   </tr>
+ </table>
+<input type="hidden" name="selectedPorts" id="selectedPorts" size="2700" maxlength="2699" value="">
+<input type="hidden" name="lagStatus" value="" disabled>
+<input type="hidden" name="errMsg" id="errMsg" value="" disabled>
+ </form>
+ <script> 
+ var str = CreateButtons('button','Cancel','javaScript:void(0)','btn_Cancel','off'); 
+ str += CreateButtons('button','Apply','javaScript:void(0)','btn_Apply','off'); 
+ PaintButtons(str); 
+ </script> 
+ </body>
+ </html>

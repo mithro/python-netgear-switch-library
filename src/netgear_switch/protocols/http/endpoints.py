@@ -63,20 +63,20 @@ class LoginScheme(enum.Enum):
     CHEETAH_FORM = "cheetah_form"       # Pro/S3300 (gsm7228ps) — plaintext form
 
 
-class StatsPageShape(enum.Enum):
-    """Which HTML row-shape ``http_read.py``'s ``_parse_stats`` must parse a
-    model's ``stats_path`` page with.
+class HtmlDialect(enum.Enum):
+    """Which family of HTML the model's read pages are written in, selecting the
+    whole parser set ``http_read.py`` uses for ports/stats/PVIDs/VLAN-list.
 
-    Previously keyed off ``session_token_field is not None`` as a proxy for
-    "this is gs110emx" -- that happened to work only because gs110emx is
-    currently the one and only token-session model, but a FUTURE token-session
-    model with an ordinary (closed-``<tr>``) stats page would have been
-    silently misparsed by that proxy. A dedicated field says exactly what it
-    means.
+    The two families genuinely differ in wire shape: the gs305ep CGI pages use
+    closed ``<tr class="portID">...</tr>`` rows and ``8021qCf.cgi`` VLAN
+    checkboxes, whereas the real GS110EMX firmware never closes a port row and
+    lists VLANs as ``<tr class="vlanID tableTr">`` rows (all GROUNDED in
+    captures under ``tests/fixtures/http/``). One dialect field per model beats
+    a separate shape flag per read op.
     """
 
-    STANDARD = "standard"  # closed <tr class="portID">...</tr> (gs305ep)
-    GS110EMX_OPEN_ROW = "gs110emx_open_row"  # real hardware never closes the row
+    STANDARD = "standard"  # gs305ep CGI: closed portID rows, vlanck checkboxes
+    GS110EMX = "gs110emx"  # real GS110EMX: open portID rows, Advanced-802.1Q list
 
 
 @dataclass(frozen=True)
@@ -117,9 +117,10 @@ class HttpModelSpec:
     # ``None`` means this model has no such HTTP page (gs305ep/gsm7228ps
     # read this via NSDP/SNMP instead).
     sysinfo_path: str | None = None
-    # Which HTML row-shape stats_path uses -- see StatsPageShape. Defaults to
-    # the ordinary closed-<tr> shape every model but gs110emx uses.
-    stats_page_shape: StatsPageShape = StatsPageShape.STANDARD
+    # Which HTML family this model's read pages use -- see HtmlDialect. Selects
+    # the ports/stats/PVID/VLAN-list parser set. Defaults to the gs305ep CGI
+    # shape every model but gs110emx uses.
+    html_dialect: HtmlDialect = HtmlDialect.STANDARD
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -151,23 +152,25 @@ _GS305EP = HttpModelSpec(
 )
 
 # GROUNDED: live capture from a physical GS110EMX (see
-# tests/fixtures/http/gs110emx_{login,redirect,sysinfo,interface_stats}.html).
-# GET / for `rand` -> POST LoginPassword=merge_hash_md5(pw, rand) to
-# /redirect.html -> response carries a Gambit TOKEN (no cookie) that every
-# subsequent request carries as ?Gambit=<token> (GET) or a form field
-# (POST). Confirmed-404 endpoints (/iss/specific/{vlan,port,poePortStatus,
-# neighbor,dashboard}.html) stay None -- gs110emx has no PoE and serves
-# ports/VLANs/PVIDs via NSDP, not HTTP. reboot_path/logout_path were never
-# captured and stay None rather than guessed.
+# tests/fixtures/http/gs110emx_*.html). GET / for `rand` -> POST
+# LoginPassword=merge_hash_md5(pw, rand) to /redirect.html -> response carries
+# a Gambit TOKEN (no cookie) that every subsequent request carries as
+# ?Gambit=<token> (GET) or a form field (POST).
 #
-# reads_verified=True covers exactly the grounded surface above -- but within
-# sysInfo.html specifically, only the STATIC-IP case (the real capture's own
-# `data-select-value="0"`) was directly observed; parse_sysinfo's DHCP branch
-# (`data-select-value="1"` -> IpMode.DHCP) is inferred from the same
-# <select>'s option ordering, never itself captured from a real
-# DHCP-configured device -- see HttpSysInfo's docstring. Don't read
-# reads_verified=True as a claim that the DHCP branch was independently
-# verified; it wasn't.
+# HTTP covers the FULL NSDP read surface on this model (2026-07-21 live
+# discovery, correcting an earlier absence-of-evidence error): the real page
+# URLs live only as string literals in /frame.js, so an earlier probe that
+# guessed /iss/specific/{vlan,port,pvid}.html got 404 and WRONGLY concluded
+# "NSDP-only". The real URLs are ports=port_settings.html, PVIDs=
+# vlan_pvidsetting.html, VLAN list=Cf8021q.html (Advanced 802.1Q), VLAN
+# membership=vlanMembership.html (same `hiddenMem`/VLAN_ID scheme as gs305ep).
+# poe_*_path stay None -- gs110emx genuinely has NO PoE (confirmed 404).
+# reboot_path/logout_path were never captured and stay None rather than guessed.
+#
+# reads_verified=True covers ports/stats/PVIDs/VLANs/mgmt-IP. Caveat: within
+# sysInfo.html, only the STATIC-IP case was directly observed; parse_sysinfo's
+# DHCP branch is inferred from the same <select>'s option ordering, never
+# captured from a real DHCP-configured device -- see HttpSysInfo's docstring.
 _GS110EMX = HttpModelSpec(
     model_key="gs110emx",
     scheme=LoginScheme.GAMBIT,
@@ -177,20 +180,20 @@ _GS110EMX = HttpModelSpec(
     password_field="LoginPassword",
     cookie_name="",  # unused: token session (see session_token_field)
     needs_rand=True,
-    dashboard_path=None,  # confirmed 404 -- no HTTP port-status page
+    dashboard_path="/iss/specific/port_settings.html",
     stats_path="/iss/specific/interface_stats.html",
     sysinfo_path="/iss/specific/sysInfo.html",
     poe_config_path=None,
     poe_status_path=None,  # confirmed 404 -- no PoE on this model
-    vlan_config_path=None,  # confirmed 404 -- VLANs are NSDP-only here
-    vlan_membership_path=None,  # confirmed 404
-    pvid_path=None,  # confirmed 404
+    vlan_config_path="/iss/specific/Cf8021q.html",
+    vlan_membership_path="/iss/specific/vlanMembership.html",
+    pvid_path="/iss/specific/vlan_pvidsetting.html",
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,  # never captured -- not guessed
     is_epx_poe=False,
     reads_verified=True,
     session_token_field="Gambit",
-    stats_page_shape=StatsPageShape.GS110EMX_OPEN_ROW,
+    html_dialect=HtmlDialect.GS110EMX,
 )
 
 # Login is GROUNDED: certbot-hook-netgear-switches/netgear-updater.py

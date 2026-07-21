@@ -108,6 +108,20 @@ def _gs110emx_pages() -> dict[str, str]:
         "/iss/specific/interface_stats.html": (
             _FIX / "gs110emx_interface_stats.html"
         ).read_text(),
+        "/iss/specific/port_settings.html": (
+            _FIX / "gs110emx_port_settings.html"
+        ).read_text(),
+        "/iss/specific/vlan_pvidsetting.html": (
+            _FIX / "gs110emx_pvid.html"
+        ).read_text(),
+        "/iss/specific/Cf8021q.html": (_FIX / "gs110emx_cf8021q.html").read_text(),
+        # The fake session returns this same VLAN-1 membership page for every
+        # VLAN_ID POST (only VLAN 1's membership was captured live -- see the
+        # per-VLAN-select live gap in the memory notes); the flow + parser are
+        # what this exercises.
+        "/iss/specific/vlanMembership.html": (
+            _FIX / "gs110emx_vlanmembership.html"
+        ).read_text(),
     }
 
 
@@ -150,13 +164,44 @@ def test_gs110emx_get_mgmt_ip_from_sysinfo() -> None:
     assert mgmt.base_mac == "BC:A5:11:B8:EC:F1"
 
 
-def test_gs110emx_http_has_no_port_status_poe_or_vlan_pages() -> None:
-    """Live capture proved /iss/specific/{vlan,port,poePortStatus,neighbor,
-    dashboard}.html all 404 on a real GS110EMX -- gs110emx has no PoE and
-    serves ports/VLANs/PVIDs via NSDP, not HTTP. These ops must raise, not
-    silently return an empty/fabricated result."""
+def test_gs110emx_http_ports_grounded_in_real_capture() -> None:
+    """port_settings.html (real capture): HTTP covers NSDP's port-status
+    surface. Ports 6/8/9/10 up at 100/1000/10000/10000 Mbps; the rest down."""
     reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
-    for op in ("get_ports", "get_poe", "get_pvids", "get_vlans"):
+    ports = {p.port: p for p in reader.get_ports()}
+    assert len(ports) == 10
+    assert (ports[6].link_up, ports[6].speed_mbps) == (True, 100)
+    assert (ports[8].link_up, ports[8].speed_mbps) == (True, 1000)
+    assert (ports[9].link_up, ports[9].speed_mbps) == (True, 10000)
+    assert (ports[10].link_up, ports[10].speed_mbps) == (True, 10000)
+    assert (ports[1].link_up, ports[1].speed_mbps) == (False, None)
+    # port 8's real description survives into the name field
+    assert ports[8].name == "rumpus"
+
+
+def test_gs110emx_http_pvids_grounded_in_real_capture() -> None:
+    reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    assert dict(reader.get_pvids()) == dict.fromkeys(range(1, 11), 1)
+
+
+def test_gs110emx_http_vlans_grounded_in_real_capture() -> None:
+    """Cf8021q.html VLAN list + vlanMembership.html hiddenMem (real captures):
+    the 12 configured VLAN IDs, and VLAN 1's real membership (ports 1-8
+    untagged, 9-10 tagged)."""
+    reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    vlans = {v.vlan_id: v for v in reader.get_vlans()}
+    assert set(vlans) == {1, 4, 5, 6, 7, 10, 20, 21, 41, 90, 99, 121}
+    v1 = vlans[1]
+    assert v1.untagged_ports == frozenset(range(1, 9))
+    assert v1.tagged_ports == frozenset({9, 10})
+    assert v1.member_ports == frozenset(range(1, 11))
+
+
+def test_gs110emx_http_poe_and_l2_tables_unsupported() -> None:
+    """gs110emx genuinely has no PoE, and NSDP/HTTP expose no MAC/LLDP/sensor
+    tables on this Plus model -- those ops must raise, not fabricate."""
+    reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    for op in ("get_poe", "get_macs", "get_lldp", "get_sensors"):
         with pytest.raises(UnsupportedCapabilityError):
             getattr(reader, op)()
 

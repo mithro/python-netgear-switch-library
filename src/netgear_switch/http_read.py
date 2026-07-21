@@ -5,13 +5,14 @@ Parallel to ``snmp_read.py``/``nsdp_read.py``. Construction is gated on
 UNVERIFIED-pending-capture (gsm7228ps cheetah/S3300) refuses to construct
 rather than return fabricated data -- the facade never gets a
 plausible-but-wrong result from an unverified scrape. Ops a model's HTTP
-surface genuinely does not expose (e.g. gs110emx has no HTTP port-status/
-PoE/VLAN pages -- those are NSDP-only; see ``protocols/http/endpoints.py``)
-raise ``UnsupportedCapabilityError`` honestly instead of silently returning
-``[]``, via ``_require_path``'s per-op ``None``-path check below.
-``get_stats`` selects its parser by ``HttpModelSpec.stats_page_shape`` and
-``get_mgmt_ip`` by ``sysinfo_path`` because gs110emx's HTTP pages have a
-different wire shape than gs305ep's (see ``protocols/http/parse.py``).
+surface genuinely does not expose (e.g. gs110emx has no PoE, so PoE/MAC/LLDP/
+sensor reads; see ``protocols/http/endpoints.py``) raise
+``UnsupportedCapabilityError`` honestly instead of silently returning ``[]``,
+via ``_require_path``'s per-op ``None``-path check below. gs110emx's web UI
+DOES cover the full NSDP read surface (ports/stats/VLANs/PVIDs/mgmt-IP) -- the
+port/stats/PVID/VLAN-list parsers are selected by ``HttpModelSpec.html_dialect``
+and ``get_mgmt_ip`` by ``sysinfo_path`` because gs110emx's pages use a
+different HTML dialect than gs305ep's (see ``protocols/http/parse.py``).
 
 All page-path selection and HTML-to-model conversion lives in the
 module-level helpers below (pure, I/O-free); ``HttpReader``/``AsyncHttpReader``
@@ -61,19 +62,44 @@ def _require_path(model_key: str, path: str | None, op: str) -> str:
     return path
 
 
+def _is_gs110emx_dialect(spec: HttpModelSpec) -> bool:
+    from .protocols.http.endpoints import HtmlDialect
+
+    return spec.html_dialect is HtmlDialect.GS110EMX
+
+
 def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
     """Dispatch ``stats_path``'s HTML to the right parser, keyed off
-    ``spec.stats_page_shape`` (a dedicated field -- NOT ``session_token_field
-    is not None``, which was only ever a proxy for "this is gs110emx" and
-    would misparse a future token-session model with an ordinary stats
-    page): gs110emx's interface_stats.html has a different (and, on real
-    hardware, malformed -- see ``parse._OPEN_ROW_RE``) row shape than
-    gs305ep's portStatistics.cgi."""
-    from .protocols.http.endpoints import StatsPageShape
-
-    if spec.stats_page_shape is StatsPageShape.GS110EMX_OPEN_ROW:
+    ``spec.html_dialect``: gs110emx's interface_stats.html has a different
+    (and, on real hardware, malformed -- see ``parse._OPEN_ROW_RE``) row shape
+    than gs305ep's portStatistics.cgi."""
+    if _is_gs110emx_dialect(spec):
         return parse.parse_interface_stats(html)
     return parse.parse_port_stats(html)
+
+
+def _parse_ports(spec: HttpModelSpec, html: str) -> list[PortStatus]:
+    """Dispatch the port-status page to the dialect's parser: gs110emx's
+    port_settings.html (open rows, speed text) vs gs305ep's dashboard.cgi."""
+    if _is_gs110emx_dialect(spec):
+        return parse.parse_gs110emx_port_status(html)
+    return parse.parse_port_status(html)
+
+
+def _parse_pvids(spec: HttpModelSpec, html: str) -> list[tuple[int, int]]:
+    """Dispatch the PVID page: gs110emx's vlan_pvidsetting.html vs
+    gs305ep's portPVID.cgi."""
+    if _is_gs110emx_dialect(spec):
+        return parse.parse_gs110emx_pvids(html)
+    return parse.parse_pvids(html)
+
+
+def _parse_vlan_ids(spec: HttpModelSpec, html: str) -> list[int]:
+    """Dispatch the VLAN-list page: gs110emx's Cf8021q.html (Advanced 802.1Q
+    rows) vs gs305ep's 8021qCf.cgi (vlanckN checkboxes)."""
+    if _is_gs110emx_dialect(spec):
+        return parse.parse_gs110emx_vlan_ids(html)
+    return parse.parse_vlan_ids(html)
 
 
 def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
@@ -117,7 +143,7 @@ class HttpReader:
 
     def get_ports(self) -> list[PortStatus]:
         path = _require_path(self.model.key, self._spec.dashboard_path, "port status")
-        return parse.parse_port_status(self.session.get_page(path))
+        return _parse_ports(self._spec, self.session.get_page(path))
 
     def get_stats(self) -> list[PortStats]:
         path = _require_path(self.model.key, self._spec.stats_path, "port statistics")
@@ -129,7 +155,7 @@ class HttpReader:
 
     def get_pvids(self) -> list[tuple[int, int]]:
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
-        return parse.parse_pvids(self.session.get_page(path))
+        return _parse_pvids(self._spec, self.session.get_page(path))
 
     def get_vlans(self) -> list[VLANInfo]:
         cfg_path = _require_path(
@@ -140,7 +166,7 @@ class HttpReader:
         )
         cfg = self.session.get_page(cfg_path)
         result: list[VLANInfo] = []
-        for vid in parse.parse_vlan_ids(cfg):
+        for vid in _parse_vlan_ids(self._spec, cfg):
             html = self.session.post_form(member_path, {"VLAN_ID": str(vid)})
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
@@ -172,7 +198,7 @@ class AsyncHttpReader:
 
     async def get_ports(self) -> list[PortStatus]:
         path = _require_path(self.model.key, self._spec.dashboard_path, "port status")
-        return parse.parse_port_status(await self.session.get_page(path))
+        return _parse_ports(self._spec, await self.session.get_page(path))
 
     async def get_stats(self) -> list[PortStats]:
         path = _require_path(self.model.key, self._spec.stats_path, "port statistics")
@@ -184,7 +210,7 @@ class AsyncHttpReader:
 
     async def get_pvids(self) -> list[tuple[int, int]]:
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
-        return parse.parse_pvids(await self.session.get_page(path))
+        return _parse_pvids(self._spec, await self.session.get_page(path))
 
     async def get_vlans(self) -> list[VLANInfo]:
         cfg_path = _require_path(
@@ -195,7 +221,7 @@ class AsyncHttpReader:
         )
         cfg = await self.session.get_page(cfg_path)
         result: list[VLANInfo] = []
-        for vid in parse.parse_vlan_ids(cfg):
+        for vid in _parse_vlan_ids(self._spec, cfg):
             html = await self.session.post_form(member_path, {"VLAN_ID": str(vid)})
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result

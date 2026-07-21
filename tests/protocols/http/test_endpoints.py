@@ -5,8 +5,8 @@ import pytest
 from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.protocols.http.endpoints import (
     HTTP_SPECS,
+    HtmlDialect,
     LoginScheme,
-    StatsPageShape,
     http_spec,
 )
 from netgear_switch.registry import Backend, SwitchModel, get_model
@@ -39,14 +39,14 @@ def test_gs305ep_spec_is_grounded_merge_hash() -> None:
     assert spec.pvid_path == "/portPVID.cgi"
     assert spec.is_epx_poe is True
     assert spec.reads_verified is True
-    assert spec.stats_page_shape is StatsPageShape.STANDARD
+    assert spec.html_dialect is HtmlDialect.STANDARD
 
 
 def test_gs110emx_gambit_scheme_and_reads_grounded() -> None:
     """GROUNDED in a live capture from a physical GS110EMX (see
     tests/fixtures/http/gs110emx_*.html): merge-hash login + a Gambit TOKEN
-    session (not a cookie), and exactly the sysInfo/interface_stats reads
-    the capture proved exist -- everything else 404s on real hardware."""
+    session (not a cookie), and the full NSDP-parity read surface
+    (ports/stats/VLANs/PVIDs/mgmt-IP) discovered live 2026-07-21."""
     spec = http_spec(get_model("gs110emx"))
     assert spec.scheme is LoginScheme.GAMBIT
     assert spec.scheme_verified is True
@@ -57,16 +57,17 @@ def test_gs110emx_gambit_scheme_and_reads_grounded() -> None:
     assert spec.needs_rand is True
     assert spec.sysinfo_path == "/iss/specific/sysInfo.html"
     assert spec.stats_path == "/iss/specific/interface_stats.html"
-    # Confirmed-404 on real hardware: no HTTP port-status/PoE/VLAN pages.
-    assert spec.dashboard_path is None
+    # Full NSDP read parity over HTTP (real URLs, live-discovered 2026-07-21).
+    assert spec.dashboard_path == "/iss/specific/port_settings.html"
+    assert spec.vlan_config_path == "/iss/specific/Cf8021q.html"
+    assert spec.vlan_membership_path == "/iss/specific/vlanMembership.html"
+    assert spec.pvid_path == "/iss/specific/vlan_pvidsetting.html"
+    # gs110emx genuinely has NO PoE (confirmed 404) -- these stay None.
     assert spec.poe_config_path is None
     assert spec.poe_status_path is None
-    assert spec.vlan_config_path is None
-    assert spec.vlan_membership_path is None
-    assert spec.pvid_path is None
     assert spec.is_epx_poe is False
     assert spec.reads_verified is True
-    assert spec.stats_page_shape is StatsPageShape.GS110EMX_OPEN_ROW
+    assert spec.html_dialect is HtmlDialect.GS110EMX
 
 
 def test_gsm7228ps_cheetah_form_snmp_preferred() -> None:

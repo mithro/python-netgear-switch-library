@@ -203,6 +203,109 @@ def parse_interface_stats(html: str) -> list[PortStats]:
     return out
 
 
+def _speed_text_to_mbps(text: str) -> int | None:
+    """GS110EMX port-status speed text -> Mbps. ``"10G Full"`` -> 10000,
+    ``"1000M Full"`` -> 1000, ``"100M Full"`` -> 100, ``"No Speed"`` -> None.
+
+    Matches the SNMP/NSDP backends' Mbps convention (LinkSpeed.speed_mbps) so a
+    port's ``speed_mbps`` is identical whichever backend read it -- the whole
+    point of the HTTP<->NSDP cross-verification. A ``G`` suffix multiplies by
+    1000; a bare ``M`` is Mbps as-is; anything with no digit+unit is ``None``.
+    """
+    m = re.search(r"(\d+)\s*([GM])", text, re.IGNORECASE)
+    if not m:
+        return None
+    value = int(m.group(1))
+    return value * 1000 if m.group(2).upper() == "G" else value
+
+
+def parse_gs110emx_port_status(html: str) -> list[PortStatus]:
+    """GS110EMX ``port_settings.html`` ``portID`` rows (OPEN-row shape, see
+    ``_OPEN_ROW_RE``): [1]=port#, [2]=description, [3]=link ``Up``/``Down``,
+    [5]=speed text.
+
+    GROUNDED in ``gs110emx_port_settings.html`` (a real capture). ``name`` is
+    the port description (``None`` when blank, as it is on a factory switch);
+    ``admin_enabled`` is reported ``True`` -- this status page shows link state,
+    not administrative state, exactly like the NSDP ``PORT_STATUS`` backend
+    (``nsdp_read._ports``), so the two agree field-for-field on the data both
+    protocols actually expose (port/link_up/speed_mbps).
+    """
+    rows = _OPEN_ROW_RE.findall(html)
+    if not rows:
+        raise HttpUnexpectedPageError(
+            'port_settings.html: expected <tr class="portID"> rows, found none'
+        )
+    out: list[PortStatus] = []
+    for row in rows:
+        c = _cells(row)
+        if len(c) < 6:
+            raise HttpUnexpectedPageError(
+                f"port_settings.html: expected >=6 <td> columns per portID "
+                f"row, got {len(c)}"
+            )
+        port = _int(c[1])
+        if port is None:
+            raise HttpUnexpectedPageError(
+                f"port_settings.html: could not parse a port number from "
+                f"column {c[1]!r}"
+            )
+        link_up = c[3].strip().lower() == "up"
+        out.append(
+            PortStatus(
+                port=port,
+                name=c[2] or None,
+                admin_enabled=True,
+                link_up=link_up,
+                speed_mbps=_speed_text_to_mbps(c[5]) if link_up else None,
+            )
+        )
+    return out
+
+
+def parse_gs110emx_pvids(html: str) -> list[tuple[int, int]]:
+    """GS110EMX ``vlan_pvidsetting.html`` ``portID`` rows (OPEN-row shape):
+    [1]=port#, [2]=PVID. GROUNDED in ``gs110emx_pvid.html`` (a real capture)."""
+    rows = _OPEN_ROW_RE.findall(html)
+    if not rows:
+        raise HttpUnexpectedPageError(
+            'vlan_pvidsetting.html: expected <tr class="portID"> rows, found none'
+        )
+    out: list[tuple[int, int]] = []
+    for row in rows:
+        c = _cells(row)
+        if len(c) < 3:
+            raise HttpUnexpectedPageError(
+                f"vlan_pvidsetting.html: expected >=3 <td> columns per portID "
+                f"row, got {len(c)}"
+            )
+        port = _int(c[1])
+        pvid = _int(c[2])
+        if port is None or pvid is None:
+            raise HttpUnexpectedPageError(
+                f"vlan_pvidsetting.html: could not parse port/PVID from row {c!r}"
+            )
+        out.append((port, pvid))
+    return out
+
+
+def parse_gs110emx_vlan_ids(html: str) -> list[int]:
+    """GS110EMX ``Cf8021q.html`` (Advanced 802.1Q) VLAN list: each
+    ``<tr class="vlanID tableTr">`` row's first ``<td class="def">`` is the VID.
+    GROUNDED in ``gs110emx_cf8021q.html`` (a real capture)."""
+    ids = re.findall(
+        r'<tr class="vlanID tableTr">.*?<td class="def">\s*(\d+)\s*</td>',
+        html,
+        re.DOTALL,
+    )
+    if not ids:
+        raise HttpUnexpectedPageError(
+            'Cf8021q.html: expected <tr class="vlanID tableTr"> rows with a VID '
+            "cell, found none"
+        )
+    return sorted({int(i) for i in ids})
+
+
 def parse_poe_status(html: str) -> list[PoEStatus]:
     """getPoePortStatus.cgi ``portID`` rows: [1]=port,[2]=state,[3]=power_mw."""
     rows = _ROW_RE.findall(html)
