@@ -26,7 +26,7 @@ from urllib.parse import parse_qs
 
 from ...protocols.http.crypt import merge_hash_md5
 from ...protocols.http.endpoints import HttpModelSpec, LoginScheme
-from .. import web, web_gs110emx
+from .. import web, web_gs105pe, web_gs110emx
 
 if TYPE_CHECKING:
     from ..state import VirtualSwitchState
@@ -130,6 +130,8 @@ class VirtualHttpFace:
                 with face._lock:
                     if face.spec.session_token_field is not None:
                         page = face._render_token_page(path, {})
+                    elif (gs105 := face._render_gs105pe_page(path, {})) is not None:
+                        page = gs105
                     else:
                         page = web.render_page(face.state, face.spec, path, {})
                 self._send(page)
@@ -152,6 +154,8 @@ class VirtualHttpFace:
                 with face._lock:
                     if face.spec.session_token_field is not None:
                         page = face._render_token_page(path, form)
+                    elif (gs105 := face._render_gs105pe_page(path, form)) is not None:
+                        page = gs105
                     else:
                         web.apply_form(face.state, face.spec, path, form)
                         page = web.render_page(face.state, face.spec, path, form)
@@ -164,6 +168,38 @@ class VirtualHttpFace:
         )
         self._thread.start()
         return int(server.server_address[1])
+
+    def _render_gs105pe_page(
+        self, path: str, form: dict[str, str]
+    ) -> str | None:
+        """Render a GS105PE read page from state, or ``None`` if this model is
+        not gs105pe (so the caller falls through to the generic renderer).
+
+        Without this, a gs105pe VirtualSwitch fell through to ``web.render_page``
+        whose permissive catch-all returns a fabricated 200 -- the mock silently
+        reported every port DOWN while the seed had ports 3 and 5 UP, exactly
+        the "mock must never fabricate" rule this face's docstring states.
+        """
+        from ...protocols.http.endpoints import HtmlDialect
+
+        if self.spec.html_dialect is not HtmlDialect.GS105PE:
+            return None
+        if path == self.spec.dashboard_path:
+            return web_gs105pe.render_status(self.state)
+        if path == self.spec.stats_path:
+            return web_gs105pe.render_port_statistics(self.state)
+        if path == self.spec.pvid_path:
+            return web_gs105pe.render_pvid(self.state)
+        if path == self.spec.vlan_config_path:
+            return web_gs105pe.render_vlan_config(self.state)
+        if path == self.spec.sysinfo_path:
+            return web_gs105pe.render_switch_info(self.state)
+        if path == self.spec.vlan_membership_path:
+            # A GET (no VLAN_ID) shows the lowest VLAN, matching real firmware;
+            # a POST selects the requested one.
+            vid = int(form.get("VLAN_ID", "0")) or min(self.state.vlans, default=1)
+            return web_gs105pe.render_vlan_membership(self.state, vid)
+        return None
 
     def _render_token_page(self, path: str, form: dict[str, str]) -> str:
         """Render one of a token-session model's known GET/POST paths from

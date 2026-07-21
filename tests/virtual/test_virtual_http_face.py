@@ -181,13 +181,13 @@ def test_gs110emx_http_reader_end_to_end() -> None:
             assert stats[3].rx_bytes == 0  # unseeded counter renders as 0
 
             mgmt = reader.get_mgmt_ip()
-            assert mgmt.address == "10.1.5.20"
+            assert mgmt.address == "10.1.5.25"
             assert mgmt.netmask == "255.255.255.0"
             assert mgmt.gateway == "10.1.5.1"
             assert mgmt.mode is IpMode.STATIC
             # Uppercased (VirtualSwitchState.nsdp_mac is the same bytes the
             # SNMP/NSDP mock faces serve, so this must match their casing).
-            assert mgmt.base_mac == "28:C6:8E:00:00:01"
+            assert mgmt.base_mac == "BC:A5:11:B8:EC:F1"
         finally:
             client.close()
     finally:
@@ -209,7 +209,7 @@ def test_gs110emx_async_http_reader_end_to_end() -> None:
                 stats = {s.port: s for s in await reader.get_stats()}
                 assert stats[1].rx_bytes == 1_000_000
                 mgmt = await reader.get_mgmt_ip()
-                assert mgmt.address == "10.1.5.20"
+                assert mgmt.address == "10.1.5.25"
                 assert mgmt.mode is IpMode.STATIC
             finally:
                 await client.aclose()

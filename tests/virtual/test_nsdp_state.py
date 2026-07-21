@@ -27,26 +27,32 @@ def test_seed_has_plus_shape():
 
 def test_nsdp_tlvs_projects_ports_and_identity():
     st = seed_gs110emx()
-    tlvs = st.nsdp_tlvs({Tag.PORT_STATUS})
+    # Real hardware answers with ONLY the requested tags, so a caller wanting
+    # identity must ask for it (see nsdp_read._with_model). Requesting
+    # PORT_STATUS alone must NOT yield MODEL.
+    assert Tag.MODEL not in [t.tag for t in st.nsdp_tlvs({Tag.PORT_STATUS})]
+    tlvs = st.nsdp_tlvs({Tag.MODEL, Tag.PORT_COUNT, Tag.PORT_STATUS})
     tags = [t.tag for t in tlvs]
-    assert Tag.MODEL in tags  # identity always present
+    assert Tag.MODEL in tags
     assert Tag.PORT_COUNT in tags
     dev = _device_from(tlvs)
     ports = {p.port_id: p for p in dev.port_status}
-    assert ports[1].speed is LinkSpeed.GIGABIT
-    assert ports[3].speed is LinkSpeed.DOWN     # link-down projects DOWN
+    # Seed mirrors the real capture: 6/8/9/10 up, the rest down.
+    assert ports[1].speed is LinkSpeed.DOWN     # link-down projects DOWN
+    assert ports[8].speed is LinkSpeed.GIGABIT
     assert ports[9].speed is LinkSpeed.TEN_GIGABIT
 
 
 def test_nsdp_tlvs_projects_vlans_and_pvids_and_mgmt():
     st = seed_gs110emx()
-    dev = _device_from(st.nsdp_tlvs({Tag.VLAN_MEMBERS, Tag.PORT_PVID,
+    dev = _device_from(st.nsdp_tlvs({Tag.MODEL, Tag.PORT_COUNT,
+                                     Tag.VLAN_MEMBERS, Tag.PORT_PVID,
                                      Tag.IP_ADDRESS, Tag.NETMASK, Tag.GATEWAY,
                                      Tag.DHCP_MODE}))
     v90 = next(v for v in dev.vlan_members if v.vlan_id == 90)
     assert v90.member_ports == frozenset({1, 2, 10})
     assert v90.untagged_ports == frozenset({1, 2})
-    assert dev.ip == "10.1.5.20"
+    assert dev.ip == "10.1.5.25"
     assert dev.dhcp_enabled is False
     assert (1, 90) in {(p.port_id, p.vlan_id) for p in dev.port_pvids}
 

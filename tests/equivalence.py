@@ -83,8 +83,9 @@ GS110EMX_PINS = EquivalencePins(
     vlan_id=90,
     vlan_name="",           # NSDP carries no VLAN name
     vlan_member_port=10,
-    mgmt_address="10.1.5.20",
+    mgmt_address="10.1.5.25",
     mgmt_mode=IpMode.STATIC,
+    base_mac="BC:A5:11:B8:EC:F1",
     poe_port=0,             # NSDP exposes no PoE (unused)
     poe_power_mw=0,
     mac="",                 # NSDP exposes no MAC table (unused)
@@ -390,7 +391,7 @@ def assert_nsdp_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> 
     assert mgmt.address, "mgmt-ip must be populated"
 
     # Content pins over NSDP-populated fields only.
-    assert any(p.port == 1 and p.speed_mbps == 1000 for p in ports)
+    assert any(p.port == 8 and p.speed_mbps == 1000 for p in ports)
     assert any(p.port == 9 and p.speed_mbps == 10000 for p in ports)  # 10G pin
     target = next(v for v in vlans if v.vlan_id == pins.vlan_id)
     assert pins.vlan_member_port in target.member_ports

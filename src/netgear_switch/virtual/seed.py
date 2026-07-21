@@ -247,15 +247,30 @@ def seed_gsm7228ps() -> VirtualSwitchState:
 
 
 def seed_gs110emx() -> VirtualSwitchState:
-    """Build a realistic GS110EMX (10-port Plus, NSDP) virtual switch state."""
+    """Build a GS110EMX (10-port Plus, NSDP+HTTP) state from the REAL capture.
+
+    Identity, mgmt-IP and per-port link/speed/description are transcribed from
+    this model's OWN committed captures (``tests/fixtures/http/
+    gs110emx_{sysinfo,port_settings,interface_stats}.html``, host 10.1.5.25):
+    ports 6/8/9/10 up at 100M/1G/10G/10G with port 8 described "rumpus", the
+    rest down; static 10.1.5.25/24 via 10.1.5.1; MAC bc:a5:11:b8:ec:f1.
+
+    Previously these were hand-invented values (hostname "plus-sw", 10.1.5.20,
+    the default MAC) that CONTRADICTED the model's own capture while tests
+    pinned them as if true. VLANs/PVIDs below are still illustrative -- no
+    per-VLAN membership capture exists for this unit beyond VLAN 1 -- and the
+    QoS/mirroring/IGMP values further down are likewise test fixtures, not
+    captured readings.
+    """
+    real_speed = {6: 100, 8: 1000, 9: 10000, 10: 10000}
     ports: dict[int, PortSim] = {}
     for port in range(1, 11):
-        speed = 10000 if port in (9, 10) else 1000
         sim = PortSim(
             name=f"g{port}",
             admin=True,
-            link=port != 3,  # port 3 admin-up but link-down
-            speed=speed,
+            link=port in real_speed,
+            speed=real_speed.get(port, 0),
+            description="rumpus" if port == 8 else None,
         )
         if port in (1, 2):
             sim.rx_octets = 1_000_000
@@ -272,7 +287,7 @@ def seed_gs110emx() -> VirtualSwitchState:
     pvids[2] = 90
 
     mgmt = MgmtSim(
-        address="10.1.5.20", netmask="255.255.255.0", gateway="10.1.5.1", mode="static"
+        address="10.1.5.25", netmask="255.255.255.0", gateway="10.1.5.1", mode="static"
     )
 
     return VirtualSwitchState(
@@ -282,9 +297,10 @@ def seed_gs110emx() -> VirtualSwitchState:
         pvids=pvids,
         mgmt=mgmt,
         model_name="GS110EMX",
-        serial="53H6025EA0083",
-        firmware="1.0.0.7",
-        hostname="plus-sw",
+        serial="53H60253A0032",
+        firmware="1.0.1.4",
+        hostname="sw-netgear-gs110emx1",
+        nsdp_mac=b"\xbc\xa5\x11\xb8\xec\xf1",
         nsdp_password="password",
         # QoS/mirroring/IGMP/broadcast-filtering/loop-detection test fixtures
         # (Slice 9b): illustrative, non-vacuous values so nsdp_device() has

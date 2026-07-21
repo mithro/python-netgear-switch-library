@@ -98,7 +98,8 @@ def _token_form_field(spec: HttpModelSpec, token: str) -> dict[str, str]:
 # response" even though the switch is healthy. Retrying re-establishes the
 # connection and succeeds. This is a transport-level nicety, NOT error hiding:
 # only httpx.RemoteProtocolError (a dropped connection, never an HTTP error
-# status) is retried, and the final failure still propagates as HttpError.
+# status) is retried, and ONLY on GET -- POST may be a write (see post_form).
+# The final failure still propagates as HttpError.
 _DROPPED_CONNECTION_RETRIES = 2
 
 # Legacy Plus switches close idle keep-alive connections so aggressively that a
@@ -223,9 +224,12 @@ class HttpClient:
             self.login()
         body = {**data, **_token_form_field(self._spec, self._token)}
         try:
-            resp = _retry_on_dropped_connection(
-                lambda: self._client.post(path, data=body), f"POST {path}"
-            )
+            # NEVER retried: post_form also carries WRITES (set_poe, set_pvid,
+            # VLAN create/delete, reboot -- see http_write.py). A dropped
+            # connection does NOT prove the switch ignored the request; a
+            # reboot POST is answered by dropping the link, so retrying would
+            # re-issue the write against a switch that already applied it.
+            resp = self._client.post(path, data=body)
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")
@@ -305,9 +309,8 @@ class AsyncHttpClient:
             await self.login()
         body = {**data, **_token_form_field(self._spec, self._token)}
         try:
-            resp = await _aretry_on_dropped_connection(
-                lambda: self._client.post(path, data=body), f"POST {path}"
-            )
+            # NEVER retried -- see the sync twin: POST also carries writes.
+            resp = await self._client.post(path, data=body)
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")

@@ -17,6 +17,8 @@ A real HTTP<->NSDP diff against live hardware is the same comparison run against
 (see the live-hardware memory notes)."""
 from __future__ import annotations
 
+import pytest
+
 from netgear_switch.http_read import HttpReader
 from netgear_switch.nsdp_read import NsdpReader
 from netgear_switch.protocols.http.endpoints import http_spec
@@ -57,6 +59,43 @@ def _vlan_sets(
         v.vlan_id: (v.member_ports, v.tagged_ports, v.untagged_ports)
         for v in vlans
     }
+
+
+def _stats_pairs(stats: object) -> dict[int, tuple[int | None, int | None]]:
+    return {s.port: (s.rx_bytes, s.tx_bytes) for s in stats}  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("model_key", ["gs110emx", "gs105pe"])
+def test_http_and_nsdp_reads_agree(model_key: str) -> None:
+    """Every model reachable over BOTH NSDP and HTTP must report the same data
+    through both. gs105pe is included because its HTTP face once silently
+    reported every port down while the seed had two ports up."""
+    model = get_model(model_key)
+    sw = VirtualSwitch(model=model_key)
+    sw.start()
+    try:
+        client = HttpClient(
+            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
+        )
+        client.login()
+        http = HttpReader(client, model)
+        nsdp = NsdpReader(_StateNsdpClient(sw.state), model)
+        try:
+            assert _port_pairs(http.get_ports()) == _port_pairs(nsdp.get_ports())
+            assert dict(http.get_pvids()) == dict(nsdp.get_pvids())
+            assert _vlan_sets(http.get_vlans()) == _vlan_sets(nsdp.get_vlans())
+            # byte counters must agree too (previously never cross-verified)
+            assert _stats_pairs(http.get_stats()) == _stats_pairs(nsdp.get_stats())
+            hm, nm = http.get_mgmt_ip(), nsdp.get_mgmt_ip()
+            assert (hm.address, hm.netmask, hm.gateway, hm.base_mac, hm.mode) == (
+                nm.address, nm.netmask, nm.gateway, nm.base_mac, nm.mode,
+            )
+            assert http.get_ports()
+            assert http.get_vlans()
+        finally:
+            client.close()
+    finally:
+        sw.stop()
 
 
 def test_gs110emx_http_and_nsdp_reads_agree() -> None:

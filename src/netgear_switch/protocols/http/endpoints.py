@@ -18,28 +18,31 @@ flows are grounded in captured prior art or still
   preferred read/write path for this model; no web-UI read/write flow has
   been captured, so ``reads_verified`` is ``False`` and the reader/writer
   refuse rather than fabricate.
-- ``gs110emx`` (Plus EMx / Gambit): login + the ``sysInfo``/``interface_stats``
-  reads are GROUNDED in a real capture from a physical GS110EMX (see
-  ``tests/fixtures/http/gs110emx_{login,redirect,sysinfo,interface_stats}.html``).
-  The scheme is ``merge_hash_md5(password, rand)`` (identical function to
-  ``gs305ep``) POSTed as ``LoginPassword`` to ``/redirect.html`` (``rand``
-  scraped from ``GET /``, not from the POST target itself -- see
-  ``login_post_path``); the response carries a ``Gambit`` TOKEN (not a
-  cookie -- no ``Set-Cookie`` is ever sent) that every subsequent request
-  must carry (``session_token_field``). Live capture proved
-  ``/iss/specific/{vlan,port,poePortStatus,neighbor,dashboard}.html`` all
-  404 -- gs110emx has no PoE and serves ports/VLANs/PVIDs via NSDP, not
-  HTTP, so those spec fields stay honestly ``None``. ``scheme_verified`` and
-  ``reads_verified`` are ``True`` for exactly this grounded surface
-  (login + ``sysinfo_path`` + ``stats_path``); ``reboot_path``/
-  ``logout_path`` were never captured and stay ``None`` rather than guessed.
-- ``gs105pe`` (Plus, 5-port, spec-only -- registered ``verified=False`` in
-  ``registry.py``, no capture exists): the login SCHEME is well-grounded
-  (``rcfiles/bin/netgear-smp-vlan`` shows a GS105PE session byte-identical to
-  ``gs305ep``'s), but the read-endpoint paths below are copied from
-  ``gs305ep``'s spec as a same-family shape guess, never confirmed against a
-  real GS105PE response -- both ``scheme_verified`` and ``reads_verified``
-  stay ``False`` accordingly.
+- ``gs110emx`` (Plus EMx / Gambit): GROUNDED in real captures from a physical
+  GS110EMX (``tests/fixtures/http/gs110emx_*.html``). The scheme is
+  ``merge_hash_md5(password, rand)`` (identical function to ``gs305ep``) POSTed
+  as ``LoginPassword`` to ``/redirect.html`` (``rand`` scraped from ``GET /``,
+  not from the POST target itself -- see ``login_post_path``); the response
+  carries a ``Gambit`` TOKEN (not a cookie -- no ``Set-Cookie`` is ever sent)
+  that every subsequent request must carry (``session_token_field``).
+  HTTP covers the FULL NSDP read surface here (ports/stats/VLANs/PVIDs/
+  mgmt-IP): an earlier probe guessed ``/iss/specific/{vlan,port,pvid}.html``,
+  got 404s and WRONGLY concluded "NSDP-only" -- the real URLs
+  (``port_settings``/``vlan_pvidsetting``/``Cf8021q``/``vlanMembership``) live
+  only as JS string literals and were found live 2026-07-21. ``poe_*`` stay
+  ``None`` (this model genuinely has no PoE, confirmed 404), as do
+  ``reboot_path``/``logout_path`` (never captured, not guessed).
+  CAVEAT on ``reads_verified=True``: only VLAN 1's membership page was
+  captured, so the per-VLAN ``vlanIdSel`` select is live-confirmed but
+  fixture-proven for VLAN 1 only.
+- ``gs105pe`` (Plus, 5-port): LIVE-VERIFIED on a real GS105PE (10.1.5.30,
+  2026-07-21) -- registry ``verified=True``, and BOTH ``scheme_verified`` and
+  ``reads_verified`` are ``True``, grounded in six real captures
+  (``tests/fixtures/http/gs105pe_*.html``). The merge-hash login is shared with
+  ``gs305ep``, but the READ paths are NOT: the gs305ep copies were partly wrong
+  (``dashboard.cgi`` and ``getPoePortStatus.cgi`` both 404 on real hardware).
+  Port status is ``status.cgi`` and device identity/mgmt-IP is
+  ``switch_info.cgi``; see ``HtmlDialect.GS105PE`` for the parser set.
 """
 from __future__ import annotations
 
@@ -223,18 +226,15 @@ _GSM7228PS = HttpModelSpec(
     reads_verified=False,
 )
 
-# gs105pe (Plus, 5-port, NSDP+HTTP -- see registry.py's entry for the
-# port/PoE-count honesty notes) is registered verified=False: NO capture
-# exists for this model. The login SCHEME itself is well-grounded --
-# rcfiles/bin/netgear-smp-vlan's GS105PE session flow is byte-identical to
-# gs305ep's (GET /login.cgi for `rand`, POST password=MD5(merge(pw, rand))
-# back to /login.cgi, SID cookie back) -- but this entry deliberately still
-# marks scheme_verified=False/reads_verified=False rather than claim
-# verification: the *read* endpoints below (dashboard/stats/PoE/VLAN paths)
-# are copied from gs305ep's spec as a same-family SHAPE guess, not confirmed
-# against an actual GS105PE response, and per-task honesty policy this
-# registration must not claim more than that. See gs305ep's own docstring
-# entry above for the grounded VLAN CGI paths this reuses.
+# gs105pe (Plus, 5-port, NSDP+HTTP) -- LIVE-VERIFIED 2026-07-21 against real
+# units (poe-micro2/3 @ 10.1.5.29/.30); registry verified=True. The login
+# SCHEME is byte-identical to gs305ep's (GET /login.cgi for `rand`, POST
+# password=MD5(merge(pw, rand)) back to /login.cgi, SID cookie back) and was
+# confirmed live -> scheme_verified=True. The READ paths are NOT gs305ep's:
+# those copies were partly WRONG on real hardware (dashboard.cgi and
+# getPoePortStatus.cgi both 404). Corrected against six real captures in
+# tests/fixtures/http/gs105pe_*.html -> reads_verified=True. See
+# HtmlDialect.GS105PE for the parser set this selects.
 _GS105PE = HttpModelSpec(
     model_key="gs105pe",
     scheme=LoginScheme.MERGE_HASH_CGI,

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .errors import UnsupportedCapabilityError
+from .errors import HttpUnexpectedPageError, UnsupportedCapabilityError
 from .models import MgmtIpConfig, VLANInfo, VlanMode
 from .protocols.http import parse
 from .protocols.http.endpoints import http_spec
@@ -134,6 +134,39 @@ def _membership_form(
     return data
 
 
+def _require_csrf_hash(member_page: str) -> str:
+    """The gs105pe membership page's CSRF ``hash``, or raise.
+
+    Without it the switch IGNORES ``VLAN_ID`` and returns the currently-selected
+    VLAN's membership for every request -- which would be silently mislabelled
+    as the requested VLAN. Refuse rather than return another VLAN's ports."""
+    csrf = parse.parse_csrf_hash(member_page)
+    if not csrf:
+        raise HttpUnexpectedPageError(
+            "8021qMembe.cgi: no CSRF 'hash' field -- without it the switch "
+            "ignores VLAN_ID and every VLAN would report the selected VLAN's "
+            "membership"
+        )
+    return csrf
+
+
+def _check_membership_is_for(spec: HttpModelSpec, html: str, vid: int) -> None:
+    """Verify a membership page really is the VLAN we asked for.
+
+    The gs105pe/gs305ep membership CGI silently falls back to the currently
+    selected VLAN when the request is not accepted, so without this check a
+    wrong-but-plausible membership would be attributed to ``vid``. Only checked
+    when the page actually reports a selection."""
+    if not _is_gs105pe_dialect(spec):
+        return
+    shown = parse.parse_selected_vlan(html)
+    if shown is not None and shown != vid:
+        raise HttpUnexpectedPageError(
+            f"8021qMembe.cgi: asked for VLAN {vid} but the page shows VLAN "
+            f"{shown} -- refusing to report the wrong VLAN's membership"
+        )
+
+
 def _parse_sysinfo(spec: HttpModelSpec, html: str) -> HttpSysInfo:
     """Dispatch the device-identity/mgmt-IP page: gs105pe's switch_info.cgi
     (lowercase ip_address inputs, dhcpMode select) vs gs110emx's sysInfo.html."""
@@ -208,7 +241,7 @@ class HttpReader:
         member_page = csrf = selected = None
         if _is_gs105pe_dialect(self._spec):
             member_page = self.session.get_page(member_path)
-            csrf = parse.parse_csrf_hash(member_page)
+            csrf = _require_csrf_hash(member_page)
             selected = parse.parse_selected_vlan(member_page)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
@@ -217,6 +250,7 @@ class HttpReader:
             else:
                 form = _membership_form(self._spec, vid, csrf)
                 html = self.session.post_form(member_path, form)
+            _check_membership_is_for(self._spec, html, vid)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
 
@@ -274,7 +308,7 @@ class AsyncHttpReader:
         member_page = csrf = selected = None
         if _is_gs105pe_dialect(self._spec):
             member_page = await self.session.get_page(member_path)
-            csrf = parse.parse_csrf_hash(member_page)
+            csrf = _require_csrf_hash(member_page)
             selected = parse.parse_selected_vlan(member_page)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
@@ -283,6 +317,7 @@ class AsyncHttpReader:
             else:
                 form = _membership_form(self._spec, vid, csrf)
                 html = await self.session.post_form(member_path, form)
+            _check_membership_is_for(self._spec, html, vid)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
 

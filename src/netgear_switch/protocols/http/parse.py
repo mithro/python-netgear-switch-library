@@ -204,19 +204,27 @@ def parse_interface_stats(html: str) -> list[PortStats]:
 
 
 def _speed_text_to_mbps(text: str) -> int | None:
-    """GS110EMX port-status speed text -> Mbps. ``"10G Full"`` -> 10000,
-    ``"1000M Full"`` -> 1000, ``"100M Full"`` -> 100, ``"No Speed"`` -> None.
+    """Port-status speed text -> Mbps. ``"10G Full"`` -> 10000, ``"2.5G"`` ->
+    2500, ``"1000M Full"`` -> 1000, ``"100M Full"`` -> 100, ``"No Speed"`` ->
+    None.
 
     Matches the SNMP/NSDP backends' Mbps convention (LinkSpeed.speed_mbps) so a
     port's ``speed_mbps`` is identical whichever backend read it -- the whole
     point of the HTTP<->NSDP cross-verification. A ``G`` suffix multiplies by
     1000; a bare ``M`` is Mbps as-is; anything with no digit+unit is ``None``.
+
+    The FRACTIONAL form matters: the GS110EMX's NBASE-T ports (9/10) negotiate
+    ``2.5G``/``5G`` with multi-gig clients. Matching only ``(\\d+)`` here would
+    backtrack past the ``2.`` in ``"2.5G"`` and match ``5G`` -> 5000, a
+    wrong-but-plausible speed that would silently break the cross-verification.
     """
-    m = re.search(r"(\d+)\s*([GM])", text, re.IGNORECASE)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*([GM])", text, re.IGNORECASE)
     if not m:
         return None
-    value = int(m.group(1))
-    return value * 1000 if m.group(2).upper() == "G" else value
+    value = float(m.group(1))
+    if m.group(2).upper() == "G":
+        value *= 1000
+    return int(value)
 
 
 def parse_gs110emx_port_status(html: str) -> list[PortStatus]:

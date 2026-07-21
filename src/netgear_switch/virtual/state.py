@@ -463,11 +463,18 @@ class VirtualSwitchState:
         port_count = model.port_count
         width = (port_count + 7) // 8
         model_bytes = (self.model_name or model.display_name).encode("ascii")
-        out: list[TLVEntry] = [
-            TLVEntry(Tag.MODEL, model_bytes),
-            TLVEntry(Tag.MAC, self.nsdp_mac),
-            TLVEntry(Tag.PORT_COUNT, bytes([port_count])),
-        ]
+        # STRICT: answer with ONLY the tags requested. Real Plus hardware does
+        # exactly this -- a read that omits MODEL gets a MODEL-less response,
+        # which is why every per-op read must request it (see nsdp_read
+        # ``_with_model``). Emitting identity tags unconditionally, as this used
+        # to, made the mock over-serve and hid that bug from CI entirely.
+        out: list[TLVEntry] = []
+        if Tag.MODEL in tags:
+            out.append(TLVEntry(Tag.MODEL, model_bytes))
+        if Tag.MAC in tags:
+            out.append(TLVEntry(Tag.MAC, self.nsdp_mac))
+        if Tag.PORT_COUNT in tags:
+            out.append(TLVEntry(Tag.PORT_COUNT, bytes([port_count])))
         if Tag.SERIAL_NUMBER in tags and self.serial:
             serial_bytes = b"\x01" + self.serial.encode("ascii")
             out.append(TLVEntry(Tag.SERIAL_NUMBER, serial_bytes))
@@ -480,9 +487,12 @@ class VirtualSwitchState:
                 speed_byte = _mbps_to_speed_byte(sim.speed) if sim.link else 0x00
                 out.append(TLVEntry(Tag.PORT_STATUS, bytes([port, speed_byte, 0x01])))
         if Tag.PORT_STATISTICS in tags:
+            # Real hardware returns a PORT_STATISTICS TLV for EVERY port, with
+            # zeroed counters on idle ports (verified on a real GS105PE, whose
+            # capture has all 5 rows). Previously ports with rx_octets=None were
+            # skipped, so the NSDP face disagreed with the HTTP face -- which
+            # renders every port -- for the SAME state, hiding any lost-row bug.
             for port, sim in sorted(self.ports.items()):
-                if sim.rx_octets is None:
-                    continue
                 out.append(
                     TLVEntry(
                         Tag.PORT_STATISTICS,
@@ -522,11 +532,17 @@ class VirtualSwitchState:
             out.append(TLVEntry(Tag.QOS_ENGINE, bytes([self.nsdp_qos_engine])))
         if Tag.PORT_MIRRORING in tags and self.nsdp_port_mirroring_dest is not None:
             from ..protocols.nsdp.parsers import ports_to_bitmap
+            # The source-port bitmap width is MODEL-dependent on real hardware:
+            # a 5-port GS105PE returns a 2-byte bitmap (3-byte TLV) while a
+            # 10-port GS110EMX returns 3 bytes. Hard-coding 3 meant the mock
+            # could never reproduce the narrow TLV that broke
+            # parse_port_mirroring, so derive it from port_count exactly like
+            # the VLAN bitmap above.
             out.append(
                 TLVEntry(
                     Tag.PORT_MIRRORING,
                     bytes([self.nsdp_port_mirroring_dest])
-                    + ports_to_bitmap(self.nsdp_port_mirroring_sources, 3),
+                    + ports_to_bitmap(self.nsdp_port_mirroring_sources, width),
                 )
             )
         if Tag.IGMP_SNOOPING in tags and self.nsdp_igmp_snooping_enabled is not None:

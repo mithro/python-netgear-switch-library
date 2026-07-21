@@ -42,7 +42,9 @@ def test_face_read_returns_seed_ports(virtual_gs110emx: VirtualSwitch) -> None:
 def test_face_authenticated_write_is_read_back(virtual_gs110emx: VirtualSwitch) -> None:
     client = _client(virtual_gs110emx)
     client.write([write.pvid_tlv(5, 90)], password=virtual_gs110emx.nsdp_password)
-    dev = parse_device(client.read([Tag.PORT_PVID]))
+    # MODEL must be requested explicitly: the face (like real hardware) answers
+    # with only the requested tags, and parse_device requires a MODEL tag.
+    dev = parse_device(client.read([Tag.MODEL, Tag.PORT_PVID]))
     assert (5, 90) in {(p.port_id, p.vlan_id) for p in dev.port_pvids}
 
 

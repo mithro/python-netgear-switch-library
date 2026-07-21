@@ -46,9 +46,9 @@ def test_nsdp_device_facade_returns_complete_device(
 
     dev = sync_dev
     assert dev.model == "GS110EMX"
-    assert dev.hostname == "plus-sw"
-    assert dev.firmware_version == "1.0.0.7"
-    assert dev.serial_number == "53H6025EA0083"
+    assert dev.hostname == "sw-netgear-gs110emx1"
+    assert dev.firmware_version == "1.0.1.4"
+    assert dev.serial_number == "53H60253A0032"
     assert dev.dhcp_enabled is False
     assert dev.port_count == 10
     assert dev.port_status
