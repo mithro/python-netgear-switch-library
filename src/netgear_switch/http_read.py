@@ -102,6 +102,20 @@ def _parse_vlan_ids(spec: HttpModelSpec, html: str) -> list[int]:
     return parse.parse_vlan_ids(html)
 
 
+def _membership_form(spec: HttpModelSpec, vid: int) -> dict[str, str]:
+    """The POST body that selects VLAN ``vid``'s membership page.
+
+    gs110emx's vlanMembership.html returns an EMPTY body unless the hidden
+    ``vlanIdSel`` field is also present -- ``VLAN_ID`` alone is silently ignored
+    (confirmed live 2026-07-21). ``ACTION`` is deliberately omitted so the POST
+    stays a read (a non-empty ACTION would apply a membership change). gs305ep's
+    8021qMembe.cgi needs only ``VLAN_ID``."""
+    data = {"VLAN_ID": str(vid)}
+    if _is_gs110emx_dialect(spec):
+        data["vlanIdSel"] = str(vid)
+    return data
+
+
 def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
     """GS110EMX sysInfo.html -> the shared ``MgmtIpConfig`` shape. The page's
     own MAC Address row is the switch's base MAC, so it fills ``base_mac``
@@ -167,7 +181,8 @@ class HttpReader:
         cfg = self.session.get_page(cfg_path)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
-            html = self.session.post_form(member_path, {"VLAN_ID": str(vid)})
+            form = _membership_form(self._spec, vid)
+            html = self.session.post_form(member_path, form)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
 
@@ -222,7 +237,8 @@ class AsyncHttpReader:
         cfg = await self.session.get_page(cfg_path)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
-            html = await self.session.post_form(member_path, {"VLAN_ID": str(vid)})
+            form = _membership_form(self._spec, vid)
+            html = await self.session.post_form(member_path, form)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
 
