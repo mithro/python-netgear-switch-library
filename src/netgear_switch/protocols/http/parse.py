@@ -628,6 +628,12 @@ def parse_m4300_pvids(html: str) -> list[tuple[int, int]]:
 
 
 _M4300_IFACE_RE = re.compile(r"(\d+)/(\d+)/(\d+)")
+# The M4300 temperature block mixes a live reading ("MAC 53 C") with the box's
+# static datasheet THRESHOLD ("Max Operating Temperature 81 C"). Returning the
+# threshold as a Sensor would make any "hottest sensor" alarm read 81 C
+# forever, so limit rows are excluded -- the same refusal-to-invent rule that
+# keeps the non-numeric fan rows out.
+_IS_TEMP_LIMIT_RE = re.compile(r"\b(max|maximum|threshold|limit)\b", re.IGNORECASE)
 
 
 def _expand_port_list(raw: str) -> frozenset[int]:
@@ -693,24 +699,54 @@ def parse_m4300_vlans(html: str) -> list[VLANInfo]:
 
 
 def parse_m4300_macs(html: str) -> list[MacEntry]:
-    """M4300 ``basicAddressTable.html`` -> the MAC/FDB table."""
+    """M4300 ``basicAddressTable.html`` -> the MAC/FDB table (one page).
+
+    Two real-hardware traps this deliberately refuses to fall into:
+
+    1. The ``Intf`` cell is NOT always a physical interface -- the real capture
+       contains ``lag 1``, ``vlan 1`` and the ``0/15/1`` service port. Taking
+       "the trailing number" (an earlier bug) reported ALL of them as physical
+       port 1, including the switch's own base MAC. Only ``unit/slot/port``
+       names yield a port; entries learned on a LAG/VLAN/service interface have
+       no physical port and are SKIPPED rather than mis-attributed.
+    2. This page is PAGINATED. It states the true table size in
+       ``SwitchingFdbStats_ActiveAddrEntries`` (1213 on the captured switch)
+       while rendering ~20 rows. Returning that first page as if it were the
+       whole FDB is a silent, badly-wrong answer, so a short page RAISES and
+       names SNMP -- which returns the complete table -- as the way to get it.
+    """
     rows = [
         r for r in parse_cheetah_rows(html)
         if "SwitchingmacAddrGroup_MacAddress" in r
     ]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "basicAddressTable.html: no SwitchingmacAddrGroup_MacAddress cells found"
+        )
     out: list[MacEntry] = []
     for r in rows:
         mac = r.get("SwitchingmacAddrGroup_MacAddress", "").strip().upper()
         if not mac:
             continue
-        name = r.get("SwitchingmacAddrGroup_Intf", "")
-        port = _int(name.rsplit("/", 1)[-1]) if "/" in name else _int(name)
+        iface = _M4300_IFACE_RE.fullmatch(
+            r.get("SwitchingmacAddrGroup_Intf", "").strip()
+        )
+        if iface is None:
+            continue  # lag N / vlan N / service port: no physical port
         out.append(
             MacEntry(
                 mac=mac,
-                port=port or 0,
+                port=int(iface.group(3)),
                 vlan_id=_cheetah_int(r, "SwitchingmacAddrGroup_vlanIndex"),
             )
+        )
+    total = re.search(r'NAME=v_1_1_1 VALUE="(\d+)"', html)
+    if total is not None and int(total.group(1)) > len(rows):
+        raise HttpUnexpectedPageError(
+            f"basicAddressTable.html: the switch reports {total.group(1)} FDB "
+            f"entries but this page renders only {len(rows)} -- the web UI "
+            "paginates the MAC table. Use the SNMP backend for the complete "
+            "FDB rather than a silently truncated page."
         )
     return out
 
@@ -749,6 +785,9 @@ def parse_m4300_sensors(html: str) -> list[Sensor]:
 
     The page's Temperature block renders numeric readings as
     ``<td>MAC</td><td>53 &#8451;</td>``, which map straight onto ``Sensor``.
+    Threshold rows in that same block (``Max Operating Temperature 81``) are a
+    static datasheet LIMIT, not a reading, and are excluded -- see
+    ``_IS_TEMP_LIMIT_RE``.
     Its FAN block is deliberately NOT returned: it reports a non-numeric state
     (``Fan-1 OK``) and ``Sensor.value`` is a required ``float`` -- emitting a
     fan would mean inventing a number. The SNMP backend, which reads real fan
@@ -761,6 +800,7 @@ def parse_m4300_sensors(html: str) -> list[Sensor]:
         for label, celsius in re.findall(
             r"<td[^>]*>([A-Za-z ]{2,28})</td>\s*<td[^>]*>\s*(\d+)\s*&#8451;", html
         )
+        if not _IS_TEMP_LIMIT_RE.search(label)
     ]
 
 

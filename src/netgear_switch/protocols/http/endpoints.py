@@ -320,6 +320,14 @@ _M4300 = HttpModelSpec(
     html_dialect=HtmlDialect.M4300,
 )
 
+# INHERITED, NOT INDEPENDENTLY CAPTURED. The M4300-16X runs the same FASTPATH
+# firmware image and therefore the same Cheetah /v1 web UI as the 24X, so the
+# login scheme and page URLs carry over -- but NO M4300-16X web session was
+# ever captured, and no fixture or test exercises this SKU's HTTP path. The
+# verified flags below are inherited from the 24X and mean "verified for this
+# firmware family", NOT "captured from a 16X". Treat a 16X-specific HTTP
+# surprise (different port count, PoE pages the 24X lacks) as unverified until
+# someone captures one.
 _M4300_16X = dataclasses.replace(_M4300, model_key="m4300-16x")
 
 _SPECS: dict[str, HttpModelSpec] = {

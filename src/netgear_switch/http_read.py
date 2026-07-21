@@ -327,11 +327,15 @@ class AsyncHttpReader:
         cfg_path = _require_path(
             self.model.key, self._spec.vlan_config_path, "VLAN configuration"
         )
+        # The m4300 check MUST precede the vlan_membership_path requirement:
+        # that model has no membership page (vlanStatus.html carries the egress
+        # list inline), so requiring it first made this async op raise while
+        # the sync twin worked -- a real sync/async divergence.
+        if _is_m4300_dialect(self._spec):
+            return parse.parse_m4300_vlans(await self.session.get_page(cfg_path))
         member_path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
-        if _is_m4300_dialect(self._spec):
-            return parse.parse_m4300_vlans(await self.session.get_page(cfg_path))
         cfg = await self.session.get_page(cfg_path)
         member_page = csrf = selected = None
         if _is_gs105pe_dialect(self._spec):

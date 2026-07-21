@@ -178,8 +178,14 @@ def render_sysinfo(state: VirtualSwitchState) -> str:
     """``/v1/base/system/management/sysInfo.html`` -- mgmt IP, base MAC and the
     temperature block. Plain labelled cells (this page has no xid cells)."""
     mac = ":".join(f"{b:02X}" for b in state.nsdp_mac)
+    # Real firmware labels the temperature row with a TEXT name ("MAC"), and
+    # parse_m4300_sensors' label group is [A-Za-z ] accordingly. Rendering the
+    # seed's numeric SensorSim.instance here made the mock's sensor block
+    # unparseable, so a virtual M4300 holding a real temperature answered
+    # get_sensors() with an empty list -- the mock silently disagreeing with
+    # both the real page and its own state.
     temps = "".join(
-        f"<tr><td>{s.instance}</td><td>{s.raw} &#8451;</td></tr>\n"
+        f"<tr><td>MAC</td><td>{s.raw} &#8451;</td></tr>\n"
         for s in state.sensors
         if s.kind == "temperature" and s.raw.isdigit()
     )

@@ -256,13 +256,27 @@ def seed_gs110emx() -> VirtualSwitchState:
     rest down; static 10.1.5.25/24 via 10.1.5.1; MAC bc:a5:11:b8:ec:f1.
 
     Previously these were hand-invented values (hostname "plus-sw", 10.1.5.20,
-    the default MAC) that CONTRADICTED the model's own capture while tests
-    pinned them as if true. VLANs/PVIDs below are still illustrative -- no
-    per-VLAN membership capture exists for this unit beyond VLAN 1 -- and the
-    QoS/mirroring/IGMP values further down are likewise test fixtures, not
-    captured readings.
+    the default MAC, 1M/2M counters on idle ports, all-untagged VLAN 1, PVIDs
+    90) that CONTRADICTED this model's own captures while tests pinned them as
+    if true. Now transcribed: identity, mgmt-IP, port link/speed/description,
+    per-port counters, VLAN 1 membership and every PVID.
+
+    STILL ILLUSTRATIVE (no capture exists, and this says so rather than
+    implying otherwise): VLAN 90's member/untagged sets -- only VLAN 1's
+    membership page was captured -- and the QoS/mirroring/IGMP/broadcast/
+    loop-detection tag values further down, which are test fixtures chosen so
+    nsdp_device() has something non-vacuous to decode on every parsed tag.
     """
     real_speed = {6: 100, 8: 1000, 9: 10000, 10: 10000}
+    # Counters transcribed from gs110emx_interface_stats.html: traffic is on
+    # 6/8/9/10; ports 1-5 and 7 really are all zeros. (An earlier seed put
+    # 1M/2M on ports 1-2, contradicting that same capture.)
+    real_octets = {
+        6: (0, 70_892_018_242),
+        8: (59_921_732_691, 78_637_274_870),
+        9: (2_963_140_428_936, 1_189_358_575_871),
+        10: (1_195_417_274_187, 3_027_396_511_187),
+    }
     ports: dict[int, PortSim] = {}
     for port in range(1, 11):
         sim = PortSim(
@@ -272,19 +286,21 @@ def seed_gs110emx() -> VirtualSwitchState:
             speed=real_speed.get(port, 0),
             description="rumpus" if port == 8 else None,
         )
-        if port in (1, 2):
-            sim.rx_octets = 1_000_000
-            sim.tx_octets = 2_000_000
-            sim.rx_errors = 0
+        sim.rx_octets, sim.tx_octets = real_octets.get(port, (0, 0))
+        sim.rx_errors = 0
         ports[port] = sim
 
+    # VLAN 1 membership is TRANSCRIBED from gs110emx_vlanmembership.html
+    # (hiddenMem "1111111122" = ports 1-8 untagged, 9-10 tagged). VLAN 90 is
+    # one of the 12 VLAN IDs the real Cf8021q capture lists, but its MEMBERSHIP
+    # was never captured (only VLAN 1's page was), so the member/untagged sets
+    # for it are ILLUSTRATIVE, not observed.
     vlans = {
-        1: VlanSim(name="", member=set(range(1, 11)), untagged=set(range(1, 11))),
+        1: VlanSim(name="", member=set(range(1, 11)), untagged=set(range(1, 9))),
         90: VlanSim(name="", member={1, 2, 10}, untagged={1, 2}),
     }
+    # Transcribed from gs110emx_pvid.html: every port is PVID 1 on this unit.
     pvids = dict.fromkeys(range(1, 11), 1)
-    pvids[1] = 90
-    pvids[2] = 90
 
     mgmt = MgmtSim(
         address="10.1.5.25", netmask="255.255.255.0", gateway="10.1.5.1", mode="static"

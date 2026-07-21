@@ -22,7 +22,8 @@ def test_seed_has_plus_shape():
     assert st.serial
     assert st.firmware
     assert len(st.ports) == 10
-    assert st.pvids[1] == 90
+    # transcribed from gs110emx_pvid.html: every port is PVID 1
+    assert st.pvids[1] == 1
 
 
 def test_nsdp_tlvs_projects_ports_and_identity():
@@ -54,7 +55,7 @@ def test_nsdp_tlvs_projects_vlans_and_pvids_and_mgmt():
     assert v90.untagged_ports == frozenset({1, 2})
     assert dev.ip == "10.1.5.25"
     assert dev.dhcp_enabled is False
-    assert (1, 90) in {(p.port_id, p.vlan_id) for p in dev.port_pvids}
+    assert (1, 1) in {(p.port_id, p.vlan_id) for p in dev.port_pvids}
 
 
 def test_apply_nsdp_write_pvid_and_membership_and_mgmt():

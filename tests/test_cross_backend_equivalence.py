@@ -139,6 +139,21 @@ def test_m4300_http_and_snmp_reads_agree() -> None:
                 v.vlan_id for v in snmp.get_vlans()
             }
             assert http.get_mgmt_ip().base_mac == snmp.get_mgmt_ip().base_mac
+
+            # Sensors: the HTTP page exposes only temperatures (fans are a
+            # non-numeric OK/Fail this model cannot represent), so compare the
+            # temperature readings both backends report. This once silently
+            # returned [] because the mock rendered a numeric label the parser
+            # could never match.
+            http_temps = {
+                (s.name, s.value) for s in http.get_sensors()
+                if s.kind == "temperature"
+            }
+            snmp_temps = {
+                s.value for s in snmp.get_sensors() if s.kind == "temperature"
+            }
+            assert http_temps, "HTTP reported no temperature sensors"
+            assert {v for _n, v in http_temps} <= snmp_temps
         finally:
             client.close()
     finally:

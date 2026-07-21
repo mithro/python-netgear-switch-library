@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 
 import pytest
@@ -311,9 +312,38 @@ def test_m4300_http_pvids_and_macs() -> None:
     pvids = dict(reader.get_pvids())
     assert len(pvids) == 24
     assert pvids[3] == 5
-    macs = reader.get_macs()
-    assert macs
-    assert all(len(m.mac) == 17 for m in macs)
+
+
+def test_m4300_http_macs_refuse_truncated_page() -> None:
+    from netgear_switch.errors import HttpUnexpectedPageError
+
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    with pytest.raises(HttpUnexpectedPageError, match="paginates"):
+        reader.get_macs()
+
+
+def test_m4300_http_macs_skip_non_physical_interfaces() -> None:
+    """The FDB's Intf cell is not always physical -- the real capture holds
+    "lag 1", "vlan 1" and the 0/15/1 service port. Taking the trailing number
+    reported every one of them as physical port 1, including the switch's own
+    base MAC."""
+    from netgear_switch.protocols.http import parse
+
+    html = (_FIX / "m4300_addresstable.html").read_text()
+    rows = [
+        r for r in parse.parse_cheetah_rows(html)
+        if "SwitchingmacAddrGroup_MacAddress" in r
+    ]
+    non_physical = [
+        r for r in rows
+        if not re.fullmatch(r"\d+/\d+/\d+", r.get("SwitchingmacAddrGroup_Intf", ""))
+    ]
+    assert non_physical, "fixture should contain lag/vlan entries"
+    # strip the pagination guard so we can inspect the parsed rows themselves
+    trimmed = html.replace('NAME=v_1_1_1 VALUE="1213"', 'NAME=v_1_1_1 VALUE="20"')
+    parsed = parse.parse_m4300_macs(trimmed)
+    skipped = {r["SwitchingmacAddrGroup_MacAddress"].upper() for r in non_physical}
+    assert not (skipped & {m.mac for m in parsed})
 
 
 def test_m4300_http_mgmt_and_sensors() -> None:
@@ -377,5 +407,28 @@ def test_async_get_vlans() -> None:
         assert vlan90.tagged_ports == frozenset({1})
         assert vlan90.untagged_ports == frozenset({2, 3})
         assert vlan90.member_ports == frozenset({1, 2, 3})
+
+    asyncio.run(run())
+
+
+def test_m4300_async_reader_matches_sync() -> None:
+    """The async reader had a real divergence: get_vlans() required the
+    membership path BEFORE the m4300 early-return, so it raised while the sync
+    twin worked. There was no async m4300 test at all, which is how that
+    survived -- this pins parity for every m4300 async read."""
+
+    async def run() -> None:
+        pages = _m4300_pages()
+        sync = HttpReader(_FakeSession(pages), get_model("m4300-24x"))
+        aio = AsyncHttpReader(_AsyncFakeSession(pages), get_model("m4300-24x"))
+        assert [
+            (v.vlan_id, sorted(v.member_ports)) for v in await aio.get_vlans()
+        ] == [(v.vlan_id, sorted(v.member_ports)) for v in sync.get_vlans()]
+        assert [
+            (p.port, p.link_up, p.speed_mbps) for p in await aio.get_ports()
+        ] == [(p.port, p.link_up, p.speed_mbps) for p in sync.get_ports()]
+        assert dict(await aio.get_pvids()) == dict(sync.get_pvids())
+        assert (await aio.get_mgmt_ip()).base_mac == sync.get_mgmt_ip().base_mac
+        assert await aio.get_sensors() == sync.get_sensors()
 
     asyncio.run(run())

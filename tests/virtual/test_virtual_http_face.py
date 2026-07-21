@@ -175,10 +175,12 @@ def test_gs110emx_http_reader_end_to_end() -> None:
         try:
             reader = HttpReader(client, get_model("gs110emx"))
             stats = {s.port: s for s in reader.get_stats()}
-            assert stats[1].rx_bytes == 1_000_000
-            assert stats[1].tx_bytes == 2_000_000
+            # Counters transcribed from gs110emx_interface_stats.html: the
+            # traffic is on 6/8/9/10 and ports 1-5/7 really are zero.
+            assert stats[1].rx_bytes == 0
+            assert stats[6].tx_bytes == 70_892_018_242
+            assert stats[9].rx_bytes == 2_963_140_428_936
             assert stats[1].rx_errors == 0
-            assert stats[3].rx_bytes == 0  # unseeded counter renders as 0
 
             mgmt = reader.get_mgmt_ip()
             assert mgmt.address == "10.1.5.25"
@@ -207,7 +209,7 @@ def test_gs110emx_async_http_reader_end_to_end() -> None:
             try:
                 reader = AsyncHttpReader(client, get_model("gs110emx"))
                 stats = {s.port: s for s in await reader.get_stats()}
-                assert stats[1].rx_bytes == 1_000_000
+                assert stats[9].rx_bytes == 2_963_140_428_936
                 mgmt = await reader.get_mgmt_ip()
                 assert mgmt.address == "10.1.5.25"
                 assert mgmt.mode is IpMode.STATIC
