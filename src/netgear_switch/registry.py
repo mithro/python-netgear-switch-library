@@ -86,7 +86,7 @@ _MODELS: dict[str, SwitchModel] = {
             SwitchClass.FULLY_MANAGED,
             28,
             0,
-            {Backend.SNMP},
+            {Backend.SNMP, Backend.HTTP},
             _FM,
         ),
         _model(
@@ -95,7 +95,7 @@ _MODELS: dict[str, SwitchModel] = {
             SwitchClass.FULLY_MANAGED,
             16,
             16,
-            {Backend.SNMP},
+            {Backend.SNMP, Backend.HTTP},
             _FM,
         ),
         _model(

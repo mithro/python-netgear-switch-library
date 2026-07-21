@@ -79,8 +79,31 @@ def test_gsm7228ps_cheetah_form_snmp_preferred() -> None:
 
 
 def test_http_spec_rejects_snmp_only_model() -> None:
+    # gsm7252ps is SNMP-only (m4300 gained a real HTTP backend once its
+    # Cheetah /v1 read pages were discovered and verified live).
     with pytest.raises(UnsupportedCapabilityError):
-        http_spec(get_model("m4300-24x"))
+        http_spec(get_model("gsm7252ps"))
+
+
+def test_m4300_spec_live_verified_cheetah_v1() -> None:
+    """M4300 HTTP is LIVE-VERIFIED (10.1.5.13): uname+pwd Cheetah /v1 login,
+    Referer-required, and read pages whose URLs were recovered by driving a
+    real browser through the runtime-built menu."""
+    spec = http_spec(get_model("m4300-24x"))
+    assert spec.scheme is LoginScheme.CHEETAH_V1
+    assert spec.scheme_verified is True
+    assert spec.reads_verified is True
+    assert spec.needs_referer is True
+    assert spec.username_field == "uname"
+    assert spec.login_post_path == "/v1/base/cheetah_login.html"
+    assert spec.dashboard_path == "/v1/portsConfiguration.html"
+    assert spec.stats_path == "/v1/portStatistics.html"
+    assert spec.vlan_config_path == "/v1/vlanStatus.html"
+    assert spec.pvid_path == "/v1/portPvidConfiguration.html"
+    assert spec.mac_table_path == "/v1/basicAddressTable.html"
+    assert spec.html_dialect is HtmlDialect.M4300
+    # no PoE on the 24X, and this UI has no LLDP neighbour table
+    assert spec.poe_status_path is None
 
 
 def test_gs105pe_spec_live_verified_real_paths() -> None:

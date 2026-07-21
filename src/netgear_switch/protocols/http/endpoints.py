@@ -46,6 +46,7 @@ flows are grounded in captured prior art or still
 """
 from __future__ import annotations
 
+import dataclasses
 import enum
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -64,6 +65,7 @@ class LoginScheme(enum.Enum):
     MERGE_HASH_CGI = "merge_hash_cgi"   # Plus SID scheme (gs305ep) — GROUNDED
     GAMBIT = "gambit"                   # EMx merge-hash + token (gs110emx) — GROUNDED
     CHEETAH_FORM = "cheetah_form"       # Pro/S3300 (gsm7228ps) — plaintext form
+    CHEETAH_V1 = "cheetah_v1"           # M4300 /v1 — uname+pwd + Referer CSRF
 
 
 class HtmlDialect(enum.Enum):
@@ -81,6 +83,7 @@ class HtmlDialect(enum.Enum):
     STANDARD = "standard"  # gs305ep CGI: closed portID rows, vlanck checkboxes
     GS110EMX = "gs110emx"  # real GS110EMX: open portID rows, Advanced-802.1Q list
     GS105PE = "gs105pe"  # real GS105PE: status.cgi layout, hidden-input counters
+    M4300 = "m4300"  # real M4300 Cheetah /v1: xid hidden inputs + field comments
 
 
 @dataclass(frozen=True)
@@ -125,6 +128,17 @@ class HttpModelSpec:
     # the ports/stats/PVID/VLAN-list parser set. Defaults to the gs305ep CGI
     # shape every model but gs110emx uses.
     html_dialect: HtmlDialect = HtmlDialect.STANDARD
+    # MAC/FDB table page. None = this model exposes no FDB over HTTP (every
+    # Plus switch; only the M4300 managed UI has one).
+    mac_table_path: str | None = None
+    # Username field name for schemes that need one (M4300 /v1 posts BOTH
+    # uname and pwd). None = password-only login.
+    username_field: str | None = None
+    # Default username sent with ``username_field``.
+    username: str = "admin"
+    # Whether every request must carry a ``Referer: http://<host>/`` header.
+    # The M4300 /v1 UI answers 403 to any request without it (a CSRF guard).
+    needs_referer: bool = False
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -264,8 +278,53 @@ _GS105PE = HttpModelSpec(
     html_dialect=HtmlDialect.GS105PE,
 )
 
+# LIVE-VERIFIED 2026-07-21 against a real M4300-24X (10.1.5.13). The read-page
+# URLs were NOT statically discoverable -- the Cheetah /v1 menu is built at
+# runtime in JS -- and were recovered by driving a real browser and harvesting
+# every menu leaf's ``SetLinkPage('<page>')`` handler; the URL prefix is
+# ``/v1/``. Login is uname+pwd (plaintext) to /v1/base/cheetah_login.html, and
+# EVERY subsequent request must carry a Referer header or the switch answers
+# 403 (``needs_referer``). Page values live in the raw HTML as
+# semantically-commented hidden inputs -- see HtmlDialect.M4300 and
+# ``parse.parse_cheetah_rows``.
+#
+# Deliberately absent: ``poe_*`` (the M4300-24X has no PoE) and any LLDP
+# neighbour page -- this UI exposes only LLDP-MED remote data
+# (medRemoteDevInfo.html), which carries no chassis/port-id neighbour table,
+# so ``get_lldp`` stays honestly unsupported over HTTP and SNMP remains the
+# source for it.
+_M4300 = HttpModelSpec(
+    model_key="m4300-24x",
+    scheme=LoginScheme.CHEETAH_V1,
+    scheme_verified=True,
+    login_path="/",
+    login_post_path="/v1/base/cheetah_login.html",
+    password_field="pwd",
+    username_field="uname",
+    cookie_name="SID",
+    needs_rand=False,
+    needs_referer=True,
+    dashboard_path="/v1/portsConfiguration.html",
+    stats_path="/v1/portStatistics.html",
+    sysinfo_path="/v1/base/system/management/sysInfo.html",
+    mac_table_path="/v1/basicAddressTable.html",
+    poe_config_path=None,
+    poe_status_path=None,
+    vlan_config_path="/v1/vlanStatus.html",
+    vlan_membership_path=None,  # vlanStatus carries the egress list inline
+    pvid_path="/v1/portPvidConfiguration.html",
+    reboot_path=None,  # never captured -- not guessed
+    logout_path=None,
+    is_epx_poe=False,
+    reads_verified=True,
+    html_dialect=HtmlDialect.M4300,
+)
+
+_M4300_16X = dataclasses.replace(_M4300, model_key="m4300-16x")
+
 _SPECS: dict[str, HttpModelSpec] = {
-    s.model_key: s for s in (_GS305EP, _GS110EMX, _GSM7228PS, _GS105PE)
+    s.model_key: s
+    for s in (_GS305EP, _GS110EMX, _GSM7228PS, _GS105PE, _M4300, _M4300_16X)
 }
 
 HTTP_SPECS: Mapping[str, HttpModelSpec] = MappingProxyType(_SPECS)

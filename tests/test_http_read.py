@@ -254,6 +254,88 @@ def test_gs105pe_http_poe_unsupported_no_pse() -> None:
         reader.get_poe()
 
 
+def _m4300_pages() -> dict[str, str]:
+    """Real captures from a live M4300-24X (10.1.5.13, 2026-07-21)."""
+    return {
+        "/v1/portsConfiguration.html": (_FIX / "m4300_ports.html").read_text(),
+        "/v1/portStatistics.html": (_FIX / "m4300_portstats.html").read_text(),
+        "/v1/vlanStatus.html": (_FIX / "m4300_vlanstatus.html").read_text(),
+        "/v1/portPvidConfiguration.html": (_FIX / "m4300_pvid.html").read_text(),
+        "/v1/basicAddressTable.html": (_FIX / "m4300_addresstable.html").read_text(),
+        "/v1/base/system/management/sysInfo.html": (
+            _FIX / "m4300_sysinfo.html"
+        ).read_text(),
+    }
+
+
+def test_m4300_http_ports_match_live_snmp() -> None:
+    """portsConfiguration.html: 24 physical ports with interface names and
+    speeds. Live cross-check against this switch's SNMP backend showed ZERO
+    mismatches on (link_up, speed_mbps) for all 24 ports."""
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    ports = {p.port: p for p in reader.get_ports()}
+    assert len(ports) == 24
+    assert ports[1].name == "1/0/1"
+    assert (ports[1].link_up, ports[1].speed_mbps) == (True, 10000)
+    assert (ports[3].link_up, ports[3].speed_mbps) == (True, 1000)
+    assert (ports[4].link_up, ports[4].speed_mbps) == (False, None)
+
+
+def test_m4300_http_stats_are_frames_not_bytes() -> None:
+    """This UI reports FRAME counts, never octets -- so bytes stay honestly
+    None and the counts land in rx_packets/tx_packets."""
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    stats = {s.port: s for s in reader.get_stats()}
+    assert len(stats) == 24
+    assert stats[1].rx_packets == 17057817472
+    assert stats[1].rx_bytes is None
+    assert stats[1].tx_bytes is None
+
+
+def test_m4300_http_vlans_expand_physical_ports_only() -> None:
+    """vlanStatus.html egress lists look like "1/0/1 - 1/0/2, lag 1 - lag 128";
+    only physical unit/slot/port interfaces are ports -- expanding the LAG
+    range would invent 128 ports on a 24-port switch."""
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    vlans = {v.vlan_id: v for v in reader.get_vlans()}
+    assert len(vlans) == 14
+    assert vlans[1].name == "default"
+    assert vlans[1].member_ports == frozenset({1, 2, 5, 7, 8})
+    assert max(max(v.member_ports) for v in vlans.values() if v.member_ports) <= 24
+    # this page cannot distinguish tagged from untagged -- left empty, not guessed
+    assert vlans[1].tagged_ports == frozenset()
+
+
+def test_m4300_http_pvids_and_macs() -> None:
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    pvids = dict(reader.get_pvids())
+    assert len(pvids) == 24
+    assert pvids[3] == 5
+    macs = reader.get_macs()
+    assert macs
+    assert all(len(m.mac) == 17 for m in macs)
+
+
+def test_m4300_http_mgmt_and_sensors() -> None:
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    mgmt = reader.get_mgmt_ip()
+    assert mgmt.address == "10.1.5.13"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.base_mac == "8C:3B:AD:6B:BB:E0"
+    # the page carries no DHCP/static indicator -- UNKNOWN, never guessed
+    assert mgmt.mode is IpMode.UNKNOWN
+    temps = reader.get_sensors()
+    assert any(s.kind == "temperature" and s.value > 0 for s in temps)
+
+
+def test_m4300_http_lldp_unsupported() -> None:
+    """The M4300 web UI exposes only LLDP-MED data (no chassis/port-id
+    neighbour table), so HTTP LLDP must raise rather than fabricate."""
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    with pytest.raises(UnsupportedCapabilityError):
+        reader.get_lldp()
+
+
 def test_gs110emx_http_poe_and_l2_tables_unsupported() -> None:
     """gs110emx genuinely has no PoE, and NSDP/HTTP expose no MAC/LLDP/sensor
     tables on this Plus model -- those ops must raise, not fabricate."""

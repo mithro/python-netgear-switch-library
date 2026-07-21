@@ -25,9 +25,21 @@ Two different failure shapes are deliberate:
 from __future__ import annotations
 
 import re
+from html import unescape
 
 from ...errors import HttpUnexpectedPageError
-from ...models import IpMode, PoEDetect, PoEStatus, PortStats, PortStatus, VlanMode
+from ...models import (
+    IpMode,
+    MacEntry,
+    MgmtIpConfig,
+    PoEDetect,
+    PoEStatus,
+    PortStats,
+    PortStatus,
+    Sensor,
+    VLANInfo,
+    VlanMode,
+)
 from .types import HttpSysInfo
 
 _ROW_RE = re.compile(r'<tr\s+class="portID">(.*?)</tr>', re.DOTALL | re.IGNORECASE)
@@ -474,6 +486,282 @@ def parse_gs105pe_sysinfo(html: str) -> HttpSysInfo:
         subnet_mask=fields["subnet_mask"] or "",
         gateway_address=fields["gateway_address"] or "",
     )
+
+
+# --- M4300 "Cheetah /v1" pages -------------------------------------------
+#
+# Every data cell on a Cheetah page is a hidden input whose NAME encodes the
+# ROW INSTANCE, immediately followed by an HTML comment naming the field
+# semantically:
+#
+#   <TD ... id=1_2_10><INPUT xid=1_2_10 TYPE=hidden NAME=1.0.24.v_1_2_10
+#        VALUE="Link Up">Link Up</TD><!-- baseport_LinkStatus2 -->
+#
+# So a row is "all cells sharing an instance", and fields are addressed BY NAME
+# rather than by column index -- immune to column reordering between firmware
+# versions. GROUNDED in real captures from an M4300-24X (10.1.5.13,
+# 2026-07-21): portsConfiguration 24 instances x 17 fields, vlanStatus 14,
+# basicAddressTable, portStatistics 24.
+_CHEETAH_CELL_RE = re.compile(
+    r'NAME=([0-9.]+)\.v_[0-9_]+ VALUE="([^"]*)"[^<]*(?:</TD>)?<!-- (\w+) -->',
+    re.IGNORECASE,
+)
+
+
+def parse_cheetah_rows(html: str) -> list[dict[str, str]]:
+    """Group a Cheetah page's cells into one dict per row instance.
+
+    Returns rows in first-seen instance order, each mapping field NAME (from
+    the trailing HTML comment) to its value. Empty list if the page carries no
+    such cells -- the caller decides whether that is fatal."""
+    rows: dict[str, dict[str, str]] = {}
+    for instance, value, field in _CHEETAH_CELL_RE.findall(html):
+        # Cheetah HTML-escapes cell values (interface names arrive as
+        # "1&#x2F;0&#x2F;1"); unescape so port numbers parse.
+        rows.setdefault(instance, {})[field] = unescape(value).strip()
+    return list(rows.values())
+
+
+def _cheetah_int(row: dict[str, str], field: str) -> int | None:
+    return _int(row[field]) if field in row else None
+
+
+def parse_m4300_port_status(html: str) -> list[PortStatus]:
+    """M4300 ``portsConfiguration.html`` -> per-port status.
+
+    ``baseport_ifIndex`` is the port number (matching the SNMP backend's
+    ifIndex keying), ``baseinterfaceListing_Interfaces`` the name (``1/0/1``),
+    ``baseport_AdminMode`` the admin state, ``baseport_LinkStatus2`` the link
+    (``Link Up``/``Link Down``) and ``baseport_PhysicalStatus`` the speed text.
+    """
+    rows = [r for r in parse_cheetah_rows(html) if "baseport_LinkStatus2" in r]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "portsConfiguration.html: no baseport_* cells found"
+        )
+    out: list[PortStatus] = []
+    for r in rows:
+        port = _cheetah_int(r, "baseport_ifIndex")
+        if port is None:
+            raise HttpUnexpectedPageError(
+                "portsConfiguration.html: row without baseport_ifIndex"
+            )
+        link_up = "up" in r.get("baseport_LinkStatus2", "").lower()
+        out.append(
+            PortStatus(
+                port=port,
+                name=r.get("baseinterfaceListing_Interfaces") or None,
+                admin_enabled=r.get("baseport_AdminMode", "").lower() == "enable",
+                link_up=link_up,
+                speed_mbps=(
+                    _speed_text_to_mbps(r.get("baseport_PhysicalStatus", ""))
+                    if link_up
+                    else None
+                ),
+            )
+        )
+    return out
+
+
+def parse_m4300_stats(html: str) -> list[PortStats]:
+    """M4300 ``portStatistics.html`` -> per-port FRAME counters.
+
+    This page reports FRAMES, not octets (``basePortStats_TotalFramesRx/Tx``),
+    and the detailed page only breaks frames into size buckets -- neither
+    exposes total bytes. So ``rx_bytes``/``tx_bytes`` are honestly ``None``
+    here and the counts land in ``rx_packets``/``tx_packets``; a byte-level
+    comparison against SNMP is therefore not possible for this model, but a
+    PACKET-level one is.
+    """
+    rows = [r for r in parse_cheetah_rows(html) if "basePortStats_TotalFramesRx" in r]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "portStatistics.html: no basePortStats_* cells found"
+        )
+    out: list[PortStats] = []
+    for r in rows:
+        port = _cheetah_int(r, "baseport_ifIndex")
+        if port is None:
+            # this page keys rows by interface name when ifIndex is absent
+            name = r.get("baseinterfaceListing_Interfaces", "")
+            port = _int(name.rsplit("/", 1)[-1]) if "/" in name else _int(name)
+        if port is None:
+            raise HttpUnexpectedPageError(
+                "portStatistics.html: row without an identifiable port"
+            )
+        out.append(
+            PortStats(
+                port=port,
+                rx_bytes=None,
+                tx_bytes=None,
+                rx_packets=_cheetah_int(r, "basePortStats_TotalFramesRx"),
+                tx_packets=_cheetah_int(r, "basePortStats_TotalFramesTx"),
+                rx_errors=_cheetah_int(r, "basePortStats_TotalErrorFramesRx"),
+                tx_errors=_cheetah_int(r, "basePortStats_TotalErrorFramesTx"),
+            )
+        )
+    return out
+
+
+def parse_m4300_pvids(html: str) -> list[tuple[int, int]]:
+    """M4300 ``portPvidConfiguration.html`` -> ``(port, pvid)`` pairs."""
+    rows = [r for r in parse_cheetah_rows(html) if "SwitchingVlanPortConfig_Pvid" in r]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "portPvidConfiguration.html: no SwitchingVlanPortConfig_Pvid cells"
+        )
+    out: list[tuple[int, int]] = []
+    for r in rows:
+        port = _cheetah_int(r, "baseport_ifIndex")
+        if port is None:
+            name = r.get("baseinterfaceListing_Interfaces", "")
+            port = _int(name.rsplit("/", 1)[-1]) if "/" in name else _int(name)
+        pvid = _cheetah_int(r, "SwitchingVlanPortConfig_Pvid")
+        if port is None or pvid is None:
+            continue
+        out.append((port, pvid))
+    if not out:
+        raise HttpUnexpectedPageError(
+            "portPvidConfiguration.html: no (port, pvid) pair could be parsed"
+        )
+    return out
+
+
+_M4300_IFACE_RE = re.compile(r"(\d+)/(\d+)/(\d+)")
+
+
+def _expand_port_list(raw: str) -> frozenset[int]:
+    """M4300 egress list -> the set of PHYSICAL port numbers.
+
+    Real format (captured): ``"1/0/1 - 1/0/2, 1/0/5, 1/0/7 - 1/0/8,
+    lag 1 - lag 128"``. Only ``unit/slot/port`` interfaces are physical ports
+    and only the final component is the port number. ``lag N`` entries are
+    link-aggregation groups, NOT physical ports, and are deliberately skipped
+    -- expanding them (an earlier bug) turned ``lag 1 - lag 128`` into 128
+    "ports" on a 24-port switch. A range is expanded only when both ends are
+    physical interfaces in the same unit/slot.
+    """
+    ports: set[int] = set()
+    for part in raw.split(","):
+        ends = _M4300_IFACE_RE.findall(part)
+        if not ends:
+            continue  # "lag N" and any other non-physical interface
+        if "-" in part and len(ends) == 2:
+            (u1, s1, p1), (u2, s2, p2) = ends
+            if (u1, s1) == (u2, s2) and int(p1) <= int(p2):
+                ports.update(range(int(p1), int(p2) + 1))
+                continue
+        ports.update(int(p) for _u, _s, p in ends)
+    return frozenset(ports)
+
+
+def parse_m4300_vlans(html: str) -> list[VLANInfo]:
+    """M4300 ``vlanStatus.html`` -> VLANs with their egress member ports.
+
+    ``SwitchingVlanCurrentConfig_VlanCurrentEgressPortList`` gives the member
+    set. This page does NOT distinguish tagged from untagged, so both
+    ``tagged_ports`` and ``untagged_ports`` are left EMPTY rather than guessed
+    -- only ``member_ports`` is populated (see the reader's docs)."""
+    rows = [
+        r for r in parse_cheetah_rows(html)
+        if "SwitchingVlanStaticConfig_VlanIndex" in r
+    ]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "vlanStatus.html: no SwitchingVlanStaticConfig_VlanIndex cells"
+        )
+    out: list[VLANInfo] = []
+    for r in rows:
+        vid = _cheetah_int(r, "SwitchingVlanStaticConfig_VlanIndex")
+        if vid is None:
+            continue
+        members = _expand_port_list(
+            r.get("SwitchingVlanCurrentConfig_VlanCurrentEgressPortList", "")
+        )
+        out.append(
+            VLANInfo(
+                vlan_id=vid,
+                name=r.get("SwitchingVlanStaticConfig_VlanName") or None,
+                member_ports=members,
+                tagged_ports=frozenset(),
+                untagged_ports=frozenset(),
+            )
+        )
+    if not out:
+        raise HttpUnexpectedPageError("vlanStatus.html: no VLAN row could be parsed")
+    return out
+
+
+def parse_m4300_macs(html: str) -> list[MacEntry]:
+    """M4300 ``basicAddressTable.html`` -> the MAC/FDB table."""
+    rows = [
+        r for r in parse_cheetah_rows(html)
+        if "SwitchingmacAddrGroup_MacAddress" in r
+    ]
+    out: list[MacEntry] = []
+    for r in rows:
+        mac = r.get("SwitchingmacAddrGroup_MacAddress", "").strip().upper()
+        if not mac:
+            continue
+        name = r.get("SwitchingmacAddrGroup_Intf", "")
+        port = _int(name.rsplit("/", 1)[-1]) if "/" in name else _int(name)
+        out.append(
+            MacEntry(
+                mac=mac,
+                port=port or 0,
+                vlan_id=_cheetah_int(r, "SwitchingmacAddrGroup_vlanIndex"),
+            )
+        )
+    return out
+
+
+def parse_m4300_sysinfo(html: str) -> MgmtIpConfig:
+    """M4300 ``sysInfo.html`` -> management IP + base MAC.
+
+    ``IPv4 Management Address`` is rendered as ``addr/netmask`` inside a link;
+    ``System MAC Address`` is a plain labelled cell. The page reports no DHCP
+    /static indicator, so ``mode`` is honestly ``UNKNOWN`` rather than guessed
+    -- which matches what the SNMP backend reports for this model."""
+    addr = netmask = None
+    m = re.search(
+        r"IPv4 Management Address</td>.*?>([0-9.]+)\s*/\s*([0-9.]+)<", html, re.DOTALL
+    )
+    if m:
+        addr, netmask = m.group(1), m.group(2)
+    mac_m = re.search(
+        r"System MAC Address</td>\s*<td[^>]*>\s*([0-9A-Fa-f:]{17})", html
+    )
+    if addr is None and mac_m is None:
+        raise HttpUnexpectedPageError(
+            "sysInfo.html: neither IPv4 Management Address nor System MAC Address found"
+        )
+    return MgmtIpConfig(
+        mode=IpMode.UNKNOWN,
+        address=addr,
+        netmask=netmask,
+        gateway=None,
+        base_mac=mac_m.group(1).upper() if mac_m else None,
+    )
+
+
+def parse_m4300_sensors(html: str) -> list[Sensor]:
+    """M4300 ``sysInfo.html`` -> TEMPERATURE sensors.
+
+    The page's Temperature block renders numeric readings as
+    ``<td>MAC</td><td>53 &#8451;</td>``, which map straight onto ``Sensor``.
+    Its FAN block is deliberately NOT returned: it reports a non-numeric state
+    (``Fan-1 OK``) and ``Sensor.value`` is a required ``float`` -- emitting a
+    fan would mean inventing a number. The SNMP backend, which reads real fan
+    RPM, is the honest source for fan sensors on this model.
+    """
+    return [
+        Sensor(
+            name=label.strip(), kind="temperature", value=float(celsius), unit="C"
+        )
+        for label, celsius in re.findall(
+            r"<td[^>]*>([A-Za-z ]{2,28})</td>\s*<td[^>]*>\s*(\d+)\s*&#8451;", html
+        )
+    ]
 
 
 def parse_poe_status(html: str) -> list[PoEStatus]:

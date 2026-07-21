@@ -41,6 +41,12 @@ def _login_body(
     CHEETAH_FORM posts the plaintext password. Raises ``HttpUnexpectedPageError``
     if a required ``rand`` nonce is missing from the login page.
     """
+    if spec.scheme is LoginScheme.CHEETAH_V1:
+        # M4300 /v1: plaintext username + password, no nonce.
+        return {
+            spec.username_field or "uname": spec.username,
+            spec.password_field: password,
+        }
     if spec.scheme is LoginScheme.CHEETAH_FORM:
         return {spec.password_field: password}
     rand = parse_login_rand(login_page_html) if spec.needs_rand else None
@@ -136,6 +142,18 @@ async def _aretry_on_dropped_connection(
     raise HttpError(f"{context}: connection dropped by switch: {last}") from last
 
 
+def _referer_headers(spec: HttpModelSpec, host: str) -> dict[str, str]:
+    """Headers every request must carry for this model.
+
+    The M4300 Cheetah /v1 UI answers **403 Forbidden** to any request that
+    lacks a ``Referer`` naming the switch itself -- a CSRF guard. Confirmed
+    live: identical requests differ only by this header (403 without, 200
+    with). Models that do not need it get no extra headers."""
+    if not spec.needs_referer:
+        return {}
+    return {"Referer": f"http://{host.split(':', 1)[0]}/"}
+
+
 def _validate_response(
     resp: httpx.Response, *, context: str, path: str | None = None
 ) -> None:
@@ -175,6 +193,7 @@ class HttpClient:
             transport=transport,
             follow_redirects=True,
             limits=_LIMITS,
+            headers=_referer_headers(spec, host),
         )
         self._logged_in = False
         self._token = ""
@@ -260,6 +279,7 @@ class AsyncHttpClient:
             transport=transport,
             follow_redirects=True,
             limits=_LIMITS,
+            headers=_referer_headers(spec, host),
         )
         self._logged_in = False
         self._token = ""

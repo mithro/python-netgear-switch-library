@@ -74,6 +74,12 @@ def _is_gs105pe_dialect(spec: HttpModelSpec) -> bool:
     return spec.html_dialect is HtmlDialect.GS105PE
 
 
+def _is_m4300_dialect(spec: HttpModelSpec) -> bool:
+    from .protocols.http.endpoints import HtmlDialect
+
+    return spec.html_dialect is HtmlDialect.M4300
+
+
 def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
     """Dispatch ``stats_path``'s HTML to the right parser, keyed off
     ``spec.html_dialect``: gs110emx's interface_stats.html has a different
@@ -83,6 +89,8 @@ def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
         return parse.parse_interface_stats(html)
     if _is_gs105pe_dialect(spec):
         return parse.parse_gs105pe_stats(html)
+    if _is_m4300_dialect(spec):
+        return parse.parse_m4300_stats(html)
     return parse.parse_port_stats(html)
 
 
@@ -93,6 +101,8 @@ def _parse_ports(spec: HttpModelSpec, html: str) -> list[PortStatus]:
         return parse.parse_gs110emx_port_status(html)
     if _is_gs105pe_dialect(spec):
         return parse.parse_gs105pe_port_status(html)
+    if _is_m4300_dialect(spec):
+        return parse.parse_m4300_port_status(html)
     return parse.parse_port_status(html)
 
 
@@ -103,6 +113,8 @@ def _parse_pvids(spec: HttpModelSpec, html: str) -> list[tuple[int, int]]:
         return parse.parse_gs110emx_pvids(html)
     if _is_gs105pe_dialect(spec):
         return parse.parse_gs105pe_pvids(html)
+    if _is_m4300_dialect(spec):
+        return parse.parse_m4300_pvids(html)
     return parse.parse_pvids(html)
 
 
@@ -234,6 +246,10 @@ class HttpReader:
         cfg_path = _require_path(
             self.model.key, self._spec.vlan_config_path, "VLAN configuration"
         )
+        if _is_m4300_dialect(self._spec):
+            # vlanStatus.html carries each VLAN's egress list inline, so there
+            # is no per-VLAN membership POST for this model.
+            return parse.parse_m4300_vlans(self.session.get_page(cfg_path))
         member_path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
@@ -255,21 +271,31 @@ class HttpReader:
         return result
 
     def get_macs(self) -> list[MacEntry]:
-        raise _unsupported(self.model.key, "a MAC/FDB table")
+        path = _require_path(
+            self.model.key, self._spec.mac_table_path, "a MAC/FDB table"
+        )
+        return parse.parse_m4300_macs(self.session.get_page(path))
 
     def get_lldp(self) -> list[LLDPNeighbor]:
+        # The M4300 web UI exposes only LLDP-MED remote data (no chassis/port-id
+        # neighbour table), and Plus switches expose no LLDP at all -- SNMP is
+        # the honest source. See endpoints.py's _M4300 comment.
         raise _unsupported(self.model.key, "LLDP neighbours")
 
     def get_sensors(self) -> list[Sensor]:
-        raise _unsupported(self.model.key, "box sensors")
+        if not _is_m4300_dialect(self._spec) or self._spec.sysinfo_path is None:
+            raise _unsupported(self.model.key, "box sensors")
+        return parse.parse_m4300_sensors(
+            self.session.get_page(self._spec.sysinfo_path)
+        )
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         if self._spec.sysinfo_path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        info = _parse_sysinfo(
-            self._spec, self.session.get_page(self._spec.sysinfo_path)
-        )
-        return _mgmt_ip_from_sysinfo(info)
+        page = self.session.get_page(self._spec.sysinfo_path)
+        if _is_m4300_dialect(self._spec):
+            return parse.parse_m4300_sysinfo(page)
+        return _mgmt_ip_from_sysinfo(_parse_sysinfo(self._spec, page))
 
 
 class AsyncHttpReader:
@@ -304,6 +330,8 @@ class AsyncHttpReader:
         member_path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
+        if _is_m4300_dialect(self._spec):
+            return parse.parse_m4300_vlans(await self.session.get_page(cfg_path))
         cfg = await self.session.get_page(cfg_path)
         member_page = csrf = selected = None
         if _is_gs105pe_dialect(self._spec):
@@ -322,18 +350,25 @@ class AsyncHttpReader:
         return result
 
     async def get_macs(self) -> list[MacEntry]:
-        raise _unsupported(self.model.key, "a MAC/FDB table")
+        path = _require_path(
+            self.model.key, self._spec.mac_table_path, "a MAC/FDB table"
+        )
+        return parse.parse_m4300_macs(await self.session.get_page(path))
 
     async def get_lldp(self) -> list[LLDPNeighbor]:
         raise _unsupported(self.model.key, "LLDP neighbours")
 
     async def get_sensors(self) -> list[Sensor]:
-        raise _unsupported(self.model.key, "box sensors")
+        if not _is_m4300_dialect(self._spec) or self._spec.sysinfo_path is None:
+            raise _unsupported(self.model.key, "box sensors")
+        return parse.parse_m4300_sensors(
+            await self.session.get_page(self._spec.sysinfo_path)
+        )
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
         if self._spec.sysinfo_path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        info = _parse_sysinfo(
-            self._spec, await self.session.get_page(self._spec.sysinfo_path)
-        )
-        return _mgmt_ip_from_sysinfo(info)
+        page = await self.session.get_page(self._spec.sysinfo_path)
+        if _is_m4300_dialect(self._spec):
+            return parse.parse_m4300_sysinfo(page)
+        return _mgmt_ip_from_sysinfo(_parse_sysinfo(self._spec, page))

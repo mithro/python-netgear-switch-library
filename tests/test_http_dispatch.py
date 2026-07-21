@@ -18,7 +18,7 @@ from netgear_switch.transport.http.client import AsyncHttpClient, HttpClient
 def test_require_http_backend() -> None:
     require_http_backend(get_model("gs305ep"))  # no raise
     with pytest.raises(UnsupportedCapabilityError):
-        require_http_backend(get_model("m4300-24x"))
+        require_http_backend(get_model("gsm7252ps"))
 
 
 def test_http_reads_supported() -> None:
@@ -30,7 +30,7 @@ def test_http_reads_supported() -> None:
     assert http_reads_supported(get_model("gs305ep")) is True    # NSDP+HTTP, grounded
     assert http_reads_supported(get_model("gsm7228ps")) is False  # SNMP-authoritative
     assert http_reads_supported(get_model("gs110emx")) is True    # Gambit, grounded
-    assert http_reads_supported(get_model("m4300-24x")) is False  # no HTTP backend
+    assert http_reads_supported(get_model("gsm7252ps")) is False  # no HTTP backend
 
 
 def test_build_sync_http_client_requires_password() -> None:
