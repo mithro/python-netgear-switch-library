@@ -113,15 +113,20 @@ def _decode_str(data: bytes) -> str:
 
 
 def parse_port_mirroring(data: bytes) -> NsdpPortMirroring:
-    """Parse NSDP tag 0x5C00 (4 bytes: dest_port(1) + source bitmap(3)).
+    """Parse NSDP tag 0x5C00: dest_port(1) + a variable-width source bitmap.
+
+    The source-port bitmap width is MODEL-dependent: a 5-port GS105PE returns a
+    2-byte bitmap (3-byte TLV in total), a 10-port GS110EMX a 3-byte bitmap
+    (4-byte TLV) -- both confirmed live 2026-07-21. Earlier this hard-required
+    exactly 4 bytes and so raised on a real GS105PE (``00 00 00`` = mirroring
+    off). Accept ``dest_port`` plus the remaining bytes as the bitmap instead.
 
     Lifted from ``gdoc2netcfg/src/nsdp/parsers.py::parse_port_mirroring``.
     """
-    if len(data) != 4:
-        raise ValueError(f"PORT_MIRRORING TLV must be 4 bytes, got {len(data)}")
+    if not data:
+        raise ValueError("PORT_MIRRORING TLV must be at least 1 byte, got 0")
     dest_port = data[0]
-    # Bytes 1-3 are the source-port bitmap (MSB first).
-    source_ports = bitmap_to_ports(data[1:4])
+    source_ports = bitmap_to_ports(data[1:])
     return NsdpPortMirroring(destination_port=dest_port, source_ports=source_ports)
 
 

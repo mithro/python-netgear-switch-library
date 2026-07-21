@@ -61,6 +61,21 @@ def _require_nsdp(model: SwitchModel) -> None:
         raise UnsupportedCapabilityError(f"model {model.key!r} has no NSDP backend")
 
 
+def _with_model(tags: list[Tag]) -> list[Tag]:
+    """Prepend ``Tag.MODEL`` to a per-op read's tag list.
+
+    Real Plus hardware answers a read with ONLY the tags requested (confirmed
+    live on a GS105PE, 2026-07-21: a read omitting MODEL either times out or
+    returns a MODEL-less response), and ``parse_device`` requires a MODEL tag to
+    build an ``NsdpDevice``. The virtual NSDP face historically emitted MODEL
+    unconditionally, so the per-op reads (which never requested it) passed in the
+    mock while failing on real switches. Requesting MODEL on every read is cheap
+    (one extra TLV) and makes the per-op ops work against real hardware."""
+    if Tag.MODEL in tags:
+        return tags
+    return [Tag.MODEL, *tags]
+
+
 def _ports(dev: NsdpDevice) -> list[PortStatus]:
     return [
         PortStatus(
@@ -130,7 +145,7 @@ class NsdpReader:
         self.model = model
 
     def _device(self, tags: list[Tag]) -> NsdpDevice:
-        return parse_device(self.client.read(tags))
+        return parse_device(self.client.read(_with_model(tags)))
 
     def get_ports(self) -> list[PortStatus]:
         return _ports(self._device([Tag.PORT_COUNT, Tag.PORT_STATUS]))
@@ -182,7 +197,7 @@ class AsyncNsdpReader:
         self.model = model
 
     async def _device(self, tags: list[Tag]) -> NsdpDevice:
-        return parse_device(await self.client.read(tags))
+        return parse_device(await self.client.read(_with_model(tags)))
 
     async def get_ports(self) -> list[PortStatus]:
         return _ports(await self._device([Tag.PORT_COUNT, Tag.PORT_STATUS]))

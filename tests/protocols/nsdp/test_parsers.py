@@ -113,13 +113,19 @@ class TestParsePortMirroring:
         assert result.destination_port == 5
         assert result.source_ports == frozenset({1, 2, 3, 4, 5, 6, 7, 8})
 
-    def test_invalid_length_too_short(self):
-        with pytest.raises(ValueError, match="4 bytes"):
-            parsers.parse_port_mirroring(b"\x0a\xc0")
+    def test_short_bitmap_parses(self):
+        # A 2-byte TLV (dest + 1-byte bitmap) is valid on a small switch, not an
+        # error -- the bitmap width is model-dependent (see the GS105PE live
+        # finding in test_port_mirroring_variable_width_bitmap).
+        pm = parsers.parse_port_mirroring(b"\x0a\xc0")
+        assert pm.destination_port == 10
+        assert pm.source_ports == frozenset({1, 2})
 
-    def test_invalid_length_too_long(self):
-        with pytest.raises(ValueError, match="4 bytes"):
-            parsers.parse_port_mirroring(b"\x0a\xc0\x00\x00\x00")
+    def test_long_bitmap_parses(self):
+        # A wider (3-byte) bitmap is likewise valid, not an error.
+        pm = parsers.parse_port_mirroring(b"\x0a\xc0\x00\x00")
+        assert pm.destination_port == 10
+        assert pm.source_ports == frozenset({1, 2})
 
 
 class TestParseIgmpSnooping:
@@ -187,6 +193,21 @@ class TestParseDeviceNewTags:
         assert device.port_mirroring is not None
         assert device.port_mirroring.destination_port == 10
         assert device.port_mirroring.source_ports == frozenset({1, 2})
+
+    def test_port_mirroring_variable_width_bitmap(self):
+        # A 5-port GS105PE returns a 3-byte PORT_MIRRORING (dest + 2-byte
+        # bitmap), not the 10-port GS110EMX's 4-byte form -- captured live
+        # 2026-07-21 as ``00 00 00`` (mirroring off). Must parse, not raise.
+        off = parsers.parse_port_mirroring(b"\x00\x00\x00")
+        assert off.destination_port == 0
+        assert off.source_ports == frozenset()
+        # dest port 5, source ports 1,2 in a 2-byte bitmap
+        pm = parsers.parse_port_mirroring(b"\x05\xc0\x00")
+        assert pm.destination_port == 5
+        assert pm.source_ports == frozenset({1, 2})
+        # an empty TLV is still rejected (no dest-port byte at all)
+        with pytest.raises(ValueError, match="at least 1 byte"):
+            parsers.parse_port_mirroring(b"")
 
     def test_igmp_snooping(self):
         pkt = self._pkt()

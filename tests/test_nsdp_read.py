@@ -70,6 +70,48 @@ class FakeAsyncNsdpClient:
         return _canned_packet()
 
 
+class _TagFilteringNsdpClient:
+    """Mimics REAL Plus hardware: answers a read with ONLY the tags requested
+    (never MODEL unsolicited), unlike the virtual face which over-served MODEL.
+    Exposes the bug where a per-op read omitting MODEL yields a response
+    ``parse_device`` rejects (confirmed live on a GS105PE, 2026-07-21)."""
+
+    def __init__(self) -> None:
+        self.last: list[Tag] = []
+
+    def read(self, tags):
+        self.last = list(tags)
+        canned = _canned_packet()
+        by_tag: dict[Tag, list[bytes]] = {}
+        for tlv in canned.tlvs:
+            by_tag.setdefault(tlv.tag, []).append(tlv.value)
+        pkt = NSDPPacket(
+            op=Op.READ_RESPONSE, client_mac=b"\x00" * 6, server_mac=b"\xaa" * 6
+        )
+        for t in tags:
+            for value in by_tag.get(t, []):
+                pkt.add_tlv(t, value)
+        return pkt
+
+
+def test_per_op_reads_request_model_for_real_hardware() -> None:
+    # Real Plus hardware returns ONLY the requested tags and parse_device
+    # requires MODEL, so every per-op read must request MODEL -- else it fails
+    # on real switches (the virtual face over-served MODEL, hiding this).
+    client = _TagFilteringNsdpClient()
+    reader = NsdpReader(client, get_model("gs110emx"))
+    reader.get_ports()
+    assert Tag.MODEL in client.last
+    reader.get_stats()
+    assert Tag.MODEL in client.last
+    reader.get_vlans()
+    assert Tag.MODEL in client.last
+    reader.get_pvids()
+    assert Tag.MODEL in client.last
+    reader.get_mgmt_ip()
+    assert Tag.MODEL in client.last
+
+
 def _reader() -> NsdpReader:
     return NsdpReader(FakeNsdpClient(), get_model("gs110emx"))
 
