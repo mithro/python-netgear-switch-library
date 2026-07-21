@@ -98,6 +98,53 @@ def test_http_and_nsdp_reads_agree(model_key: str) -> None:
         sw.stop()
 
 
+def test_m4300_http_and_snmp_reads_agree() -> None:
+    """The M4300 is reachable over BOTH SNMP and HTTP, so the two must report
+    the same ports/PVIDs/VLAN-ids/base-MAC for one switch. Live against
+    10.1.5.13 this comparison showed ZERO mismatches across 24 ports and 24
+    PVIDs; this runs the same comparison deterministically against the mock.
+
+    Only protocol-common ground is compared: this web UI reports FRAME counts
+    (never octets) so byte counters are not comparable, and its VLAN page
+    cannot distinguish tagged from untagged, so only VLAN IDs are compared.
+    """
+    from netgear_switch.snmp_read import SnmpReader
+    from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+
+    model = get_model("m4300-24x")
+    sw = VirtualSwitch(model="m4300-24x")
+    sw.start()
+    try:
+        client = HttpClient(
+            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
+        )
+        client.login()
+        http = HttpReader(client, model)
+        snmp = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
+        try:
+            http_ports = _port_pairs(http.get_ports())
+            snmp_ports = _port_pairs(snmp.get_ports())
+            common = set(http_ports) & set(snmp_ports)
+            assert common, "no overlapping ports to compare"
+            for port in sorted(common):
+                assert http_ports[port] == snmp_ports[port], f"port {port} differs"
+
+            http_pvids, snmp_pvids = dict(http.get_pvids()), dict(snmp.get_pvids())
+            shared = set(http_pvids) & set(snmp_pvids)
+            assert shared
+            for port in sorted(shared):
+                assert http_pvids[port] == snmp_pvids[port], f"pvid {port} differs"
+
+            assert {v.vlan_id for v in http.get_vlans()} == {
+                v.vlan_id for v in snmp.get_vlans()
+            }
+            assert http.get_mgmt_ip().base_mac == snmp.get_mgmt_ip().base_mac
+        finally:
+            client.close()
+    finally:
+        sw.stop()
+
+
 def test_gs110emx_http_and_nsdp_reads_agree() -> None:
     model = get_model("gs110emx")
     sw = VirtualSwitch(model="gs110emx")

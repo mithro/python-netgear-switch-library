@@ -26,7 +26,7 @@ from urllib.parse import parse_qs
 
 from ...protocols.http.crypt import merge_hash_md5
 from ...protocols.http.endpoints import HttpModelSpec, LoginScheme
-from .. import web, web_gs105pe, web_gs110emx
+from .. import web, web_gs105pe, web_gs110emx, web_m4300
 
 if TYPE_CHECKING:
     from ..state import VirtualSwitchState
@@ -132,6 +132,8 @@ class VirtualHttpFace:
                         page = face._render_token_page(path, {})
                     elif (gs105 := face._render_gs105pe_page(path, {})) is not None:
                         page = gs105
+                    elif (m43 := face._render_m4300_page(path)) is not None:
+                        page = m43
                     else:
                         page = web.render_page(face.state, face.spec, path, {})
                 self._send(page)
@@ -156,6 +158,8 @@ class VirtualHttpFace:
                         page = face._render_token_page(path, form)
                     elif (gs105 := face._render_gs105pe_page(path, form)) is not None:
                         page = gs105
+                    elif (m43 := face._render_m4300_page(path)) is not None:
+                        page = m43
                     else:
                         web.apply_form(face.state, face.spec, path, form)
                         page = web.render_page(face.state, face.spec, path, form)
@@ -201,6 +205,27 @@ class VirtualHttpFace:
             return web_gs105pe.render_vlan_membership(self.state, vid)
         return None
 
+    def _render_m4300_page(self, path: str) -> str | None:
+        """Render an M4300 Cheetah /v1 read page from state, or ``None`` if
+        this model is not an M4300 (so the caller falls through)."""
+        from ...protocols.http.endpoints import HtmlDialect
+
+        if self.spec.html_dialect is not HtmlDialect.M4300:
+            return None
+        if path == self.spec.dashboard_path:
+            return web_m4300.render_ports(self.state)
+        if path == self.spec.stats_path:
+            return web_m4300.render_port_statistics(self.state)
+        if path == self.spec.pvid_path:
+            return web_m4300.render_pvids(self.state)
+        if path == self.spec.vlan_config_path:
+            return web_m4300.render_vlans(self.state)
+        if path == self.spec.mac_table_path:
+            return web_m4300.render_mac_table(self.state)
+        if path == self.spec.sysinfo_path:
+            return web_m4300.render_sysinfo(self.state)
+        return None
+
     def _render_token_page(self, path: str, form: dict[str, str]) -> str:
         """Render one of a token-session model's known GET/POST paths from
         state, so the gs110emx HTTP face serves the FULL NSDP read surface
@@ -226,8 +251,14 @@ class VirtualHttpFace:
     def _login_response(self, form: dict[str, str]) -> str:
         field = self.spec.password_field
         supplied = form.get(field, "")
-        if self.spec.scheme is LoginScheme.CHEETAH_FORM:
+        if self.spec.scheme in (LoginScheme.CHEETAH_FORM, LoginScheme.CHEETAH_V1):
+            # Both post the password in plaintext; CHEETAH_V1 (M4300 /v1) also
+            # sends a username, which the real UI validates alongside it.
             ok = supplied == self.password
+            if self.spec.scheme is LoginScheme.CHEETAH_V1:
+                ok = ok and form.get(self.spec.username_field or "", "") == (
+                    self.spec.username
+                )
         else:
             ok = supplied == merge_hash_md5(self.password, self.rand)
         return "OK" if ok else "Login failed"
