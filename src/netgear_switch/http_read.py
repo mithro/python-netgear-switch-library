@@ -68,6 +68,12 @@ def _is_gs110emx_dialect(spec: HttpModelSpec) -> bool:
     return spec.html_dialect is HtmlDialect.GS110EMX
 
 
+def _is_gs105pe_dialect(spec: HttpModelSpec) -> bool:
+    from .protocols.http.endpoints import HtmlDialect
+
+    return spec.html_dialect is HtmlDialect.GS105PE
+
+
 def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
     """Dispatch ``stats_path``'s HTML to the right parser, keyed off
     ``spec.html_dialect``: gs110emx's interface_stats.html has a different
@@ -75,6 +81,8 @@ def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
     than gs305ep's portStatistics.cgi."""
     if _is_gs110emx_dialect(spec):
         return parse.parse_interface_stats(html)
+    if _is_gs105pe_dialect(spec):
+        return parse.parse_gs105pe_stats(html)
     return parse.parse_port_stats(html)
 
 
@@ -83,6 +91,8 @@ def _parse_ports(spec: HttpModelSpec, html: str) -> list[PortStatus]:
     port_settings.html (open rows, speed text) vs gs305ep's dashboard.cgi."""
     if _is_gs110emx_dialect(spec):
         return parse.parse_gs110emx_port_status(html)
+    if _is_gs105pe_dialect(spec):
+        return parse.parse_gs105pe_port_status(html)
     return parse.parse_port_status(html)
 
 
@@ -91,6 +101,8 @@ def _parse_pvids(spec: HttpModelSpec, html: str) -> list[tuple[int, int]]:
     gs305ep's portPVID.cgi."""
     if _is_gs110emx_dialect(spec):
         return parse.parse_gs110emx_pvids(html)
+    if _is_gs105pe_dialect(spec):
+        return parse.parse_gs105pe_pvids(html)
     return parse.parse_pvids(html)
 
 
@@ -102,18 +114,32 @@ def _parse_vlan_ids(spec: HttpModelSpec, html: str) -> list[int]:
     return parse.parse_vlan_ids(html)
 
 
-def _membership_form(spec: HttpModelSpec, vid: int) -> dict[str, str]:
+def _membership_form(
+    spec: HttpModelSpec, vid: int, csrf_hash: str | None = None
+) -> dict[str, str]:
     """The POST body that selects VLAN ``vid``'s membership page.
 
+    Each model needs a different extra field, all confirmed live 2026-07-21:
     gs110emx's vlanMembership.html returns an EMPTY body unless the hidden
-    ``vlanIdSel`` field is also present -- ``VLAN_ID`` alone is silently ignored
-    (confirmed live 2026-07-21). ``ACTION`` is deliberately omitted so the POST
-    stays a read (a non-empty ACTION would apply a membership change). gs305ep's
-    8021qMembe.cgi needs only ``VLAN_ID``."""
+    ``vlanIdSel`` is present (``VLAN_ID`` alone is silently ignored); gs105pe's
+    8021qMembe.cgi ignores ``VLAN_ID`` (returning VLAN 1 every time) unless the
+    per-page CSRF ``hash`` accompanies it. gs305ep needs only ``VLAN_ID``.
+    ``ACTION`` is deliberately never sent so the POST stays a READ -- a
+    non-empty ACTION would APPLY a membership change."""
     data = {"VLAN_ID": str(vid)}
     if _is_gs110emx_dialect(spec):
         data["vlanIdSel"] = str(vid)
+    if _is_gs105pe_dialect(spec) and csrf_hash:
+        data["hash"] = csrf_hash
     return data
+
+
+def _parse_sysinfo(spec: HttpModelSpec, html: str) -> HttpSysInfo:
+    """Dispatch the device-identity/mgmt-IP page: gs105pe's switch_info.cgi
+    (lowercase ip_address inputs, dhcpMode select) vs gs110emx's sysInfo.html."""
+    if _is_gs105pe_dialect(spec):
+        return parse.parse_gs105pe_sysinfo(html)
+    return parse.parse_sysinfo(html)
 
 
 def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
@@ -179,10 +205,18 @@ class HttpReader:
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
         cfg = self.session.get_page(cfg_path)
+        member_page = csrf = selected = None
+        if _is_gs105pe_dialect(self._spec):
+            member_page = self.session.get_page(member_path)
+            csrf = parse.parse_csrf_hash(member_page)
+            selected = parse.parse_selected_vlan(member_page)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
-            form = _membership_form(self._spec, vid)
-            html = self.session.post_form(member_path, form)
+            if member_page is not None and vid == selected:
+                html = member_page  # already shown; re-POSTing it drops the link
+            else:
+                form = _membership_form(self._spec, vid, csrf)
+                html = self.session.post_form(member_path, form)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
 
@@ -198,7 +232,9 @@ class HttpReader:
     def get_mgmt_ip(self) -> MgmtIpConfig:
         if self._spec.sysinfo_path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        info = parse.parse_sysinfo(self.session.get_page(self._spec.sysinfo_path))
+        info = _parse_sysinfo(
+            self._spec, self.session.get_page(self._spec.sysinfo_path)
+        )
         return _mgmt_ip_from_sysinfo(info)
 
 
@@ -235,10 +271,18 @@ class AsyncHttpReader:
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
         cfg = await self.session.get_page(cfg_path)
+        member_page = csrf = selected = None
+        if _is_gs105pe_dialect(self._spec):
+            member_page = await self.session.get_page(member_path)
+            csrf = parse.parse_csrf_hash(member_page)
+            selected = parse.parse_selected_vlan(member_page)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
-            form = _membership_form(self._spec, vid)
-            html = await self.session.post_form(member_path, form)
+            if member_page is not None and vid == selected:
+                html = member_page  # already shown; re-POSTing it drops the link
+            else:
+                form = _membership_form(self._spec, vid, csrf)
+                html = await self.session.post_form(member_path, form)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
 
@@ -254,5 +298,7 @@ class AsyncHttpReader:
     async def get_mgmt_ip(self) -> MgmtIpConfig:
         if self._spec.sysinfo_path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        info = parse.parse_sysinfo(await self.session.get_page(self._spec.sysinfo_path))
+        info = _parse_sysinfo(
+            self._spec, await self.session.get_page(self._spec.sysinfo_path)
+        )
         return _mgmt_ip_from_sysinfo(info)

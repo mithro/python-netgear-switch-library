@@ -23,6 +23,7 @@ from ...protocols.http.endpoints import LoginScheme
 from ...protocols.http.parse import parse_gambit_token, parse_login_rand
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
     from types import TracebackType
     from typing import Self
 
@@ -91,6 +92,49 @@ def _token_form_field(spec: HttpModelSpec, token: str) -> dict[str, str]:
     return {spec.session_token_field: token}
 
 
+# Real Plus hardware (GS105PE confirmed live 2026-07-21, GS110EMX similar)
+# aggressively closes idle keep-alive connections, so the FIRST request reusing
+# a pooled connection can fail with "Server disconnected without sending a
+# response" even though the switch is healthy. Retrying re-establishes the
+# connection and succeeds. This is a transport-level nicety, NOT error hiding:
+# only httpx.RemoteProtocolError (a dropped connection, never an HTTP error
+# status) is retried, and the final failure still propagates as HttpError.
+_DROPPED_CONNECTION_RETRIES = 2
+
+# Legacy Plus switches close idle keep-alive connections so aggressively that a
+# pooled connection is usually already dead by the next request (a real GS105PE
+# drops EVERY first POST after a GET, and httpx would just retry on the same
+# dead pooled connection). Disabling keep-alive costs one TCP handshake per
+# request against a LAN switch and makes reads reliable.
+_LIMITS = httpx.Limits(max_keepalive_connections=0)
+
+
+def _retry_on_dropped_connection(
+    send: Callable[[], httpx.Response], context: str
+) -> httpx.Response:
+    """Call ``send()``, retrying a dropped keep-alive connection (sync)."""
+    last: httpx.RemoteProtocolError | None = None
+    for _ in range(_DROPPED_CONNECTION_RETRIES + 1):
+        try:
+            return send()
+        except httpx.RemoteProtocolError as exc:
+            last = exc
+    raise HttpError(f"{context}: connection dropped by switch: {last}") from last
+
+
+async def _aretry_on_dropped_connection(
+    send: Callable[[], Awaitable[httpx.Response]], context: str
+) -> httpx.Response:
+    """Async twin of ``_retry_on_dropped_connection``."""
+    last: httpx.RemoteProtocolError | None = None
+    for _ in range(_DROPPED_CONNECTION_RETRIES + 1):
+        try:
+            return await send()
+        except httpx.RemoteProtocolError as exc:
+            last = exc
+    raise HttpError(f"{context}: connection dropped by switch: {last}") from last
+
+
 def _validate_response(
     resp: httpx.Response, *, context: str, path: str | None = None
 ) -> None:
@@ -129,6 +173,7 @@ class HttpClient:
             verify=verify_tls,
             transport=transport,
             follow_redirects=True,
+            limits=_LIMITS,
         )
         self._logged_in = False
         self._token = ""
@@ -165,7 +210,9 @@ class HttpClient:
             self.login()
         params = _token_params(self._spec, self._token)
         try:
-            resp = self._client.get(path, params=params)
+            resp = _retry_on_dropped_connection(
+                lambda: self._client.get(path, params=params), f"GET {path}"
+            )
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"GET {path}", path=path)
@@ -176,7 +223,9 @@ class HttpClient:
             self.login()
         body = {**data, **_token_form_field(self._spec, self._token)}
         try:
-            resp = self._client.post(path, data=body)
+            resp = _retry_on_dropped_connection(
+                lambda: self._client.post(path, data=body), f"POST {path}"
+            )
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")
@@ -206,6 +255,7 @@ class AsyncHttpClient:
             verify=verify_tls,
             transport=transport,
             follow_redirects=True,
+            limits=_LIMITS,
         )
         self._logged_in = False
         self._token = ""
@@ -242,7 +292,9 @@ class AsyncHttpClient:
             await self.login()
         params = _token_params(self._spec, self._token)
         try:
-            resp = await self._client.get(path, params=params)
+            resp = await _aretry_on_dropped_connection(
+                lambda: self._client.get(path, params=params), f"GET {path}"
+            )
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"GET {path}", path=path)
@@ -253,7 +305,9 @@ class AsyncHttpClient:
             await self.login()
         body = {**data, **_token_form_field(self._spec, self._token)}
         try:
-            resp = await self._client.post(path, data=body)
+            resp = await _aretry_on_dropped_connection(
+                lambda: self._client.post(path, data=body), f"POST {path}"
+            )
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")

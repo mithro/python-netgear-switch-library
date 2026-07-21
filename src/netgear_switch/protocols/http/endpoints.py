@@ -77,6 +77,7 @@ class HtmlDialect(enum.Enum):
 
     STANDARD = "standard"  # gs305ep CGI: closed portID rows, vlanck checkboxes
     GS110EMX = "gs110emx"  # real GS110EMX: open portID rows, Advanced-802.1Q list
+    GS105PE = "gs105pe"  # real GS105PE: status.cgi layout, hidden-input counters
 
 
 @dataclass(frozen=True)
@@ -237,22 +238,30 @@ _GSM7228PS = HttpModelSpec(
 _GS105PE = HttpModelSpec(
     model_key="gs105pe",
     scheme=LoginScheme.MERGE_HASH_CGI,
-    scheme_verified=False,
+    scheme_verified=True,
     login_path="/login.cgi",
     password_field="password",
     cookie_name="SID",
     needs_rand=True,
-    dashboard_path="/dashboard.cgi",
+    # LIVE-DISCOVERED 2026-07-21 on a real GS105PE (10.1.5.30). The paths
+    # previously copied from gs305ep were PARTLY WRONG: dashboard.cgi and
+    # getPoePortStatus.cgi both 404 on real hardware. Port status is
+    # status.cgi, and device identity/mgmt-IP is switch_info.cgi.
+    dashboard_path="/status.cgi",
     stats_path="/portStatistics.cgi",
-    poe_config_path="/PoEPortConfig.cgi",
-    poe_status_path="/getPoePortStatus.cgi",
+    sysinfo_path="/switch_info.cgi",
+    poe_config_path=None,
+    # CONFIRMED 404: this model is PoE pass-through, not a PSE -- no PoE
+    # status page exists (matches its registry poe_port_count=0).
+    poe_status_path=None,
     vlan_config_path="/8021qCf.cgi",
     vlan_membership_path="/8021qMembe.cgi",
     pvid_path="/portPVID.cgi",
     reboot_path="/device_reboot.cgi",
     logout_path="/logout.cgi",
     is_epx_poe=False,
-    reads_verified=False,
+    reads_verified=True,
+    html_dialect=HtmlDialect.GS105PE,
 )
 
 _SPECS: dict[str, HttpModelSpec] = {

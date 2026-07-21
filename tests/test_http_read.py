@@ -197,6 +197,63 @@ def test_gs110emx_http_vlans_grounded_in_real_capture() -> None:
     assert v1.member_ports == frozenset(range(1, 11))
 
 
+def _gs105pe_pages() -> dict[str, str]:
+    """Real captures from a live GS105PE (10.1.5.30, 2026-07-21)."""
+    return {
+        "/status.cgi": (_FIX / "gs105pe_status.html").read_text(),
+        "/portStatistics.cgi": (_FIX / "gs105pe_portstats.html").read_text(),
+        "/portPVID.cgi": (_FIX / "gs105pe_pvid.html").read_text(),
+        "/8021qCf.cgi": (_FIX / "gs105pe_vlancfg.html").read_text(),
+        "/8021qMembe.cgi": (_FIX / "gs105pe_membership.html").read_text(),
+        "/switch_info.cgi": (_FIX / "gs105pe_switch_info.html").read_text(),
+    }
+
+
+def test_gs105pe_http_ports_match_live_nsdp() -> None:
+    """status.cgi (real capture): ports 3 (100M) and 5 (1G) up, rest down --
+    IDENTICAL to what the NSDP backend reports for this same switch."""
+    reader = HttpReader(_FakeSession(_gs105pe_pages()), get_model("gs105pe"))
+    ports = {p.port: (p.link_up, p.speed_mbps) for p in reader.get_ports()}
+    assert ports == {
+        1: (False, None), 2: (False, None), 3: (True, 100),
+        4: (False, None), 5: (True, 1000),
+    }
+
+
+def test_gs105pe_http_pvids_match_live_nsdp() -> None:
+    reader = HttpReader(_FakeSession(_gs105pe_pages()), get_model("gs105pe"))
+    assert dict(reader.get_pvids()) == {1: 41, 2: 41, 3: 90, 4: 41, 5: 1}
+
+
+def test_gs105pe_http_stats_decode_hidden_counter_halves() -> None:
+    """portStatistics.cgi's VISIBLE cells are JS-populated and unreliable; the
+    real counters are hidden (hi, lo) 32-bit pairs -- see parse_gs105pe_stats."""
+    reader = HttpReader(_FakeSession(_gs105pe_pages()), get_model("gs105pe"))
+    stats = {s.port: (s.rx_bytes, s.tx_bytes) for s in reader.get_stats()}
+    assert stats[3] == (0, 11625519)
+    assert stats[5] == (33619588, 495898)
+    assert stats[1] == (0, 0)
+
+
+def test_gs105pe_http_mgmt_ip_matches_live_nsdp() -> None:
+    """switch_info.cgi -> mgmt-IP + base MAC, identical to the NSDP read."""
+    reader = HttpReader(_FakeSession(_gs105pe_pages()), get_model("gs105pe"))
+    mgmt = reader.get_mgmt_ip()
+    assert mgmt.address == "10.1.5.30"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.gateway == "10.1.5.1"
+    assert mgmt.mode is IpMode.DHCP
+    assert mgmt.base_mac == "38:94:ED:B7:CD:E0"
+
+
+def test_gs105pe_http_poe_unsupported_no_pse() -> None:
+    """This model is PoE pass-through, not a PSE: getPoePortStatus.cgi 404s on
+    real hardware, so the spec leaves poe_status_path None and the read raises."""
+    reader = HttpReader(_FakeSession(_gs105pe_pages()), get_model("gs105pe"))
+    with pytest.raises(UnsupportedCapabilityError):
+        reader.get_poe()
+
+
 def test_gs110emx_http_poe_and_l2_tables_unsupported() -> None:
     """gs110emx genuinely has no PoE, and NSDP/HTTP expose no MAC/LLDP/sensor
     tables on this Plus model -- those ops must raise, not fabricate."""

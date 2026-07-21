@@ -306,6 +306,168 @@ def parse_gs110emx_vlan_ids(html: str) -> list[int]:
     return sorted({int(i) for i in ids})
 
 
+# GS105PE port rows: real firmware writes `<tr class="portID">` on status.cgi /
+# portPVID.cgi but `<tr class="portID" name="portID">` on portStatistics.cgi,
+# and never closes the row -- so allow trailing attributes and cut at the next
+# row / table close (all GROUNDED in tests/fixtures/http/gs105pe_*.html).
+_GS105PE_ROW_RE = re.compile(
+    r'<tr class="portID"[^>]*>(.*?)(?=<tr|</table>)', re.DOTALL
+)
+_HIDDEN_VALUE_RE = re.compile(r'<input type="hidden" value="(\d+)">')
+
+
+def parse_gs105pe_port_status(html: str) -> list[PortStatus]:
+    """GS105PE ``status.cgi`` portID rows: [1]=port, [2]=link ``Up``/``Down``,
+    [4]=speed text (``No Speed``/``100M``/``1000M``).
+
+    GROUNDED in ``gs105pe_status.html`` (a real capture from 10.1.5.30). Its own
+    column layout -- link at [2] and speed at [4] -- differs from BOTH gs305ep's
+    dashboard.cgi and gs110emx's port_settings.html, hence its own parser.
+    ``admin_enabled`` is ``True`` (this page reports link, not admin, state) and
+    ``name`` is ``None`` (no description column), matching the NSDP backend so
+    the two agree on what both protocols expose."""
+    rows = _GS105PE_ROW_RE.findall(html)
+    if not rows:
+        raise HttpUnexpectedPageError(
+            'status.cgi: expected <tr class="portID"> rows, found none'
+        )
+    out: list[PortStatus] = []
+    for row in rows:
+        c = _cells(row)
+        if len(c) < 5:
+            raise HttpUnexpectedPageError(
+                f"status.cgi: expected >=5 <td> columns per portID row, got {len(c)}"
+            )
+        port = _int(c[1])
+        if port is None:
+            raise HttpUnexpectedPageError(
+                f"status.cgi: could not parse a port number from column {c[1]!r}"
+            )
+        link_up = c[2].strip().lower() == "up"
+        out.append(
+            PortStatus(
+                port=port,
+                name=None,
+                admin_enabled=True,
+                link_up=link_up,
+                speed_mbps=_speed_text_to_mbps(c[4]) if link_up else None,
+            )
+        )
+    return out
+
+
+def parse_gs105pe_pvids(html: str) -> list[tuple[int, int]]:
+    """GS105PE ``portPVID.cgi`` portID rows: [1]=port, [2]=PVID.
+    GROUNDED in ``gs105pe_pvid.html``."""
+    rows = _GS105PE_ROW_RE.findall(html)
+    if not rows:
+        raise HttpUnexpectedPageError(
+            'portPVID.cgi: expected <tr class="portID"> rows, found none'
+        )
+    out: list[tuple[int, int]] = []
+    for row in rows:
+        c = _cells(row)
+        if len(c) < 3:
+            raise HttpUnexpectedPageError(
+                f"portPVID.cgi: expected >=3 <td> columns per portID row, got {len(c)}"
+            )
+        port, pvid = _int(c[1]), _int(c[2])
+        if port is None or pvid is None:
+            raise HttpUnexpectedPageError(
+                f"portPVID.cgi: could not parse port/PVID from row {c!r}"
+            )
+        out.append((port, pvid))
+    return out
+
+
+def parse_gs105pe_stats(html: str) -> list[PortStats]:
+    """GS105PE ``portStatistics.cgi`` -> per-port byte/CRC counters.
+
+    The VISIBLE ``<td>`` cells are unreliable (the first counter's cell is left
+    empty and populated by page JS). The authoritative values are the HIDDEN
+    inputs that follow each counter cell: three consecutive ``(hi, lo)`` pairs
+    -- Bytes Received, Bytes Sent, CRC Error Packets -- each a 64-bit counter
+    split into two 32-bit halves (``hi * 2**32 + lo``). Verified live on
+    10.1.5.30 against the NSDP counters for the same ports.
+    """
+    rows = _GS105PE_ROW_RE.findall(html)
+    if not rows:
+        raise HttpUnexpectedPageError(
+            'portStatistics.cgi: expected <tr class="portID"> rows, found none'
+        )
+    out: list[PortStats] = []
+    for row in rows:
+        c = _cells(row)
+        port = _int(c[0]) if c else None
+        if port is None:
+            raise HttpUnexpectedPageError(
+                f"portStatistics.cgi: could not parse a port number from row {c!r}"
+            )
+        halves = [int(v) for v in _HIDDEN_VALUE_RE.findall(row)]
+        if len(halves) < 6:
+            raise HttpUnexpectedPageError(
+                f"portStatistics.cgi: port {port} expected 6 hidden counter "
+                f"halves (rx/tx/crc hi+lo), got {len(halves)}"
+            )
+        rx, tx, crc = (
+            halves[0] * 2**32 + halves[1],
+            halves[2] * 2**32 + halves[3],
+            halves[4] * 2**32 + halves[5],
+        )
+        out.append(
+            PortStats(
+                port=port,
+                rx_bytes=rx,
+                tx_bytes=tx,
+                rx_packets=None,
+                tx_packets=None,
+                rx_errors=crc,
+                tx_errors=None,
+            )
+        )
+    return out
+
+
+def parse_gs105pe_sysinfo(html: str) -> HttpSysInfo:
+    """GS105PE ``switch_info.cgi`` -> device identity + mgmt-IP config.
+
+    GROUNDED in ``gs105pe_switch_info.html``. Identity comes from
+    ``<td>Label</td><td>value</td>`` rows; the mgmt IP/mask/gateway from the
+    lowercase ``ip_address``/``subnet_mask``/``gateway_address`` inputs (NOT
+    gs110emx's uppercase names); DHCP from the ``dhcpMode`` select, whose
+    ``<option value="1" selected>`` means Enable/DHCP and ``0`` means
+    Disable/STATIC (verified live: this unit is DHCP, matching its NSDP read).
+    """
+    fields = {
+        "Product Name": _labeled_cell(html, "Product Name"),
+        "Serial Number": _labeled_cell(html, "Serial Number"),
+        "MAC Address": _labeled_cell(html, "MAC Address"),
+        "Firmware Version": _labeled_cell(html, "Firmware Version"),
+        "ip_address": _named_input_value(html, "ip_address"),
+        "subnet_mask": _named_input_value(html, "subnet_mask"),
+        "gateway_address": _named_input_value(html, "gateway_address"),
+    }
+    missing = [name for name, val in fields.items() if val is None]
+    if missing:
+        raise HttpUnexpectedPageError(
+            f"switch_info.cgi: missing expected field(s): {', '.join(missing)}"
+        )
+    dhcp = re.search(
+        r'<select[^>]*id="dhcpMode".*?<option value="1"[^>]*selected', html, re.DOTALL
+    )
+    return HttpSysInfo(
+        product_name=fields["Product Name"] or "",
+        switch_name=_named_input_value(html, "switch_name") or "",
+        serial_number=fields["Serial Number"] or "",
+        mac_address=fields["MAC Address"] or "",
+        firmware_version=fields["Firmware Version"] or "",
+        ip_mode=IpMode.DHCP if dhcp else IpMode.STATIC,
+        ip_address=fields["ip_address"] or "",
+        subnet_mask=fields["subnet_mask"] or "",
+        gateway_address=fields["gateway_address"] or "",
+    )
+
+
 def parse_poe_status(html: str) -> list[PoEStatus]:
     """getPoePortStatus.cgi ``portID`` rows: [1]=port,[2]=state,[3]=power_mw."""
     rows = _ROW_RE.findall(html)

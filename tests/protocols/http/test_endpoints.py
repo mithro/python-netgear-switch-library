@@ -83,17 +83,26 @@ def test_http_spec_rejects_snmp_only_model() -> None:
         http_spec(get_model("m4300-24x"))
 
 
-def test_gs105pe_spec_reuses_merge_hash_but_stays_unverified() -> None:
-    """gs105pe (registered verified=False, spec-only -- see registry.py) gets
-    a real HttpModelSpec so get_model/http_spec both work, but neither
-    scheme_verified nor reads_verified is claimed True: the login SCHEME is
-    grounded (netgear-smp-vlan), the read endpoints below are only a
-    same-family shape guess copied from gs305ep, never confirmed."""
+def test_gs105pe_spec_live_verified_real_paths() -> None:
+    """gs105pe is LIVE-VERIFIED (10.1.5.30, 2026-07-21): merge-hash login
+    confirmed, and the read paths corrected from the gs305ep copies that 404 on
+    real hardware -- port status is status.cgi (NOT dashboard.cgi) and device
+    identity/mgmt-IP is switch_info.cgi. It has no PoE PSE page (404)."""
     spec = http_spec(get_model("gs105pe"))
     assert spec.scheme is LoginScheme.MERGE_HASH_CGI
-    assert spec.scheme_verified is False
+    assert spec.scheme_verified is True
     assert spec.login_path == "/login.cgi"
     assert spec.password_field == "password"
     assert spec.cookie_name == "SID"
     assert spec.needs_rand is True
-    assert spec.reads_verified is False
+    assert spec.reads_verified is True
+    assert spec.html_dialect is HtmlDialect.GS105PE
+    assert spec.dashboard_path == "/status.cgi"
+    assert spec.sysinfo_path == "/switch_info.cgi"
+    assert spec.stats_path == "/portStatistics.cgi"
+    assert spec.pvid_path == "/portPVID.cgi"
+    assert spec.vlan_config_path == "/8021qCf.cgi"
+    assert spec.vlan_membership_path == "/8021qMembe.cgi"
+    # confirmed 404 on real hardware: PoE pass-through, not a PSE
+    assert spec.poe_status_path is None
+    assert spec.poe_config_path is None
