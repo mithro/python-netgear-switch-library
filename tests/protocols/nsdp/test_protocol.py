@@ -169,3 +169,25 @@ def test_packet_decode_hand_built_fixture_independent_of_encode():
         (Tag.HOSTNAME, b"sw01"),
         (Tag.DHCP_MODE, b"\x01"),
     ]
+
+
+def test_sequence_number_is_a_full_4_byte_field() -> None:
+    """NSDP's seqnum is 4 bytes (ngadmin's authoritative struct nsdp_header),
+    not a 2-byte value with 2 reserved bytes before it. A seqnum > 0xFFFF must
+    round-trip intact -- the old ">...HH..." layout silently truncated the high
+    16 bits, which would make the mock echo the wrong seqnum and an independent
+    client (ngadmin) reject the reply."""
+    from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
+
+    pkt = NSDPPacket(
+        op=Op.READ_REQUEST,
+        client_mac=b"\x11" * 6,
+        server_mac=b"\x22" * 6,
+        sequence=0x12345678,
+    )
+    pkt.add_tlv(Tag.MODEL)
+    wire = pkt.encode()
+    assert len(wire) >= 32
+    # the seqnum occupies header bytes 20..23, big-endian
+    assert wire[20:24] == b"\x12\x34\x56\x78"
+    assert NSDPPacket.decode(wire).sequence == 0x12345678

@@ -1,9 +1,9 @@
 """NSDP wire codec: 32-byte header, TLV entries, and packet encode/decode.
 
 Lifted verbatim (field-for-field) from ``gdoc2netcfg/src/nsdp/protocol.py``.
-The header is ``struct`` layout ``>BB H 4s 6s 6s HH 4s 4s`` (32 bytes): version
+The header is ``struct`` layout ``>BB H 4s 6s 6s I 4s 4s`` (32 bytes): version
 (always 0x01), operation, result, reserved(4), client MAC(6), server MAC(6),
-reserved(2), sequence, signature ``b"NSDP"`` at offset 0x18, reserved(4). Each
+sequence(4), signature ``b"NSDP"`` at offset 0x18, reserved(4). Each
 TLV is ``>HH`` (tag, length) followed by ``length`` value bytes; a packet ends
 with the ``0xFFFF 0x0000`` end-of-marker.
 
@@ -20,7 +20,15 @@ from enum import IntEnum
 
 NSDP_SIGNATURE = b"NSDP"
 HEADER_SIZE = 32
-HEADER_FORMAT = ">BB H 4s 6s 6s HH 4s 4s"
+# The sequence number is a FULL 4-byte field (">...I..."), not a 2-byte value
+# preceded by 2 reserved bytes. Cross-checking the mock against ngadmin
+# (herveboisse/ngadmin, whose `struct nsdp_header` is the authoritative NSDP
+# layout) surfaced this: its `unsigned int seqnum` spans the two bytes this
+# format previously treated as reserved. Observationally identical for the
+# small sequence numbers real clients/switches use (the high 2 bytes are 0),
+# but a seqnum > 0xFFFF would have been silently truncated on decode and
+# mis-echoed by the mock.
+HEADER_FORMAT = ">BB H 4s 6s 6s I 4s 4s"
 END_MARKER = struct.pack(">HH", 0xFFFF, 0x0000)  # b"\xff\xff\x00\x00"
 
 
@@ -157,7 +165,6 @@ class NSDPPacket:
             b"\x00" * 4,
             self.client_mac,
             self.server_mac,
-            0,
             self.sequence,
             NSDP_SIGNATURE,
             b"\x00" * 4,
@@ -176,7 +183,6 @@ class NSDPPacket:
             _reserved1,
             client_mac,
             server_mac,
-            _reserved2,
             sequence,
             signature,
             _reserved3,
