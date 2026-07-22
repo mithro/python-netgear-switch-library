@@ -21,11 +21,12 @@ from netgear_switch.sync_api import SyncSwitch
 _READ_TOOLS = {
     "get_ports", "get_stats", "get_vlans", "get_pvids", "get_macs",
     "get_lldp", "get_sensors", "get_poe", "get_mgmt_ip", "identify",
-    "list_switches",
+    "list_switches", "snapshot", "get_device",
 }
 _WRITE_TOOLS = {
     "set_pvid", "set_port_enabled", "set_poe", "set_vlan_membership",
-    "create_vlan", "delete_vlan",
+    "create_vlan", "delete_vlan", "cycle_poe", "clear_poe_fault",
+    "set_mgmt_ip",
 }
 
 
@@ -200,6 +201,69 @@ def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
     )[0]
     assert res == {"ok": True, "op": "set_pvid"}
     assert calls == [(3, 90, True)]
+
+
+# Public SyncSwitch methods that deliberately get NO MCP tool: connection
+# lifecycle and raw HTTP primitives, none of which are switch operations.
+_NOT_MCP_EXPOSED = {
+    "login", "get_page", "post_form", "close", "from_config",
+}
+# SyncSwitch method -> MCP tool name, where the two differ.
+_RENAMED = {"nsdp_device": "get_device"}
+
+
+def test_every_switch_operation_has_an_mcp_tool() -> None:
+    """Coverage guard: every read/write op on SyncSwitch must be reachable over
+    MCP. Without this, adding an API method silently leaves MCP behind."""
+    import inspect
+
+    from netgear_switch.sync_api import SyncSwitch
+
+    ops = {
+        name
+        for name, member in inspect.getmembers(SyncSwitch)
+        if not name.startswith("_")
+        and callable(member)
+        and name not in _NOT_MCP_EXPOSED
+    }
+    tools = _tool_names({"NGSW_MCP_ALLOW_WRITES": "1"})
+    missing = {op for op in ops if _RENAMED.get(op, op) not in tools}
+    assert not missing, f"SyncSwitch ops with no MCP tool: {sorted(missing)}"
+
+
+def test_new_write_tools_reach_the_switch(monkeypatch) -> None:
+    """cycle_poe / clear_poe_fault / set_mgmt_ip drive the library write path."""
+    calls: list[tuple] = []
+
+    class _Recording:
+        def cycle_poe(self, port, *, force):
+            calls.append(("cycle_poe", port, force))
+
+        def clear_poe_fault(self, port, *, force):
+            calls.append(("clear_poe_fault", port, force))
+
+        def set_mgmt_ip(self, address, netmask, gateway, *, force):
+            calls.append(("set_mgmt_ip", address, netmask, gateway, force))
+
+    monkeypatch.setattr(
+        mod, "resolve_switch", lambda _ns, *, env=None, prompt=None: _Recording()
+    )
+    srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
+    sel = {"host": "h", "model": "gs110emx", "force": True}
+    assert _call(srv, "cycle_poe", {**sel, "port": 4})[0] == {
+        "ok": True, "op": "cycle_poe"
+    }
+    assert _call(srv, "clear_poe_fault", {**sel, "port": 5})[0]["ok"] is True
+    assert _call(
+        srv, "set_mgmt_ip",
+        {**sel, "address": "10.1.5.9", "netmask": "255.255.255.0",
+         "gateway": "10.1.5.1"},
+    )[0]["ok"] is True
+    assert calls == [
+        ("cycle_poe", 4, True),
+        ("clear_poe_fault", 5, True),
+        ("set_mgmt_ip", "10.1.5.9", "255.255.255.0", "10.1.5.1", True),
+    ]
 
 
 def test_set_vlan_membership_rejects_bad_mode(monkeypatch) -> None:

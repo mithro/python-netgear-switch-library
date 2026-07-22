@@ -201,6 +201,20 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
     _register_read("get_sensors", "get_sensors", "Fan/temperature/PSU sensors.")
     _register_read("get_poe", "get_poe", "Per-port PoE status and delivered power.")
     _register_read("get_mgmt_ip", "get_mgmt_ip", "Management IP config and base MAC.")
+    _register_read(
+        "snapshot",
+        "snapshot",
+        "Every read op at once (ports, stats, VLANs, PVIDs, mgmt-IP, PoE, LLDP, "
+        "sensors), each routed to the first backend that serves it. Fields no "
+        "backend can serve come back empty rather than failing the whole call.",
+    )
+    _register_read(
+        "get_device",
+        "nsdp_device",
+        "The complete raw NSDP device record (model, MAC, firmware, DHCP mode, "
+        "serial, per-port status/statistics, VLAN membership, PVIDs, QoS, "
+        "mirroring, IGMP snooping). NSDP-capable models only.",
+    )
 
     if writes_enabled(env):
         _register_write_tools(mcp, resolver)
@@ -322,6 +336,55 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
             switch, host, model, config, community, http_password, nsdp_interface
         )
         return _write("delete_vlan", lambda: sw.delete_vlan(vlan, force=force))
+
+    @mcp.tool()
+    def cycle_poe(
+        port: int, force: bool = False,
+        switch: str | None = None, host: str | None = None,
+        model: str | None = None, config: str | None = None,
+        community: str | None = None, http_password: str | None = None,
+        nsdp_interface: str | None = None,
+    ) -> dict[str, Any]:
+        """Power-cycle a port's PoE (off, wait, on) -- reboots the attached
+        powered device. Disruptive: needs force=true."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        return _write("cycle_poe", lambda: sw.cycle_poe(port, force=force))
+
+    @mcp.tool()
+    def clear_poe_fault(
+        port: int, force: bool = False,
+        switch: str | None = None, host: str | None = None,
+        model: str | None = None, config: str | None = None,
+        community: str | None = None, http_password: str | None = None,
+        nsdp_interface: str | None = None,
+    ) -> dict[str, Any]:
+        """Clear a port's latched PoE fault by cycling its power.
+        Disruptive: needs force=true."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        return _write("clear_poe_fault", lambda: sw.clear_poe_fault(port, force=force))
+
+    @mcp.tool()
+    def set_mgmt_ip(
+        address: str, netmask: str, gateway: str, force: bool = False,
+        switch: str | None = None, host: str | None = None,
+        model: str | None = None, config: str | None = None,
+        community: str | None = None, http_password: str | None = None,
+        nsdp_interface: str | None = None,
+    ) -> dict[str, Any]:
+        """Set the switch's static management IP, netmask and gateway.
+        HIGHLY disruptive -- changing this can make the switch unreachable at
+        its current address. Needs force=true."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        return _write(
+            "set_mgmt_ip",
+            lambda: sw.set_mgmt_ip(address, netmask, gateway, force=force),
+        )
 
 
 def main() -> None:
