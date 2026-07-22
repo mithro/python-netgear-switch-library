@@ -70,17 +70,18 @@ def test_sync_and_async_reads_are_identical(virtual_gsm7252ps: VirtualSwitch) ->
     assert port1.description == "eth0.rpi5-pmod"  # captured ifAlias
     assert any(p.description is None for p in sync_ports)
     # dot1dBaseBridgeAddress, over a real transport round-trip.
-    assert sync_mgmt.base_mac == "28:C6:8E:00:00:01"
+    assert sync_mgmt.base_mac == "E0:91:F5:0C:D6:DB"  # captured System MAC
     vlan_names = {v.vlan_id: v.name for v in sync_vlans}
     assert vlan_names[90] == "iot"
-    assert 10 in next(v for v in sync_vlans if v.vlan_id == 90).member_ports
-    assert sync_mgmt.address == "10.1.5.20"
+    # 1/0/11 is a member of VLAN 90 on the captured switch (10 is not)
+    assert 11 in next(v for v in sync_vlans if v.vlan_id == 90).member_ports
+    assert sync_mgmt.address == "10.1.5.22"
     # The seed's dhcp-mode OID is INTEGER 2 (static); pin the mode path
     # end-to-end through the live mock, not just .address (Task 16 Fix 3).
     assert sync_mgmt.mode is IpMode.STATIC
     delivering = [p for p in sync_poe if p.power_mw]
     assert delivering[0].port == 1
-    assert delivering[0].power_mw == 12_800
+    assert delivering[0].power_mw == 3_500  # captured live draw on 1/0/1
 
     # MAC/FDB join proof (carry-forward from Task 13): the seed maps
     # bridge_port 10 -> ifIndex 110 (a DELIBERATELY non-identity mapping), so
