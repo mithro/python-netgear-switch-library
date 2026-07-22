@@ -245,11 +245,14 @@ def parse_gs110emx_port_status(html: str) -> list[PortStatus]:
     [5]=speed text.
 
     GROUNDED in ``gs110emx_port_settings.html`` (a real capture). ``name`` is
-    the port description (``None`` when blank, as it is on a factory switch);
-    ``admin_enabled`` is reported ``True`` -- this status page shows link state,
-    not administrative state, exactly like the NSDP ``PORT_STATUS`` backend
-    (``nsdp_read._ports``), so the two agree field-for-field on the data both
-    protocols actually expose (port/link_up/speed_mbps).
+    the port description (``None`` when blank, as it is on a factory switch).
+    ``admin_enabled`` comes from column [4], the port's speed/admin MODE cell
+    (backed by the ``PHYSICAL_MODE`` hidden input): it reads ``Auto``/a forced
+    speed when the port is administratively enabled and ``Disable`` when it is
+    not. Hardcoding ``True`` here -- as this once did, on the false premise
+    that the page carries no admin state -- would report an admin-disabled port
+    as enabled. NSDP genuinely cannot see admin state and reports ``True``, so
+    the two backends are compared only on port/link_up/speed_mbps.
     """
     rows = _OPEN_ROW_RE.findall(html)
     if not rows:
@@ -275,7 +278,7 @@ def parse_gs110emx_port_status(html: str) -> list[PortStatus]:
             PortStatus(
                 port=port,
                 name=c[2] or None,
-                admin_enabled=True,
+                admin_enabled=c[4].strip().lower() != "disable",
                 link_up=link_up,
                 speed_mbps=_speed_text_to_mbps(c[5]) if link_up else None,
             )
@@ -341,11 +344,12 @@ def parse_gs105pe_port_status(html: str) -> list[PortStatus]:
     [4]=speed text (``No Speed``/``100M``/``1000M``).
 
     GROUNDED in ``gs105pe_status.html`` (a real capture from 10.1.5.30). Its own
-    column layout -- link at [2] and speed at [4] -- differs from BOTH gs305ep's
-    dashboard.cgi and gs110emx's port_settings.html, hence its own parser.
-    ``admin_enabled`` is ``True`` (this page reports link, not admin, state) and
-    ``name`` is ``None`` (no description column), matching the NSDP backend so
-    the two agree on what both protocols expose."""
+    column layout -- link at [2], mode at [3], speed at [4] -- differs from BOTH
+    gs305ep's dashboard.cgi and gs110emx's port_settings.html, hence its own
+    parser. ``admin_enabled`` comes from the mode cell [3] (``Auto``/forced
+    speed when enabled, ``Disable`` when not); hardcoding ``True`` would report
+    an admin-disabled port as enabled. ``name`` is ``None`` -- this page has no
+    description column."""
     rows = _GS105PE_ROW_RE.findall(html)
     if not rows:
         raise HttpUnexpectedPageError(
@@ -368,7 +372,7 @@ def parse_gs105pe_port_status(html: str) -> list[PortStatus]:
             PortStatus(
                 port=port,
                 name=None,
-                admin_enabled=True,
+                admin_enabled=c[3].strip().lower() != "disable",
                 link_up=link_up,
                 speed_mbps=_speed_text_to_mbps(c[4]) if link_up else None,
             )

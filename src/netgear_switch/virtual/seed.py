@@ -44,7 +44,16 @@ def _port_name(port: int) -> str:
 
 
 def seed_gsm7252ps() -> VirtualSwitchState:
-    """Build a realistic GSM7252PS (52-port, 48-PoE) virtual switch state."""
+    """Build an ILLUSTRATIVE GSM7252PS (52-port, 48-PoE) virtual switch state.
+
+    HAND-INVENTED, not transcribed. A real capture of this model DOES exist
+    (``tests/fixtures/captures/gsm7252ps.json``) and this seed CONTRADICTS it
+    throughout -- mgmt 10.1.5.20 vs the captured 10.1.5.22, 2 VLANs vs the real
+    14, one PoE port delivering vs 31, and a temperature sensor the real
+    capture does not have at all. The values here are chosen so every SNMP read
+    op has a non-vacuous example (see this module's docstring), NOT to describe
+    a real device; do not treat any of them as observed. ``capture_parity.py``
+    cites this function as the canonical example of an illustrative seed."""
     ports: dict[int, PortSim] = {}
     for port in range(1, _TOTAL_PORT_COUNT + 1):
         sim = PortSim(
@@ -332,10 +341,13 @@ def seed_gs110emx() -> VirtualSwitchState:
 
 
 def seed_gs305ep() -> VirtualSwitchState:
-    """Build a realistic GS305EP (5-port, PoE ports 1-4) virtual switch state.
+    """Build an ILLUSTRATIVE GS305EP (5-port, PoE ports 1-4) virtual state.
 
-    Plus family: no MAC/FDB, no box sensors, no LLDP (web UI exposes none).
-    Port 1 delivers PoE (12800 mW); VLAN 90 carries ports 1,2 (untagged 1,2).
+    HAND-INVENTED: no capture of any kind exists for gs305ep. The port speeds,
+    the 12800 mW PoE reading, VLAN 90 and the PVIDs are all structural test
+    data, NOT observed values -- same convention as ``seed_gsm7228ps``, which
+    says so explicitly. Only the shape is grounded: the Plus family genuinely
+    has no MAC/FDB, no box sensors and no LLDP over its web UI.
     """
     ports = {
         p: PortSim(

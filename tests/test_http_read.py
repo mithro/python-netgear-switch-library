@@ -432,3 +432,25 @@ def test_m4300_async_reader_matches_sync() -> None:
         assert await aio.get_sensors() == sync.get_sensors()
 
     asyncio.run(run())
+
+
+def test_plus_port_status_reports_admin_disabled_ports() -> None:
+    """Both Plus port pages carry an admin/speed-MODE column that reads
+    "Disable" on an administratively disabled port. These parsers once
+    hardcoded admin_enabled=True on the false premise that the page showed only
+    link state, which would report a disabled port as enabled."""
+    from netgear_switch.protocols.http import parse
+
+    gs105 = (_FIX / "gs105pe_status.html").read_text()
+    assert all(p.admin_enabled for p in parse.parse_gs105pe_port_status(gs105))
+    flipped = gs105.replace('sel="select">Auto', 'sel="select">Disable', 1)
+    ports = parse.parse_gs105pe_port_status(flipped)
+    assert ports[0].admin_enabled is False
+    assert all(p.admin_enabled for p in ports[1:])
+
+    emx = (_FIX / "gs110emx_port_settings.html").read_text()
+    assert all(p.admin_enabled for p in parse.parse_gs110emx_port_status(emx))
+    # target the DATA cell (the first ">Auto" is a template <option>)
+    emx_off = emx.replace('sel="select">Auto', 'sel="select">Disable', 1)
+    emx_ports = parse.parse_gs110emx_port_status(emx_off)
+    assert emx_ports[0].admin_enabled is False
