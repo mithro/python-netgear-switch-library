@@ -264,3 +264,67 @@ def test_parse_xe_port_status_matches_capture() -> None:
 def test_parse_xe_port_status_rejects_malformed_page() -> None:
     with pytest.raises(HttpUnexpectedPageError):
         parse.parse_xe_port_status(_MALFORMED)
+
+
+def test_parse_xe_stats_are_packets_not_bytes() -> None:
+    """portStatistics.html reports PACKETS only -- there is no octet column on
+    this page, so rx_bytes/tx_bytes are honestly None (values transcribed from
+    the capture: 1/0/1 received 287280 packets, transmitted 155832097)."""
+    stats = {s.port: s for s in parse.parse_xe_stats(
+        _read("gsm7252ps_portStatistics.html")
+    )}
+    assert len(stats) == 52
+    assert stats[1].rx_bytes is None
+    assert stats[1].tx_bytes is None
+    assert stats[1].rx_packets == 287280
+    assert stats[1].tx_packets == 155832097
+    assert stats[1].rx_errors == 0
+    assert stats[1].tx_errors == 0
+    assert stats[51].rx_packets == 11421062
+    assert stats[52].rx_packets == 0
+    assert stats[52].tx_packets == 0
+
+
+def test_parse_xe_pvids_use_the_configured_column() -> None:
+    """The page has BOTH "Configured PVID" (1_2_4) and "Current PVID" (1_2_9).
+
+    The same device's SNMP capture (tests/fixtures/captures/gsm7252ps.json)
+    agrees with the CONFIGURED column on all 52 ports; the CURRENT column
+    reads 0 on the two trunk-member ports (50, 51) where SNMP reports 1, so
+    reading it would silently disagree with SNMP on exactly those ports.
+    """
+    pvids = dict(parse.parse_xe_pvids(_read("gsm7252ps_portPvidConfiguration.html")))
+    assert len(pvids) == 52
+    assert pvids[1] == 90
+    assert pvids[46] == 4
+    assert pvids[47] == 5
+    assert pvids[48] == 5
+    assert pvids[49] == 1
+    assert pvids[50] == 1  # "Current PVID" is 0 here -- must not be used
+    assert pvids[51] == 1
+    assert pvids[52] == 1
+
+
+def test_parse_xe_vlans_expand_physical_ports_only() -> None:
+    vlans = {v.vlan_id: v for v in parse.parse_xe_vlans(
+        _read("gsm7252ps_vlanStatus.html")
+    )}
+    assert set(vlans) == {1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141}
+    assert vlans[1].name == "default"
+    assert vlans[4].name == "wifi"
+    # "1/0/11 - 1/0/12, 1/0/46, 1/0/49" -- a range plus singletons
+    assert vlans[4].member_ports == frozenset({11, 12, 46, 49})
+    # "1/0/46 - 1/0/47, 1/0/49, lag 1, lag 2" -- lags are NOT physical ports
+    assert vlans[121].member_ports == frozenset({46, 47, 49})
+    # VLANs 7/21/89 really have no member ports on this switch (the SNMP
+    # capture of the same device agrees) -- an empty list, not a parse failure.
+    assert vlans[7].member_ports == frozenset()
+    # this page cannot distinguish tagged from untagged -> both left empty
+    assert vlans[4].tagged_ports == frozenset()
+    assert vlans[4].untagged_ports == frozenset()
+
+
+def test_parse_xe_stats_pvids_vlans_reject_malformed_pages() -> None:
+    for fn in (parse.parse_xe_stats, parse.parse_xe_pvids, parse.parse_xe_vlans):
+        with pytest.raises(HttpUnexpectedPageError):
+            fn(_MALFORMED)

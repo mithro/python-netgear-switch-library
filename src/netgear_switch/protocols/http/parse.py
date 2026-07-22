@@ -926,6 +926,149 @@ def parse_xe_port_status(html: str) -> list[PortStatus]:
     return out
 
 
+# portStatistics.html column map, from the capture's own header row:
+#   1_1_103 Interface ("1/0/1")
+#   1_1_2 Total Packets received without Errors
+#   1_1_3 Packets received with Errors
+#   1_1_4 Broadcast Packets received (unused)
+#   1_1_5 Packets transmitted without Errors
+#   1_1_6 Transmit Packet Errors
+#   1_1_7 Collision Frames (unused)
+#   1_1_9 Time since counters last cleared (unused)
+_XE_STATS_IFACE = "1_1_103"
+_XE_STATS_RX_PKTS = "1_1_2"
+_XE_STATS_RX_ERRS = "1_1_3"
+_XE_STATS_TX_PKTS = "1_1_5"
+_XE_STATS_TX_ERRS = "1_1_6"
+
+
+def parse_xe_stats(html: str) -> list[PortStats]:
+    """GSM7252PS ``portStatistics.html`` -> per-port PACKET counters.
+
+    This page carries no octet column at all (its header row lists only
+    packet/frame counts), so ``rx_bytes``/``tx_bytes`` are honestly ``None``
+    and a BYTE-level comparison against SNMP is impossible for this model --
+    a PACKET-level one is not. Same honest shape as ``parse_m4300_stats``.
+
+    The ``1_1_103`` interface column is required, not just used: the LLDP page
+    uses the same ``1_1_*`` coordinate space, so requiring the column only this
+    page has keeps a wrong page from parsing into plausible garbage.
+    """
+    rows = [
+        r for r in parse_xe_rows(html)
+        if _XE_STATS_IFACE in r and _XE_STATS_RX_PKTS in r
+    ]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "portStatistics.html: no XE counter rows "
+            f"(no v_{_XE_STATS_IFACE} interface cells) found"
+        )
+    out: list[PortStats] = []
+    for r in rows:
+        port = _xe_port_from_iface(r[_XE_STATS_IFACE])
+        if port is None:
+            continue  # a non-physical interface (lag/vlan) has no port number
+        out.append(
+            PortStats(
+                port=port,
+                rx_bytes=None,
+                tx_bytes=None,
+                rx_packets=_int(r.get(_XE_STATS_RX_PKTS, "")),
+                tx_packets=_int(r.get(_XE_STATS_TX_PKTS, "")),
+                rx_errors=_int(r.get(_XE_STATS_RX_ERRS, "")),
+                tx_errors=_int(r.get(_XE_STATS_TX_ERRS, "")),
+            )
+        )
+    if not out:
+        raise HttpUnexpectedPageError(
+            "portStatistics.html: no physical-port counter row could be parsed"
+        )
+    return out
+
+
+# portPvidConfiguration.html column map, from the capture's own header row:
+#   1_2_1 Interface        1_2_4 Configured PVID   1_2_9 Current PVID
+#   1_2_5 Acceptable Frame Types                   1_2_6 Configured Ingress
+#   1_2_10 Current Ingress Filtering               1_2_8 Port Priority
+_XE_PVID_IFACE = "1_2_1"
+_XE_PVID_CONFIGURED = "1_2_4"
+
+
+def parse_xe_pvids(html: str) -> list[tuple[int, int]]:
+    """GSM7252PS ``portPvidConfiguration.html`` -> ``(port, pvid)`` pairs.
+
+    Uses the CONFIGURED PVID column (4), not the Current one (9). On the real
+    capture the two disagree on the trunk-member ports 1/0/50 and 1/0/51,
+    where Current reads 0 and Configured reads 1 -- and the SAME device's SNMP
+    capture reports 1, i.e. dot1qPvid is the CONFIGURED value. Reading column 9
+    would have made the HTTP backend silently disagree with SNMP on exactly
+    the ports a LAG makes interesting.
+    """
+    rows = [
+        r for r in parse_xe_rows(html)
+        if _XE_PVID_IFACE in r and _XE_PVID_CONFIGURED in r
+    ]
+    out: list[tuple[int, int]] = []
+    for r in rows:
+        port = _xe_port_from_iface(r[_XE_PVID_IFACE])
+        pvid = _int(r[_XE_PVID_CONFIGURED])
+        if port is None or pvid is None:
+            continue
+        out.append((port, pvid))
+    if not out:
+        raise HttpUnexpectedPageError(
+            "portPvidConfiguration.html: no (port, pvid) pair could be parsed"
+        )
+    return out
+
+
+# vlanStatus.html column map, from the capture's own header row:
+#   1_1_1 VLAN ID   1_1_2 VLAN Name   1_1_3 VLAN Type
+#   1_1_4 Member Ports (egress list)  1_1_5 Routing Interface
+_XE_VLAN_ID = "1_1_1"
+_XE_VLAN_NAME = "1_1_2"
+_XE_VLAN_TYPE = "1_1_3"
+_XE_VLAN_MEMBERS = "1_1_4"
+
+
+def parse_xe_vlans(html: str) -> list[VLANInfo]:
+    """GSM7252PS ``vlanStatus.html`` -> VLANs with their egress member ports.
+
+    The Member Ports cell uses the same FASTPATH egress-list syntax the M4300
+    does (``"1/0/46 - 1/0/47, 1/0/49, lag 1, lag 2"``), so ``_expand_port_list``
+    is shared -- including its refusal to expand ``lag N`` into physical ports.
+    A VLAN with an EMPTY member cell is real (VLANs 7/21/89 on the captured
+    switch have no members, which that device's SNMP capture confirms), so an
+    empty set is reported rather than treated as a parse failure.
+
+    Like the M4300's, this page does NOT distinguish tagged from untagged, so
+    ``tagged_ports``/``untagged_ports`` stay EMPTY rather than guessed.
+    """
+    rows = [
+        r for r in parse_xe_rows(html)
+        if _XE_VLAN_ID in r and _XE_VLAN_TYPE in r and _XE_VLAN_MEMBERS in r
+    ]
+    out: list[VLANInfo] = []
+    for r in rows:
+        vid = _int(r[_XE_VLAN_ID])
+        if vid is None:
+            continue
+        out.append(
+            VLANInfo(
+                vlan_id=vid,
+                name=r.get(_XE_VLAN_NAME) or None,
+                member_ports=_expand_port_list(r[_XE_VLAN_MEMBERS]),
+                tagged_ports=frozenset(),
+                untagged_ports=frozenset(),
+            )
+        )
+    if not out:
+        raise HttpUnexpectedPageError(
+            "vlanStatus.html: no XE VLAN row could be parsed"
+        )
+    return out
+
+
 def parse_poe_status(html: str) -> list[PoEStatus]:
     """getPoePortStatus.cgi ``portID`` rows: [1]=port,[2]=state,[3]=power_mw."""
     rows = _ROW_RE.findall(html)
