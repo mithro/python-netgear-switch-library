@@ -209,3 +209,58 @@ def test_parse_membership_rejects_unknown_wire_code() -> None:
     html = '<input name="hiddenMem" id="hiddenMem" value="99999" type="hidden">'
     with pytest.raises(HttpUnexpectedPageError):
         parse.parse_membership(html, port_count=5)
+
+
+# --- GSM7252PS "XE_FASTPATH" pages ------------------------------------
+# Every test below is grounded in a REAL capture from the live switch
+# 10.1.5.22 (tests/fixtures/http/gsm7252ps_*.html); the expected values are
+# transcribed from those files, and cross-checked against the SAME device's
+# SNMP capture (tests/fixtures/captures/gsm7252ps.json) wherever both
+# backends report the field.
+
+
+def test_parse_xe_rows_groups_by_instance_prefix() -> None:
+    """The instance prefix is ``1.<row-index>.<row-count>`` -- NOT the port.
+
+    A draft design read ``NAME=1.0.52.v_1_2_1`` as "unit 1 slot 0 port 52";
+    the capture disproves that: that very cell's VALUE is ``1/0/1`` and the
+    LAST component (52) is the same on every one of the 52 rows (it is the
+    ROW COUNT). Port identity therefore comes from the row's own cells, never
+    from the prefix.
+    """
+    rows = parse.parse_xe_rows(_read("gsm7252ps_portsConfiguration.html"))
+    assert len(rows) == 52
+    assert rows[0]["1_2_1"] == "1/0/1"      # first row, instance 1.0.52
+    assert rows[0]["1_2_13"] == "1"         # ifindex column
+    assert rows[51]["1_2_1"] == "1/0/52"    # last row, instance 1.51.52
+    assert rows[51]["1_2_13"] == "52"
+    # the blank "global" template row (NAME=v_g_1_2_1) carries no instance
+    # prefix and must not become a 53rd row
+    assert all(r.get("1_2_1") for r in rows)
+
+
+def test_parse_xe_port_status_matches_capture() -> None:
+    ports = {p.port: p for p in parse.parse_xe_port_status(
+        _read("gsm7252ps_portsConfiguration.html")
+    )}
+    assert len(ports) == 52
+    assert ports[1].name == "1/0/1"
+    assert ports[1].admin_enabled is True
+    assert ports[1].link_up is True
+    assert ports[1].speed_mbps == 1000          # "1000 Mbps"
+    # 1/0/50 is a 10G uplink: "10G Full " -> 10000
+    assert ports[50].speed_mbps == 10000
+    # 1/0/52 is down; its Physical Status reads "Unknown" -> no speed
+    assert ports[52].link_up is False
+    assert ports[52].speed_mbps is None
+    # "100 Mbps Full Duplex" must not be read as 100000
+    assert ports[23].speed_mbps is None  # down
+    assert ports[47].speed_mbps == 1000
+    down = {p for p, s in ports.items() if not s.link_up}
+    assert down == {6, 8, 10, 12, 15, 19, 21, 23, 28, 29, 34, 35, 36, 39, 40,
+                    43, 44, 48, 52}
+
+
+def test_parse_xe_port_status_rejects_malformed_page() -> None:
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_xe_port_status(_MALFORMED)
