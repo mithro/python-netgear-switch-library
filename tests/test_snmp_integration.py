@@ -67,7 +67,7 @@ def test_sync_and_async_reads_are_identical(virtual_gsm7252ps: VirtualSwitch) ->
     # ifAlias, over a real transport round-trip (not FakeClient): port 1 has
     # an operator-set description, others honestly don't.
     port1 = next(p for p in sync_ports if p.port == 1)
-    assert port1.description == "uplink-to-core"
+    assert port1.description == "eth0.rpi5-pmod"  # captured ifAlias
     assert any(p.description is None for p in sync_ports)
     # dot1dBaseBridgeAddress, over a real transport round-trip.
     assert sync_mgmt.base_mac == "28:C6:8E:00:00:01"
@@ -126,7 +126,7 @@ def test_reads_return_expected_seed_values(virtual_gsm7252ps: VirtualSwitch) -> 
     vlans = {v.vlan_id: v.name for v in reader.get_vlans()}
     assert vlans[90] == "iot"
     mgmt = reader.get_mgmt_ip()
-    assert mgmt.address == "10.1.5.20"
+    assert mgmt.address == "10.1.5.22"
     assert mgmt.mode is IpMode.STATIC
     assert any(p.power_mw and p.power_mw > 0 for p in reader.get_poe())
 

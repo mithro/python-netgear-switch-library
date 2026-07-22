@@ -43,61 +43,285 @@ def _port_name(port: int) -> str:
     return f"1/xg{port - _POE_PORT_COUNT}"
 
 
+# --- gsm7252ps, TRANSCRIBED from tests/fixtures/captures/gsm7252ps.json ---
+# (a real SNMP capture of 10.1.5.22) and cross-checked against that same
+# switch's HTTP captures in tests/fixtures/http/gsm7252ps_*.html.
+#
+# port -> (admin_enabled, link_up, speed_mbps, ifAlias description)
+_GSM7252PS_PORTS = {
+    1: (True, True, 1000, 'eth0.rpi5-pmod'),
+    2: (True, True, 1000, 'eth0.rpi4-pmod'),
+    3: (True, True, 1000, 'eth0.reterm2'),
+    4: (True, True, 1000, 'eth0.rpi3b-gwifi'),
+    5: (True, True, 1000, 'eth0.rpi4-usbdev'),
+    6: (True, False, 0, None),
+    7: (True, True, 1000, 'eth0.rpib-sdcard'),
+    8: (True, False, 0, None),
+    9: (True, True, 100, 'eth0.rpib-serial'),
+    10: (True, False, 0, None),
+    11: (True, True, 100, 'eth0.puck11'),
+    12: (True, True, 1000, 'eth0.puck07'),
+    13: (True, True, 1000, 'eth0.rpi5-433mhz'),
+    14: (True, True, 1000, 'eth0.rpi-birds-welland-back'),
+    15: (True, False, 0, None),
+    16: (True, True, 1000, 'eth0.rpi-sdr-pluto'),
+    17: (True, True, 1000, 'eth0.rpi5-zigbee'),
+    18: (True, True, 1000, 'eth0.rpi4-asus-aspeed2050-dev'),
+    19: (True, False, 0, None),
+    20: (True, True, 1000, 'eth0.rpi4-hppdu-dev'),
+    21: (True, False, 0, None),
+    22: (True, True, 1000, 'eth0.rpi4-precursor'),
+    23: (True, False, 0, None),
+    24: (True, True, 1000, 'eth0.rpi4-gwifi'),
+    25: (True, True, 1000, None),
+    26: (True, True, 100, 'eth0.rpiz-3'),
+    27: (True, True, 1000, 'eth0.rpi4-esp'),
+    28: (True, False, 0, None),
+    29: (True, False, 0, None),
+    30: (True, True, 1000, 'eth0.rpi5-rfbridge'),
+    31: (True, True, 1000, 'eth0.minnow-turbot-2'),
+    32: (True, True, 1000, 'eth0.minnow-turbot-1'),
+    33: (True, True, 1000, 'eth0.rpi4-kindle'),
+    34: (True, False, 0, None),
+    35: (True, False, 0, None),
+    36: (True, False, 0, None),
+    37: (True, True, 1000, 'eth0.rpi5-netv2'),
+    38: (True, True, 1000, 'eth0.rpi3-netv2'),
+    39: (True, False, 0, None),
+    40: (True, False, 0, None),
+    41: (True, True, 100, 'eth0.rpiz-serial'),
+    42: (True, True, 1000, 'eth0.rpi-sdr-rtlsdr-v3'),
+    43: (True, False, 0, 'end0.hifive-unmatched-1'),
+    44: (True, False, 0, 'end0.hifive-unmatched-2'),
+    45: (True, True, 100, 'wired.fritz-box-7270-1'),
+    46: (True, True, 1000, 'eth0.puck12'),
+    47: (True, True, 1000, 'p5.sw-poe-micro3'),
+    48: (True, False, 0, 'spare.ex-cisco'),
+    49: (True, True, 10000, '1/0/2.sw-netgear-m4300-24x'),
+    50: (True, True, 10000, '1/0/49.sw-netgear-gsm7252ps-s2'),
+    51: (True, True, 10000, '1/0/51.sw-netgear-gsm7252ps-s2'),
+    52: (True, False, 10000, None),
+}
+
+# port -> (rx_octets, tx_octets, rx_packets, tx_packets, rx_errors, tx_errors)
+_GSM7252PS_COUNTERS = {
+    1: (45747246, 912689098, 217358, 235430, 0, 0),
+    2: (43729612, 982042673, 227304, 287393, 0, 0),
+    3: (309174274, 2763396970, 2703903, 2832210, 0, 0),
+    4: (392406056, 1208220179, 455946, 362560, 0, 0),
+    5: (45296975, 1784117938, 252396, 695269, 0, 0),
+    6: (0, 0, 0, 0, 0, 0),
+    7: (45478982, 1213479258, 243846, 319720, 0, 0),
+    8: (0, 0, 0, 0, 0, 0),
+    9: (43952641, 2474560700, 203437, 525017, 188, 0),
+    10: (0, 0, 0, 0, 0, 0),
+    11: (191245854, 2353135188, 504340, 779331, 0, 0),
+    12: (242753298, 2405690445, 568614, 871728, 98, 0),
+    13: (54822647, 1790957945, 314512, 686411, 0, 0),
+    14: (1371471567, 2391786115, 5452154, 8842491, 0, 0),
+    15: (0, 0, 0, 0, 0, 0),
+    16: (458026172, 2161853643, 4479341, 7845883, 0, 0),
+    17: (48254266, 1370034013, 247191, 559339, 0, 0),
+    18: (107301127, 3428968332, 662009, 1912062, 0, 0),
+    19: (0, 0, 0, 0, 0, 0),
+    20: (48094973, 1600286182, 261316, 548326, 0, 0),
+    21: (0, 0, 0, 0, 0, 0),
+    22: (44983852, 1761230194, 274092, 651683, 0, 0),
+    23: (0, 0, 0, 0, 0, 0),
+    24: (60929816, 1662046751, 292512, 618541, 0, 0),
+    25: (860424, 432228822, 5367, 11254, 0, 0),
+    26: (42636836, 1207912561, 221448, 441634, 0, 0),
+    27: (43106121, 1783468534, 249904, 681000, 0, 0),
+    28: (0, 0, 0, 0, 0, 0),
+    29: (0, 0, 0, 0, 0, 0),
+    30: (46856497, 1781675389, 238217, 691884, 0, 0),
+    31: (34224983, 1103571183, 191771, 227719, 0, 0),
+    32: (36725195, 1103043544, 199490, 236217, 0, 0),
+    33: (41767749, 1780610707, 235994, 676190, 0, 0),
+    34: (0, 0, 0, 0, 0, 0),
+    35: (0, 0, 0, 0, 0, 0),
+    36: (0, 0, 0, 0, 0, 0),
+    37: (61212753, 1383861442, 366925, 650250, 0, 0),
+    38: (44488789, 1286245977, 339689, 516784, 0, 0),
+    39: (0, 0, 0, 0, 0, 0),
+    40: (0, 0, 0, 0, 0, 0),
+    41: (47611153, 1597050827, 285613, 729735, 0, 0),
+    42: (2121062532, 3300194902, 18659985, 20148348, 0, 0),
+    43: (0, 0, 0, 0, 0, 0),
+    44: (0, 0, 0, 0, 0, 0),
+    45: (895931591, 720798804, 1283153, 515947, 1, 0),
+    46: (215009366, 3079995766, 735039, 1206637, 111, 0),
+    47: (20987280, 2708586643, 114946, 390277, 0, 0),
+    48: (88601206, 3713706826, 1025558, 2517756, 0, 0),
+    49: (28392074220, 9325801127, 77433287, 62142947, 0, 0),
+    50: (278014432, 1694871324, 2069292, 2139039, 0, 0),
+    51: (1075552286, 2278779253, 9235681, 9547144, 0, 0),
+    52: (0, 0, 0, 0, 0, 0),
+}
+
+_GSM7252PS_PVIDS = {
+    1: 90, 2: 90, 3: 90, 4: 90, 5: 90, 6: 1, 7: 90, 8: 1,
+    9: 90, 10: 1, 11: 4, 12: 4, 13: 90, 14: 90, 15: 1, 16: 90,
+    17: 90, 18: 90, 19: 1, 20: 90, 21: 1, 22: 90, 23: 90, 24: 90,
+    25: 90, 26: 90, 27: 90, 28: 1, 29: 1, 30: 90, 31: 90, 32: 90,
+    33: 90, 34: 1, 35: 1, 36: 1, 37: 90, 38: 90, 39: 1, 40: 1,
+    41: 90, 42: 90, 43: 90, 44: 90, 45: 20, 46: 4, 47: 5, 48: 5,
+    49: 1, 50: 1, 51: 1, 52: 1,
+}
+
+# vid -> (name, member physical ports, untagged physical ports)
+_GSM7252PS_VLANS = {
+    1: ('default', (6, 8, 10, 15, 19, 21, 22, 26, 28, 29, 34, 35, 36, 39, 40, 49,
+        50, 51, 52), (6, 8, 10, 15, 19, 21, 22, 26, 28, 29, 34, 35, 36, 39, 40, 49,
+        50, 51, 52)),
+    4: ('wifi', (11, 12, 46, 49, 50, 51), (11, 12, 46)),
+    5: ('net', (3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22,
+        24, 25, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 39, 40, 42, 46, 47, 48, 49,
+        50, 51, 52), (47, 48)),
+    6: ('pwr', (46, 47, 49, 50, 51), ()),
+    7: ('store', (), ()),
+    10: ('int', (9, 11, 12, 46, 47, 49, 50, 51), ()),
+    20: ('roam', (9, 11, 12, 45, 46, 47, 49, 50, 51), (45,)),
+    21: ('fpgas', (), ()),
+    41: ('sm', (46, 47, 49, 50, 51), ()),
+    89: ('sdr', (), ()),
+    90: ('iot', (1, 2, 3, 4, 5, 7, 9, 11, 12, 13, 14, 16, 17, 18, 20, 22, 23, 24,
+        25, 26, 27, 30, 31, 32, 33, 37, 38, 41, 42, 43, 44, 46, 47, 49, 50, 51), (1,
+        2, 3, 4, 5, 7, 9, 13, 14, 16, 17, 18, 20, 22, 23, 24, 25, 26, 27, 30, 31,
+        32, 33, 37, 38, 41, 42, 43, 44)),
+    99: ('guest', (9, 11, 12, 46, 47, 49, 50, 51), ()),
+    121: ('t-fpgas', (46, 47, 49, 50, 51), ()),
+    141: ('t-sm', (46, 47, 49, 50, 51), ()),
+}
+
+# port -> (admin_enabled, RFC3621 detect code, delivered power mW)
+_GSM7252PS_POE = {
+    1: (True, 3, 3500),
+    2: (True, 3, 2700),
+    3: (True, 3, 3500),
+    4: (True, 3, 9000),
+    5: (True, 3, 5800),
+    6: (True, 6, 0),  # otherFault: outside SNMP's 1-4 detect map -> UNKNOWN
+    7: (True, 3, 3900),
+    8: (True, 3, 1500),
+    9: (True, 3, 3800),
+    10: (True, 2, 0),
+    11: (True, 3, 4100),
+    12: (True, 3, 4700),
+    13: (True, 3, 4600),
+    14: (True, 3, 3800),
+    15: (True, 2, 0),
+    16: (True, 2, 0),
+    17: (True, 3, 3400),
+    18: (True, 3, 8500),
+    19: (True, 2, 0),
+    20: (True, 3, 6000),
+    21: (True, 2, 0),
+    22: (True, 3, 6000),
+    23: (True, 2, 0),
+    24: (True, 3, 7700),
+    25: (True, 3, 3700),
+    26: (True, 3, 1700),
+    27: (True, 3, 7100),
+    28: (True, 2, 0),
+    29: (True, 2, 0),
+    30: (True, 3, 4100),
+    31: (True, 3, 3800),
+    32: (True, 3, 3900),
+    33: (True, 3, 5700),
+    34: (True, 2, 0),
+    35: (True, 2, 0),
+    36: (True, 2, 0),
+    37: (True, 3, 9400),
+    38: (True, 3, 9900),
+    39: (True, 2, 0),
+    40: (True, 2, 0),
+    41: (True, 3, 3200),
+    42: (True, 3, 6900),
+    43: (True, 2, 0),
+    44: (True, 2, 0),
+    45: (True, 2, 0),
+    46: (True, 3, 4300),
+    47: (True, 3, 1900),
+    48: (True, 2, 0),
+}
+
+
 def seed_gsm7252ps() -> VirtualSwitchState:
-    """Build an ILLUSTRATIVE GSM7252PS (52-port, 48-PoE) virtual switch state.
+    """Build a GSM7252PS (52-port, 48-PoE) state from the REAL capture.
 
-    HAND-INVENTED, not transcribed. A real capture of this model DOES exist
-    (``tests/fixtures/captures/gsm7252ps.json``) and this seed CONTRADICTS it
-    throughout -- mgmt 10.1.5.20 vs the captured 10.1.5.22, 2 VLANs vs the real
-    14, one PoE port delivering vs 31, and a temperature sensor the real
-    capture does not have at all. The values here are chosen so every SNMP read
-    op has a non-vacuous example (see this module's docstring), NOT to describe
-    a real device; do not treat any of them as observed. ``capture_parity.py``
-    cites this function as the canonical example of an illustrative seed."""
+    TRANSCRIBED, not invented, for everything the device's own captures show:
+    per-port admin/link/speed/ifAlias, per-port counters, every PVID, all 14
+    VLANs with their member/untagged port sets, all 48 PoE ports, the
+    management IP (10.1.5.22), base MAC, serial and firmware -- from
+    ``tests/fixtures/captures/gsm7252ps.json`` (SNMP, host 10.1.5.22) plus
+    that same switch's HTTP captures (``tests/fixtures/http/gsm7252ps_*.html``,
+    the source of the serial/firmware/hostname). This replaces an earlier
+    HAND-INVENTED seed that contradicted those captures throughout (mgmt
+    10.1.5.20, 2 VLANs vs the real 14, one PoE port delivering vs 30).
+
+    STILL ILLUSTRATIVE, and deliberately so -- each encodes a regression trap
+    the capture cannot express, and each says so where it is defined:
+    the MAC/FDB entries and their bridge-port -> ifIndex join, the single LLDP
+    neighbour, the sensor set (the real SNMP walk found NO temperature sensor
+    on this device, and one "Not Supported" fan slot is needed to exercise
+    that placeholder), and ``mgmt.mode``/``gateway`` (the real capture reports
+    mode "unknown" and no gateway route; the mock needs a definite DHCP-mode
+    OID to serve and to flip on write).
+
+    Non-physical interfaces are represented by two of the capture's 65
+    (ifIndex 417 "CPU Interface" and 418 "lag 1") plus the full LAG ifIndex
+    range in VLAN membership, so a renderer/parser that forgets that the web
+    UI lists ONLY physical ports is caught.
+    """
     ports: dict[int, PortSim] = {}
-    for port in range(1, _TOTAL_PORT_COUNT + 1):
-        sim = PortSim(
-            name=_port_name(port),
-            admin=True,
-            link=port != 3,  # port 3 is admin-up but link-down
-            speed=1000,
+    for port, (admin, link, speed, description) in _GSM7252PS_PORTS.items():
+        rx_octets, tx_octets, rx_pkts, tx_pkts, rx_errs, tx_errs = (
+            _GSM7252PS_COUNTERS[port]
         )
-        if port in (1, 2):
-            sim.rx_octets = 1_000_000
-            sim.tx_octets = 2_000_000
-            sim.rx_ucast = 8_000
-            sim.tx_ucast = 9_000
-            sim.rx_errors = 0
-            sim.tx_errors = 0
-        if port == 1:
-            sim.description = "uplink-to-core"  # port 2+ left None: absent ifAlias
-        ports[port] = sim
+        ports[port] = PortSim(
+            name=_port_name(port),
+            admin=admin,
+            link=link,
+            speed=speed,
+            rx_octets=rx_octets,
+            tx_octets=tx_octets,
+            rx_ucast=rx_pkts,
+            tx_ucast=tx_pkts,
+            rx_errors=rx_errs,
+            tx_errors=tx_errs,
+            description=description,
+        )
+    # Two of the capture's non-physical interfaces (it has 65: one CPU port
+    # and 64 LAGs). They must never appear on a web-UI page.
+    ports[417] = PortSim(name="CPU Interface:  0/5/1", admin=True, link=True, speed=0)
+    ports[418] = PortSim(name="lag 1", admin=True, link=True, speed=0)
 
+    # ifIndex range the real capture uses for lag 1 .. lag 64.
+    lags = set(range(418, 482))
     vlans = {
-        1: VlanSim(
-            name="default",
-            member=set(range(1, _TOTAL_PORT_COUNT + 1)),
-            untagged=set(range(3, _TOTAL_PORT_COUNT + 1)),
-        ),
-        90: VlanSim(name="iot", member={1, 2, 10}, untagged={1, 2}),
+        vid: VlanSim(name=name, member=set(member) | lags, untagged=set(untagged))
+        for vid, (name, member, untagged) in _GSM7252PS_VLANS.items()
     }
 
-    pvids = dict.fromkeys(range(1, _TOTAL_PORT_COUNT + 1), 1)
-    pvids[1] = 90
-    pvids[2] = 90
+    pvids = dict(_GSM7252PS_PVIDS)
 
-    poe: dict[int, PoeSim] = {}
-    for port in range(1, _POE_PORT_COUNT + 1):
-        if port == 1:
-            poe[port] = PoeSim(admin=True, detect=3, power_mw=12_800)
-        else:
-            poe[port] = PoeSim(admin=True, detect=1, power_mw=0)
+    poe = {
+        port: PoeSim(admin=admin, detect=detect, power_mw=power_mw)
+        for port, (admin, detect, power_mw) in _GSM7252PS_POE.items()
+    }
 
+    # ILLUSTRATIVE (see this function's docstring): the real SNMP walk of this
+    # device returned fan0/fan2 RPM and four PSU wattages and NO temperature
+    # at all. The fan RPMs and PSU watts below are the captured ones; the
+    # "Not Supported" slot and the temperature reading are test fixtures --
+    # the placeholder exercises parse_box_sensors' skip path, and the
+    # temperature gives the HTTP sysInfo renderer a numeric reading to show.
     sensors = [
-        SensorSim(kind="fan", instance="0", raw="3500"),
+        SensorSim(kind="fan", instance="0", raw="2850"),      # captured
         SensorSim(kind="fan", instance="1", raw="Not Supported"),
-        SensorSim(kind="fan", instance="2", raw="3450"),
-        SensorSim(kind="power", instance="0", raw="53"),
+        SensorSim(kind="fan", instance="2", raw="2350"),      # captured
+        SensorSim(kind="power", instance="0", raw="49"),      # captured
         SensorSim(kind="temperature", instance="0", raw="45"),
     ]
 
@@ -125,8 +349,13 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         ),
     ]
 
+    # address/netmask are the captured ones. mode/gateway are NOT: the real
+    # capture reports mode "unknown" (the vendor DHCP-mode OID answered
+    # nothing) and no gateway route, but the mock must serve a definite
+    # writable DHCP-mode OID, so "static" + the subnet's router are the
+    # structural stand-ins -- never a claim about the real device.
     mgmt = MgmtSim(
-        address="10.1.5.20", netmask="255.255.255.0", gateway="10.1.5.1", mode="static"
+        address="10.1.5.22", netmask="255.255.255.0", gateway="10.1.5.1", mode="static"
     )
 
     return VirtualSwitchState(
@@ -140,6 +369,13 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         bridge_ports=bridge_ports,
         lldp=lldp,
         mgmt=mgmt,
+        model_name="GSM7252PS",
+        # serial/firmware/hostname are transcribed from the real sysInfo.html
+        # capture of this switch (tests/fixtures/http/gsm7252ps_sysInfo.html).
+        serial="2BW20A47000CC",
+        firmware="10.0.0.53",
+        hostname="sw-netgear-gsm7252ps-s1.welland.mithis.com",
+        nsdp_mac=b"\xe0\x91\xf5\x0c\xd6\xdb",  # captured System MAC Address
         # Illustrative sysDescr text -- NOT a captured real firmware string;
         # its only requirement is containing the model name "GSM7252PS" so
         # detect_model_from_sysdescr's string matching has something real to

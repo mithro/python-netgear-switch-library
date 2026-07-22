@@ -324,9 +324,9 @@ def test_set_get_stop_lifecycle_emits_no_resource_warning():
 def test_snmp_writer_set_vlan_membership_live_preserves_other_ports():
     """Drive ``SnmpWriter.set_vlan_membership`` (RMW + atomic set_many +
     dual-column verify) through the real SET path against a live
-    ``VirtualSwitch``, over the sync (net-snmp CLI) transport. Proves port 25
-    joins VLAN 90 tagged while the seeded members {1, 2, 10} and the untagged
-    set {1, 2} are preserved untouched."""
+    ``VirtualSwitch``, over the sync (net-snmp CLI) transport. Proves port 6
+    (a non-member on the captured switch) joins VLAN 90 tagged while every
+    other member and the whole untagged set are preserved untouched."""
     sw = VirtualSwitch(model="gsm7252ps")
     sw.start()
     try:
@@ -337,14 +337,14 @@ def test_snmp_writer_set_vlan_membership_live_preserves_other_ports():
         vid = 90
 
         before = next(v for v in reader.get_vlans() if v.vlan_id == vid)
-        assert before.member_ports == frozenset({1, 2, 10})
-        assert before.untagged_ports == frozenset({1, 2})
+        assert 6 not in before.member_ports  # seeded from the real capture
+        assert before.member_ports
 
-        writer.set_vlan_membership(vid, 25, VlanMode.TAGGED)
+        writer.set_vlan_membership(vid, 6, VlanMode.TAGGED)
 
         after = next(v for v in reader.get_vlans() if v.vlan_id == vid)
-        assert after.member_ports == frozenset({1, 2, 10, 25})  # 25 joined
-        assert after.untagged_ports == frozenset({1, 2})        # untouched, tagged only
+        assert after.member_ports == before.member_ports | {6}  # 6 joined
+        assert after.untagged_ports == before.untagged_ports    # tagged only
     finally:
         sw.stop()
 
@@ -361,23 +361,22 @@ def test_async_snmp_writer_set_vlan_membership_live_preserves_other_ports():
         vid = 90
 
         before = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
-        assert before.member_ports == frozenset({1, 2, 10})
-        assert before.untagged_ports == frozenset({1, 2})
+        assert 6 not in before.member_ports  # seeded from the real capture
 
-        asyncio.run(writer.set_vlan_membership(vid, 25, VlanMode.UNTAGGED))
+        asyncio.run(writer.set_vlan_membership(vid, 6, VlanMode.UNTAGGED))
 
         after = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
-        assert after.member_ports == frozenset({1, 2, 10, 25})    # 25 joined
-        assert after.untagged_ports == frozenset({1, 2, 25})      # 25 untagged too
+        assert after.member_ports == before.member_ports | {6}      # 6 joined
+        assert after.untagged_ports == before.untagged_ports | {6}  # 6 untagged too
     finally:
         sw.stop()
 
 
 def test_snmp_writer_set_pvid_live_preserves_other_ports():
     """Drive ``SnmpWriter.set_pvid`` (Gauge32 SET + verify) against a live
-    ``VirtualSwitch``. Proves port 5's PVID moves to the existing VLAN 90
-    while the seeded PVIDs for ports 1 and 2 (also 90, but set independently)
-    and port 6 (default VLAN 1) are left untouched."""
+    ``VirtualSwitch``. Proves port 52's PVID moves to the existing VLAN 90
+    while the seeded PVIDs for the other ports (transcribed from the real
+    capture: 1/0/1 is on VLAN 90, 1/0/49 on VLAN 1) are left untouched."""
     sw = VirtualSwitch(model="gsm7252ps")
     sw.start()
     try:
@@ -387,15 +386,15 @@ def test_snmp_writer_set_pvid_live_preserves_other_ports():
         reader = SnmpReader(client, model)
 
         before = dict(reader.get_pvids())
-        assert before[5] == 1
-        assert before[6] == 1
+        assert before[52] == 1
+        assert before[49] == 1
 
-        writer.set_pvid(5, 90)
+        writer.set_pvid(52, 90)
 
         after = dict(reader.get_pvids())
-        assert after[5] == 90        # changed
-        assert after[6] == before[6]  # other port preserved
-        assert after[1] == before[1]  # other port preserved
+        assert after[52] == 90         # changed
+        assert after[49] == before[49]  # other port preserved
+        assert after[1] == before[1]    # other port preserved
     finally:
         sw.stop()
 
@@ -604,7 +603,7 @@ def test_snmp_writer_set_mgmt_ip_live_reflects_all_three_fields():
         reader = SnmpReader(client, model)
 
         before = reader.get_mgmt_ip()
-        assert before.address == "10.1.5.20"
+        assert before.address == "10.1.5.22"
 
         with pytest.raises(ProtectedPortError):
             writer.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1")
@@ -631,7 +630,7 @@ def test_async_snmp_writer_set_mgmt_ip_live_reflects_all_three_fields():
         reader = AsyncSnmpReader(client, model)
 
         before = asyncio.run(reader.get_mgmt_ip())
-        assert before.address == "10.1.5.20"
+        assert before.address == "10.1.5.22"
 
         with pytest.raises(ProtectedPortError):
             asyncio.run(writer.set_mgmt_ip("10.9.9.8", "255.255.255.0", "10.9.9.1"))
