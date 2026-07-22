@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from http_specs import reads_verified
 from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.http_read import AsyncHttpReader, HttpReader
 from netgear_switch.models import IpMode, PoEDetect
@@ -454,3 +455,109 @@ def test_plus_port_status_reports_admin_disabled_ports() -> None:
     emx_off = emx.replace('sel="select">Auto', 'sel="select">Disable', 1)
     emx_ports = parse.parse_gs110emx_port_status(emx_off)
     assert emx_ports[0].admin_enabled is False
+
+
+# --- gsm7252ps (XE_FASTPATH) ------------------------------------------------
+
+
+def _gsm7252ps_pages() -> dict[str, str]:
+    """Every read page of the real 10.1.5.22 capture, keyed by its spec path."""
+    return {
+        "/portsConfiguration.html": (
+            _FIX / "gsm7252ps_portsConfiguration.html"
+        ).read_text(),
+        "/portStatistics.html": (_FIX / "gsm7252ps_portStatistics.html").read_text(),
+        "/portPvidConfiguration.html": (
+            _FIX / "gsm7252ps_portPvidConfiguration.html"
+        ).read_text(),
+        "/vlanStatus.html": (_FIX / "gsm7252ps_vlanStatus.html").read_text(),
+        "/basicAddressTable.html": (
+            _FIX / "gsm7252ps_basicAddressTable.html"
+        ).read_text(),
+        "/poeInterfaceConfiguration.html": (
+            _FIX / "gsm7252ps_poeInterfaceConfiguration.html"
+        ).read_text(),
+        "/lldpRemoteInventory.html": (
+            _FIX / "gsm7252ps_lldpRemoteInventory.html"
+        ).read_text(),
+        "/base/system/management/sysInfo.html": (
+            _FIX / "gsm7252ps_sysInfo.html"
+        ).read_text(),
+    }
+
+
+def test_gsm7252ps_reads_refused_until_live_verified() -> None:
+    """The shipped spec says reads_verified=False (the parsers are grounded in
+    captures, but the live HTTP<->SNMP cross-verify has not run), so the reader
+    must refuse to construct rather than serve unverified scrapes."""
+    with pytest.raises(UnsupportedCapabilityError):
+        HttpReader(_FakeSession(_gsm7252ps_pages()), get_model("gsm7252ps"))
+
+
+def test_gsm7252ps_every_read_op_is_served_over_http() -> None:
+    """FULL PARITY: every read op this model supports is answered from a real
+    captured page -- including get_sensors and get_mgmt_ip, which an earlier
+    draft wrongly called JS-populated/HTTP-infeasible. No op raises
+    UnsupportedCapabilityError for this model."""
+    with reads_verified("gsm7252ps"):
+        reader = HttpReader(_FakeSession(_gsm7252ps_pages()), get_model("gsm7252ps"))
+        ports = {p.port: p for p in reader.get_ports()}
+        assert len(ports) == 52
+        assert (ports[1].link_up, ports[1].speed_mbps) == (True, 1000)
+        assert ports[52].link_up is False
+
+        stats = {s.port: s for s in reader.get_stats()}
+        assert stats[1].rx_packets == 287280
+        assert stats[1].rx_bytes is None  # this page has no octet column
+
+        assert dict(reader.get_pvids())[1] == 90
+
+        vlans = {v.vlan_id: v for v in reader.get_vlans()}
+        assert set(vlans) == {1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141}
+        assert vlans[4].member_ports == frozenset({11, 12, 46, 49})
+
+        macs = reader.get_macs()
+        assert len(macs) == 231
+        assert all(1 <= m.port <= 52 for m in macs)
+
+        poe = {p.port: p for p in reader.get_poe()}
+        assert len(poe) == 48
+        assert poe[1].detect is PoEDetect.DELIVERING
+        assert poe[1].power_mw == 3500
+
+        lldp = {n.local_port: n for n in reader.get_lldp()}
+        assert lldp[49].remote_sys_name == "sw-netgear-m4300-24x"
+
+        sensors = reader.get_sensors()
+        assert {s.name for s in sensors if s.kind == "temperature"} == {
+            "System", "CPU", "MAC-A", "MAC-B"
+        }
+        assert any(s.kind == "fan" for s in sensors)
+
+        mgmt = reader.get_mgmt_ip()
+        assert (mgmt.address, mgmt.netmask) == ("10.1.5.22", "255.255.255.0")
+        assert mgmt.base_mac == "E0:91:F5:0C:D6:DB"
+        assert mgmt.mode is IpMode.UNKNOWN
+
+
+def test_gsm7252ps_async_reader_matches_sync() -> None:
+    """The async reader once diverged from the sync one on get_vlans (it
+    required a membership path the FASTPATH dialects do not have). Pin parity
+    across every gsm7252ps read op."""
+
+    async def run() -> None:
+        pages = _gsm7252ps_pages()
+        with reads_verified("gsm7252ps"):
+            sync = HttpReader(_FakeSession(pages), get_model("gsm7252ps"))
+            aio = AsyncHttpReader(_AsyncFakeSession(pages), get_model("gsm7252ps"))
+            assert await aio.get_ports() == sync.get_ports()
+            assert await aio.get_stats() == sync.get_stats()
+            assert await aio.get_pvids() == sync.get_pvids()
+            assert await aio.get_vlans() == sync.get_vlans()
+            assert await aio.get_macs() == sync.get_macs()
+            assert await aio.get_poe() == sync.get_poe()
+            assert await aio.get_lldp() == sync.get_lldp()
+            assert await aio.get_sensors() == sync.get_sensors()
+            assert await aio.get_mgmt_ip() == sync.get_mgmt_ip()
+
+    asyncio.run(run())

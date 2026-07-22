@@ -14,6 +14,13 @@ port/stats/PVID/VLAN-list parsers are selected by ``HttpModelSpec.html_dialect``
 and ``get_mgmt_ip`` by ``sysinfo_path`` because gs110emx's pages use a
 different HTML dialect than gs305ep's (see ``protocols/http/parse.py``).
 
+The gsm7252ps (XE_FASTPATH) web UI covers EVERY read op this library has --
+ports/stats/PVIDs/VLANs/MACs/PoE/LLDP plus sensors and mgmt-IP from
+``sysInfo.html`` -- so no op is carved out for that model. Its spec still says
+``reads_verified=False`` until the live HTTP<->SNMP cross-verify runs, so the
+constructor refuses for now; that is the honesty gate doing its job, not a
+missing capability.
+
 All page-path selection and HTML-to-model conversion lives in the
 module-level helpers below (pure, I/O-free); ``HttpReader``/``AsyncHttpReader``
 differ only in whether ``session.get_page``/``post_form`` is awaited.
@@ -80,6 +87,60 @@ def _is_m4300_dialect(spec: HttpModelSpec) -> bool:
     return spec.html_dialect is HtmlDialect.M4300
 
 
+def _is_xe_fastpath_dialect(spec: HttpModelSpec) -> bool:
+    from .protocols.http.endpoints import HtmlDialect
+
+    return spec.html_dialect is HtmlDialect.XE_FASTPATH
+
+
+def _has_inline_vlan_egress(spec: HttpModelSpec) -> bool:
+    """True for the FASTPATH dialects whose VLAN page carries each VLAN's
+    egress list INLINE (M4300 vlanStatus.html and the XE one), so there is no
+    per-VLAN membership POST to make -- and requiring
+    ``vlan_membership_path`` for them would wrongly raise."""
+    return _is_m4300_dialect(spec) or _is_xe_fastpath_dialect(spec)
+
+
+def _parse_vlans(spec: HttpModelSpec, html: str) -> list[VLANInfo]:
+    """Dispatch an inline-egress VLAN page to its dialect's parser."""
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_vlans(html)
+    return parse.parse_m4300_vlans(html)
+
+
+def _parse_macs(spec: HttpModelSpec, html: str) -> list[MacEntry]:
+    """Dispatch the MAC/FDB page to its dialect's parser. Both FASTPATH
+    dialects refuse a paginated (truncated) table rather than returning a
+    partial FDB -- see the parsers' docstrings."""
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_macs(html)
+    return parse.parse_m4300_macs(html)
+
+
+def _parse_poe(spec: HttpModelSpec, html: str) -> list[PoEStatus]:
+    """Dispatch the PoE page: the XE ``poeInterfaceConfiguration.html`` cells
+    vs gs305ep's ``getPoePortStatus.cgi`` portID rows."""
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_poe(html)
+    return parse.parse_poe_status(html)
+
+
+def _parse_sensors(spec: HttpModelSpec, html: str) -> list[Sensor]:
+    """Dispatch the sensor-bearing sysInfo page to its dialect's parser."""
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_sensors(html)
+    return parse.parse_m4300_sensors(html)
+
+
+def _supports_sensors(spec: HttpModelSpec) -> bool:
+    """Only the two FASTPATH dialects have a sysInfo page carrying box
+    sensors; a Plus model's sysInfo (gs110emx/gs105pe) has none, so
+    ``get_sensors`` raises rather than returning an empty list."""
+    return (
+        _is_m4300_dialect(spec) or _is_xe_fastpath_dialect(spec)
+    ) and spec.sysinfo_path is not None
+
+
 def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
     """Dispatch ``stats_path``'s HTML to the right parser, keyed off
     ``spec.html_dialect``: gs110emx's interface_stats.html has a different
@@ -91,6 +152,8 @@ def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
         return parse.parse_gs105pe_stats(html)
     if _is_m4300_dialect(spec):
         return parse.parse_m4300_stats(html)
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_stats(html)
     return parse.parse_port_stats(html)
 
 
@@ -103,6 +166,8 @@ def _parse_ports(spec: HttpModelSpec, html: str) -> list[PortStatus]:
         return parse.parse_gs105pe_port_status(html)
     if _is_m4300_dialect(spec):
         return parse.parse_m4300_port_status(html)
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_port_status(html)
     return parse.parse_port_status(html)
 
 
@@ -115,6 +180,8 @@ def _parse_pvids(spec: HttpModelSpec, html: str) -> list[tuple[int, int]]:
         return parse.parse_gs105pe_pvids(html)
     if _is_m4300_dialect(spec):
         return parse.parse_m4300_pvids(html)
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_pvids(html)
     return parse.parse_pvids(html)
 
 
@@ -203,6 +270,19 @@ def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
     )
 
 
+def _mgmt_ip(spec: HttpModelSpec, page: str) -> MgmtIpConfig:
+    """Dispatch ``sysinfo_path``'s HTML to the dialect's mgmt-IP reader.
+
+    The two FASTPATH dialects have their own page shapes (both reporting
+    address/netmask + base MAC and NO DHCP indicator, hence IpMode.UNKNOWN);
+    the Plus models go through ``HttpSysInfo``."""
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_mgmt_ip(page)
+    if _is_m4300_dialect(spec):
+        return parse.parse_m4300_sysinfo(page)
+    return _mgmt_ip_from_sysinfo(_parse_sysinfo(spec, page))
+
+
 def _vlan_info(vid: int, membership_html: str, port_count: int) -> VLANInfo:
     """Pure conversion of one 8021qMembe.cgi response into a ``VLANInfo``."""
     states = parse.parse_membership(membership_html, port_count)
@@ -236,7 +316,7 @@ class HttpReader:
 
     def get_poe(self) -> list[PoEStatus]:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
-        return parse.parse_poe_status(self.session.get_page(path))
+        return _parse_poe(self._spec, self.session.get_page(path))
 
     def get_pvids(self) -> list[tuple[int, int]]:
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
@@ -246,10 +326,10 @@ class HttpReader:
         cfg_path = _require_path(
             self.model.key, self._spec.vlan_config_path, "VLAN configuration"
         )
-        if _is_m4300_dialect(self._spec):
+        if _has_inline_vlan_egress(self._spec):
             # vlanStatus.html carries each VLAN's egress list inline, so there
-            # is no per-VLAN membership POST for this model.
-            return parse.parse_m4300_vlans(self.session.get_page(cfg_path))
+            # is no per-VLAN membership POST for these models.
+            return _parse_vlans(self._spec, self.session.get_page(cfg_path))
         member_path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
@@ -274,28 +354,29 @@ class HttpReader:
         path = _require_path(
             self.model.key, self._spec.mac_table_path, "a MAC/FDB table"
         )
-        return parse.parse_m4300_macs(self.session.get_page(path))
+        return _parse_macs(self._spec, self.session.get_page(path))
 
     def get_lldp(self) -> list[LLDPNeighbor]:
-        # The M4300 web UI exposes only LLDP-MED remote data (no chassis/port-id
-        # neighbour table), and Plus switches expose no LLDP at all -- SNMP is
-        # the honest source. See endpoints.py's _M4300 comment.
-        raise _unsupported(self.model.key, "LLDP neighbours")
+        # Only a model whose spec names an lldp_path has a neighbour table:
+        # the M4300 /v1 UI exposes LLDP-MED remote data only (no chassis/port-id
+        # table) and Plus switches expose no LLDP at all, so both keep raising
+        # and SNMP stays the honest source. The gsm7252ps XE UI DOES have one.
+        path = _require_path(self.model.key, self._spec.lldp_path, "LLDP neighbours")
+        return parse.parse_xe_lldp(self.session.get_page(path))
 
     def get_sensors(self) -> list[Sensor]:
-        if not _is_m4300_dialect(self._spec) or self._spec.sysinfo_path is None:
+        if not _supports_sensors(self._spec):
             raise _unsupported(self.model.key, "box sensors")
-        return parse.parse_m4300_sensors(
-            self.session.get_page(self._spec.sysinfo_path)
+        assert self._spec.sysinfo_path is not None  # guarded above (for mypy)
+        return _parse_sensors(
+            self._spec, self.session.get_page(self._spec.sysinfo_path)
         )
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         if self._spec.sysinfo_path is None:
             raise _unsupported(self.model.key, "management-IP config")
         page = self.session.get_page(self._spec.sysinfo_path)
-        if _is_m4300_dialect(self._spec):
-            return parse.parse_m4300_sysinfo(page)
-        return _mgmt_ip_from_sysinfo(_parse_sysinfo(self._spec, page))
+        return _mgmt_ip(self._spec, page)
 
 
 class AsyncHttpReader:
@@ -317,7 +398,7 @@ class AsyncHttpReader:
 
     async def get_poe(self) -> list[PoEStatus]:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
-        return parse.parse_poe_status(await self.session.get_page(path))
+        return _parse_poe(self._spec, await self.session.get_page(path))
 
     async def get_pvids(self) -> list[tuple[int, int]]:
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
@@ -327,12 +408,13 @@ class AsyncHttpReader:
         cfg_path = _require_path(
             self.model.key, self._spec.vlan_config_path, "VLAN configuration"
         )
-        # The m4300 check MUST precede the vlan_membership_path requirement:
-        # that model has no membership page (vlanStatus.html carries the egress
-        # list inline), so requiring it first made this async op raise while
-        # the sync twin worked -- a real sync/async divergence.
-        if _is_m4300_dialect(self._spec):
-            return parse.parse_m4300_vlans(await self.session.get_page(cfg_path))
+        # The inline-egress check MUST precede the vlan_membership_path
+        # requirement: those models have no membership page (vlanStatus.html
+        # carries the egress list inline), so requiring it first made this
+        # async op raise while the sync twin worked -- a real sync/async
+        # divergence.
+        if _has_inline_vlan_egress(self._spec):
+            return _parse_vlans(self._spec, await self.session.get_page(cfg_path))
         member_path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
@@ -357,22 +439,22 @@ class AsyncHttpReader:
         path = _require_path(
             self.model.key, self._spec.mac_table_path, "a MAC/FDB table"
         )
-        return parse.parse_m4300_macs(await self.session.get_page(path))
+        return _parse_macs(self._spec, await self.session.get_page(path))
 
     async def get_lldp(self) -> list[LLDPNeighbor]:
-        raise _unsupported(self.model.key, "LLDP neighbours")
+        path = _require_path(self.model.key, self._spec.lldp_path, "LLDP neighbours")
+        return parse.parse_xe_lldp(await self.session.get_page(path))
 
     async def get_sensors(self) -> list[Sensor]:
-        if not _is_m4300_dialect(self._spec) or self._spec.sysinfo_path is None:
+        if not _supports_sensors(self._spec):
             raise _unsupported(self.model.key, "box sensors")
-        return parse.parse_m4300_sensors(
-            await self.session.get_page(self._spec.sysinfo_path)
+        assert self._spec.sysinfo_path is not None  # guarded above (for mypy)
+        return _parse_sensors(
+            self._spec, await self.session.get_page(self._spec.sysinfo_path)
         )
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
         if self._spec.sysinfo_path is None:
             raise _unsupported(self.model.key, "management-IP config")
         page = await self.session.get_page(self._spec.sysinfo_path)
-        if _is_m4300_dialect(self._spec):
-            return parse.parse_m4300_sysinfo(page)
-        return _mgmt_ip_from_sysinfo(_parse_sysinfo(self._spec, page))
+        return _mgmt_ip(self._spec, page)
