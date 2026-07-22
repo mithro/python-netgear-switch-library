@@ -78,11 +78,46 @@ def test_gsm7228ps_cheetah_form_snmp_preferred() -> None:
     assert spec.reads_verified is False
 
 
-def test_http_spec_rejects_snmp_only_model() -> None:
-    # gsm7252ps is SNMP-only (m4300 gained a real HTTP backend once its
-    # Cheetah /v1 read pages were discovered and verified live).
-    with pytest.raises(UnsupportedCapabilityError):
-        http_spec(get_model("gsm7252ps"))
+def test_http_spec_rejects_model_without_http_backend() -> None:
+    # m4300-16x/-24x, gsm7252ps and every Plus model now have HTTP; the
+    # SNMP-only models left in the registry must still refuse honestly.
+    from netgear_switch.registry import MODELS
+
+    snmp_only = [m for m in MODELS.values() if Backend.HTTP not in m.backends]
+    assert snmp_only, "registry has no SNMP-only model left to check"
+    for model in snmp_only:
+        with pytest.raises(UnsupportedCapabilityError):
+            http_spec(model)
+
+
+def test_gsm7252ps_spec_xe_fastpath() -> None:
+    """gsm7252ps HTTP: the CHEETAH_FORM login (uname+pwd -> SID cookie) was
+    validated LIVE on 10.1.5.22, so scheme_verified is True. The read pages
+    live at the ROOT prefix (not /base/, not /v1/) and are grounded in real
+    captures (tests/fixtures/http/gsm7252ps_*.html) -- but reads_verified
+    stays False until the live HTTP<->SNMP cross-verify runs against the
+    switch itself."""
+    spec = http_spec(get_model("gsm7252ps"))
+    assert spec.scheme is LoginScheme.CHEETAH_FORM
+    assert spec.scheme_verified is True
+    assert spec.reads_verified is False
+    assert spec.login_path == "/base/cheetah_login.html"
+    assert spec.username_field == "uname"
+    assert spec.username == "admin"
+    assert spec.password_field == "pwd"
+    assert spec.cookie_name == "SID"
+    assert spec.needs_rand is False
+    assert spec.needs_referer is False
+    assert spec.dashboard_path == "/portsConfiguration.html"
+    assert spec.stats_path == "/portStatistics.html"
+    assert spec.pvid_path == "/portPvidConfiguration.html"
+    assert spec.vlan_config_path == "/vlanStatus.html"
+    assert spec.vlan_membership_path is None  # egress list is inline
+    assert spec.mac_table_path == "/basicAddressTable.html"
+    assert spec.poe_status_path == "/poeInterfaceConfiguration.html"
+    assert spec.lldp_path == "/lldpRemoteInventory.html"
+    assert spec.sysinfo_path == "/base/system/management/sysInfo.html"
+    assert spec.html_dialect is HtmlDialect.XE_FASTPATH
 
 
 def test_m4300_spec_live_verified_cheetah_v1() -> None:

@@ -267,11 +267,14 @@ class VirtualHttpFace:
         field = self.spec.password_field
         supplied = form.get(field, "")
         if self.spec.scheme in (LoginScheme.CHEETAH_FORM, LoginScheme.CHEETAH_V1):
-            # Both post the password in plaintext; CHEETAH_V1 (M4300 /v1) also
-            # sends a username, which the real UI validates alongside it.
+            # Both post the password in plaintext. A spec that names a username
+            # field (M4300 /v1, and the gsm7252ps XE login form) also sends a
+            # username, which the real UI validates alongside the password --
+            # so the mock validates it too, or a transport regression that
+            # dropped it would pass CI while failing on hardware.
             ok = supplied == self.password
-            if self.spec.scheme is LoginScheme.CHEETAH_V1:
-                ok = ok and form.get(self.spec.username_field or "", "") == (
+            if self.spec.username_field is not None:
+                ok = ok and form.get(self.spec.username_field, "") == (
                     self.spec.username
                 )
         else:

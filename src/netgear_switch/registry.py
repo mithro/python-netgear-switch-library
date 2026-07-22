@@ -98,13 +98,19 @@ _MODELS: dict[str, SwitchModel] = {
             {Backend.SNMP, Backend.HTTP},
             _FM,
         ),
+        # HTTP added 2026-07-23: the XE FASTPATH web UI (login live-validated
+        # on 10.1.5.22; read pages grounded in tests/fixtures/http/
+        # gsm7252ps_*.html) covers EVERY read op this model supports, sensors
+        # and mgmt-IP included. HTTP only joins read dispatch once the spec's
+        # reads_verified flips after the live cross-verify -- see
+        # protocols/http/endpoints.py's _GSM7252PS.
         _model(
             "gsm7252ps",
             "GSM7252PS",
             SwitchClass.FULLY_MANAGED,
             52,
             48,
-            {Backend.SNMP},
+            {Backend.SNMP, Backend.HTTP},
             _FM,
         ),
         _model(

@@ -17,8 +17,9 @@ from netgear_switch.transport.http.client import AsyncHttpClient, HttpClient
 
 def test_require_http_backend() -> None:
     require_http_backend(get_model("gs305ep"))  # no raise
+    require_http_backend(get_model("gsm7252ps"))  # XE FASTPATH web UI
     with pytest.raises(UnsupportedCapabilityError):
-        require_http_backend(get_model("gsm7252ps"))
+        require_http_backend(get_model("m7300"))  # SNMP-only
 
 
 def test_http_reads_supported() -> None:
@@ -30,7 +31,10 @@ def test_http_reads_supported() -> None:
     assert http_reads_supported(get_model("gs305ep")) is True    # NSDP+HTTP, grounded
     assert http_reads_supported(get_model("gsm7228ps")) is False  # SNMP-authoritative
     assert http_reads_supported(get_model("gs110emx")) is True    # Gambit, grounded
-    assert http_reads_supported(get_model("gsm7252ps")) is False  # no HTTP backend
+    # gsm7252ps HAS an HTTP backend whose parsers are fixture-grounded, but its
+    # reads are not LIVE cross-verified yet (reads_verified=False), so HTTP
+    # stays out of read dispatch until that runs -- SNMP remains authoritative.
+    assert http_reads_supported(get_model("gsm7252ps")) is False
 
 
 def test_build_sync_http_client_requires_password() -> None:
