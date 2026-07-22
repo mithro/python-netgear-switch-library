@@ -1,0 +1,500 @@
+
+
+
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+
+<HEAD>
+   <LINK REL=stylesheet HREF="/base/style.css" TYPE="text/css">
+<META http-equiv="Pragma" content="no-cache">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso-8859-1"> <!-- Style Sheet link and Meta data     -->
+   <TITLE>NETGEAR GSM7252PS</TITLE>    <!-- Cheetah Page Title     -->
+
+<script  src="/base/js/rollover.js" type="text/javascript"></script>
+<script type='text/javascript' language='JavaScript'>
+function DisplayErrorMsg()
+//******************************************************************************
+//* Purpose: Display an input error message.
+//* Return:  none
+//******************************************************************************
+{
+    alert(document.forms[0].err_msg.value);
+}
+
+function CheckError()
+{
+   if (document.forms[0].err_flag.value == 1) {
+      DisplayErrorMsg();
+   }
+}
+function performClientValidationsAndSubmit() {
+  var logintimeout_ele = document.getElementsByName('sysLoginTmout')[0];
+  var logintimeout_val = "";
+  var logintimeout_val_org = "";
+  var min_val = 0;
+  var max_val = 160;
+  if (logintimeout_ele != null) {
+    logintimeout_val_org = logintimeout_ele.value;
+    logintimeout_val = parseInt(logintimeout_ele.value);
+    if (logintimeout_val != null) {
+      if ((logintimeout_val >= min_val) && (logintimeout_val <= max_val)) {
+        return true;
+      }
+    }
+  }
+  alert('Error: Value ('+ logintimeout_val_org + ') is out of range for Serial Port Login Timeout (minutes). The valid range is ' + min_val + ' to ' + max_val + '.');
+  return false;
+}
+</script>
+
+</head>
+
+<body onload="CheckError()">
+
+<FORM method="post" ACTION="/base/system/management/sysInfo_rw.html">
+    <div class="mainBody mainContainer">
+    <table class="detailsAreaContainer">
+      <tr>
+        
+        <td class="font15Bold"> System Information </td>
+          
+      </tr>
+      <tr>
+        <td class="spacerHeight9"></td>
+      </tr>
+      <tr>
+        <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('System Information','systemInformation')</script></td>
+            </tr>
+            <tr>
+              <td class="subSectionBodyDot">&nbsp;</td>
+              <td class="paddingsubSectionBodyNone"><table class="tableStyle">
+
+                  <tr>
+                    <td class="font10Bold spacer40Percent">Product Name</td>
+                    <td class="font10 spacer58Percent">GSM7252PS 48-Port GE L2+ Managed Stackable PoE Switch with 2 10GE SFP+ ports, 10.0.0.53, <not found></td>
+                  </tr>
+
+                  <tr>
+                    <td class="font10Bold padding4Top">System Name</td>
+                    <td class="padding4Top" nowrap><INPUT class="input" type="TEXT" name="sysName" onmousedown="enableImage()" onKeyPress="enableImage()" SIZE="32" MAXLENGTH="255" VALUE="sw-netgear-gsm7252ps-s1.welland.mithis.com">
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font10Bold padding4Top">System Location</td>
+                    <td class="padding4Top" nowrap><INPUT class="input" type="TEXT" name="sysLocation" onmousedown="enableImage()" onKeyPress="enableImage()" SIZE="32" MAXLENGTH="255" VALUE="rack-test">
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="font10Bold padding4Top">System Contact</td>
+                    <td class="padding4Top" nowrap><INPUT class="input" type="TEXT" name="sysContact" onmousedown="enableImage()" onKeyPress="enableImage()" SIZE="32" MAXLENGTH="255" VALUE="">
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="font10Bold padding4Top">Login Timeout</td>
+                    <td class="padding4Top"><table class="tableStyle">
+                        <tr>
+                        <td class="spacer12Percent"><INPUT class="input" type="TEXT" name="sysLoginTmout" onmousedown="enableImage()" onKeyPress="checkNumKey(event);enableImage()" MAXLENGTH="3" VALUE="160"></td>
+                        <td class="spacer2Percent">&nbsp;</td>
+                        <td class="font10 whiteSpace spacer31Percent grey10"> (0 to 160) mins</td></tr></table>
+                 </td>
+                 </tr>
+          <tr>
+                    <td class="font10Bold padding4Top">IPv4 Network Interface</td>
+                    <td class="font10 padding4Top"><a href="/ipConfiguration.html">10.1.5.22/255.255.255.0</a>
+
+        </td>
+                  </tr>
+
+
+                  <tr>
+                   <td class="font10Bold padding4Top"><br>IPv6 Network Interface</br><br>&nbsp;</br></td><td class="font10 padding4Top"><br><a href="/ipv6Configuration.html">FE80::E291:F5FF:FE0C:D6DB/64</a></br><br><a href="/ipv6Configuration.html">2404:E80:A137:105::22/128</a></br></td>
+                  </tr>
+
+
+                  <tr>
+                   <td class="font10Bold padding4Top"><br>IPv4 Loopback Interface</br></td>
+        
+                  </tr>
+
+
+
+
+
+
+                 <tr>
+                          
+                    <td class="font10Bold padding4Top">System Date</td>
+                    <td class="font10 padding4Top">JUL 22 16:24:47 2026 (UTC+0:00)
+                  </td>
+                 
+                  </tr>
+                  <tr>
+                    <td class="font10Bold padding4Top">System Up Time</td>
+                    <td class="font10 padding4Top">13 days 7 hours 44 mins 6 secs
+        </td>
+                </tr>
+
+         <tr>
+                  <td class="font10Bold padding4Top">Current SNTP Sync Status</td>
+                  <td class="font10 padding4Top">Success
+        </td>
+                </tr>
+         <tr>
+                    <td class="font10Bold padding4Top">System SNMP OID</td>
+                    <td class="font10 padding4Top">1.3.6.1.4.1.4526.100.1.10
+        </td>
+                </tr>
+
+
+         <tr>
+
+                   <td class="font10Bold padding4Top">System MAC Address</td>
+
+                    <td class="font10 padding4Top">E0:91:F5:0C:D6:DB
+            </td>
+                </tr>
+
+
+         <tr>
+                   <td class="font10Bold padding4Top">Supported Java Plugin Version</td>
+                    <td class="font10 padding4Top">1.6</td>
+                </tr>
+                <tr>
+                    <td class="font10Bold padding4Top">Current SNTP Synchronized Time</td>
+                    <td class="font10 padding4Top">JUL 22 16:24:47 2026 UTC
+                    </td>
+                </tr>
+
+              </table></td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td height="20" colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+      </tr>
+      <tr class="detailsAreaContainer">
+        <td class="spacerHeight21"></td>
+      </tr>
+      <tr class="detailsAreaContainer">
+
+        <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('FAN Status','fanStatus')</script></td>
+            </tr>
+        <tr>
+        <td class="subSectionBodyDot">&nbsp;</td>
+        <td class="spacer100Percent paddingsubSectionBodyWide"><table class="tableStyle"  id='fanStatus'>
+          <tr class="white10Bold">
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit ID</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">1</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">2</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">3</td>
+                    <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">4</td>
+                    <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">5</td>
+                    <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">6</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">7</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">8</td>
+        </tr>
+        <tr>
+          <td class="messageTableWhiteBorder font10Bold">Fan1/PWR</td>
+          <td class="messageTableWhiteBorder font10">OK</td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableGreyBorder font10Bold">Fan2/CPU</td>
+          <td class="messageTableGreyBorder font10">OK</td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableWhiteBorder font10Bold">Fan3/SYS</td>
+          <td class="messageTableWhiteBorder font10">OK</td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableGreyBorder font10Bold">Fan4</td>
+          <td class="messageTableGreyBorder font10">NA</td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableWhiteBorder font10Bold">Fan5</td>
+          <td class="messageTableWhiteBorder font10">NA</td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+        </tr>
+              </table></td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+
+      </tr>
+      <tr class="detailsAreaContainer">
+        <td class="spacerHeight21"></td>
+      </tr>
+      <tr class="detailsAreaContainer">
+
+
+
+            <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('Temperature Status','temperatureStatus')</script></td>
+            </tr>
+      <tr>
+        <td class="subSectionBodyDot">&nbsp;</td>
+        <td class="spacer100Percent paddingsubSectionBodyWide"><table class="tableStyle"  id='fanStatus'>
+          <tr class="white10Bold">
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Sensor Type</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 1</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 2</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 3</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 4</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 5</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 6</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 7</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit 8</td>
+        </tr>
+            <tr>
+              <td class="messageTableWhiteBorder font10Bold">System</td>
+              <td class="messageTableWhiteBorder font10">29&degC</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+            </tr>
+            <tr>
+              <td class="messageTableWhiteBorder font10Bold">CPU</td>
+              <td class="messageTableWhiteBorder font10">49&degC</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+            </tr>
+            <tr>
+              <td class="messageTableWhiteBorder font10Bold">MAC</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+            </tr>
+            <tr>
+              <td class="messageTableWhiteBorder font10Bold">MAC-A</td>
+              <td class="messageTableWhiteBorder font10">32&degC</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+            </tr>
+            <tr>
+              <td class="messageTableWhiteBorder font10Bold">MAC-B</td>
+              <td class="messageTableWhiteBorder font10">31&degC</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+              <td class="messageTableWhiteBorder font10">N/A</td>
+            </tr>
+
+              </table></td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+
+      </tr>
+      <tr class="detailsAreaContainer">
+        <td class="spacerHeight21"></td>
+      </tr>
+      <tr class="detailsAreaContainer">
+
+        <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('Device Status','deviceStatus')</script></td>
+            </tr>
+      <tr>
+        <td class="subSectionBodyDot">&nbsp;</td>
+        <td class="spacer100Percent paddingsubSectionBodyWide"><table class="tableStyle"  id='fanStatus'>
+          <tr class="white10Bold">
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">Unit ID</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">1</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">2</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">3</td>
+                    <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">4</td>
+                    <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">5</td>
+                    <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">6</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">7</td>
+          <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer10Percent">8</td>
+        </tr>
+        <tr>
+          <td class="messageTableWhiteBorder font10Bold">Firmware Version</td>
+          <td class="messageTableWhiteBorder font10">10.0.0.53</td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableGreyBorder font10Bold">Boot Version</td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableWhiteBorder font10Bold">CPLD Version</td>
+          <td class="messageTableWhiteBorder font10">0x2</td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableGreyBorder font10Bold">Serial Number</td>
+          <td class="messageTableGreyBorder font10">2BW20A47000CC</td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+        </tr>
+
+        <tr>
+          <td class="messageTableWhiteBorder font10Bold">RPS</td>
+          <td class="messageTableWhiteBorder font10">Operational
+</td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+        </tr>
+
+
+        <tr>
+          <td class="messageTableGreyBorder font10Bold">Power Module</td>
+          <td class="messageTableGreyBorder font10">Operational
+</td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+        </tr>
+
+
+        <tr>
+          <td class="messageTableWhiteBorder font10Bold">PoE Version</td>
+          <td class="messageTableWhiteBorder font10">4.0.0.3</td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+          <td class="messageTableWhiteBorder font10"></td>
+        </tr>
+        <tr>
+          <td class="messageTableGreyBorder font10Bold">MAX PoE</td>
+          <td class="messageTableGreyBorder font10">OFF</td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+          <td class="messageTableGreyBorder font10"></td>
+        </tr>
+
+              </table></td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+
+      </tr>
+    </table></div><script>
+var str=CreateButtons('image','Refresh','refreshform()','btn_Refresh','','on');
+str+=CreateButtons('image','Cancel','onCancel()','btn_Cancel');
+
+str+=CreateButtons('image','Apply','\"if (maincontent.performClientValidationsAndSubmit()) submitform()\"','btn_Apply')
+
+PaintButtons(str);</script>
+
+<INPUT TYPE="hidden" NAME="err_flag" SIZE="16" MAXLENGTH="15" VALUE="0">
+<INPUT TYPE="hidden" NAME="err_msg" SIZE="256" MAXLENGTH="512" VALUE="">
+<INPUT TYPE="hidden" id="submt" NAME="submt" SIZE="16" MAXLENGTH="15" VALUE="">
+<INPUT TYPE="hidden" id="refrsh" NAME="refrsh" SIZE="16" MAXLENGTH="15" VALUE="">
+<INPUT TYPE="hidden" id="cncel" NAME="cncel" SIZE="16" MAXLENGTH="15" VALUE="">
+
+</FORM></body></html>
+
