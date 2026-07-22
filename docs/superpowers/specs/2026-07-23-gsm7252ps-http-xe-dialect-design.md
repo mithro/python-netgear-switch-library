@@ -32,8 +32,15 @@ Each data cell is an HTML `<TD>` carrying a hidden input:
 <TD class="def alt0" p="1.0.520" id=1_2_10>
   <INPUT xid=1_2_10 TYPE=hidden NAME=1.0.52.v_1_2_10 VALUE="Link Up">Link Up</TD>
 ```
-- `NAME=<port>.v_<row>_<col>` — **port instance prefix** `1.0.52` (= unit.slot.port
-  → port 52) and a **column index** `v_<row>_<col>`.
+- `NAME=<instance>.v_<row>_<col>` — a row **instance prefix** and a **column
+  coordinate** `v_<row>_<col>`.
+- **CORRECTION (2026-07-23, from the committed fixtures):** the instance
+  prefix is `1.<row-index>.<row-count>`, NOT `unit.slot.port`. In
+  `gsm7252ps_portsConfiguration.html` the FIRST row is
+  `NAME=1.0.52.v_1_2_1 VALUE="1/0/1"` and the last is `1.51.52 -> "1/0/52"`:
+  the trailing 52 is the ROW COUNT, identical on every row. Reading "1.0.52"
+  as "port 52" would label all 52 ports 52. Port identity comes from the row's
+  own cells (the `ifindex` column, or the `1/0/N` interface name).
 - There is **NO `<!-- field_name -->` comment** (unlike M4300). Fields are
   addressed by COLUMN INDEX; the column→field meaning is fixed per page and
   must be hardcoded from a real capture (documented beside each map).
@@ -96,7 +103,9 @@ capture), not merely because the first parse attempt missed it.
 - **Parser** `parse_xe_rows(html)`: group `NAME=<port>.v_<row>_<col> VALUE="…"`
   cells by port instance (`1.0.N` → port N), each row = {column-coord: value}.
   Then per-op `parse_xe_{port_status,stats,pvids,vlans,macs,poe,lldp}` apply a
-  hardcoded column map. **Plus** a separate `parse_xe_labelled_values(html)` for
+  hardcoded column map. (Implemented: each map is documented beside the parser
+  AND cross-checked against that page's own visible header row, which carries
+  the human label under the same coordinate.) **Plus** a separate `parse_xe_labelled_values(html)` for
   format (B) (label cell → value cell), feeding `parse_xe_sensors` (Temperature
   + FAN tables, RPS/Power Module) and `parse_xe_mgmt_ip` (`IPv4 Network
   Interface` "addr/netmask" + `System MAC Address`) from `sysInfo.html`.

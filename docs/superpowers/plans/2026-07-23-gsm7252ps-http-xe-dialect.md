@@ -14,10 +14,21 @@ are in `docs/superpowers/specs/2026-07-23-gsm7252ps-http-xe-dialect-design.md`
 cell format") — cells are `NAME=<port>.v_<row>_<col> VALUE="…"` with NO
 `<!-- field -->` comment, addressed by COLUMN INDEX.
 
+## Status (2026-07-23)
+Tasks 1-8 are DONE on branch `feat/gsm7252ps-http`. Task 9 (the live
+HTTP<->SNMP cross-verify against 10.1.5.22, then flipping
+`_GSM7252PS.reads_verified=True`) is the only remaining step and is
+controller-only.
+
 ## Global Constraints
-- Honesty: `scheme_verified`/`reads_verified` only where grounded. Ops whose
-  page is JS-populated (sensors, mgmt_ip on gsm7252ps) MUST raise
-  `UnsupportedCapabilityError`, never fabricate. SNMP already covers those.
+- Honesty: `scheme_verified`/`reads_verified` only where grounded.
+- CORRECTION (2026-07-23): an earlier draft of this line claimed sensors and
+  mgmt_ip are JS-populated on gsm7252ps and must raise
+  `UnsupportedCapabilityError`. That was WRONG -- `sysInfo.html` carries both
+  in its static HTML (see the design doc's own CORRECTION section), and both
+  ops are implemented over HTTP. There is NO unsupported carve-out for this
+  model. An op may only be declared unsupported if it is PROVEN absent from
+  every capture.
 - Every column map hardcoded in a parser MUST be justified by a committed
   fixture; document the column→field mapping in a comment beside it.
 - `uv run` for all python. Small commits per task.
