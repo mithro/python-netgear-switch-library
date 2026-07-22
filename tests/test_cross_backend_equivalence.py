@@ -195,3 +195,23 @@ def test_gs110emx_http_and_nsdp_reads_agree() -> None:
             client.close()
     finally:
         sw.stop()
+
+
+def test_m4300_mock_enforces_referer_csrf_guard() -> None:
+    """The real M4300 /v1 UI answers 403 to any request lacking a Referer, and
+    the mock must reproduce that -- otherwise a transport regression dropping
+    the header would pass CI silently. The library's HttpClient sends it, so
+    the reader above works; here we prove the guard is actually enforced."""
+    import httpx
+
+    sw = VirtualSwitch(model="m4300-24x")
+    sw.start()
+    try:
+        base = f"http://127.0.0.1:{sw.http_port}"
+        assert httpx.get(f"{base}/v1/portsConfiguration.html").status_code == 403
+        ok = httpx.get(
+            f"{base}/v1/portsConfiguration.html", headers={"Referer": f"{base}/"}
+        )
+        assert ok.status_code == 200
+    finally:
+        sw.stop()

@@ -116,8 +116,20 @@ class VirtualHttpFace:
                 self.end_headers()
                 self.wfile.write(data)
 
+            def _referer_ok(self) -> bool:
+                """Mirror real hardware's CSRF guard: a model with
+                ``needs_referer`` (the M4300 /v1 UI) answers 403 to any request
+                without a Referer, so a transport that stopped sending it would
+                be caught here rather than passing silently."""
+                if not face.spec.needs_referer:
+                    return True
+                return "Referer" in self.headers
+
             def do_GET(self) -> None:
                 path = self.path.split("?", 1)[0]
+                if not self._referer_ok():
+                    self._send("403 Forbidden", 403)
+                    return
                 if path == face.spec.login_path:
                     if face.spec.session_token_field is not None:
                         self._send(web_gs110emx.render_login(face.rand))
@@ -140,6 +152,9 @@ class VirtualHttpFace:
 
             def do_POST(self) -> None:
                 path = self.path.split("?", 1)[0]
+                if not self._referer_ok():
+                    self._send("403 Forbidden", 403)
+                    return
                 form = self._body()
                 login_post_path = face.spec.login_post_path or face.spec.login_path
                 if path == login_post_path:

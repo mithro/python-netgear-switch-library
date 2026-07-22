@@ -1,11 +1,17 @@
 """Pure (I/O-free) parsers mapping web-UI HTML -> shared ``models`` types.
 
-Regex-based (no ``lxml``/``bs4`` dependency), matching the documented HTML
-shape the virtual renderer (``virtual/web.py``, Slice 6 Task 10) emits and
-that the captured/synthetic fixtures under ``tests/fixtures/http/`` mirror.
-Real-device column offsets are UNVERIFIED-pending-capture; confirm against
-captured HTML before production use (each such fixture is headed
-``UNVERIFIED-pending-capture``).
+Regex-based (no ``lxml``/``bs4`` dependency). Grounding varies BY PARSER, so
+check the specific function's docstring rather than trusting a blanket claim:
+
+- The ``gs110emx_*``, ``gs105pe_*`` and ``m4300_*`` parsers are GROUNDED in
+  REAL device captures (``tests/fixtures/http/{gs110emx,gs105pe,m4300}_*.html``)
+  and are live-verified -- their column offsets/field names are confirmed.
+- The ``gs305ep``/STANDARD-dialect parsers (``parse_port_status``,
+  ``parse_port_stats``, ``parse_poe_status``, ``parse_pvids``,
+  ``parse_vlan_ids``) match only SYNTHETIC fixtures headed
+  ``UNVERIFIED-pending-capture``; their offsets are a same-family guess (the
+  gs105pe live work found some gs305ep-derived CGI paths 404 on real hardware),
+  so confirm against a real GS305EP before relying on them in production.
 
 Two different failure shapes are deliberate:
 
