@@ -328,3 +328,73 @@ def test_parse_xe_stats_pvids_vlans_reject_malformed_pages() -> None:
     for fn in (parse.parse_xe_stats, parse.parse_xe_pvids, parse.parse_xe_vlans):
         with pytest.raises(HttpUnexpectedPageError):
             fn(_MALFORMED)
+
+
+def test_parse_xe_macs_skip_non_physical_interfaces() -> None:
+    """The FDB's Port cell is not always a physical interface: the real
+    capture holds 11 ``lag 1`` entries and one ``0/5/1`` service-port entry --
+    the switch's OWN base MAC, flagged "Management". Taking the trailing
+    number would report all twelve as physical port 1."""
+    macs = parse.parse_xe_macs(_read("gsm7252ps_basicAddressTable.html"))
+    assert len(macs) == 231  # 243 rendered rows - 11 lag - 1 service port
+    by_mac = {m.mac: m for m in macs}
+    # a learned entry on a real port, agreeing with the same device's SNMP
+    # capture (88:A2:9E:80:87:9B -> port 1, VLAN 90)
+    assert by_mac["88:A2:9E:80:87:9B"].port == 1
+    assert by_mac["88:A2:9E:80:87:9B"].vlan_id == 90
+    # the switch's own base MAC lives on the 0/5/1 service port -- never a port
+    assert "E0:91:F5:0C:D6:DB" not in by_mac
+    # a lag-learned MAC has no physical port
+    assert "E0:91:F5:0C:D5:C9" not in by_mac
+    assert all(1 <= m.port <= 52 for m in macs)
+
+
+def test_parse_xe_macs_refuse_truncated_page() -> None:
+    """The page states the true FDB size ("Total MAC Addresses"). If it ever
+    renders fewer rows than that, the table is paginated and returning it
+    would be a silently-truncated answer."""
+    html = _read("gsm7252ps_basicAddressTable.html")
+    # the real capture is NOT truncated (242 reported, 243 rendered) ...
+    assert parse.parse_xe_macs(html)
+    # ... so simulate a paginated one by raising the stated total
+    truncated = html.replace('NAME=v_1_1_1 VALUE="242"', 'NAME=v_1_1_1 VALUE="1213"')
+    with pytest.raises(HttpUnexpectedPageError, match="paginates"):
+        parse.parse_xe_macs(truncated)
+
+
+def test_parse_xe_poe_matches_capture() -> None:
+    poe = {p.port: p for p in parse.parse_xe_poe(
+        _read("gsm7252ps_poeInterfaceConfiguration.html")
+    )}
+    assert len(poe) == 48  # only the 48 PoE ports, not all 52
+    assert poe[1].admin_enabled is True
+    assert poe[1].detect is PoEDetect.DELIVERING  # "Delivering power"
+    assert poe[1].power_mw == 3500                # Output Power (mW)
+    assert poe[48].detect is PoEDetect.SEARCHING
+    assert poe[48].power_mw == 0
+    # port 6 reads "Other Fault" -- a FAULT, not UNKNOWN (SNMP's own detect
+    # map has no code for it and reports "unknown" on this same device)
+    assert poe[6].detect is PoEDetect.FAULT
+
+
+def test_parse_xe_lldp_matches_capture() -> None:
+    nb = {n.local_port: n for n in parse.parse_xe_lldp(
+        _read("gsm7252ps_lldpRemoteInventory.html")
+    )}
+    assert len(nb) == 31
+    assert nb[1].remote_sys_name == "rpi5-pmod"
+    assert nb[1].remote_chassis_id == "88:A2:9E:80:87:9B"
+    assert nb[1].remote_port_id == "88:A2:9E:80:87:9B"
+    # this page has NO remote-port-DESCRIPTION column (its header row lists
+    # Port / Remote Device ID / Management Address / MAC Address / System Name
+    # / Remote Port ID), so port_desc is honestly None -- SNMP reports it.
+    assert nb[1].remote_port_desc is None
+    assert nb[49].remote_sys_name == "sw-netgear-m4300-24x"
+    assert nb[49].remote_chassis_id == "8C:3B:AD:6B:BB:E0"
+    assert nb[49].remote_port_id == "1/0/2"
+
+
+def test_parse_xe_macs_poe_lldp_reject_malformed_pages() -> None:
+    for fn in (parse.parse_xe_macs, parse.parse_xe_poe, parse.parse_xe_lldp):
+        with pytest.raises(HttpUnexpectedPageError):
+            fn(_MALFORMED)

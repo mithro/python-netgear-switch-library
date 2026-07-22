@@ -36,6 +36,7 @@ from html import unescape
 from ...errors import HttpUnexpectedPageError
 from ...models import (
     IpMode,
+    LLDPNeighbor,
     MacEntry,
     MgmtIpConfig,
     PoEDetect,
@@ -1065,6 +1066,177 @@ def parse_xe_vlans(html: str) -> list[VLANInfo]:
     if not out:
         raise HttpUnexpectedPageError(
             "vlanStatus.html: no XE VLAN row could be parsed"
+        )
+    return out
+
+
+# basicAddressTable.html column map, from the capture's own header row:
+#   1_2_1 VLAN ID   1_2_3 MAC Address   1_2_4 Port ("1/0/49"/"lag 1"/"0/5/1")
+#   1_2_6 status ("Learned"/"Management")
+#   (1_2_2 is an internal <vlan><mac> key with no header cell)
+# plus the page-level scalar ``NAME=v_1_1_1`` = "Total MAC Addresses".
+_XE_MAC_VLAN = "1_2_1"
+_XE_MAC_ADDR = "1_2_3"
+_XE_MAC_PORT = "1_2_4"
+_XE_MAC_TOTAL_RE = re.compile(r'NAME=v_1_1_1 VALUE="(\d+)"')
+_MAC_TEXT_RE = re.compile(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
+
+
+def parse_xe_macs(html: str) -> list[MacEntry]:
+    """GSM7252PS ``basicAddressTable.html`` -> the MAC/FDB table.
+
+    Two real-capture traps, both the same ones ``parse_m4300_macs`` documents:
+
+    1. The Port cell is not always a physical interface. The capture holds 11
+       entries learned on ``lag 1`` and one on the ``0/5/1`` service port --
+       the latter being the switch's OWN base MAC (status "Management").
+       Physical ports on this firmware are ``<unit>/0/<port>``, so a SLOT other
+       than 0 is a service/CPU interface: both it and ``lag N`` are skipped
+       rather than mis-attributed to physical port 1.
+    2. The page states the true table size in "Total MAC Addresses". If it ever
+       renders FEWER rows than that, the web UI has paginated and returning the
+       first page as the whole FDB would be a silently-wrong answer -- so that
+       RAISES and names SNMP as the complete source. (The captured page is not
+       paginated: 242 stated, 243 rendered.)
+    """
+    rows = [
+        r for r in parse_xe_rows(html)
+        if _XE_MAC_ADDR in r and _XE_MAC_PORT in r
+    ]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "basicAddressTable.html: no XE MAC rows "
+            f"(no v_{_XE_MAC_ADDR} address cells) found"
+        )
+    out: list[MacEntry] = []
+    for r in rows:
+        mac = r[_XE_MAC_ADDR].strip().upper()
+        if not _MAC_TEXT_RE.fullmatch(mac):
+            continue
+        iface = _FASTPATH_IFACE_RE.fullmatch(r[_XE_MAC_PORT].strip())
+        if iface is None or iface.group(2) != "0":
+            continue  # "lag N" or a service/CPU interface (e.g. 0/5/1)
+        out.append(
+            MacEntry(
+                mac=mac,
+                port=int(iface.group(3)),
+                vlan_id=_int(r.get(_XE_MAC_VLAN, "")),
+            )
+        )
+    total = _XE_MAC_TOTAL_RE.search(html)
+    if total is not None and int(total.group(1)) > len(rows):
+        raise HttpUnexpectedPageError(
+            f"basicAddressTable.html: the switch reports {total.group(1)} FDB "
+            f"entries but this page renders only {len(rows)} -- the web UI "
+            "paginates the MAC table. Use the SNMP backend for the complete "
+            "FDB rather than a silently truncated page."
+        )
+    return out
+
+
+# poeInterfaceConfiguration.html column map, from the capture's own header row:
+#   1_2_1 Port          1_2_2 Admin Mode      1_2_3 High Power
+#   1_2_4 Max Power     1_2_5 Port Priority   1_2_6 High Power Mode
+#   1_2_7 Power Limit Type                    1_2_8 Power Limit (mW)
+#   1_2_9 Detection Type                      1_2_12 Class
+#   1_2_13 Output Voltage (Volts)             1_2_14 Output Current (mA)
+#   1_2_15 Output Power (mW)                  1_2_17 Status
+#   1_2_18 Fault Status                       1_2_19 Timer Schedule
+#   1_2_22 Temperature
+_XE_POE_IFACE = "1_2_1"
+_XE_POE_ADMIN = "1_2_2"
+_XE_POE_OUTPUT_MW = "1_2_15"
+_XE_POE_STATUS = "1_2_17"
+
+
+def parse_xe_poe(html: str) -> list[PoEStatus]:
+    """GSM7252PS ``poeInterfaceConfiguration.html`` -> per-port PoE status.
+
+    ``power_mw`` is the "Ouput Power (mW)" column [sic -- the firmware's own
+    spelling], the live draw, matching the vendor mW OID the SNMP backend
+    reads. The Status column's text is matched against the shared
+    ``_DETECT_TEXT`` vocabulary; the captured values are "Delivering power",
+    "Searching" and "Other Fault" (the last -> FAULT, where SNMP's numeric
+    detect map has no code and honestly reports UNKNOWN).
+    """
+    rows = [
+        r for r in parse_xe_rows(html)
+        if _XE_POE_IFACE in r and _XE_POE_STATUS in r
+    ]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "poeInterfaceConfiguration.html: no XE PoE rows "
+            f"(no v_{_XE_POE_STATUS} status cells) found"
+        )
+    out: list[PoEStatus] = []
+    for r in rows:
+        port = _xe_port_from_iface(r[_XE_POE_IFACE])
+        if port is None:
+            continue
+        status = r[_XE_POE_STATUS].lower()
+        detect = next(
+            (v for k, v in _DETECT_TEXT.items() if k in status), PoEDetect.UNKNOWN
+        )
+        out.append(
+            PoEStatus(
+                port=port,
+                admin_enabled=r.get(_XE_POE_ADMIN, "").lower() == "enable",
+                detect=detect,
+                power_mw=_int(r.get(_XE_POE_OUTPUT_MW, "")),
+            )
+        )
+    if not out:
+        raise HttpUnexpectedPageError(
+            "poeInterfaceConfiguration.html: no PoE port row could be parsed"
+        )
+    return out
+
+
+# lldpRemoteInventory.html column map, from the capture's own header row:
+#   1_1_1 Port (LOCAL interface)   1_1_2 Remote Device ID (an internal index)
+#   1_1_15 Management Address      1_1_7 MAC Address (remote chassis id)
+#   1_1_8 System Name              1_1_9 Remote Port ID
+# hidden (style="display:none") helper columns: 1_1_3 (age), 1_1_6 (chassis-id
+# SUBTYPE, "MAC Address"), 1_1_14 (address type, "IPv4").
+# There is NO remote-port-DESCRIPTION column on this page.
+_XE_LLDP_LOCAL_IFACE = "1_1_1"
+_XE_LLDP_CHASSIS = "1_1_7"
+_XE_LLDP_SYS_NAME = "1_1_8"
+_XE_LLDP_PORT_ID = "1_1_9"
+
+
+def parse_xe_lldp(html: str) -> list[LLDPNeighbor]:
+    """GSM7252PS ``lldpRemoteInventory.html`` -> LLDP neighbours.
+
+    ``remote_port_desc`` is honestly ``None`` for every neighbour: this page
+    has no such column (SNMP's lldpRemPortDesc is the source for it). The
+    captured neighbour set matches the same device's SNMP capture on chassis
+    ID for every shared port.
+
+    An LLDP table with no rows is LEGITIMATELY empty (a switch may simply have
+    no neighbours), so this returns ``[]`` rather than raising -- but a page
+    that is not this page at all (no ``1_1_1`` local-interface cells anywhere)
+    still raises.
+    """
+    rows = parse_xe_rows(html)
+    neighbours = [r for r in rows if _XE_LLDP_LOCAL_IFACE in r]
+    if not neighbours and "lldp" not in html.lower():
+        raise HttpUnexpectedPageError(
+            "lldpRemoteInventory.html: no XE LLDP rows and no LLDP table found"
+        )
+    out: list[LLDPNeighbor] = []
+    for r in neighbours:
+        port = _xe_port_from_iface(r[_XE_LLDP_LOCAL_IFACE])
+        if port is None:
+            continue
+        out.append(
+            LLDPNeighbor(
+                local_port=port,
+                remote_sys_name=r.get(_XE_LLDP_SYS_NAME) or None,
+                remote_port_desc=None,  # no such column on this page
+                remote_chassis_id=r.get(_XE_LLDP_CHASSIS, "").upper() or None,
+                remote_port_id=r.get(_XE_LLDP_PORT_ID) or None,
+            )
         )
     return out
 
