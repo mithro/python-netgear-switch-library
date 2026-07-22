@@ -1,0 +1,214 @@
+from __future__ import annotations
+
+import asyncio
+import json
+
+import pytest
+
+pytest.importorskip("mcp", reason="the [mcp] extra is required for the MCP server")
+
+from netgear_switch.errors import ConfigError, UnsupportedCapabilityError
+from netgear_switch.mcp import server as mod
+from netgear_switch.models import IpMode, MgmtIpConfig, VLANInfo
+from netgear_switch.protocols.nsdp.protocol import (
+    NSDPPacket,
+    Op,
+    Tag,
+)
+from netgear_switch.registry import get_model
+from netgear_switch.sync_api import SyncSwitch
+
+_READ_TOOLS = {
+    "get_ports", "get_stats", "get_vlans", "get_pvids", "get_macs",
+    "get_lldp", "get_sensors", "get_poe", "get_mgmt_ip", "identify",
+    "list_switches",
+}
+_WRITE_TOOLS = {
+    "set_pvid", "set_port_enabled", "set_poe", "set_vlan_membership",
+    "create_vlan", "delete_vlan",
+}
+
+
+def _tool_names(env: dict[str, str]) -> set[str]:
+    srv = mod.build_server(env=env)
+    return {t.name for t in asyncio.run(srv.list_tools())}
+
+
+def test_writes_are_gated_off_by_default() -> None:
+    names = _tool_names({})
+    assert _READ_TOOLS.issubset(names)
+    assert names.isdisjoint(_WRITE_TOOLS)  # no write tool registered
+
+
+def test_writes_registered_when_opted_in() -> None:
+    names = _tool_names({"NGSW_MCP_ALLOW_WRITES": "1"})
+    assert _READ_TOOLS.issubset(names)
+    assert _WRITE_TOOLS.issubset(names)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("1", True), ("true", True), ("YES", True), ("on", True),
+     ("0", False), ("", False), ("off", False), ("maybe", False)],
+)
+def test_writes_enabled_parsing(value: str, expected: bool) -> None:
+    assert mod.writes_enabled({"NGSW_MCP_ALLOW_WRITES": value}) is expected
+
+
+def test_jsonable_serializes_models_tree() -> None:
+    vlan = VLANInfo(
+        vlan_id=90, name="iot",
+        member_ports=frozenset({2, 1, 3}),
+        tagged_ports=frozenset({1}),
+        untagged_ports=frozenset({2, 3}),
+    )
+    out = mod._jsonable([vlan])
+    assert out == [{
+        "vlan_id": 90, "name": "iot",
+        "member_ports": [1, 2, 3],          # frozenset -> sorted list
+        "tagged_ports": [1], "untagged_ports": [2, 3],
+    }]
+    mgmt = MgmtIpConfig(
+        mode=IpMode.STATIC, address="10.1.5.25", netmask="255.255.255.0",
+        gateway="10.1.5.1", base_mac="AA:BB:CC:DD:EE:FF",
+    )
+    assert mod._jsonable(mgmt)["mode"] == "static"  # enum -> value
+
+
+def test_read_wraps_unsupported_capability() -> None:
+    def boom():
+        raise UnsupportedCapabilityError("no MAC table on a Plus switch")
+
+    res = mod._read("get_macs", boom)
+    assert res == {
+        "unsupported": True, "op": "get_macs",
+        "detail": "no MAC table on a Plus switch",
+    }
+
+
+def test_read_wraps_library_error() -> None:
+    from netgear_switch.protocols.nsdp.client import NsdpError
+
+    def boom():
+        raise NsdpError("timed out")
+
+    assert mod._read("get_ports", boom) == {"error": "timed out", "op": "get_ports"}
+
+
+def test_resolve_requires_a_selector() -> None:
+    with pytest.raises(ConfigError, match="either"):
+        mod._resolve(
+            switch=None, host=None, model=None, config=None,
+            community=None, http_password=None, nsdp_interface=None, env={},
+        )
+
+
+def test_list_inventory_switches(tmp_path) -> None:
+    inv = tmp_path / "inv.toml"
+    inv.write_text(
+        '[switches.core]\nmodel = "gsm7252ps"\nhost = "10.1.5.20"\n'
+        '[switches.plus]\nmodel = "gs110emx"\nhost = "10.1.5.25"\n'
+    )
+    got = mod.list_inventory_switches(str(inv), {})
+    assert {s["name"] for s in got} == {"core", "plus"}
+    assert {"name": "plus", "model": "gs110emx", "host": "10.1.5.25"} in got
+
+
+def test_list_inventory_requires_a_path() -> None:
+    with pytest.raises(ConfigError, match="NGSW_INVENTORY"):
+        mod.list_inventory_switches(None, {})
+
+
+class _CannedNsdp:
+    """Returns one canned READ_RESPONSE for a gs110emx (includes MODEL, which
+    every per-op read requests -- see nsdp_read._with_model)."""
+
+    def read(self, tags):
+        pkt = NSDPPacket(
+            op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
+            server_mac=b"\xbc\xa5\x11\xb8\xec\xf1",
+        )
+        pkt.add_tlv(Tag.MODEL, b"GS110EMX")
+        pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
+        pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")  # port 1 gigabit
+        pkt.add_tlv(Tag.PORT_STATUS, b"\x02\x00\x01")  # port 2 down
+        pkt.add_tlv(Tag.IP_ADDRESS, b"\x0a\x01\x05\x19")  # 10.1.5.25
+        pkt.add_tlv(Tag.NETMASK, b"\xff\xff\xff\x00")
+        pkt.add_tlv(Tag.GATEWAY, b"\x0a\x01\x05\x01")
+        pkt.add_tlv(Tag.DHCP_MODE, b"\x00")
+        return pkt
+
+
+def _call(srv, name, args) -> list:
+    result = asyncio.run(srv.call_tool(name, args))
+    # Newer FastMCP returns a (content, structured) tuple for typed-return
+    # tools and a bare content list otherwise; normalise to the content list.
+    content = result[0] if isinstance(result, tuple) else result
+    texts = [c.text for c in content if getattr(c, "type", None) == "text"]
+    return [json.loads(t) for t in texts]
+
+
+def test_get_ports_end_to_end_against_a_mock(monkeypatch) -> None:
+    """A read tool, driven through the real FastMCP machinery, returns the
+    reader's data as JSON -- proving the server wraps the library faithfully."""
+    def fake_resolve(_ns, *, env=None, prompt=None):
+        return SyncSwitch(get_model("gs110emx"), "10.1.5.25", nsdp_client=_CannedNsdp())
+
+    monkeypatch.setattr(mod, "resolve_switch", fake_resolve)
+    srv = mod.build_server(env={})
+    ports = _call(srv, "get_ports", {"host": "10.1.5.25", "model": "gs110emx"})
+    by_port = {p["port"]: p for p in ports}
+    assert by_port[1]["link_up"] is True
+    assert by_port[1]["speed_mbps"] == 1000
+    assert by_port[2]["link_up"] is False
+
+    mgmt = _call(srv, "get_mgmt_ip", {"host": "10.1.5.25", "model": "gs110emx"})[0]
+    assert mgmt["address"] == "10.1.5.25"
+    assert mgmt["base_mac"] == "BC:A5:11:B8:EC:F1"
+
+
+def test_unsupported_op_returns_structured_result(monkeypatch) -> None:
+    """gs110emx has no MAC table over any backend -> the tool reports it
+    honestly rather than fabricating an empty list."""
+    def fake_resolve(_ns, *, env=None, prompt=None):
+        return SyncSwitch(get_model("gs110emx"), "10.1.5.25", nsdp_client=_CannedNsdp())
+
+    monkeypatch.setattr(mod, "resolve_switch", fake_resolve)
+    srv = mod.build_server(env={})
+    res = _call(srv, "get_macs", {"host": "10.1.5.25", "model": "gs110emx"})[0]
+    assert res["unsupported"] is True
+    assert res["op"] == "get_macs"
+
+
+def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
+    """With writes enabled, set_pvid drives the library write path; a Plus
+    model with no reachable write backend surfaces that honestly, not silently."""
+    calls: list[tuple] = []
+
+    class _RecordingSwitch:
+        def set_pvid(self, port, vlan, *, force):
+            calls.append((port, vlan, force))
+
+    monkeypatch.setattr(
+        mod, "resolve_switch", lambda _ns, *, env=None, prompt=None: _RecordingSwitch()
+    )
+    srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
+    res = _call(
+        srv, "set_pvid",
+        {"host": "10.1.5.25", "model": "gs110emx", "port": 3, "vlan": 90,
+         "force": True},
+    )[0]
+    assert res == {"ok": True, "op": "set_pvid"}
+    assert calls == [(3, 90, True)]
+
+
+def test_set_vlan_membership_rejects_bad_mode(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mod, "resolve_switch", lambda _ns, *, env=None, prompt=None: object()
+    )
+    srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
+    res = _call(
+        srv, "set_vlan_membership",
+        {"host": "h", "model": "gs110emx", "vlan": 90, "port": 1, "mode": "bogus"},
+    )[0]
+    assert "invalid mode" in res["error"]
