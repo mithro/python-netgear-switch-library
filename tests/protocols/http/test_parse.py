@@ -398,3 +398,60 @@ def test_parse_xe_macs_poe_lldp_reject_malformed_pages() -> None:
     for fn in (parse.parse_xe_macs, parse.parse_xe_poe, parse.parse_xe_lldp):
         with pytest.raises(HttpUnexpectedPageError):
             fn(_MALFORMED)
+
+
+# --- gsm7252ps sysInfo.html: format (B), plain label/value tables ---------
+
+
+def test_parse_xe_labelled_values() -> None:
+    """sysInfo.html carries NO v_ cells; its values are plain labelled table
+    cells (an earlier draft grepped for the v_ pattern, found none, and wrongly
+    concluded the page was JS-populated)."""
+    fields = parse.parse_xe_labelled_values(_read("gsm7252ps_sysInfo.html"))
+    assert fields["System MAC Address"] == "E0:91:F5:0C:D6:DB"
+    assert fields["IPv4 Network Interface"] == "10.1.5.22/255.255.255.0"
+    assert fields["System Up Time"] == "13 days 7 hours 44 mins 6 secs"
+    assert fields["Product Name"].startswith("GSM7252PS 48-Port GE L2+")
+    assert fields["Serial Number"] == "2BW20A47000CC"
+    assert fields["Firmware Version"] == "10.0.0.53"
+    # an <INPUT>-backed row still yields its value
+    assert fields["System Name"] == "sw-netgear-gsm7252ps-s1.welland.mithis.com"
+
+
+def test_parse_xe_mgmt_ip() -> None:
+    mgmt = parse.parse_xe_mgmt_ip(_read("gsm7252ps_sysInfo.html"))
+    assert mgmt.address == "10.1.5.22"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.base_mac == "E0:91:F5:0C:D6:DB"
+    # the page carries no DHCP/static indicator and no gateway row -- both
+    # honestly unknown/None (the same device's SNMP capture also reports
+    # mode "unknown" and gateway None)
+    assert mgmt.mode is IpMode.UNKNOWN
+    assert mgmt.gateway is None
+
+
+def test_parse_xe_sensors() -> None:
+    sensors = parse.parse_xe_sensors(_read("gsm7252ps_sysInfo.html"))
+    temps = {s.name: s.value for s in sensors if s.kind == "temperature"}
+    # Temperature Status table, Unit 1 column: System 29, CPU 49, MAC N/A,
+    # MAC-A 32, MAC-B 31 -- the N/A row is absent, never a fabricated 0
+    assert temps == {"System": 29.0, "CPU": 49.0, "MAC-A": 32.0, "MAC-B": 31.0}
+    assert all(s.unit == "C" for s in sensors if s.kind == "temperature")
+    # FAN Status table: Fan1/PWR, Fan2/CPU, Fan3/SYS report OK; Fan4/Fan5 read
+    # "NA" (not populated) and are skipped
+    fans = {s.name: s.value for s in sensors if s.kind == "fan"}
+    assert fans == {"Fan1/PWR": 1.0, "Fan2/CPU": 1.0, "Fan3/SYS": 1.0}
+    # this page reports fan HEALTH as text, never RPM -- unit says so
+    assert all(s.unit == "state" for s in sensors if s.kind == "fan")
+    # Device Status table: RPS + Power Module (the version/serial rows in that
+    # same table are identity, not sensors, and must not appear)
+    power = {s.name: s.value for s in sensors if s.kind == "power"}
+    assert power == {"RPS": 1.0, "Power Module": 1.0}
+    assert all(s.unit == "state" for s in sensors if s.kind == "power")
+
+
+def test_parse_xe_sysinfo_parsers_reject_malformed_page() -> None:
+    assert parse.parse_xe_labelled_values(_MALFORMED) == {}
+    assert parse.parse_xe_sensors(_MALFORMED) == []
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_xe_mgmt_ip(_MALFORMED)

@@ -1241,6 +1241,202 @@ def parse_xe_lldp(html: str) -> list[LLDPNeighbor]:
     return out
 
 
+# --- gsm7252ps sysInfo.html: format (B), plain label/value tables ---------
+#
+# ``/base/system/management/sysInfo.html`` is NOT an XE-generated page and
+# carries no ``v_`` cells at all. Its values are plain table cells: a bold
+# LABEL cell followed by its value cell(s) --
+#
+#   <td class="font10Bold padding4Top">System MAC Address</td>
+#   <td class="font10 padding4Top">E0:91:F5:0C:D6:DB</td>
+#
+# An earlier draft grepped this page for the ``v_`` pattern, found none, and
+# concluded the values were JS-populated -- declaring get_sensors/get_mgmt_ip
+# HTTP-infeasible. They are not: every value below is present in the static
+# HTML of the committed capture.
+_XE_LABEL_ROW_RE = re.compile(
+    r'<td[^>]*class="[^"]*font10Bold[^"]*"[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)(?:</td>|$)',
+    re.DOTALL | re.IGNORECASE,
+)
+_XE_INPUT_VALUE_RE = re.compile(r'<INPUT[^>]*VALUE="([^"]*)"', re.IGNORECASE)
+_XE_TR_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
+
+
+def _xe_text(cell_html: str) -> str:
+    """A sysInfo value cell's text: the ``<INPUT VALUE="...">`` if the cell is
+    an editable field (System Name/Location/Contact), else its tag-stripped
+    text."""
+    m = _XE_INPUT_VALUE_RE.search(cell_html)
+    if m:
+        return unescape(m.group(1)).strip()
+    return unescape(_TAG_RE.sub("", cell_html)).strip()
+
+
+def parse_xe_labelled_values(html: str) -> dict[str, str]:
+    """``sysInfo.html`` -> ``{label: first value cell}`` for every bold-labelled
+    row (identity, mgmt IP, and the first UNIT column of the status tables).
+
+    Returns ``{}`` for a page with no such rows -- the caller decides whether
+    that is fatal (``parse_xe_mgmt_ip`` does; ``parse_xe_sensors`` does not,
+    since it reads the status tables through ``_xe_status_rows`` instead)."""
+    return {
+        label: _xe_text(value)
+        for label, value in (
+            (unescape(_TAG_RE.sub("", raw_label)).strip(), raw_value)
+            for raw_label, raw_value in _XE_LABEL_ROW_RE.findall(html)
+        )
+        if label
+    }
+
+
+def _xe_sysinfo_section(html: str, title: str) -> str:
+    """The slice of ``sysInfo.html`` belonging to one status table.
+
+    Each block is introduced by its own ``<script>tbhdr('FAN Status',...)``
+    call, so a section runs from its ``tbhdr`` to the next one (or EOF). Used
+    to keep the three same-shaped tables (Temperature/FAN/Device Status)
+    apart -- they share cell classes and would otherwise merge."""
+    start = html.find(f"tbhdr('{title}'")
+    if start < 0:
+        return ""
+    nxt = html.find("tbhdr('", start + 1)
+    return html[start:nxt] if nxt >= 0 else html[start:]
+
+
+def _xe_status_rows(section: str) -> list[tuple[str, list[str]]]:
+    """One ``(label, per-unit values)`` pair per DATA row of a status table.
+
+    The header row (``Unit ID | 1 | 2 ...``, ``Sensor Type | Unit 1 | ...``)
+    is identified by its ``messageTableHeader*`` cell classes and dropped:
+    keeping it would turn the literal header text into a sensor named
+    "Sensor Type" reading 1.0."""
+    rows: list[tuple[str, list[str]]] = []
+    for row in _XE_TR_RE.findall(section):
+        if "messageTableHeader" in row:
+            continue
+        cells = [unescape(c) for c in _cells(row)]
+        if len(cells) < 2 or not cells[0]:
+            continue
+        rows.append((cells[0], cells[1:]))
+    return rows
+
+
+def _xe_sensor_name(label: str, unit: int) -> str:
+    """Sensor name for a stacked switch: the bare page label on unit 1 (the
+    only populated unit on the captured switch), suffixed on any other."""
+    return label if unit == 1 else f"{label} unit {unit}"
+
+
+# The FAN/Device-Status tables report HEALTH AS TEXT ("OK", "Operational"),
+# never a number. ``Sensor.value`` is a required float, so these are reported
+# with unit "state" -- deliberately NOT "RPM"/"W" -- and the value is a health
+# flag: 1.0 = the healthy text this firmware prints, 0.0 = any other REPORTED
+# state (e.g. a failed fan). A slot that reports nothing at all ("NA", "N/A",
+# blank -- e.g. the unpopulated Fan4/Fan5 and stack units 2-8) is SKIPPED, not
+# reported as 0.0, because absence is not failure. SNMP remains the source of
+# real fan RPM / PSU watts on this model.
+_XE_HEALTHY_TEXT = {"ok", "operational"}
+_XE_ABSENT_TEXT = {"", "na", "n/a", "not supported", "-"}
+# Rows of the "Device Status" table that are SENSORS; the rest of that table
+# (Firmware/Boot/CPLD/PoE version, Serial Number, MAX PoE) is identity, not a
+# reading, and must not be emitted as one.
+_XE_POWER_ROWS = ("RPS", "Power Module")
+
+
+def _xe_state_sensors(
+    section: str, kind: str, only: tuple[str, ...] | None = None
+) -> list[Sensor]:
+    out: list[Sensor] = []
+    for label, values in _xe_status_rows(section):
+        if only is not None and label not in only:
+            continue
+        for unit, raw in enumerate(values, start=1):
+            text = raw.strip().lower()
+            if text in _XE_ABSENT_TEXT:
+                continue
+            out.append(
+                Sensor(
+                    name=_xe_sensor_name(label, unit),
+                    kind=kind,
+                    value=1.0 if text in _XE_HEALTHY_TEXT else 0.0,
+                    unit="state",
+                )
+            )
+    return out
+
+
+def parse_xe_sensors(html: str) -> list[Sensor]:
+    """GSM7252PS ``sysInfo.html`` -> box sensors.
+
+    Three blocks, all present in the static HTML of the committed capture:
+
+    - **Temperature Status** -- real numeric readings (``29&degC``) per stack
+      unit. A sensor reading ``N/A`` (the MAC row on the captured switch) is
+      absent, not 0, and is skipped.
+    - **FAN Status** -- ``OK``/``NA`` per fan. Reported as ``unit="state"``
+      health flags, never as RPM (see ``_XE_HEALTHY_TEXT``).
+    - **Device Status** -- only the ``RPS`` and ``Power Module`` rows, as
+      ``kind="power"`` state flags; the firmware/serial rows in that same
+      table are identity, not sensors.
+
+    Returns ``[]`` for a page with none of those tables; the caller decides.
+    """
+    out: list[Sensor] = []
+    for label, values in _xe_status_rows(
+        _xe_sysinfo_section(html, "Temperature Status")
+    ):
+        for unit, raw in enumerate(values, start=1):
+            celsius = _int(raw)
+            if celsius is None:
+                continue  # "N/A" -- absent, not zero
+            out.append(
+                Sensor(
+                    name=_xe_sensor_name(label, unit),
+                    kind="temperature",
+                    value=float(celsius),
+                    unit="C",
+                )
+            )
+    out += _xe_state_sensors(_xe_sysinfo_section(html, "FAN Status"), "fan")
+    out += _xe_state_sensors(
+        _xe_sysinfo_section(html, "Device Status"), "power", only=_XE_POWER_ROWS
+    )
+    return out
+
+
+def parse_xe_mgmt_ip(html: str) -> MgmtIpConfig:
+    """GSM7252PS ``sysInfo.html`` -> management IP + base MAC.
+
+    ``IPv4 Network Interface`` renders as ``addr/netmask`` inside a link to
+    ipConfiguration.html; ``System MAC Address`` is a plain labelled cell. The
+    page reports neither a gateway nor a DHCP/static indicator, so those stay
+    ``None``/``UNKNOWN`` rather than guessed -- which is exactly what the SNMP
+    backend reports for this same device (see
+    ``tests/fixtures/captures/gsm7252ps.json``).
+    """
+    fields = parse_xe_labelled_values(html)
+    iface = fields.get("IPv4 Network Interface", "")
+    addr = netmask = None
+    m = re.match(r"\s*([0-9.]+)\s*/\s*([0-9.]+)", iface)
+    if m:
+        addr, netmask = m.group(1), m.group(2)
+    mac = fields.get("System MAC Address", "").strip().upper()
+    if not _MAC_TEXT_RE.fullmatch(mac):
+        mac = ""
+    if addr is None and not mac:
+        raise HttpUnexpectedPageError(
+            "sysInfo.html: neither IPv4 Network Interface nor System MAC "
+            "Address found"
+        )
+    return MgmtIpConfig(
+        mode=IpMode.UNKNOWN,
+        address=addr,
+        netmask=netmask,
+        gateway=None,
+        base_mac=mac or None,
+    )
+
+
 def parse_poe_status(html: str) -> list[PoEStatus]:
     """getPoePortStatus.cgi ``portID`` rows: [1]=port,[2]=state,[3]=power_mw."""
     rows = _ROW_RE.findall(html)
