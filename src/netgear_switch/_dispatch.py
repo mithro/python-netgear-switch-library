@@ -21,6 +21,7 @@ if TYPE_CHECKING:
         SnmpWriteClient,
     )
     from .registry import SwitchModel
+    from .transport.cli.session import CliSession
     from .transport.http.client import AsyncHttpClient, HttpClient
 
 BACKEND_NOT_IMPLEMENTED = (
@@ -159,6 +160,53 @@ def http_reads_supported(model: SwitchModel) -> bool:
 
     spec = HTTP_SPECS.get(model.key)
     return spec is not None and spec.reads_verified
+
+
+def require_cli_backend(model: SwitchModel) -> None:
+    """Raise unless the model exposes a CLI (SSH/telnet/console) backend."""
+    from .protocols.cli.commands import CLI_BACKENDS
+
+    if not (CLI_BACKENDS & model.backends):
+        raise UnsupportedCapabilityError(
+            f"model {model.key!r} has no CLI backend"
+        )
+
+
+def cli_reads_supported(model: SwitchModel) -> bool:
+    """True only once a model's CLI reads are cross-verified (reads_verified).
+
+    Mirrors ``http_reads_supported``. Every CLI spec currently has
+    ``reads_verified=False`` (the CLI reader output has NOT been cross-verified
+    against SNMP on live hardware -- the controller will run that on 10.1.5.22
+    and flip the flag), so this returns False for every model today and the
+    facade never dispatches a live read to the CLI backend. The parsers and the
+    in-process mock CLI face are exercised independently of this gate.
+    """
+    from .protocols.cli.commands import CLI_BACKENDS, CLI_SPECS
+
+    if not (CLI_BACKENDS & model.backends):
+        return False
+    spec = CLI_SPECS.get(model.key)
+    return spec is not None and spec.reads_verified
+
+
+def build_sync_cli_client(
+    host: str,
+    username: str,
+    password: str | None,
+    model: SwitchModel,
+) -> CliSession:
+    """Default sync CLI session: the SSH transport (paramiko). Imported lazily.
+
+    The other two transports (telnet/console) exist for direct construction but
+    SSH is the facade's default network CLI transport.
+    """
+    from .protocols.cli.commands import cli_spec
+    from .transport.cli.ssh import SshCliTransport
+
+    if not password:
+        raise CredentialError(f"no CLI password configured for {host!r}")
+    return SshCliTransport(host, username, password, cli_spec(model))
 
 
 def _require_http_password(host: str, password: str | None) -> str:

@@ -1,0 +1,62 @@
+
+VLAN ID: 90
+VLAN Name: iot
+VLAN Type: Static
+
+Interface   Current   Configured   Tagging
+----------  --------  -----------  --------
+1/0/1       Include   Include      Untagged
+1/0/2       Include   Include      Untagged
+1/0/3       Include   Include      Untagged
+1/0/4       Include   Include      Untagged
+1/0/5       Include   Include      Untagged
+1/0/6       Exclude   Autodetect   Untagged
+1/0/7       Include   Include      Untagged
+1/0/8       Exclude   Autodetect   Untagged
+1/0/9       Include   Include      Untagged
+1/0/10      Exclude   Autodetect   Untagged
+1/0/11      Include   Include      Tagged
+1/0/12      Include   Include      Tagged
+1/0/13      Include   Include      Untagged
+1/0/14      Include   Include      Untagged
+1/0/15      Exclude   Autodetect   Untagged
+1/0/16      Include   Include      Untagged
+1/0/17      Include   Include      Untagged
+1/0/18      Include   Include      Untagged
+1/0/19      Exclude   Autodetect   Untagged
+1/0/20      Include   Include      Untagged
+1/0/21      Exclude   Autodetect   Untagged
+1/0/22      Include   Include      Untagged
+1/0/23      Include   Include      Untagged
+1/0/24      Include   Include      Untagged
+1/0/25      Include   Include      Untagged
+1/0/26      Include   Include      Untagged
+1/0/27      Include   Include      Untagged
+1/0/28      Exclude   Autodetect   Untagged
+1/0/29      Exclude   Autodetect   Untagged
+1/0/30      Include   Include      Untagged
+1/0/31      Include   Include      Untagged
+1/0/32      Include   Include      Untagged
+1/0/33      Include   Include      Untagged
+1/0/34      Exclude   Autodetect   Untagged
+1/0/35      Exclude   Autodetect   Untagged
+1/0/36      Exclude   Autodetect   Untagged
+1/0/37      Include   Include      Untagged
+1/0/38      Include   Include      Untagged
+1/0/39      Exclude   Autodetect   Untagged
+1/0/40      Exclude   Autodetect   Untagged
+1/0/41      Include   Include      Untagged
+1/0/42      Include   Include      Untagged
+1/0/43      Include   Include      Untagged
+1/0/44      Include   Include      Untagged
+1/0/45      Exclude   Autodetect   Untagged
+1/0/46      Include   Include      Tagged
+1/0/47      Include   Include      Tagged
+1/0/48      Exclude   Autodetect   Untagged
+1/0/49      Include   Include      Tagged
+1/0/50      Exclude   Include      Untagged
+1/0/51      Exclude   Include      Untagged
+1/0/52      Exclude   Autodetect   Untagged
+lag 1       Include   Include      Tagged
+lag 2       Include   Include      Tagged
+lag 3       Exclude   Autodetect   Untagged

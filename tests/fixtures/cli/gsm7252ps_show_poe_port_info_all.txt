@@ -1,0 +1,20 @@
+
+        High     Max                      Output  Output
+Intf    Power   Power     Class   Power   Current Voltage  Temperature      Status            Fault
+                 (mW)              (mW)     (mA)   (V)                                         Status
+------ ------- -------- -------- -------  ------- -------  -----------  ----------------- ---------------
+1/0/1    Yes   32000    4        3600      67      54      28           Delivering Power   No Error
+1/0/2    Yes   32000    3        3000      56      54      30           Delivering Power   No Error
+1/0/3    Yes   32000    4        3400      62      54      28           Delivering Power   No Error
+1/0/4    Yes   32000    0        8300      153     54      28           Delivering Power   No Error
+1/0/5    Yes   32000    4        6000      110     54      30           Delivering Power   No Error
+1/0/6    Yes   32000    Unknown  0         0       0       30           Searching          No Error
+1/0/7    Yes   32000    0        4100      76      54      30           Delivering Power   No Error
+1/0/8    Yes   32000    4        1500      28      54      32           Delivering Power   No Error
+1/0/9    No    18000    0        3800      70      55      30           Delivering Power   No Error
+1/0/10   No    18000    Unknown  0         0       0       31           Searching          No Error
+1/0/11   No    18000    4        4400      81      54      30           Delivering Power   No Error
+1/0/45   No    18000    Unknown  0         0       0       43           Searching          No Error
+1/0/46   No    18000    4        4300      79      55      45           Delivering Power   No Error
+1/0/47   No    18000    4        1900      36      54      42           Delivering Power   No Error
+1/0/48   No    18000    Unknown  0         0       0       42           Searching          No Error

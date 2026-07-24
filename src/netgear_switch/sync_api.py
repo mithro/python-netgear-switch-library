@@ -5,14 +5,17 @@ import os
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from ._dispatch import (
+    build_sync_cli_client,
     build_sync_http_client,
     build_sync_nsdp_client,
     build_sync_snmp_client,
     build_sync_snmp_write_client,
+    cli_reads_supported,
     http_reads_supported,
     require_http_backend,
     require_mac_table,
 )
+from .cli_read import CliReader
 from .errors import CredentialError, ProtectedPortError, UnsupportedCapabilityError
 from .http_read import HttpReader
 from .http_write import HttpWriter, _reject_known_unimplemented_cert_upload
@@ -38,7 +41,10 @@ _R = TypeVar("_R")
 # HTTP implementations in http_read.py are unreachable here; only a
 # directly-constructed HttpReader ever exercises them. Do not read this
 # preference order as "HTTP only fills gaps" more broadly than that.
-_BACKEND_PREFERENCE = (Backend.SNMP, Backend.NSDP, Backend.HTTP)
+_BACKEND_PREFERENCE = (Backend.SNMP, Backend.NSDP, Backend.HTTP, Backend.SSH)
+
+# The four reader backends a SyncSwitch may build (SNMP/NSDP/HTTP/CLI).
+_AnyReader = SnmpReader | NsdpReader | HttpReader | CliReader
 
 
 class _Unset:
@@ -175,7 +181,7 @@ class SyncSwitch:
         # `_http_client` so `close()` only ever tears down a client THIS facade
         # built -- never one the caller injected and therefore owns.
         self._built_http_client: HttpClient | None = None
-        self._reader_cache: dict[Backend, SnmpReader | NsdpReader | HttpReader] = {}
+        self._reader_cache: dict[Backend, _AnyReader] = {}
         self._writer_cache: dict[Backend, SnmpWriter | NsdpWriter | HttpWriter] = {}
         self.protected_ports = protected_ports
 
@@ -255,11 +261,11 @@ class SyncSwitch:
         self._resolved_http_password = resolved
         return resolved
 
-    def _reader_for(self, backend: Backend) -> SnmpReader | NsdpReader | HttpReader:
+    def _reader_for(self, backend: Backend) -> _AnyReader:
         cached = self._reader_cache.get(backend)
         if cached is not None:
             return cached
-        reader: SnmpReader | NsdpReader | HttpReader
+        reader: _AnyReader
         if backend is Backend.SNMP:
             client = self._snmp_client
             if client is None:
@@ -270,7 +276,7 @@ class SyncSwitch:
             if nsdp is None:
                 nsdp = build_sync_nsdp_client(self.host, self._nsdp_interface)
             reader = NsdpReader(nsdp, self.model)
-        else:  # Backend.HTTP
+        elif backend is Backend.HTTP:
             # UNVERIFIED-reads models (gsm7228ps cheetah) refuse HERE -- before
             # any session build -- so the per-op loop sees a plain
             # UnsupportedCapabilityError, NOT a CredentialError from resolving a
@@ -286,6 +292,25 @@ class SyncSwitch:
                     "UNVERIFIED-pending-capture"
                 )
             reader = HttpReader(_LazyHttpSession(self._http_session), self.model)
+        else:  # a CLI backend (SSH/telnet/console)
+            # CLI reads are gated exactly like HTTP: every CLI spec is
+            # reads_verified=False today (not yet CLI<->SNMP cross-verified on
+            # live hardware), so this ALWAYS raises here and the facade never
+            # dispatches a live read to the CLI backend. Once the flag flips, a
+            # real SSH CliReader is built (reusing the web-admin password as the
+            # CLI password by default). The mock CLI face is exercised
+            # separately via VirtualSwitch.cli_session(), not through here.
+            if not cli_reads_supported(self.model):
+                raise UnsupportedCapabilityError(
+                    f"model {self.model.key!r} CLI reads are "
+                    "UNVERIFIED-pending cross-verify"
+                )
+            reader = CliReader(
+                build_sync_cli_client(
+                    self.host, "admin", self._resolve_http_password(), self.model
+                ),
+                self.model,
+            )
         self._reader_cache[backend] = reader
         return reader
 
@@ -316,7 +341,7 @@ class SyncSwitch:
                 nsdp, self.model, password=password,
                 protected_ports=self.protected_ports,
             )
-        else:  # Backend.HTTP
+        elif backend is Backend.HTTP:
             if not http_reads_supported(self.model):
                 raise UnsupportedCapabilityError(
                     f"model {self.model.key!r} HTTP writes are "
@@ -326,10 +351,17 @@ class SyncSwitch:
                 _LazyHttpSession(self._http_session), self.model,
                 protected_ports=self.protected_ports,
             )
+        else:  # a CLI backend (SSH/telnet/console)
+            # This slice adds CLI READS only; there is no CLI writer yet, so any
+            # write dispatched to a CLI backend is honestly unsupported (SNMP
+            # remains the write path for every FASTPATH model).
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} has no CLI write backend"
+            )
         self._writer_cache[backend] = writer
         return writer
 
-    def _read(self, op: Callable[[SnmpReader | NsdpReader | HttpReader], _R]) -> _R:
+    def _read(self, op: Callable[[_AnyReader], _R]) -> _R:
         # Try each backend the model has, in preference order (SNMP > NSDP >
         # HTTP), returning the first whose reader serves the op. A backend that
         # cannot be built (construction raises UnsupportedCapabilityError) OR
@@ -451,7 +483,7 @@ class SyncSwitch:
         ports/stats/vlans/pvids/mgmt via NSDP, poe via HTTP)."""
 
         def _opt(
-            op: Callable[[SnmpReader | NsdpReader | HttpReader], list[Any]],
+            op: Callable[[_AnyReader], list[Any]],
         ) -> tuple[Any, ...]:
             try:
                 return tuple(self._read(op))

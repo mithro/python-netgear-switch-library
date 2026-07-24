@@ -21,6 +21,15 @@ dependencies = []
 sync = []
 async = ["pysnmp>=7.0"]
 http = ["httpx>=0.27"]
+# FASTPATH CLI backend (SSH/telnet/console). paramiko is PINNED <3: old FASTPATH
+# firmware (GSM7252PS/M4300) only offers diffie-hellman-group14-sha1 KEX + the
+# ssh-rsa (SHA-1) host key, which paramiko 3.0 dropped from its default
+# preferred lists (2.12 is confirmed working live). The SSH transport ALSO
+# re-inserts those legacy algorithms explicitly (see transport/cli/ssh.py), so
+# the pin is belt-and-suspenders. pyserial drives the serial-console transport;
+# the telnet transport uses the stdlib telnetlib (removed in Python 3.13 -- see
+# transport/cli/telnet.py).
+ssh = ["paramiko>=2.12,<3", "pyserial>=3.5"]
 testing = ["pysnmp>=7.0", "mcp>=1.2"]
 # MCP server (ngsw-mcp): exposes the read/write API as MCP tools over stdio.
 mcp = ["mcp>=1.2"]
@@ -91,4 +100,12 @@ warn_return_any = false
 
 [[tool.mypy.overrides]]
 module = "mcp.*"
+ignore_missing_imports = true
+
+# The CLI transports lazily import optional, unstubbed third-party libraries
+# (paramiko for SSH, pyserial for the serial console). They are behind the
+# '[ssh]' extra and imported inside methods, so the library stays fully typed;
+# relax only the missing-stub check for these two, like the mcp override above.
+[[tool.mypy.overrides]]
+module = ["paramiko.*", "serial.*"]
 ignore_missing_imports = true

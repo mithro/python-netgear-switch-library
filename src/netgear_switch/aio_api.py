@@ -38,7 +38,7 @@ _R = TypeVar("_R")
 # HTTP implementations in http_read.py are unreachable here; only a
 # directly-constructed AsyncHttpReader ever exercises them. Do not read this
 # preference order as "HTTP only fills gaps" more broadly than that.
-_BACKEND_PREFERENCE = (Backend.SNMP, Backend.NSDP, Backend.HTTP)
+_BACKEND_PREFERENCE = (Backend.SNMP, Backend.NSDP, Backend.HTTP, Backend.SSH)
 
 
 class _Unset:
@@ -261,7 +261,7 @@ class AsyncSwitch:
             if nsdp is None:
                 nsdp = build_async_nsdp_client(self.host, self._nsdp_interface)
             reader = AsyncNsdpReader(nsdp, self.model)
-        else:  # Backend.HTTP
+        elif backend is Backend.HTTP:
             if not http_reads_supported(self.model):
                 raise UnsupportedCapabilityError(
                     f"model {self.model.key!r} HTTP reads are "
@@ -269,6 +269,16 @@ class AsyncSwitch:
                 )
             reader = AsyncHttpReader(
                 _LazyAsyncHttpSession(self._http_session), self.model
+            )
+        else:  # a CLI backend (SSH/telnet/console)
+            # CLI reads are reads_verified=False for every model (not yet
+            # cross-verified), AND the CLI transports are synchronous
+            # (paramiko/telnetlib/pyserial) with no async twin -- so the async
+            # facade never serves a CLI read. Honest UnsupportedCapabilityError
+            # either way; SNMP stays authoritative for every FASTPATH op.
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} CLI reads are not available via the "
+                "async facade (CLI is synchronous + UNVERIFIED-pending cross-verify)"
             )
         self._reader_cache[backend] = reader
         return reader
@@ -302,7 +312,7 @@ class AsyncSwitch:
                 nsdp, self.model, password=password,
                 protected_ports=self.protected_ports,
             )
-        else:  # Backend.HTTP
+        elif backend is Backend.HTTP:
             if not http_reads_supported(self.model):
                 raise UnsupportedCapabilityError(
                     f"model {self.model.key!r} HTTP writes are "
@@ -311,6 +321,12 @@ class AsyncSwitch:
             writer = AsyncHttpWriter(
                 _LazyAsyncHttpSession(self._http_session), self.model,
                 protected_ports=self.protected_ports,
+            )
+        else:  # a CLI backend (SSH/telnet/console)
+            # No CLI writer exists (reads-only slice), and CLI is synchronous
+            # anyway -- SNMP remains the write path for every FASTPATH model.
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} has no CLI write backend"
             )
         self._writer_cache[backend] = writer
         return writer
