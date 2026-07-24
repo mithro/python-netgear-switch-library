@@ -236,7 +236,10 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
       switch reports "Other Fault" where SNMP's code is outside 1-4 and reads
       UNKNOWN), so detect is compared only where SNMP knows it;
     - sysInfo.html has no DHCP indicator or gateway row, so mgmt-IP is compared
-      on address/netmask/base-MAC.
+      on address/netmask/base-MAC;
+    - the two interfaces expose DIFFERENT box sensors (SNMP: fan RPM + PSU
+      watts, no temperature; HTTP sysInfo: temperatures + fan/PSU health text),
+      so each face's real sensor set is pinned rather than cross-asserted.
     """
     from netgear_switch.models import PoEDetect
     from netgear_switch.snmp_read import SnmpReader
@@ -326,16 +329,42 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                     for n in snmp.get_lldp()
                 ]
 
+                # Sensors: the two interfaces expose DIFFERENT real sensor
+                # sets on this device, so this pins the difference rather than
+                # asserting a fake agreement. SNMP reports numeric fan RPM + PSU
+                # watts and NO temperature; the HTTP sysInfo page reports
+                # temperatures (System/CPU/MAC-A/MAC-B) plus fan/PSU HEALTH
+                # flags (unit "state") and no RPM/watt readings. Both match
+                # their own captures (see gsm7252ps.json vs gsm7252ps_sysInfo.html).
+                snmp_sensors = snmp.get_sensors()
+                assert {(s.name, s.value) for s in snmp_sensors} == {
+                    ("fan0", 2850.0), ("fan2", 2350.0),
+                    ("power0", 49.0), ("power1", 30.0),
+                    ("power2", 32.0), ("power3", 31.0),
+                }
+                assert not [s for s in snmp_sensors if s.kind == "temperature"]
+
+                http_sensors = http.get_sensors()
                 http_temps = {
-                    (s.name, s.value) for s in http.get_sensors()
+                    (s.name, s.value) for s in http_sensors
                     if s.kind == "temperature"
                 }
-                snmp_temps = {
-                    (s.name, s.value) for s in snmp.get_sensors()
-                    if s.kind == "temperature"
+                assert http_temps == {
+                    ("System", 29.0), ("CPU", 49.0),
+                    ("MAC-A", 32.0), ("MAC-B", 31.0),
                 }
-                assert http_temps
-                assert http_temps == snmp_temps
+                # the HTTP fan/PSU rows are health flags, never RPM/watts
+                assert all(
+                    s.unit == "state"
+                    for s in http_sensors
+                    if s.kind in ("fan", "power")
+                )
+                # ... so SNMP is the ONLY source of real fan RPM / PSU watts
+                # here, and HTTP the only source of temperatures.
+                assert {s.kind for s in snmp_sensors} == {"fan", "power"}
+                assert {s.kind for s in http_sensors} == {
+                    "temperature", "fan", "power",
+                }
 
                 hm, sm = http.get_mgmt_ip(), snmp.get_mgmt_ip()
                 assert (hm.address, hm.netmask, hm.base_mac) == (

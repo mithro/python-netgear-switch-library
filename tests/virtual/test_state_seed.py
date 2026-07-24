@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capture_parity import load_capture_snapshot
+from capture_parity import assert_seed_matches_capture, load_capture_snapshot
 from netgear_switch.protocols.snmp import oids, parse
 from netgear_switch.registry import get_model
 from netgear_switch.virtual.seed import seed_gsm7252ps
@@ -144,59 +144,76 @@ def test_seed_emits_nonempty_ports_pvids_poe_sensors():
             ("temperature", "C", rows(v.box_temp)),
         ]
     )
-    kinds = {s.kind for s in sensors}
-    assert kinds == {"fan", "power", "temperature"}
-    assert len(sensors) >= 4  # 2 real fans (Not Supported skipped) + psu + temp
+    # The SNMP face reports exactly the captured box sensors: two fan RPMs and
+    # four PSU wattages -- and NO temperature (that sensor lives only on the
+    # HTTP sysInfo page for this device). Matches captures/gsm7252ps.json.
+    assert {(s.name, s.value) for s in sensors} == {
+        ("fan0", 2850.0), ("fan2", 2350.0),
+        ("power0", 49.0), ("power1", 30.0), ("power2", 32.0), ("power3", 31.0),
+    }
+    assert {s.kind for s in sensors} == {"fan", "power"}
 
 
-def test_seed_gsm7252ps_iot_vlan_concept_matches_the_real_capture():
-    """``gsm7252ps.json`` is a committed real-hardware capture (see
-    ``tests/fixtures/captures/gsm7252ps.json``'s own ``note``) that, until
-    now, no test ever read -- an orphaned fixture. Unlike the M4300 seeds
-    (literal transcriptions of their own captures -- see
-    ``tests/virtual/test_m4300_seeds.py``, which uses the strict, generic
-    ``capture_parity.assert_seed_matches_capture`` for those), ``seed_gsm7252ps``
-    is explicitly documented (see its own docstring in ``virtual/seed.py``) as
-    a HAND-AUTHORED illustrative seed, not a transcription of any one capture.
-    Running it through that same strict per-key helper would fail loudly and
-    dishonestly: this specific real capture is a live, in-service 52-port unit
-    whose per-port link state, PoE load, sensor readings and management IP are
-    simply a different real device's snapshot in time, not a ground truth the
-    illustrative seed ever claimed to reproduce (confirmed empirically: most
-    per-port link/speed/description and every PoE/sensor/mgmt-IP value differ).
+def test_seed_gsm7252ps_matches_capture_strictly():
+    """``seed_gsm7252ps`` is a LITERAL transcription of the committed
+    real-hardware capture ``tests/fixtures/captures/gsm7252ps.json`` -- exactly
+    like the M4300 seeds -- so it is held to the same strict, generic per-key
+    parity helper the M4300 seeds use (see ``tests/virtual/test_m4300_seeds.py``
+    and ``capture_parity.assert_seed_matches_capture``). Every port
+    (name/admin/link/speed/ifAlias), every PVID, all 14 VLANs' member+untagged
+    ifIndex sets, all 48 PoE ports (admin/detect/power), the box SENSORS the
+    SNMP face reports, and the management IP/base-MAC are checked against the
+    capture in one pass.
 
-    What genuinely IS shared between the two -- and clearly the actual
-    inspiration for the seed's "iot"/VLAN-90 example -- is the VLAN 90 "iot"
-    concept itself: named "iot" in both, with ports 1 and 2 both untagged
-    members carrying PVID 90. This test pins exactly that genuine overlap
-    (fixing the orphan by actually reading and using the capture), without
-    the dishonesty of claiming full reproduction the seed's own docstring
-    never claimed.
+    Documented carve-outs (each a genuine property of this device, not a
+    fudge):
+
+    * The SENSOR check covers the SNMP face's ``state.sensors`` only (fan RPM +
+      PSU watts). This switch's web UI exposes a DIFFERENT set -- temperatures +
+      fan/PSU health -- carried in ``state.http_sensors`` and validated against
+      the HTTP capture in ``test_virtual_http_face`` /
+      ``test_cross_backend_equivalence``, not against this SNMP capture.
+    * The harness deliberately excludes the volatile MAC/FDB, LLDP and per-port
+      byte/packet counters (see its module docstring); the seed's MAC/LLDP rows
+      are deliberate regression traps, not transcriptions, and are covered
+      separately in ``test_seed_emits_nonempty_stats_macs_lldp``. Per-port
+      counters ARE transcribed and are pinned below.
     """
+    assert_seed_matches_capture(seed_gsm7252ps(), _GSM7252PS_CAPTURE)
+
+
+def test_seed_gsm7252ps_stats_match_capture():
+    """Per-port byte/packet counters are transcribed from the capture too
+    (the generic harness skips them as generally-volatile, but this seed IS a
+    snapshot of this exact fixed fixture, so pinning them is deterministic).
+    Checked one-way: every physical port the seed carries counters for matches
+    the capture; the two non-physical placeholders (CPU 417, lag 418) are not
+    required to."""
+    capture = load_capture_snapshot(_GSM7252PS_CAPTURE)
+    real = {s["port"]: s for s in capture["stats"]}
+    state = seed_gsm7252ps()
+    checked = 0
+    for port, sim in state.ports.items():
+        if sim.rx_octets is None:
+            continue  # CPU/lag placeholders carry no seeded counters
+        r = real[port]
+        assert (sim.rx_octets, sim.tx_octets, sim.rx_ucast, sim.tx_ucast) == (
+            r["rx_bytes"], r["tx_bytes"], r["rx_packets"], r["tx_packets"]
+        ), f"port {port} counters"
+        checked += 1
+    assert checked == 52  # all 52 physical ports pinned
+
+
+def test_seed_gsm7252ps_iot_vlan_90_matches_capture():
+    """A focused spot-check of the seed's "iot"/VLAN-90 example against the
+    capture: ports 1 and 2 are untagged members carrying PVID 90 on both."""
     capture = load_capture_snapshot(_GSM7252PS_CAPTURE)
     state = seed_gsm7252ps()
 
     real_vlan_90 = next(v for v in capture["vlans"] if v["vlan_id"] == 90)
-    assert real_vlan_90["name"] == "iot"
-    assert state.vlans[90].name == "iot"
-
+    assert real_vlan_90["name"] == "iot" == state.vlans[90].name
     for port in (1, 2):
-        assert port in real_vlan_90["member_ports"]
         assert port in real_vlan_90["untagged_ports"]
-        assert port in state.vlans[90].member
         assert port in state.vlans[90].untagged
-
-    real_pvids = dict(capture["pvids"])
-    assert real_pvids[1] == real_pvids[2] == 90
-    assert state.pvids[1] == state.pvids[2] == 90
-
-    # Structural (not per-value) PoE/sensor facts that DO hold: same PoE port
-    # count, and fan slot "1" reports no numeric value in either (the seed's
-    # "Not Supported" placeholder; the real capture simply omits that slot).
-    assert len(state.poe) == 48 == len(capture["poe"])
-    real_fan_instances = {
-        s["name"][len(s["kind"]):] for s in capture["sensors"] if s["kind"] == "fan"
-    }
-    assert "1" not in real_fan_instances
-    fan1 = next(s for s in state.sensors if s.kind == "fan" and s.instance == "1")
-    assert fan1.raw == "Not Supported"
+    assert dict(capture["pvids"])[1] == state.pvids[1] == 90
+    assert dict(capture["pvids"])[2] == state.pvids[2] == 90

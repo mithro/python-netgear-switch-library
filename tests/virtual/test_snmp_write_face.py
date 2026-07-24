@@ -325,8 +325,9 @@ def test_snmp_writer_set_vlan_membership_live_preserves_other_ports():
     """Drive ``SnmpWriter.set_vlan_membership`` (RMW + atomic set_many +
     dual-column verify) through the real SET path against a live
     ``VirtualSwitch``, over the sync (net-snmp CLI) transport. Proves port 6
-    (a non-member on the captured switch) joins VLAN 90 tagged while every
-    other member and the whole untagged set are preserved untouched."""
+    joins VLAN 90 as a TAGGED member -- added to the egress set and CLEARED from
+    the (quirky, capture-transcribed) untagged set -- while every OTHER port's
+    membership and untagged status is preserved untouched."""
     sw = VirtualSwitch(model="gsm7252ps")
     sw.start()
     try:
@@ -337,14 +338,22 @@ def test_snmp_writer_set_vlan_membership_live_preserves_other_ports():
         vid = 90
 
         before = next(v for v in reader.get_vlans() if v.vlan_id == vid)
-        assert 6 not in before.member_ports  # seeded from the real capture
+        # On the captured switch port 6 is a NON-member of VLAN 90, yet it IS
+        # in that VLAN's untagged bitmap (the real dot1qVlanStaticUntaggedPorts
+        # quirk -- untagged is not a subset of member here).
+        assert 6 not in before.member_ports
+        assert 6 in before.untagged_ports
         assert before.member_ports
 
         writer.set_vlan_membership(vid, 6, VlanMode.TAGGED)
 
         after = next(v for v in reader.get_vlans() if v.vlan_id == vid)
-        assert after.member_ports == before.member_ports | {6}  # 6 joined
-        assert after.untagged_ports == before.untagged_ports    # tagged only
+        # 6 joins the egress set and is cleared from untagged (it is now tagged)
+        assert after.member_ports == before.member_ports | {6}
+        assert after.untagged_ports == before.untagged_ports - {6}
+        # RMW preserved every other port in both columns
+        assert after.member_ports - {6} == before.member_ports
+        assert after.untagged_ports | {6} == before.untagged_ports
     finally:
         sw.stop()
 

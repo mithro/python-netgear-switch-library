@@ -141,7 +141,16 @@ class VirtualSwitchState:
     vlans: dict[int, VlanSim] = field(default_factory=dict)
     pvids: dict[int, int] = field(default_factory=dict)
     poe: dict[int, PoeSim] = field(default_factory=dict)
+    # SNMP box sensors (the vendor box_fan/box_psu_power/box_temp columns
+    # projected by oid_map()). This is the SNMP FACE's sensor set.
     sensors: list[SensorSim] = field(default_factory=list)
+    # HTTP sysInfo box sensors, when the web UI exposes a DIFFERENT sensor set
+    # than SNMP does (the gsm7252ps really does: SNMP reports fan RPM + PSU
+    # watts, sysInfo.html reports temperatures + fan/PSU health text). Left
+    # None on models whose two faces report the same sensors (e.g. the M4300,
+    # whose web renderer reads ``sensors`` directly); a renderer that wants the
+    # web-specific set uses ``sysinfo_sensors`` below.
+    http_sensors: list[SensorSim] | None = None
     macs: list[MacSim] = field(default_factory=list)
     bridge_ports: dict[int, int] = field(default_factory=dict)
     lldp: list[LldpSim] = field(default_factory=list)
@@ -200,6 +209,16 @@ class VirtualSwitchState:
     # 6-byte encoding; only a seed with hardware evidence of this quirk
     # should set it True.
     dot1d_base_mac_ascii: bool = False
+
+    @property
+    def sysinfo_sensors(self) -> list[SensorSim]:
+        """The sensor set the HTTP sysInfo page renders.
+
+        Returns ``http_sensors`` when a model's web UI exposes a different
+        sensor set than SNMP (e.g. the gsm7252ps), else falls back to
+        ``sensors`` so a model whose two faces agree (the M4300) is unchanged.
+        """
+        return self.sensors if self.http_sensors is None else self.http_sensors
 
     def oid_map(self) -> dict[str, tuple[str, str]]:
         """Project this state onto the full numeric OID -> (type, value) view.
