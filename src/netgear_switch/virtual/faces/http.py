@@ -26,7 +26,7 @@ from urllib.parse import parse_qs
 
 from ...protocols.http.crypt import merge_hash_md5
 from ...protocols.http.endpoints import HttpModelSpec, LoginScheme
-from .. import web, web_gs105pe, web_gs110emx, web_m4300
+from .. import web, web_gs105pe, web_gs110emx, web_gsm7252ps, web_m4300
 
 if TYPE_CHECKING:
     from ..state import VirtualSwitchState
@@ -146,6 +146,8 @@ class VirtualHttpFace:
                         page = gs105
                     elif (m43 := face._render_m4300_page(path)) is not None:
                         page = m43
+                    elif (xe := face._render_xe_page(path)) is not None:
+                        page = xe
                     else:
                         page = web.render_page(face.state, face.spec, path, {})
                 self._send(page)
@@ -175,6 +177,8 @@ class VirtualHttpFace:
                         page = gs105
                     elif (m43 := face._render_m4300_page(path)) is not None:
                         page = m43
+                    elif (xe := face._render_xe_page(path)) is not None:
+                        page = xe
                     else:
                         web.apply_form(face.state, face.spec, path, form)
                         page = web.render_page(face.state, face.spec, path, form)
@@ -241,6 +245,36 @@ class VirtualHttpFace:
             return web_m4300.render_sysinfo(self.state)
         return None
 
+    def _render_xe_page(self, path: str) -> str | None:
+        """Render a GSM7252PS XE FASTPATH read page from state, or ``None`` if
+        this model is not XE (so the caller falls through).
+
+        Every path this model's spec advertises is rendered here: falling
+        through to ``web.render_page``'s permissive catch-all would answer a
+        fabricated 200 for a page the mock cannot actually build -- the exact
+        failure that once made a gs105pe mock report every port down."""
+        from ...protocols.http.endpoints import HtmlDialect
+
+        if self.spec.html_dialect is not HtmlDialect.XE_FASTPATH:
+            return None
+        if path == self.spec.dashboard_path:
+            return web_gsm7252ps.render_ports(self.state)
+        if path == self.spec.stats_path:
+            return web_gsm7252ps.render_port_statistics(self.state)
+        if path == self.spec.pvid_path:
+            return web_gsm7252ps.render_pvids(self.state)
+        if path == self.spec.vlan_config_path:
+            return web_gsm7252ps.render_vlans(self.state)
+        if path == self.spec.mac_table_path:
+            return web_gsm7252ps.render_mac_table(self.state)
+        if path == self.spec.poe_status_path:
+            return web_gsm7252ps.render_poe(self.state)
+        if path == self.spec.lldp_path:
+            return web_gsm7252ps.render_lldp(self.state)
+        if path == self.spec.sysinfo_path:
+            return web_gsm7252ps.render_sysinfo(self.state)
+        return None
+
     def _render_token_page(self, path: str, form: dict[str, str]) -> str:
         """Render one of a token-session model's known GET/POST paths from
         state, so the gs110emx HTTP face serves the FULL NSDP read surface
@@ -267,11 +301,14 @@ class VirtualHttpFace:
         field = self.spec.password_field
         supplied = form.get(field, "")
         if self.spec.scheme in (LoginScheme.CHEETAH_FORM, LoginScheme.CHEETAH_V1):
-            # Both post the password in plaintext; CHEETAH_V1 (M4300 /v1) also
-            # sends a username, which the real UI validates alongside it.
+            # Both post the password in plaintext. A spec that names a username
+            # field (M4300 /v1, and the gsm7252ps XE login form) also sends a
+            # username, which the real UI validates alongside the password --
+            # so the mock validates it too, or a transport regression that
+            # dropped it would pass CI while failing on hardware.
             ok = supplied == self.password
-            if self.spec.scheme is LoginScheme.CHEETAH_V1:
-                ok = ok and form.get(self.spec.username_field or "", "") == (
+            if self.spec.username_field is not None:
+                ok = ok and form.get(self.spec.username_field, "") == (
                     self.spec.username
                 )
         else:

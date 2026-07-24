@@ -48,7 +48,14 @@ def _login_body(
             spec.password_field: password,
         }
     if spec.scheme is LoginScheme.CHEETAH_FORM:
-        return {spec.password_field: password}
+        # gsm7228ps posts the password alone; the gsm7252ps XE login form also
+        # carries a username field (uname=admin, live-confirmed on 10.1.5.22)
+        # which that firmware validates -- so send it whenever the spec names
+        # one, and keep the password-only body when it does not.
+        body = {spec.password_field: password}
+        if spec.username_field is not None:
+            body[spec.username_field] = spec.username
+        return body
     rand = parse_login_rand(login_page_html) if spec.needs_rand else None
     if spec.needs_rand and not rand:
         raise HttpUnexpectedPageError(

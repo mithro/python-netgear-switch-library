@@ -5,6 +5,7 @@ import asyncio
 import httpx
 import pytest
 
+from http_specs import reads_verified
 from netgear_switch.http_read import AsyncHttpReader, HttpReader
 from netgear_switch.models import IpMode, PoEDetect
 from netgear_switch.protocols.http.endpoints import http_spec
@@ -219,3 +220,88 @@ def test_gs110emx_async_http_reader_end_to_end() -> None:
             sw.stop()
 
     asyncio.run(run())
+
+
+# --- gsm7252ps: the XE FASTPATH face ---------------------------------------
+
+_GSM7252PS_SPEC = http_spec(get_model("gsm7252ps"))
+
+
+@pytest.fixture
+def xe_face():
+    from netgear_switch.virtual.seed import seed_gsm7252ps
+
+    state = seed_gsm7252ps()
+    f = VirtualHttpFace(state, _GSM7252PS_SPEC, password="password")
+    port = f.start()
+    try:
+        yield f, port, state
+    finally:
+        f.stop()
+
+
+def test_xe_face_login_requires_username_and_password(xe_face) -> None:
+    """The real gsm7252ps cheetah form posts uname AND pwd, and validates
+    both. A transport that dropped the username would fail on hardware, so
+    the mock must reject it too."""
+    _f, port, _state = xe_face
+    client = HttpClient(f"127.0.0.1:{port}", "password", _GSM7252PS_SPEC)
+    try:
+        client.login()  # sends uname=admin + pwd=password
+    finally:
+        client.close()
+
+    bad = httpx.post(
+        f"http://127.0.0.1:{port}/base/cheetah_login.html",
+        data={"pwd": "password"},  # no uname
+    )
+    assert "Set-Cookie" not in bad.headers
+
+
+def test_xe_face_serves_every_read_op_from_state(xe_face) -> None:
+    """The mock renders the real XE cell format, so the SAME parsers that read
+    the hardware captures read it back -- ports/stats/PVIDs/VLANs/MACs/PoE/
+    LLDP/sensors/mgmt-IP, all from one VirtualSwitchState."""
+    _f, port, state = xe_face
+    with reads_verified("gsm7252ps"):
+        client = HttpClient(f"127.0.0.1:{port}", "password", _GSM7252PS_SPEC)
+        try:
+            client.login()
+            reader = HttpReader(client, get_model("gsm7252ps"))
+            ports = {p.port: p for p in reader.get_ports()}
+            # the web UI lists ONLY physical ports: the state's CPU/lag
+            # interfaces (ifIndex 417/418) must not appear
+            assert set(ports) == set(range(1, 53))
+            assert ports[1].link_up is state.ports[1].link
+            assert ports[1].speed_mbps == state.ports[1].speed
+
+            assert dict(reader.get_pvids()) == {
+                p: v for p, v in state.pvids.items() if p <= 52
+            }
+            assert {v.vlan_id for v in reader.get_vlans()} == set(state.vlans)
+            assert {s.port for s in reader.get_stats()} == set(range(1, 53))
+            assert {p.port for p in reader.get_poe()} == set(state.poe)
+            assert len(reader.get_macs()) == len(state.macs)
+            assert len(reader.get_lldp()) == len(state.lldp)
+
+            mgmt = reader.get_mgmt_ip()
+            assert mgmt.address == state.mgmt.address
+            assert mgmt.base_mac == "E0:91:F5:0C:D6:DB"
+            # the page has no DHCP indicator: never guessed from the state
+            assert mgmt.mode is IpMode.UNKNOWN
+
+            sensors = {(s.kind, s.name): s.value for s in reader.get_sensors()}
+            assert ("temperature", "temperature0") in sensors
+            # the seed's "Not Supported" fan slot renders as the page's "NA"
+            # (unpopulated) text and is skipped, not reported as failed
+            assert ("fan", "fan1") not in sensors
+            assert sensors[("fan", "fan0")] == 1.0
+        finally:
+            client.close()
+
+
+def test_xe_face_404s_a_path_the_spec_does_not_serve(xe_face) -> None:
+    """This model's spec has no reboot/logout/PoE-config page, and the face
+    must 404 rather than fabricate a 200 for one."""
+    _f, port, _state = xe_face
+    assert httpx.get(f"http://127.0.0.1:{port}/device_reboot.cgi").status_code == 404

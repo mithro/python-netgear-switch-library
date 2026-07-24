@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import pytest
 
+from http_specs import reads_verified
 from netgear_switch.http_read import HttpReader
 from netgear_switch.nsdp_read import NsdpReader
 from netgear_switch.protocols.http.endpoints import http_spec
@@ -215,3 +216,132 @@ def test_m4300_mock_enforces_referer_csrf_guard() -> None:
         assert ok.status_code == 200
     finally:
         sw.stop()
+
+
+def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
+    """The gsm7252ps is reachable over BOTH SNMP and HTTP, so both must report
+    the same switch. This drives both faces of ONE VirtualSwitch whose state is
+    transcribed from the real 10.1.5.22 captures, and compares every read op
+    the two protocols share.
+
+    Where they legitimately differ, the difference is asserted rather than
+    papered over:
+    - the web UI lists only PHYSICAL ports, SNMP every ifIndex, so ports/PVIDs
+      are compared on the intersection;
+    - VLAN membership is compared on physical ports only (the egress page
+      renders aggregations as "lag N", which are not ports);
+    - portStatistics.html has no octet column, so counters are compared as
+      PACKETS;
+    - the PoE page's fault TEXT is richer than RFC3621's detect enum (the real
+      switch reports "Other Fault" where SNMP's code is outside 1-4 and reads
+      UNKNOWN), so detect is compared only where SNMP knows it;
+    - sysInfo.html has no DHCP indicator or gateway row, so mgmt-IP is compared
+      on address/netmask/base-MAC.
+    """
+    from netgear_switch.models import PoEDetect
+    from netgear_switch.snmp_read import SnmpReader
+    from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+
+    model = get_model("gsm7252ps")
+    with reads_verified("gsm7252ps"):
+        sw = VirtualSwitch(model="gsm7252ps")
+        sw.start()
+        try:
+            client = HttpClient(
+                f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
+            )
+            client.login()
+            http = HttpReader(client, model)
+            snmp = SnmpReader(
+                NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model
+            )
+            try:
+                http_ports = _port_pairs(http.get_ports())
+                snmp_ports = _port_pairs(snmp.get_ports())
+                assert len(http_ports) == 52  # physical ports only
+                common = set(http_ports) & set(snmp_ports)
+                assert len(common) == 52
+                for port in sorted(common):
+                    h_link, h_speed = http_ports[port]
+                    s_link, s_speed = snmp_ports[port]
+                    assert h_link == s_link, f"port {port} link differs"
+                    # Speed is only comparable while the link is UP: SNMP's
+                    # ifHighSpeed keeps reporting a DOWN port's configured rate
+                    # (10000 on 1/0/52 in the real capture) while the web UI's
+                    # Physical Status reads "Unknown" -> None. That is a real
+                    # protocol difference on this device, not a parser bug.
+                    if h_link:
+                        assert h_speed == s_speed, f"port {port} speed differs"
+
+                http_pvids, snmp_pvids = dict(http.get_pvids()), dict(snmp.get_pvids())
+                shared = set(http_pvids) & set(snmp_pvids)
+                assert len(shared) == 52
+                for port in sorted(shared):
+                    assert http_pvids[port] == snmp_pvids[port], f"pvid {port} differs"
+
+                # pin that difference so it stays visible instead of silent
+                assert http_ports[52] == (False, None)
+                assert snmp_ports[52] == (False, 10000)
+
+                http_vlans = {v.vlan_id: v for v in http.get_vlans()}
+                snmp_vlans = {v.vlan_id: v for v in snmp.get_vlans()}
+                assert set(http_vlans) == set(snmp_vlans)
+                for vid, v in http_vlans.items():
+                    physical = {p for p in snmp_vlans[vid].member_ports if p <= 52}
+                    assert v.member_ports == physical, f"VLAN {vid} members differ"
+
+                http_stats = {s.port: s for s in http.get_stats()}
+                snmp_stats = {s.port: s for s in snmp.get_stats()}
+                for port in sorted(set(http_stats) & set(snmp_stats)):
+                    h, s = http_stats[port], snmp_stats[port]
+                    assert (h.rx_packets, h.tx_packets) == (s.rx_packets, s.tx_packets)
+                    assert h.rx_bytes is None  # this page reports no octets
+
+                http_poe = {p.port: p for p in http.get_poe()}
+                snmp_poe = {p.port: p for p in snmp.get_poe()}
+                assert set(http_poe) == set(snmp_poe) == set(range(1, 49))
+                for port, hp in http_poe.items():
+                    sp = snmp_poe[port]
+                    assert (hp.admin_enabled, hp.power_mw) == (
+                        sp.admin_enabled, sp.power_mw,
+                    )
+                    if sp.detect is not PoEDetect.UNKNOWN:
+                        assert hp.detect is sp.detect, f"PoE {port} detect differs"
+                # the real switch has exactly one such port (1/0/6, "Other
+                # Fault"): HTTP names the fault, SNMP's enum cannot
+                assert http_poe[6].detect is PoEDetect.FAULT
+                assert snmp_poe[6].detect is PoEDetect.UNKNOWN
+
+                assert {(m.mac, m.port, m.vlan_id) for m in http.get_macs()} == {
+                    (m.mac, m.port, m.vlan_id) for m in snmp.get_macs()
+                }
+
+                assert [
+                    (n.local_port, n.remote_sys_name, n.remote_chassis_id,
+                     n.remote_port_id)
+                    for n in http.get_lldp()
+                ] == [
+                    (n.local_port, n.remote_sys_name, n.remote_chassis_id,
+                     n.remote_port_id)
+                    for n in snmp.get_lldp()
+                ]
+
+                http_temps = {
+                    (s.name, s.value) for s in http.get_sensors()
+                    if s.kind == "temperature"
+                }
+                snmp_temps = {
+                    (s.name, s.value) for s in snmp.get_sensors()
+                    if s.kind == "temperature"
+                }
+                assert http_temps
+                assert http_temps == snmp_temps
+
+                hm, sm = http.get_mgmt_ip(), snmp.get_mgmt_ip()
+                assert (hm.address, hm.netmask, hm.base_mac) == (
+                    sm.address, sm.netmask, sm.base_mac,
+                )
+            finally:
+                client.close()
+        finally:
+            sw.stop()

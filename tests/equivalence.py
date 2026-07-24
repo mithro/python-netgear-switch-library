@@ -63,18 +63,22 @@ class EquivalencePins:
     lldp_port_id: str | None = None
 
 
+# Transcribed from seed_gsm7252ps, which is itself transcribed from the real
+# capture of 10.1.5.22 (see that function's docstring for what remains
+# illustrative -- the MAC/FDB join and the LLDP neighbour pinned here are).
 GSM7252PS_PINS = EquivalencePins(
     port_name="1/0/1",
     vlan_id=90,
     vlan_name="iot",
-    vlan_member_port=10,
-    mgmt_address="10.1.5.20",
+    vlan_member_port=11,    # a real member of VLAN 90 on the captured switch
+    mgmt_address="10.1.5.22",
     mgmt_mode=IpMode.STATIC,
     poe_port=1,
-    poe_power_mw=12_800,
+    poe_power_mw=3_500,     # captured live draw on 1/0/1
     mac="C8:00:84:89:71:70",
     mac_port=110,
     lldp_port_id="1/xg51",
+    base_mac="E0:91:F5:0C:D6:DB",  # the switch's captured System MAC Address
 )
 
 

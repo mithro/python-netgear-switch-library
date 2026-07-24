@@ -32,8 +32,15 @@ Each data cell is an HTML `<TD>` carrying a hidden input:
 <TD class="def alt0" p="1.0.520" id=1_2_10>
   <INPUT xid=1_2_10 TYPE=hidden NAME=1.0.52.v_1_2_10 VALUE="Link Up">Link Up</TD>
 ```
-- `NAME=<port>.v_<row>_<col>` — **port instance prefix** `1.0.52` (= unit.slot.port
-  → port 52) and a **column index** `v_<row>_<col>`.
+- `NAME=<instance>.v_<row>_<col>` — a row **instance prefix** and a **column
+  coordinate** `v_<row>_<col>`.
+- **CORRECTION (2026-07-23, from the committed fixtures):** the instance
+  prefix is `1.<row-index>.<row-count>`, NOT `unit.slot.port`. In
+  `gsm7252ps_portsConfiguration.html` the FIRST row is
+  `NAME=1.0.52.v_1_2_1 VALUE="1/0/1"` and the last is `1.51.52 -> "1/0/52"`:
+  the trailing 52 is the ROW COUNT, identical on every row. Reading "1.0.52"
+  as "port 52" would label all 52 ports 52. Port identity comes from the row's
+  own cells (the `ifindex` column, or the `1/0/N` interface name).
 - There is **NO `<!-- field_name -->` comment** (unlike M4300). Fields are
   addressed by COLUMN INDEX; the column→field meaning is fixed per page and
   must be hardcoded from a real capture (documented beside each map).
@@ -43,13 +50,31 @@ Each data cell is an HTML `<TD>` carrying a hidden input:
   column set against the fixture; the numeric columns and their labels are
   both present in the captured HTML.)
 
-### (B) JS-populated label/value pages — NOT statically parseable
-`sysInfo.html` (sensors: Temperature/FAN Status; system name/MAC/serial/version;
-mgmt-IP) renders LABELS in static HTML but fills VALUES via JavaScript
-(`tbhdr('Temperature Status','temperatureStatus')`), so the values are absent
-from the static capture. => gsm7252ps `get_sensors` / `get_mgmt_ip` over HTTP
-are HTTP-INFEASIBLE without JS execution → keep them honest
-`UnsupportedCapabilityError` (SNMP already covers these). Do NOT fake them.
+### (B) Plain label/value tables — ALSO STATICALLY PARSEABLE
+`sysInfo.html` (sensors: Temperature/FAN/RPS/Power-Module; system name, MAC,
+product name, up-time; mgmt-IP) does NOT use the `v_` cell format. It uses
+plain label/value table cells, e.g. a `<td class="font10Bold">System MAC
+Address</td>` label followed by a value cell. **The values ARE present in the
+static HTML** — verified live on 10.1.5.22:
+
+```
+System MAC Address        E0:91:F5:0C:D6:DB
+IPv4 Network Interface    10.1.5.22/255.255.255.0
+RPS                       Operational
+Power Module              Operational
+Product Name              GSM7252PS 48-Port GE L2+ Managed Stackable PoE Switch
+System Up Time            13 days 7 hours 44 mins 6 secs
+Temperature Status        (Sensor Type / Unit table)
+FAN Status                (Unit ID / Fan1..Fan8 OK table)
+```
+
+**CORRECTION (2026-07-23):** an earlier draft of this design claimed these
+values were JS-populated and therefore declared `get_sensors`/`get_mgmt_ip`
+HTTP-infeasible. That was WRONG — it came from grepping for the `v_` cell
+pattern (absent here) and inferring "JS-only" instead of reading the page text.
+`sysInfo.html` and its `_rw` variant are byte-identical in content; no extra
+endpoint is needed. Both ops ARE supported over HTTP. Do not re-introduce an
+`UnsupportedCapabilityError` for them.
 
 ## Read-op feasibility (full-parity target, honest boundary)
 
@@ -62,8 +87,13 @@ are HTTP-INFEASIBLE without JS execution → keep them honest
 | get_macs (FDB) | basicAddressTable.html (169 KB) | (A) | YES |
 | get_poe | poeInterfaceConfiguration.html | (A) | YES (48-PoE) |
 | get_lldp | lldpRemoteInventory.html / lldpRemoteDevice.html | (A) | YES if neighbours present; capture to confirm |
-| get_sensors | sysInfo.html | (B) JS | NO → SNMP-only (honest) |
-| get_mgmt_ip | sysInfo.html | (B) JS | NO → SNMP-only (honest) |
+| get_sensors | sysInfo.html | (B) label/value | **YES** — Temperature + FAN tables, RPS/Power Module status |
+| get_mgmt_ip | sysInfo.html | (B) label/value | **YES** — `IPv4 Network Interface` (addr/netmask) + `System MAC Address` |
+
+**Every read op the model supports is served over HTTP. There is no
+UnsupportedCapabilityError carve-out for this model.** An op may only be
+declared unsupported if it is PROVEN absent from every page (no value in any
+capture), not merely because the first parse attempt missed it.
 
 ## Design
 
@@ -73,17 +103,24 @@ are HTTP-INFEASIBLE without JS execution → keep them honest
 - **Parser** `parse_xe_rows(html)`: group `NAME=<port>.v_<row>_<col> VALUE="…"`
   cells by port instance (`1.0.N` → port N), each row = {column-coord: value}.
   Then per-op `parse_xe_{port_status,stats,pvids,vlans,macs,poe,lldp}` apply a
-  hardcoded column map (grounded in a fixture). Reuse existing helpers
-  (`_speed_text_to_mbps`, `_int`) where they fit.
+  hardcoded column map. (Implemented: each map is documented beside the parser
+  AND cross-checked against that page's own visible header row, which carries
+  the human label under the same coordinate.) **Plus** a separate `parse_xe_labelled_values(html)` for
+  format (B) (label cell → value cell), feeding `parse_xe_sensors` (Temperature
+  + FAN tables, RPS/Power Module) and `parse_xe_mgmt_ip` (`IPv4 Network
+  Interface` "addr/netmask" + `System MAC Address`) from `sysInfo.html`.
+  Every (A) column map must be grounded in a committed fixture. Reuse existing
+  helpers (`_speed_text_to_mbps`, `_int`) where they fit.
 - **Endpoint spec** `_GSM7252PS` (HttpModelSpec): scheme CHEETAH_FORM, login
   `/base/cheetah_login.html`, username_field=uname, username=admin,
   password_field=pwd, cookie SID, read paths at `/` prefix,
-  html_dialect=XE_FASTPATH. `scheme_verified=True` (login validated live);
+  `sysinfo_path="/base/system/management/sysInfo.html"` (serves BOTH sensors and
+  mgmt-IP), html_dialect=XE_FASTPATH. `scheme_verified=True` (login validated live);
   `reads_verified=True` only after the live HTTP↔SNMP cross-verify passes.
 - **Registry:** gsm7252ps backends `{SNMP}` → `{SNMP, HTTP}`.
 - **Dispatch:** `http_read.py` gains `_is_xe_fastpath_dialect` wiring each read
-  op to its XE parser; sensors/mgmt-IP raise UnsupportedCapabilityError for
-  this dialect.
+  op to its XE parser, INCLUDING get_sensors + get_mgmt_ip via sysInfo.html.
+  No UnsupportedCapabilityError carve-out for this model.
 - **Mock:** new `virtual/web_gsm7252ps.py` renders the XE (A) cell format from
   `VirtualSwitchState`; `faces/http.py` adds the CHEETAH_FORM login + XE render.
   `seed_gsm7252ps` upgraded from ILLUSTRATIVE → transcribed from the real

@@ -50,9 +50,9 @@ def test_seed_roundtrips_through_parsers():
         rows(oids.vendor_oids(get_model("gsm7252ps")).dhcp_mode_unverified),
         rows(oids.DOT1D_BASE_BRIDGE_ADDRESS),
     )
-    assert mgmt.address == "10.1.5.20"
+    assert mgmt.address == "10.1.5.22"
     assert mgmt.gateway == "10.1.5.1"
-    assert mgmt.base_mac == "28:C6:8E:00:00:01"
+    assert mgmt.base_mac == "E0:91:F5:0C:D6:DB"  # captured System MAC
 
 
 def test_seed_emits_nonempty_stats_macs_lldp():
@@ -112,15 +112,20 @@ def test_seed_emits_nonempty_ports_pvids_poe_sensors():
         rows(oids.IF_ADMIN_STATUS), rows(oids.IF_OPER_STATUS),
         rows(oids.IF_HIGH_SPEED), rows(oids.IF_NAME), rows(oids.IF_ALIAS),
     )
-    assert len(ports) == 52
+    # 52 physical ports + the two non-physical interfaces the seed carries
+    # from the capture (ifIndex 417 CPU, 418 lag 1) -- SNMP reports every
+    # ifIndex; only the web UI is limited to physical ports.
+    assert len(ports) == 54
     port1 = next(p for p in ports if p.port == 1)
     assert port1.admin_enabled is True
     assert port1.link_up is True
     assert port1.speed_mbps == 1000
-    assert port1.description == "uplink-to-core"
-    port3 = next(p for p in ports if p.port == 3)
-    assert port3.link_up is False
-    assert port3.description is None  # ifAlias never set on port 3
+    assert port1.description == "eth0.rpi5-pmod"  # captured ifAlias
+    # 1/0/6 is admin-up but link-down on the captured switch, and has no
+    # ifAlias configured -- the absent-instance path for both columns.
+    port6 = next(p for p in ports if p.port == 6)
+    assert port6.link_up is False
+    assert port6.description is None
 
     pvids = parse.parse_pvids(rows(oids.DOT1Q_PVID))
     assert len(pvids) == 52
@@ -130,7 +135,7 @@ def test_seed_emits_nonempty_ports_pvids_poe_sensors():
     assert len(poe) == 48
     poe1 = next(p for p in poe if p.port == 1)
     assert poe1.delivering is True
-    assert poe1.power_mw == 12_800
+    assert poe1.power_mw == 3_500  # captured live draw
 
     sensors = parse.parse_box_sensors(
         [

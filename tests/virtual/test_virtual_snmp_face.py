@@ -56,7 +56,9 @@ def test_get_and_walk_against_virtual_face_with_pysnmp_client():
 
         rows = asyncio.run(client.walk(oids.DOT1Q_VLAN_STATIC_NAME))
         names = {r.value for r in rows}
-        assert names == {"default", "iot"}
+        # the seed carries all 14 VLANs the real switch has
+        assert len(names) == 14
+        assert {"default", "iot"} <= names
     finally:
         sw.stop()
 
@@ -72,7 +74,8 @@ def test_get_and_walk_against_virtual_face_with_netsnmp_cli_client():
 
         rows = client.walk(oids.DOT1Q_VLAN_STATIC_NAME)
         names = {r.value for r in rows}
-        assert names == {"default", "iot"}
+        assert len(names) == 14
+        assert {"default", "iot"} <= names
     finally:
         sw.stop()
 
