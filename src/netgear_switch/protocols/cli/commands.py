@@ -11,12 +11,14 @@ records the ``show`` command each read op issues plus the session-setup commands
   but no transcript was captured from those SKUs, so ``captured`` is False and
   their CLI surface is INHERITED-not-captured, marked exactly like the M4300-16X
   HTTP spec is.
-* ``reads_verified`` -- False for EVERY model. The CLI reader output has NOT yet
-  been cross-verified against SNMP on live hardware; until the controller runs
-  that CLI-vs-SNMP cross-verify on 10.1.5.22 and flips this flag, the facade
-  refuses to dispatch a read to the CLI backend (mirroring the HTTP backend's
-  ``reads_verified`` gate). The parsers and the mock CLI face are fully
-  exercised in tests regardless; this flag only gates LIVE facade dispatch.
+* ``reads_verified`` -- True for gsm7252ps (its CLI reader output was live
+  CLI-vs-SNMP cross-verified on 10.1.5.22: ports/PVIDs match, mgmt-IP is an
+  exact match, every read op returns real data). False for the M4300/gsm7228ps
+  SKUs: they share the same grounded FASTPATH parsers but have NOT been
+  live-checked on those models, so the facade refuses to dispatch a read to
+  their CLI backend until someone cross-verifies it against that hardware
+  (mirroring the HTTP backend's ``reads_verified`` gate). The parsers and the
+  mock CLI face are fully exercised in tests regardless of this flag.
 
 All four registered models share ONE command set: FASTPATH's ``show`` grammar is
 identical across the Fully Managed (M4300/GSM7252PS) and Smart Managed Pro
@@ -71,7 +73,8 @@ class CliModelSpec:
 
 
 # gsm7252ps: the ONE model with a real captured transcript (SSH, 10.1.5.22).
-_GSM7252PS = CliModelSpec(model_key="gsm7252ps", captured=True, reads_verified=False)
+# reads_verified=True: live CLI<->SNMP cross-verified 2026-07-25 on 10.1.5.22.
+_GSM7252PS = CliModelSpec(model_key="gsm7252ps", captured=True, reads_verified=True)
 
 # INHERITED-not-captured: same FASTPATH CLI image, no SKU-specific transcript.
 _M4300_24X = CliModelSpec(model_key="m4300-24x", captured=False, reads_verified=False)

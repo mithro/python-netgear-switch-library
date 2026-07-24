@@ -103,9 +103,16 @@ def test_mock_face_rejects_unknown_command() -> None:
 # --- command spec + registry ------------------------------------------------
 
 
-def test_all_cli_specs_reads_unverified() -> None:
+def test_cli_reads_verified_only_for_live_checked_model() -> None:
     assert CLI_SPECS  # non-empty
-    assert all(not s.reads_verified for s in CLI_SPECS.values())
+    # gsm7252ps CLI was live CLI<->SNMP cross-verified on 10.1.5.22, so its
+    # reads are verified. The M4300/gsm7228ps CLI shares the same grounded
+    # FASTPATH parsers but has NOT been live-checked on those SKUs, so it stays
+    # gated until someone cross-verifies it against their hardware.
+    assert CLI_SPECS["gsm7252ps"].reads_verified is True
+    assert all(
+        not s.reads_verified for k, s in CLI_SPECS.items() if k != "gsm7252ps"
+    )
     # Only the gsm7252ps has a real captured transcript.
     assert CLI_SPECS["gsm7252ps"].captured is True
     assert CLI_SPECS["m4300-24x"].captured is False
@@ -138,7 +145,9 @@ def test_plus_models_have_no_cli_backend() -> None:
 def test_sync_facade_refuses_cli_backend() -> None:
     from netgear_switch.sync_api import SyncSwitch
 
-    sw = SyncSwitch(get_model("gsm7252ps"), "10.0.0.1")
+    # gsm7228ps CLI is reads_verified=False (grounded parsers, not live-checked),
+    # so the facade must refuse to dispatch a live CLI read to it.
+    sw = SyncSwitch(get_model("gsm7228ps"), "10.0.0.1")
     with pytest.raises(UnsupportedCapabilityError):
         sw._reader_for(Backend.SSH)
     with pytest.raises(UnsupportedCapabilityError):
@@ -148,7 +157,7 @@ def test_sync_facade_refuses_cli_backend() -> None:
 def test_async_facade_refuses_cli_backend() -> None:
     from netgear_switch.aio_api import AsyncSwitch
 
-    sw = AsyncSwitch(get_model("gsm7252ps"), "10.0.0.1")
+    sw = AsyncSwitch(get_model("gsm7228ps"), "10.0.0.1")
     with pytest.raises(UnsupportedCapabilityError):
         sw._reader_for(Backend.SSH)
     with pytest.raises(UnsupportedCapabilityError):
