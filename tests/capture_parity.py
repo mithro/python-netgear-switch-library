@@ -26,11 +26,16 @@ identity/state, VLAN membership, PoE capability, sensor readings, the
 management-IP/base-MAC identity), not volatile counters.
 
 This harness assumes the seed IS a transcription of the exact capture passed
-in (as ``seed_m4300_24x``/``seed_m4300_16x`` are -- see their module
-docstrings). A seed that is instead hand-invented/illustrative (e.g.
-``seed_gsm7252ps`` -- see its own docstring) will generally NOT satisfy this
-strict per-key equality and should not be run through this helper; grep for
-its own narrower, explicitly-scoped parity test instead.
+in. ``seed_m4300_24x``/``seed_m4300_16x`` and ``seed_gsm7252ps`` are all such
+transcriptions and all satisfy this strict per-key equality (the gsm7252ps
+seed's ports/PVIDs/all 14 VLANs/48 PoE ports/SNMP sensors/mgmt-IP are literal
+copies of ``captures/gsm7252ps.json`` -- see ``test_gsm7252ps_seed.py``). The
+one-way subset rule still applies: a seed may transcribe only a slice of a
+large device, so the check requires only that whatever the seed claims is true
+of the capture. Note the SENSOR check covers the SNMP face's ``sensors`` only;
+a model whose web UI exposes a DIFFERENT sensor set (the gsm7252ps: SNMP fans+
+watts vs sysInfo temps+health) carries that second set in ``http_sensors``,
+validated against its own HTTP capture elsewhere, not here.
 """
 from __future__ import annotations
 
@@ -38,6 +43,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from netgear_switch.models import PoEDetect
 from netgear_switch.protocols.snmp.parse import DETECT_MAP
 
 if TYPE_CHECKING:
@@ -89,9 +95,12 @@ def _assert_poe_matches(seed: VirtualSwitchState, capture: dict[str, Any]) -> No
         real = real_by_port.get(port)
         assert real is not None, f"seed PoE port {port} absent from capture"
         assert psim.admin == real["admin_enabled"], f"PoE port {port} admin"
-        assert DETECT_MAP[psim.detect].value == real["detect"], (
-            f"PoE port {port} detect"
-        )
+        # Mirror parse_poe exactly: a detect code outside RFC3621's 1-4 (e.g.
+        # the gsm7252ps's "Other Fault" code 6 on port 6) maps to UNKNOWN, not
+        # a KeyError. The capture records that port's detect as "unknown".
+        assert DETECT_MAP.get(psim.detect, PoEDetect.UNKNOWN).value == real[
+            "detect"
+        ], f"PoE port {port} detect"
         assert (psim.power_mw or 0) == real["power_mw"], f"PoE port {port} power_mw"
 
 

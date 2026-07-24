@@ -290,12 +290,20 @@ def test_xe_face_serves_every_read_op_from_state(xe_face) -> None:
             # the page has no DHCP indicator: never guessed from the state
             assert mgmt.mode is IpMode.UNKNOWN
 
+            # The HTTP sysInfo sensor set is the real web-UI one (temperatures
+            # + fan/PSU health), DIFFERENT from this device's SNMP set (fan RPM
+            # + PSU watts). Names/values are the captured page's own.
             sensors = {(s.kind, s.name): s.value for s in reader.get_sensors()}
-            assert ("temperature", "temperature0") in sensors
-            # the seed's "Not Supported" fan slot renders as the page's "NA"
-            # (unpopulated) text and is skipped, not reported as failed
-            assert ("fan", "fan1") not in sensors
-            assert sensors[("fan", "fan0")] == 1.0
+            assert sensors[("temperature", "System")] == 29.0
+            assert sensors[("temperature", "CPU")] == 49.0
+            # the "MAC" temperature row reads N/A on this unit -> skipped
+            assert ("temperature", "MAC") not in sensors
+            # fans report health text, not RPM; the unpopulated Fan4/Fan5 slots
+            # render the page's "NA" text and are skipped, not reported as failed
+            assert sensors[("fan", "Fan1/PWR")] == 1.0
+            assert ("fan", "Fan4") not in sensors
+            # RPS + Power Module operational flags from the Device Status table
+            assert sensors[("power", "RPS")] == 1.0
         finally:
             client.close()
 

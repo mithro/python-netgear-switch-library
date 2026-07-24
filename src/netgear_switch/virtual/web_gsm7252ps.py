@@ -285,42 +285,40 @@ def _status_table(title: str, rows: list[tuple[str, str]]) -> str:
 
 
 def _sensor_label(sensor: SensorSim) -> str:
-    """The page label for a seeded sensor.
+    """The page label for a seeded HTTP sysInfo sensor.
 
-    Matches the SNMP projection's ``f"{kind}{instance}"`` naming so a
-    HTTP<->SNMP sensor comparison lines up by name instead of by luck."""
-    return f"{sensor.kind}{sensor.instance}"
+    For the sysInfo sensor set (``state.sysinfo_sensors``) the ``instance``
+    field carries the page's OWN row label -- "System"/"CPU"/"MAC-A" for
+    temperatures, "Fan1/PWR"/"Fan2/CPU" for fans, "RPS"/"Power Module" for the
+    device rows -- exactly as the real gsm7252ps_sysInfo.html prints them."""
+    return sensor.instance
 
 
 def render_sysinfo(state: VirtualSwitchState) -> str:
     """``/base/system/management/sysInfo.html`` -- mgmt IP, base MAC and the
-    three status tables. Plain labelled cells (this page has no XE cells).
+    three status tables.
 
-    Fan and PSU rows report HEALTH AS TEXT on real hardware, never a number:
-    a seeded sensor with a numeric reading renders "OK"/"Operational" and
-    Netgear's "Not Supported" placeholder renders "NA" (the unpopulated-slot
-    text), which the parser skips. The temperature table keeps the real
-    numeric reading, so an HTTP<->SNMP temperature comparison is meaningful.
+    Renders the model's HTTP sysInfo sensor set (``state.sysinfo_sensors``),
+    which on this device is DIFFERENT from its SNMP set: the web UI exposes a
+    Temperature Status table (numeric degC, "N/A" for an unpopulated slot which
+    the parser skips), a FAN Status table reporting fan HEALTH as text
+    ("OK"/"NA", never RPM), and a Device Status table with the RPS + Power
+    Module operational flags. Each cell is the sensor's literal captured page
+    text, so the parser reads back exactly the real hardware's HTTP sensors.
     """
     mac = ":".join(f"{b:02X}" for b in state.nsdp_mac)
+    sensors = state.sysinfo_sensors
     temps = [
-        (_sensor_label(s), f"{s.raw}&degC")
-        for s in state.sensors
-        if s.kind == "temperature" and s.raw.isdigit()
+        (_sensor_label(s), f"{s.raw}&degC" if s.raw.isdigit() else "N/A")
+        for s in sensors
+        if s.kind == "temperature"
     ]
-    fans = [
-        (_sensor_label(s), "OK" if s.raw.isdigit() else "NA")
-        for s in state.sensors
-        if s.kind == "fan"
-    ]
-    psus = [s for s in state.sensors if s.kind == "power"]
+    fans = [(_sensor_label(s), s.raw) for s in sensors if s.kind == "fan"]
     device = [
         ("Firmware Version", state.firmware),
         ("Serial Number", state.serial),
     ]
-    if psus:
-        healthy = "Operational" if psus[0].raw.isdigit() else "Not Present"
-        device += [("RPS", healthy), ("Power Module", healthy)]
+    device += [(_sensor_label(s), s.raw) for s in sensors if s.kind == "power"]
     return (
         "<html><body><form>\n<table>\n"
         '<tr><td class="font10Bold">Product Name</td>'

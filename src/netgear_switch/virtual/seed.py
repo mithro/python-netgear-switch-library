@@ -38,9 +38,13 @@ _TOTAL_PORT_COUNT = 52
 
 
 def _port_name(port: int) -> str:
-    if port <= _POE_PORT_COUNT:
-        return f"1/0/{port}"
-    return f"1/xg{port - _POE_PORT_COUNT}"
+    # FASTPATH ifName is "1/0/<port>" for EVERY physical port -- including the
+    # SFP+ uplinks 49-52. Verified against BOTH faces of the real gsm7252ps:
+    # the SNMP capture (tests/fixtures/captures/gsm7252ps.json) and the web UI
+    # (tests/fixtures/http/gsm7252ps_portsConfiguration.html) name port 49
+    # "1/0/49", never "1/xg1". An earlier "1/xg<n>" scheme for the uplinks was
+    # a fabrication that matched neither capture.
+    return f"1/0/{port}"
 
 
 # --- gsm7252ps, TRANSCRIBED from tests/fixtures/captures/gsm7252ps.json ---
@@ -169,29 +173,67 @@ _GSM7252PS_PVIDS = {
     49: 1, 50: 1, 51: 1, 52: 1,
 }
 
-# vid -> (name, member physical ports, untagged physical ports)
+# vid -> (name, member ifIndexes, untagged ifIndexes) -- a LITERAL transcription
+# of dot1qVlanStaticEgressPorts / dot1qVlanStaticUntaggedPorts from
+# tests/fixtures/captures/gsm7252ps.json. Both the physical ports (1-52) and the
+# aggregation ifIndexes (``*range(418, 482)`` = lag 1..lag 64) are taken exactly
+# as the real switch reported them -- including the genuine hardware quirk that
+# ``untagged`` is NOT a subset of ``member`` (e.g. VLAN 6 lists ports 1-45 as
+# untagged though only 46/47/... are egress members) and that per-VLAN LAG
+# membership varies (all 64 LAGs on VLAN 1, only lag 1-2 on VLAN 90). The web UI
+# lists only the physical ports; the LAG ifIndexes are kept here so a renderer
+# that forgets to drop them is caught (see test_web_projection).
 _GSM7252PS_VLANS = {
     1: ('default', (6, 8, 10, 15, 19, 21, 22, 26, 28, 29, 34, 35, 36, 39, 40, 49,
-        50, 51, 52), (6, 8, 10, 15, 19, 21, 22, 26, 28, 29, 34, 35, 36, 39, 40, 49,
-        50, 51, 52)),
+        50, 51, 52, *range(418, 482)), (3, 4, 6, 7, 8, 10, 14, 15, 16, 18, 19, 20,
+        21, 22, 24, 25, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 39, 40, 42, 49, 50,
+        51, 52, *range(418, 482))),
     4: ('wifi', (11, 12, 46, 49, 50, 51), (11, 12, 46)),
     5: ('net', (3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 22,
         24, 25, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 39, 40, 42, 46, 47, 48, 49,
-        50, 51, 52), (47, 48)),
-    6: ('pwr', (46, 47, 49, 50, 51), ()),
-    7: ('store', (), ()),
-    10: ('int', (9, 11, 12, 46, 47, 49, 50, 51), ()),
-    20: ('roam', (9, 11, 12, 45, 46, 47, 49, 50, 51), (45,)),
-    21: ('fpgas', (), ()),
-    41: ('sm', (46, 47, 49, 50, 51), ()),
-    89: ('sdr', (), ()),
+        50, 51, 52, *range(418, 420)), (9, 45, 47, 48, *range(420, 482))),
+    6: ('pwr', (46, 47, 49, 50, 51, *range(418, 420)), (1, 2, 3, 4, 5, 6, 7, 8, 9,
+        10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+        29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 48, 52)),
+    7: ('store', (), (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+        37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        *range(418, 482))),
+    10: ('int', (9, 11, 12, 46, 47, 49, 50, 51, *range(418, 420)), (1, 2, 3, 4, 5,
+        6, 7, 8, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+        29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 48, 52)),
+    20: ('roam', (9, 11, 12, 45, 46, 47, 49, 50, 51, *range(418, 420)), (1, 2, 3,
+        4, 5, 6, 7, 8, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+        48, 52)),
+    21: ('fpgas', (), (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+        18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+        37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        *range(418, 482))),
+    41: ('sm', (46, 47, 49, 50, 51, *range(418, 420)), (1, 2, 3, 4, 5, 6, 7, 8, 9,
+        10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+        29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 48, 52)),
+    89: ('sdr', (), (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+        38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52,
+        *range(418, 482))),
     90: ('iot', (1, 2, 3, 4, 5, 7, 9, 11, 12, 13, 14, 16, 17, 18, 20, 22, 23, 24,
-        25, 26, 27, 30, 31, 32, 33, 37, 38, 41, 42, 43, 44, 46, 47, 49, 50, 51), (1,
-        2, 3, 4, 5, 7, 9, 13, 14, 16, 17, 18, 20, 22, 23, 24, 25, 26, 27, 30, 31,
-        32, 33, 37, 38, 41, 42, 43, 44)),
-    99: ('guest', (9, 11, 12, 46, 47, 49, 50, 51), ()),
-    121: ('t-fpgas', (46, 47, 49, 50, 51), ()),
-    141: ('t-sm', (46, 47, 49, 50, 51), ()),
+        25, 26, 27, 30, 31, 32, 33, 37, 38, 41, 42, 43, 44, 46, 47, 49, 50, 51,
+        *range(418, 420)), (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18,
+        19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+        38, 39, 40, 41, 42, 43, 44, 45, 48, 52)),
+    99: ('guest', (9, 11, 12, 46, 47, 49, 50, 51, *range(418, 420)), (1, 2, 3, 4,
+        5, 6, 7, 8, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+        28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 48,
+        52)),
+    121: ('t-fpgas', (46, 47, 49, 50, 51, *range(418, 420)), (1, 2, 3, 4, 5, 6, 7,
+        8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+        48, 52)),
+    141: ('t-sm', (46, 47, 49, 50, 51, *range(418, 420)), (1, 2, 3, 4, 5, 6, 7, 8,
+        9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+        28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 48,
+        52)),
 }
 
 # port -> (admin_enabled, RFC3621 detect code, delivered power mW)
@@ -252,26 +294,35 @@ def seed_gsm7252ps() -> VirtualSwitchState:
 
     TRANSCRIBED, not invented, for everything the device's own captures show:
     per-port admin/link/speed/ifAlias, per-port counters, every PVID, all 14
-    VLANs with their member/untagged port sets, all 48 PoE ports, the
-    management IP (10.1.5.22), base MAC, serial and firmware -- from
-    ``tests/fixtures/captures/gsm7252ps.json`` (SNMP, host 10.1.5.22) plus
+    VLANs with their exact member/untagged ifIndex sets (physical ports AND the
+    per-VLAN lag 1..lag 64 ifIndexes, including the genuine hardware quirk that
+    ``untagged`` is not a subset of ``member``), all 48 PoE ports, the box
+    sensors, the management IP (10.1.5.22), base MAC, serial and firmware --
+    from ``tests/fixtures/captures/gsm7252ps.json`` (SNMP, host 10.1.5.22) plus
     that same switch's HTTP captures (``tests/fixtures/http/gsm7252ps_*.html``,
-    the source of the serial/firmware/hostname). This replaces an earlier
-    HAND-INVENTED seed that contradicted those captures throughout (mgmt
-    10.1.5.20, 2 VLANs vs the real 14, one PoE port delivering vs 30).
+    the source of the serial/firmware/hostname and the ``http_sensors`` set).
+    This is a strict transcription and is guarded as one -- see
+    ``tests/virtual/test_state_seed.py::test_seed_gsm7252ps_matches_capture_strictly``,
+    which runs it through the same ``capture_parity.assert_seed_matches_capture``
+    helper the M4300 seeds use. It replaced an earlier HAND-INVENTED seed that
+    contradicted the captures throughout (mgmt 10.1.5.20, 2 VLANs vs the real
+    14, one PoE port delivering vs 30).
 
-    STILL ILLUSTRATIVE, and deliberately so -- each encodes a regression trap
-    the capture cannot express, and each says so where it is defined:
-    the MAC/FDB entries and their bridge-port -> ifIndex join, the single LLDP
-    neighbour, the sensor set (the real SNMP walk found NO temperature sensor
-    on this device, and one "Not Supported" fan slot is needed to exercise
-    that placeholder), and ``mgmt.mode``/``gateway`` (the real capture reports
-    mode "unknown" and no gateway route; the mock needs a definite DHCP-mode
-    OID to serve and to flip on write).
+    TWO real sensor sets, one per interface (see ``sensors`` and
+    ``http_sensors`` below): the SNMP walk returns fan RPM + PSU watts and NO
+    temperature; the HTTP sysInfo page returns temperatures + fan/PSU HEALTH
+    text. Both are transcribed from their respective captures, neither is forced
+    onto the other face.
+
+    Genuinely ILLUSTRATIVE (regression traps the capture cannot express, each
+    documented where defined): the MAC/FDB entries and their bridge-port ->
+    ifIndex join, the single LLDP neighbour, and ``mgmt.mode``/``gateway`` (the
+    real capture reports mode "unknown" and no gateway route; the mock needs a
+    definite DHCP-mode OID to serve and to flip on write).
 
     Non-physical interfaces are represented by two of the capture's 65
-    (ifIndex 417 "CPU Interface" and 418 "lag 1") plus the full LAG ifIndex
-    range in VLAN membership, so a renderer/parser that forgets that the web
+    (ifIndex 417 "CPU Interface" and 418 "lag 1") plus the per-VLAN LAG
+    ifIndexes in VLAN membership, so a renderer/parser that forgets that the web
     UI lists ONLY physical ports is caught.
     """
     ports: dict[int, PortSim] = {}
@@ -293,14 +344,23 @@ def seed_gsm7252ps() -> VirtualSwitchState:
             description=description,
         )
     # Two of the capture's non-physical interfaces (it has 65: one CPU port
-    # and 64 LAGs). They must never appear on a web-UI page.
+    # and 64 LAGs). They must never appear on a web-UI page. Both are
+    # transcribed from the capture: the CPU port reports no speed/ifAlias; lag 1
+    # is a 20 Gbit/s aggregation with a configured ifAlias.
     ports[417] = PortSim(name="CPU Interface:  0/5/1", admin=True, link=True, speed=0)
-    ports[418] = PortSim(name="lag 1", admin=True, link=True, speed=0)
+    ports[418] = PortSim(
+        name="lag 1",
+        admin=True,
+        link=True,
+        speed=20000,
+        description="lag.sw-netgear-gsm7252ps-s2",
+    )
 
-    # ifIndex range the real capture uses for lag 1 .. lag 64.
-    lags = set(range(418, 482))
+    # member/untagged are already the EXACT captured ifIndex sets (physical
+    # ports plus whichever lag 1..lag 64 ifIndexes each VLAN actually carries --
+    # see _GSM7252PS_VLANS); nothing is added or dropped here.
     vlans = {
-        vid: VlanSim(name=name, member=set(member) | lags, untagged=set(untagged))
+        vid: VlanSim(name=name, member=set(member), untagged=set(untagged))
         for vid, (name, member, untagged) in _GSM7252PS_VLANS.items()
     }
 
@@ -311,18 +371,44 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         for port, (admin, detect, power_mw) in _GSM7252PS_POE.items()
     }
 
-    # ILLUSTRATIVE (see this function's docstring): the real SNMP walk of this
-    # device returned fan0/fan2 RPM and four PSU wattages and NO temperature
-    # at all. The fan RPMs and PSU watts below are the captured ones; the
-    # "Not Supported" slot and the temperature reading are test fixtures --
-    # the placeholder exercises parse_box_sensors' skip path, and the
-    # temperature gives the HTTP sysInfo renderer a numeric reading to show.
+    # SNMP box sensors -- a LITERAL transcription of the real walk in
+    # tests/fixtures/captures/gsm7252ps.json: two fan RPMs (fan0, fan2 -- the
+    # device has no fan1 OID) and four PSU wattages (power0..power3). This
+    # interface reports NO temperature at all. Nothing here is invented; the
+    # SNMP get_sensors output matches the capture value-for-value.
     sensors = [
-        SensorSim(kind="fan", instance="0", raw="2850"),      # captured
-        SensorSim(kind="fan", instance="1", raw="Not Supported"),
-        SensorSim(kind="fan", instance="2", raw="2350"),      # captured
-        SensorSim(kind="power", instance="0", raw="49"),      # captured
-        SensorSim(kind="temperature", instance="0", raw="45"),
+        SensorSim(kind="fan", instance="0", raw="2850"),
+        SensorSim(kind="fan", instance="2", raw="2350"),
+        SensorSim(kind="power", instance="0", raw="49"),
+        SensorSim(kind="power", instance="1", raw="30"),
+        SensorSim(kind="power", instance="2", raw="32"),
+        SensorSim(kind="power", instance="3", raw="31"),
+    ]
+
+    # HTTP sysInfo box sensors -- a SEPARATE, equally real sensor set that the
+    # web UI exposes and SNMP does not (see tests/fixtures/http/
+    # gsm7252ps_sysInfo.html). The two hardware interfaces genuinely surface
+    # different sensors: sysInfo.html carries a Temperature Status table
+    # (System/CPU/MAC-A/MAC-B degC; the MAC row reads N/A on this unit and the
+    # parser skips it), a FAN Status table reporting fan HEALTH as OK/NA text
+    # (never RPM), and a Device Status table with the RPS + Power Module
+    # operational flags. Every value here is transcribed from that captured
+    # page, not invented, and the labels are the page's own. Keeping this list
+    # distinct from ``sensors`` is what lets each face render ITS OWN real
+    # shape instead of forcing one interface's data onto the other.
+    http_sensors = [
+        SensorSim(kind="temperature", instance="System", raw="29"),
+        SensorSim(kind="temperature", instance="CPU", raw="49"),
+        SensorSim(kind="temperature", instance="MAC", raw="N/A"),
+        SensorSim(kind="temperature", instance="MAC-A", raw="32"),
+        SensorSim(kind="temperature", instance="MAC-B", raw="31"),
+        SensorSim(kind="fan", instance="Fan1/PWR", raw="OK"),
+        SensorSim(kind="fan", instance="Fan2/CPU", raw="OK"),
+        SensorSim(kind="fan", instance="Fan3/SYS", raw="OK"),
+        SensorSim(kind="fan", instance="Fan4", raw="NA"),
+        SensorSim(kind="fan", instance="Fan5", raw="NA"),
+        SensorSim(kind="power", instance="RPS", raw="Operational"),
+        SensorSim(kind="power", instance="Power Module", raw="Operational"),
     ]
 
     macs = [
@@ -365,6 +451,7 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         pvids=pvids,
         poe=poe,
         sensors=sensors,
+        http_sensors=http_sensors,
         macs=macs,
         bridge_ports=bridge_ports,
         lldp=lldp,
