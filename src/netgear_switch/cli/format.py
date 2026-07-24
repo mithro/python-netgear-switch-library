@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from netgear_switch.models import (
+        DetectedModel,
         LLDPNeighbor,
         MacEntry,
         MgmtIpConfig,
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
         SwitchData,
         VLANInfo,
     )
+    from netgear_switch.protocols.nsdp.types import NsdpDevice
 
     from .context import CliContext
 
@@ -164,6 +166,37 @@ def stats_table(stats: Sequence[PortStats]) -> str:
 def sensors_table(sensors: Sequence[Sensor]) -> str:
     rows = [[s.name, s.kind, f"{s.value:g}", s.unit] for s in sensors]
     return _table(("Sensor", "Kind", "Value", "Unit"), rows)
+
+
+def detected_model_text(detected: DetectedModel) -> str:
+    """Render an SNMP model-detection result. ``key`` is ``None`` (shown as
+    ``(unmatched)``) when the sysDescr matched no registered model -- never a
+    fabricated guess (see ``models.DetectedModel``)."""
+    return "\n".join(
+        [
+            f"key:           {detected.key or '(unmatched)'}",
+            f"sys_descr:     {detected.sys_descr or '-'}",
+            f"sys_object_id: {detected.sys_object_id or '-'}",
+        ]
+    )
+
+
+def nsdp_device_text(device: NsdpDevice) -> str:
+    """Render the headline fields of a raw NSDP device record. The full record
+    (per-port status/statistics, VLANs, QoS, etc.) is available via ``--json``."""
+    return "\n".join(
+        [
+            f"model:    {device.model}",
+            f"mac:      {device.mac}",
+            f"hostname: {device.hostname or '-'}",
+            f"ip:       {device.ip or '-'}",
+            f"netmask:  {device.netmask or '-'}",
+            f"gateway:  {device.gateway or '-'}",
+            f"firmware: {device.firmware_version or '-'}",
+            f"serial:   {device.serial_number or '-'}",
+            f"ports:    {'-' if device.port_count is None else device.port_count}",
+        ]
+    )
 
 
 def mgmt_ip_text(cfg: MgmtIpConfig) -> str:

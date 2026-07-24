@@ -15,7 +15,7 @@ from netgear_switch.registry import MODELS
 
 from . import capture, safety
 from . import format as fmt
-from .context import EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
+from .context import EXIT_ERROR, EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -203,6 +203,76 @@ def _cmd_show(
     return EXIT_OK
 
 
+def _cmd_identify(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().identify(), fmt.detected_model_text)
+    return EXIT_OK
+
+
+def _cmd_nsdp_device(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().nsdp_device(), fmt.nsdp_device_text)
+    return EXIT_OK
+
+
+def _cmd_cycle_poe(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"power-cycle PoE port {args.port}",
+        action=lambda: switch.cycle_poe(args.port, force=args.force),
+    )
+
+
+def _cmd_clear_poe_fault(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"clear PoE fault on port {args.port}",
+        action=lambda: switch.clear_poe_fault(args.port, force=args.force),
+    )
+
+
+def _cmd_upload_certificate(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    from pathlib import Path
+
+    switch = get_switch()
+    try:
+        cert_pem = Path(args.cert).read_text()
+        key_pem = Path(args.key).read_text()
+    except OSError as exc:
+        print(f"error: {exc}", file=ctx.err)
+        return EXIT_ERROR
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"upload SSL certificate ({args.cert}) + key ({args.key})",
+        action=lambda: switch.upload_certificate(cert_pem, key_pem, force=args.force),
+        warning=(
+            "WARNING: uploading a certificate replaces the switch's running "
+            "certificate and restarts its web server."
+        ),
+    )
+
+
 def _cmd_poe(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
@@ -378,6 +448,14 @@ def build_parser() -> argparse.ArgumentParser:
     read_cmd("macs", _cmd_macs, "show the MAC/FDB table")
     read_cmd("sensors", _cmd_sensors, "show sensors")
     read_cmd("show", _cmd_show, "show a full switch snapshot")
+    read_cmd(
+        "identify", _cmd_identify, "detect the switch's real model over SNMP"
+    )
+    read_cmd(
+        "nsdp-device",
+        _cmd_nsdp_device,
+        "show the raw NSDP device record (NSDP-capable models only)",
+    )
 
     poe = sub.add_parser(
         "poe", parents=[child_gp], help="show PoE status, or control a port's PoE"
@@ -397,6 +475,34 @@ def build_parser() -> argparse.ArgumentParser:
     port.add_argument("state", choices=("up", "down"), help="admin state")
     safety.add_write_args(port)
     port.set_defaults(func=_cmd_port)
+
+    cycle_poe = sub.add_parser(
+        "cycle-poe", parents=[child_gp], help="power-cycle a port's PoE"
+    )
+    cycle_poe.add_argument("port", type=int, help="port number")
+    safety.add_write_args(cycle_poe)
+    cycle_poe.set_defaults(func=_cmd_cycle_poe)
+
+    clear_poe_fault = sub.add_parser(
+        "clear-poe-fault", parents=[child_gp], help="clear a port's PoE fault state"
+    )
+    clear_poe_fault.add_argument("port", type=int, help="port number")
+    safety.add_write_args(clear_poe_fault)
+    clear_poe_fault.set_defaults(func=_cmd_clear_poe_fault)
+
+    upload_cert = sub.add_parser(
+        "upload-certificate",
+        parents=[child_gp],
+        help="upload an HTTPS SSL certificate + private key",
+    )
+    upload_cert.add_argument(
+        "--cert", required=True, metavar="FILE", help="PEM certificate file"
+    )
+    upload_cert.add_argument(
+        "--key", required=True, metavar="FILE", help="PEM private-key file"
+    )
+    safety.add_write_args(upload_cert)
+    upload_cert.set_defaults(func=_cmd_upload_certificate)
 
     pvid = sub.add_parser("pvid", parents=[child_gp], help="set a port's PVID")
     pvid.add_argument("port", type=int, help="port number")
@@ -497,3 +603,12 @@ def main(
             traceback.print_exc(file=err)
         print(f"error: {exc}", file=err)
         return exit_code_for(exc)
+    except NotImplementedError as exc:
+        # A model whose real mechanism is known but not yet implemented (e.g.
+        # upload_certificate on m4300/gs728tpp) raises NotImplementedError,
+        # which is NOT a NetgearSwitchError. Surface it as a clean CLI error
+        # rather than an uncaught stack trace.
+        if ctx.verbose:
+            traceback.print_exc(file=err)
+        print(f"error: {exc}", file=err)
+        return EXIT_ERROR
