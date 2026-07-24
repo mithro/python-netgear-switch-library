@@ -1,0 +1,59 @@
+
+                  Admin   Physical   Physical   Link   Link    LACP    Flow
+ Intf      Type   Mode     Mode       Status     Status Trap    Mode    Mode
+--------- ------ --------- ---------- ---------- ------ ------- ------ -------
+1/0/1            Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/2            Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/3            Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/4            Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/5            Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/6            Enable    Auto                  Down   Enable  Enable Disable
+1/0/7            Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/8            Enable    Auto                  Down   Enable  Enable Disable
+1/0/9            Enable    Auto       100 Full   Up     Enable  Enable Disable
+1/0/10           Enable    Auto                  Down   Enable  Enable Disable
+1/0/11           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/12           Enable    Auto                  Down   Enable  Enable Disable
+1/0/13           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/14           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/15           Enable    Auto                  Down   Enable  Enable Disable
+1/0/16           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/17           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/18           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/19           Enable    Auto                  Down   Enable  Enable Disable
+1/0/20           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/21           Enable    Auto                  Down   Enable  Enable Disable
+1/0/22           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/23           Enable    Auto                  Down   Enable  Enable Disable
+1/0/24           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/25           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/26           Enable    Auto       100 Full   Up     Enable  Enable Disable
+1/0/27           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/28           Enable    Auto                  Down   Enable  Enable Disable
+1/0/29           Enable    Auto                  Down   Enable  Enable Disable
+1/0/30           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/31           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/32           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/33           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/34           Enable    Auto                  Down   Enable  Enable Disable
+1/0/35           Enable    Auto                  Down   Enable  Enable Disable
+1/0/36           Enable    Auto                  Down   Enable  Enable Disable
+1/0/37           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/38           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/39           Enable    Auto                  Down   Enable  Enable Disable
+1/0/40           Enable    Auto                  Down   Enable  Enable Disable
+1/0/41           Enable    Auto       100 Full   Up     Enable  Enable Disable
+1/0/42           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/43           Enable    Auto                  Down   Enable  Enable Disable
+1/0/44           Enable    Auto                  Down   Enable  Enable Disable
+1/0/45           Enable    Auto       100 Full   Up     Enable  Enable Disable
+1/0/46           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/47           Enable    Auto       1000 Full  Up     Enable  Enable Disable
+1/0/48           Enable    Auto                  Down   Enable  Enable Disable
+1/0/49           Enable    10G Full   10G Full   Up     Enable  Enable Disable
+1/0/50    PC Mbr Enable    10G Full   10G Full   Up     Enable  Enable Disable
+1/0/51    PC Mbr Enable    10G Full   10G Full   Up     Enable  Enable Disable
+1/0/52           Enable    10G Full              Down   Enable  Enable Disable
+lag 1            Enable                          Up     Disable N/A    Disable
+lag 2            Enable                          Down   Disable N/A    Disable
+lag 3            Enable                          Down   Disable N/A    Disable

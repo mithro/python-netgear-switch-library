@@ -1,0 +1,18 @@
+
+Interface Status............................... Up
+IP Address..................................... 10.1.5.22
+Subnet Mask.................................... 255.255.255.0
+Default Gateway................................ 10.1.5.1
+IPv6 Administrative Mode....................... Enabled
+IPv6 Prefix is ................................ FE80::E291:F5FF:FE0C:D6DB/64
+IPv6 Prefix is ................................ 2404:E80:A137:105::22/128
+IPv6 Default Router............................ FE80::AFF:FE01:501
+IPv6 Default Router............................ FE80::8E3B:ADFF:FE69:1C3B
+Burned In MAC Address.......................... E0:91:F5:0C:D6:DB
+Locally Administered MAC address............... 00:00:00:00:00:00
+MAC Address Type............................... Burned In
+Configured IPv4 Protocol....................... DHCP
+Configured IPv6 Protocol....................... DHCP
+DHCPv6 Client DUID............................. 00:03:00:06:e0:91:f5:0c:d6:db
+IPv6 AutoConfig Mode........................... Enabled
+Management VLAN ID............................. 5

@@ -1,0 +1,21 @@
+
+LLDP Remote Device Summary
+
+Local
+Interface RemID    Chassis ID            Port ID             System Name
+-------  -------   --------------------  ------------------  ------------------
+1/0/1      286     88:A2:9E:80:87:9B     88:A2:9E:80:87:9B   rpi5-pmod
+1/0/2      300     E4:5F:01:9F:35:9C     E4:5F:01:9F:35:9C   rpi4-pmod
+1/0/3      297     2C:CF:67:BB:47:61     2C:CF:67:BB:47:61   reterm2
+1/0/4      281     B8:27:EB:EC:C2:C9     B8:27:EB:EC:C2:C9   rpi3b-gwifi
+1/0/5      262     E4:5F:01:9C:0A:F1     E4:5F:01:9C:0A:F1   rpi4-usbdev
+1/0/6
+1/0/7      298     B8:27:EB:41:07:29     B8:27:EB:41:07:29   rpib-sdcard
+1/0/8
+1/0/9      293     B8:27:EB:0A:EE:D6     B8:27:EB:0A:EE:D6   rpib-serial
+1/0/33     291     E4:5F:01:A1:55:31     eth0                rpi4-kindle
+1/0/47     1       38:94:ED:B7:CD:E0     5                   poe-micro3
+1/0/49     313     8C:3B:AD:6B:BB:E0     1/0/2               sw-netgear-m43 ...
+1/0/50     311     E0:91:F5:0C:D5:C7     1/0/49              sw-netgear-gsm ...
+1/0/51     312     E0:91:F5:0C:D5:C7     1/0/51              sw-netgear-gsm ...
+1/0/52

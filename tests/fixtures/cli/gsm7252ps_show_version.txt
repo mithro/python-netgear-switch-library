@@ -1,0 +1,12 @@
+
+Switch: 1
+
+System Description............................. GSM7252PS 48-Port GE L2+ Managed Stackable PoE Switch with 2 10GE SFP+ ports, 10.0.0.53, <not found>
+Machine Model.................................. GSM7252PS
+Serial Number.................................. 2BW20A47000CC
+Burned In MAC Address.......................... E0:91:F5:0C:D6:DB
+Software Version............................... 10.0.0.53
+Bootcode Version...............................
+Supported Java Plugin Version.................. 1.6
+Current Time................................... JUL 24 14:59:24 2026 (UTC+0:00)
+Current SNTP Sync Status....................... Success

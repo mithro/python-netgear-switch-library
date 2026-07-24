@@ -13,6 +13,7 @@ from __future__ import annotations
 from ..errors import UnsupportedCapabilityError
 from ..protocols.http.endpoints import http_spec
 from ..registry import Backend, get_model
+from .faces.cli import VirtualCliFace
 from .faces.http import VirtualHttpFace
 from .faces.mibview import StateMibView
 from .faces.nsdp import VirtualNsdpFace
@@ -95,6 +96,18 @@ class VirtualSwitch:
             raise UnsupportedCapabilityError(
                 f"model {self.model!r} has no bindable protocol face"
             )
+
+    def cli_session(self) -> VirtualCliFace:
+        """Return an in-process mock FASTPATH CLI session over this switch's state.
+
+        Unlike the SNMP/NSDP/HTTP faces (real sockets bound in ``start()``), the
+        CLI face is an in-process ``CliSession`` needing no socket -- see
+        ``virtual.faces.cli``. Raises ``UnsupportedCapabilityError`` (via
+        ``cli_spec``) for a model with no CLI backend.
+        """
+        from ..protocols.cli.commands import cli_spec
+
+        return VirtualCliFace(self.state, cli_spec(self._model_info))
 
     def stop(self) -> None:
         """Stop every bound face. Safe to call if start() failed or never ran."""

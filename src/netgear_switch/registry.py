@@ -20,6 +20,13 @@ class Backend(enum.Enum):
     SNMP = "snmp"
     NSDP = "nsdp"
     HTTP = "http"
+    # FASTPATH command-line interface, reachable over three transports. SSH and
+    # TELNET are network backends registered on the FASTPATH models below;
+    # CONSOLE is the same CLI over a physical serial line (a transport option,
+    # not a network-reachable backend, so it is not registered on any model).
+    SSH = "ssh"
+    TELNET = "telnet"
+    CONSOLE = "console"
 
 
 class SwitchClass(enum.Enum):
@@ -86,7 +93,7 @@ _MODELS: dict[str, SwitchModel] = {
             SwitchClass.FULLY_MANAGED,
             28,
             0,
-            {Backend.SNMP, Backend.HTTP},
+            {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _FM,
         ),
         _model(
@@ -95,7 +102,7 @@ _MODELS: dict[str, SwitchModel] = {
             SwitchClass.FULLY_MANAGED,
             16,
             16,
-            {Backend.SNMP, Backend.HTTP},
+            {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _FM,
         ),
         # HTTP added 2026-07-23: the XE FASTPATH web UI (login live-validated
@@ -110,7 +117,7 @@ _MODELS: dict[str, SwitchModel] = {
             SwitchClass.FULLY_MANAGED,
             52,
             48,
-            {Backend.SNMP, Backend.HTTP},
+            {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _FM,
         ),
         _model(
@@ -119,7 +126,7 @@ _MODELS: dict[str, SwitchModel] = {
             SwitchClass.SMART_MANAGED_PRO,
             52,
             48,
-            {Backend.SNMP, Backend.HTTP},
+            {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _SMP,
         ),
         _model(
