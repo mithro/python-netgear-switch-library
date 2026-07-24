@@ -391,7 +391,7 @@ _GSM7252PS = HttpModelSpec(
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,
-    reads_verified=False,
+    reads_verified=True,  # live HTTP<->SNMP cross-verified 2026-07-23
     html_dialect=HtmlDialect.XE_FASTPATH,
 )
 
