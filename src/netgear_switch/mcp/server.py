@@ -228,6 +228,11 @@ def _write(op_name: str, run):  # type: ignore[no-untyped-def]
         return {"ok": True, "op": op_name}
     except UnsupportedCapabilityError as exc:
         return {"unsupported": True, "op": op_name, "detail": str(exc)}
+    except NotImplementedError as exc:
+        # A mechanism the hardware HAS but this library hasn't wired yet (e.g.
+        # upload_certificate on m4300/gs728tpp). Reported distinctly from
+        # "unsupported" so a client is not told the switch cannot do it.
+        return {"not_implemented": True, "op": op_name, "detail": str(exc)}
     except NetgearSwitchError as exc:
         return {"error": str(exc), "op": op_name}
 
@@ -384,6 +389,26 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         return _write(
             "set_mgmt_ip",
             lambda: sw.set_mgmt_ip(address, netmask, gateway, force=force),
+        )
+
+    @mcp.tool()
+    def upload_certificate(
+        cert_pem: str, key_pem: str, force: bool = False,
+        switch: str | None = None, host: str | None = None,
+        model: str | None = None, config: str | None = None,
+        community: str | None = None, http_password: str | None = None,
+        nsdp_interface: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload an HTTPS SSL server certificate + private key (both PEM text)
+        to the switch. Implemented for gsm7228ps/S3300; a model whose mechanism
+        is known but not yet implemented reports that honestly. HIGHLY
+        disruptive -- replaces the running certificate. Needs force=true."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        return _write(
+            "upload_certificate",
+            lambda: sw.upload_certificate(cert_pem, key_pem, force=force),
         )
 
 

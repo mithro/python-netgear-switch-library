@@ -159,6 +159,20 @@ class HttpModelSpec:
     # remote data, which carries no chassis/port-id table) -> get_lldp raises
     # rather than returning a fabricated empty list.
     lldp_path: str | None = None
+    # HTTPS SSL-certificate upload (multipart POST). Populated only for a model
+    # with a GROUNDED web-UI upload flow -- today only gsm7228ps/S3300, grounded
+    # in certbot-hook-netgear-switches/netgear-updater.py::S3300Updater
+    # (upload_certificate, lines ~625-706): the combined cert+key PEM is POSTed
+    # to ``cert_upload_path`` as the file field ``cert_upload_file_field``
+    # (``.v_1_3_1_handle``), alongside the fixed form fields in
+    # ``cert_upload_form_fields``. All three None/empty means this model exposes
+    # no cert-upload flow through this library; HttpWriter.upload_certificate
+    # then raises UnsupportedCapabilityError (or, for a model whose real
+    # mechanism is known but not yet implemented, NotImplementedError -- see
+    # http_write.CERT_UPLOAD_KNOWN_UNIMPLEMENTED).
+    cert_upload_path: str | None = None
+    cert_upload_file_field: str | None = None
+    cert_upload_form_fields: Mapping[str, str] = MappingProxyType({})
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -258,6 +272,39 @@ _GSM7228PS = HttpModelSpec(
     logout_path=None,
     is_epx_poe=False,
     reads_verified=False,
+    # HTTPS SSL-cert upload IS grounded even though reads are not: copied
+    # field-for-field from S3300Updater.upload_certificate (netgear-updater.py
+    # lines ~648-678). The file field is ``.v_1_3_1_handle`` (a combined
+    # cert+key PEM as certificate.pem, application/octet-stream); the rest are
+    # the fixed hidden form fields that page submits.
+    cert_upload_path="/http_file_download.html/a1",
+    cert_upload_file_field=".v_1_3_1_handle",
+    cert_upload_form_fields=MappingProxyType(
+        {
+            "v_1_1_3": "HTTP",
+            "v_1_1_2": "SSL Server Certificate PEM File",
+            "v_1_2_1": "",
+            "v_1_3_2": " not in progress",
+            "v_1_3_3": "",
+            "v_1_3_4": "",
+            "v_1_9_1": "image1",
+            "v_1_9_5": "",
+            "v_1_9_2": "1",
+            "v_1_9_3": "Enable",
+            "v_1_19_1": "32",
+            "v_1_20_1": "",
+            "v_1_200_1": "",
+            "v_2_3_1": " not in progress",
+            "v_2_4_3": "None",
+            "v_2_4_2": " not in progress",
+            "v_4_1_1": "",
+            "submit_flag": "8",
+            "submit_target": "http_file_download.html",
+            "err_flag": "0",
+            "err_msg": "",
+            "clazz_information": "http_file_download.html",
+        }
+    ),
 )
 
 # gs105pe (Plus, 5-port, NSDP+HTTP) -- LIVE-VERIFIED 2026-07-21 against real

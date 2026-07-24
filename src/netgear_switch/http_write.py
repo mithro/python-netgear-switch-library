@@ -12,6 +12,7 @@ succeeding. Web-UI-impossible/UNVERIFIED writes (port enable, mgmt-IP) raise
 from __future__ import annotations
 
 import re
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from .errors import (
@@ -22,12 +23,81 @@ from .errors import (
 )
 from .protocols.http import forms, parse
 from .protocols.http.endpoints import http_spec
+from .protocols.http.session import MultipartFile
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .models import VlanMode
+    from .protocols.http.endpoints import HttpModelSpec
     from .protocols.http.session import AsyncHttpSession, HttpSession
     from .registry import SwitchModel
     from .snmp_write import PoeCycleTimeouts
+
+
+# Models whose real SSL-certificate upload mechanism is KNOWN from grounded
+# prior art (certbot-hook-netgear-switches/netgear-updater.py) but is NOT yet
+# implemented in this library. Keyed by registry model key -> a human name for
+# the mechanism. These deliberately raise NotImplementedError, NOT
+# UnsupportedCapabilityError: the hardware genuinely CAN load a certificate, so
+# claiming it is unsupported would be a false statement -- see
+# ``_reject_known_unimplemented_cert_upload``.
+CERT_UPLOAD_KNOWN_UNIMPLEMENTED: Mapping[str, str] = MappingProxyType(
+    {
+        # FastpathScpUpdater: the M4300 FASTPATH image takes the cert over SCP
+        # (``copy scp://.../cert ...``), not an HTTP form -- a different
+        # transport entirely, out of scope for this HTTP slice.
+        "m4300-24x": "SCP file-copy to the switch (FastpathScpUpdater)",
+        "m4300-16x": "SCP file-copy to the switch (FastpathScpUpdater)",
+        # GS728TPPUpdater: a distinct XML-API upload (System.xml action flow),
+        # and this model has no HTTP backend wired in the registry at all.
+        "gs728tpp": "the GS728TPP XML-API upload (GS728TPPUpdater)",
+    }
+)
+
+# The filename real S3300 firmware is sent (S3300Updater posts the combined
+# cert+key PEM as ``certificate.pem``).
+_CERT_FILENAME = "certificate.pem"
+
+
+def _reject_known_unimplemented_cert_upload(model_key: str) -> None:
+    """Raise NotImplementedError if ``model_key``'s cert-upload mechanism is
+    known-but-unimplemented (see ``CERT_UPLOAD_KNOWN_UNIMPLEMENTED``)."""
+    mechanism = CERT_UPLOAD_KNOWN_UNIMPLEMENTED.get(model_key)
+    if mechanism is not None:
+        raise NotImplementedError(
+            f"SSL-certificate upload for {model_key!r} uses {mechanism}; that "
+            "mechanism is known but not yet implemented in this library"
+        )
+
+
+def _combine_cert_key_pem(cert_pem: str, key_pem: str) -> str:
+    """Concatenate the certificate and private-key PEMs into the single file
+    S3300 firmware expects (mirrors S3300Updater: ``cert + b"\\n" + key``)."""
+    return f"{cert_pem.rstrip(chr(10))}\n{key_pem}"
+
+
+def _cert_upload_multipart(
+    spec: HttpModelSpec, cert_pem: str, key_pem: str
+) -> tuple[str, dict[str, str], MultipartFile]:
+    """Return the (path, form fields, file part) for ``spec``'s grounded
+    SSL-cert upload, or raise UnsupportedCapabilityError if it has none.
+
+    Pure; shared by the sync and async writers so the wire shape (the exact
+    field map + combined-PEM file) cannot drift between the two codebases.
+    """
+    if spec.cert_upload_path is None or spec.cert_upload_file_field is None:
+        raise UnsupportedCapabilityError(
+            f"model {spec.model_key!r} has no known SSL-certificate "
+            "upload mechanism"
+        )
+    payload = MultipartFile(
+        field=spec.cert_upload_file_field,
+        filename=_CERT_FILENAME,
+        content=_combine_cert_key_pem(cert_pem, key_pem).encode(),
+        content_type="application/octet-stream",
+    )
+    return spec.cert_upload_path, dict(spec.cert_upload_form_fields), payload
 
 
 def _csrf(html: str) -> str:
@@ -226,6 +296,27 @@ class HttpWriter:
             f"{self.model.key!r} web mgmt-IP endpoint is UNVERIFIED-pending-capture"
         )
 
+    def upload_certificate(
+        self, cert_pem: str, key_pem: str, *, force: bool = False
+    ) -> None:
+        """Upload an HTTPS SSL server certificate (combined cert+key PEM).
+
+        GROUNDED for gsm7228ps/S3300 in S3300Updater.upload_certificate (see
+        endpoints.py). A model whose real mechanism is known but unimplemented
+        (m4300 SCP, gs728tpp XML) raises NotImplementedError; a model with no
+        known mechanism raises UnsupportedCapabilityError. Disruptive (replaces
+        the running certificate), so ``force=True`` is required -- capability is
+        resolved BEFORE the force gate, mirroring ``reboot``.
+        """
+        _reject_known_unimplemented_cert_upload(self.model.key)
+        path, fields, payload = _cert_upload_multipart(self._spec, cert_pem, key_pem)
+        if not force:
+            raise ProtectedPortError(
+                "SSL-certificate upload replaces the switch's running "
+                "certificate and is disruptive; pass force=True"
+            )
+        self.session.post_multipart(path, fields, payload)
+
     def _poe_admin(self, port: int) -> bool:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
         rows = parse.parse_poe_status(self.session.get_page(path))
@@ -418,3 +509,17 @@ class AsyncHttpWriter:
         raise UnsupportedCapabilityError(
             f"{self.model.key!r} web mgmt-IP endpoint is UNVERIFIED-pending-capture"
         )
+
+    async def upload_certificate(
+        self, cert_pem: str, key_pem: str, *, force: bool = False
+    ) -> None:
+        # Async twin of HttpWriter.upload_certificate -- same capability-before-
+        # force ordering and same grounded wire shape (shared pure helpers).
+        _reject_known_unimplemented_cert_upload(self.model.key)
+        path, fields, payload = _cert_upload_multipart(self._spec, cert_pem, key_pem)
+        if not force:
+            raise ProtectedPortError(
+                "SSL-certificate upload replaces the switch's running "
+                "certificate and is disruptive; pass force=True"
+            )
+        await self.session.post_multipart(path, fields, payload)

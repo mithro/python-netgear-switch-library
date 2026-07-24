@@ -6,7 +6,24 @@ pure protocol layer is the single shared codebase across sync and async.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
+
+
+@dataclass(frozen=True)
+class MultipartFile:
+    """One file part of a ``multipart/form-data`` POST (see ``post_multipart``).
+
+    Used by the SSL-certificate upload flow: ``field`` is the form field name
+    the switch expects the file under (e.g. gsm7228ps's ``.v_1_3_1_handle``),
+    ``content`` is the raw file bytes served as ``filename`` with MIME
+    ``content_type`` (e.g. ``application/octet-stream``).
+    """
+
+    field: str
+    filename: str
+    content: bytes
+    content_type: str
 
 
 class HttpSession(Protocol):
@@ -18,6 +35,10 @@ class HttpSession(Protocol):
 
     def post_form(self, path: str, data: dict[str, str]) -> str: ...
 
+    def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str: ...
+
 
 class AsyncHttpSession(Protocol):
     """Asynchronous authenticated web-UI session for one switch."""
@@ -27,3 +48,7 @@ class AsyncHttpSession(Protocol):
     async def get_page(self, path: str) -> str: ...
 
     async def post_form(self, path: str, data: dict[str, str]) -> str: ...
+
+    async def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str: ...

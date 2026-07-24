@@ -10,11 +10,12 @@ from ._dispatch import (
     build_async_snmp_client,
     build_async_snmp_write_client,
     http_reads_supported,
+    require_http_backend,
     require_mac_table,
 )
 from .errors import CredentialError, ProtectedPortError, UnsupportedCapabilityError
 from .http_read import AsyncHttpReader
-from .http_write import AsyncHttpWriter
+from .http_write import AsyncHttpWriter, _reject_known_unimplemented_cert_upload
 from .models import SwitchData
 from .nsdp_read import AsyncNsdpReader
 from .nsdp_write import AsyncNsdpWriter
@@ -69,6 +70,11 @@ class _LazyAsyncHttpSession:
     async def post_form(self, path: str, data: dict[str, str]) -> str:
         return await self._resolve().post_form(path, data)
 
+    async def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str:
+        return await self._resolve().post_multipart(path, data, file)
+
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
@@ -88,7 +94,7 @@ if TYPE_CHECKING:
         VLANInfo,
         VlanMode,
     )
-    from .protocols.http.session import AsyncHttpSession
+    from .protocols.http.session import AsyncHttpSession, MultipartFile
     from .protocols.nsdp.client import AsyncNsdpClient, AsyncNsdpWriteClient
     from .protocols.nsdp.types import NsdpDevice
     from .protocols.snmp.client import AsyncSnmpClient, AsyncSnmpWriteClient
@@ -536,3 +542,19 @@ class AsyncSwitch:
         await self._write(
             lambda w: w.set_mgmt_ip(address, netmask, gateway, force=force)
         )
+
+    def _cert_writer(self) -> AsyncHttpWriter:
+        # See SyncSwitch._cert_writer: cert upload bypasses both the
+        # http_reads_supported gate and the SNMP-first _write dispatch.
+        return AsyncHttpWriter(
+            _LazyAsyncHttpSession(self._http_session), self.model,
+            protected_ports=self.protected_ports,
+        )
+
+    async def upload_certificate(
+        self, cert_pem: str, key_pem: str, *, force: bool = False
+    ) -> None:
+        """Async twin of ``SyncSwitch.upload_certificate`` -- see there."""
+        _reject_known_unimplemented_cert_upload(self.model.key)
+        require_http_backend(self.model)
+        await self._cert_writer().upload_certificate(cert_pem, key_pem, force=force)

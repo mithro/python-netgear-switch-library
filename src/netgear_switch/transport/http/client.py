@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from typing import Self
 
     from ...protocols.http.endpoints import HttpModelSpec
+    from ...protocols.http.session import MultipartFile
 
 _TIMEOUT = 15.0
 
@@ -261,6 +262,22 @@ class HttpClient:
         _validate_response(resp, context=f"POST {path}")
         return resp.text
 
+    def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str:
+        if not self._logged_in:
+            self.login()
+        body = {**data, **_token_form_field(self._spec, self._token)}
+        files = {file.field: (file.filename, file.content, file.content_type)}
+        try:
+            # NEVER retried -- like post_form, this carries a WRITE (an SSL-cert
+            # upload). A dropped connection does not prove the switch ignored it.
+            resp = self._client.post(path, data=body, files=files)
+        except httpx.HTTPError as exc:
+            raise HttpError(f"POST {path} transport error: {exc}") from exc
+        _validate_response(resp, context=f"POST {path}")
+        return resp.text
+
     def close(self) -> None:
         self._client.close()
 
@@ -338,6 +355,21 @@ class AsyncHttpClient:
         try:
             # NEVER retried -- see the sync twin: POST also carries writes.
             resp = await self._client.post(path, data=body)
+        except httpx.HTTPError as exc:
+            raise HttpError(f"POST {path} transport error: {exc}") from exc
+        _validate_response(resp, context=f"POST {path}")
+        return resp.text
+
+    async def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str:
+        if not self._logged_in:
+            await self.login()
+        body = {**data, **_token_form_field(self._spec, self._token)}
+        files = {file.field: (file.filename, file.content, file.content_type)}
+        try:
+            # NEVER retried -- see the sync twin: this carries a cert-upload write.
+            resp = await self._client.post(path, data=body, files=files)
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")

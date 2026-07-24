@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,6 +13,9 @@ from netgear_switch.errors import (
 from netgear_switch.http_write import AsyncHttpWriter, HttpWriter
 from netgear_switch.models import VlanMode
 from netgear_switch.registry import get_model
+
+if TYPE_CHECKING:
+    from netgear_switch.protocols.http.session import MultipartFile
 
 _PORT_COUNT = 5  # gs305ep port_count
 _WIRE_TO_MODE = {"1": VlanMode.UNTAGGED, "2": VlanMode.TAGGED, "3": VlanMode.EXCLUDED}
@@ -407,3 +411,184 @@ def test_async_set_mgmt_ip_is_unsupported() -> None:
     writer = AsyncHttpWriter(_AsyncStatefulSession(), get_model("gs305ep"))
     with pytest.raises(UnsupportedCapabilityError):
         _run(writer.set_mgmt_ip("10.0.0.2", "255.255.255.0", "10.0.0.1"))
+
+
+# ---------------------------------------------------------------------------
+# SSL-certificate upload (gsm7228ps / S3300, grounded in
+# certbot-hook-netgear-switches/netgear-updater.py::S3300Updater).
+# ---------------------------------------------------------------------------
+
+_CERT_PEM = "-----BEGIN CERTIFICATE-----\nMIIC...\n-----END CERTIFICATE-----\n"
+_KEY_PEM = "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
+# The exact fixed form fields the S3300 cert-upload page submits (prior art
+# lines ~655-678). The file field carries the combined cert+key PEM.
+_EXPECTED_CERT_FORM = {
+    "v_1_1_3": "HTTP",
+    "v_1_1_2": "SSL Server Certificate PEM File",
+    "v_1_2_1": "",
+    "v_1_3_2": " not in progress",
+    "v_1_3_3": "",
+    "v_1_3_4": "",
+    "v_1_9_1": "image1",
+    "v_1_9_5": "",
+    "v_1_9_2": "1",
+    "v_1_9_3": "Enable",
+    "v_1_19_1": "32",
+    "v_1_20_1": "",
+    "v_1_200_1": "",
+    "v_2_3_1": " not in progress",
+    "v_2_4_3": "None",
+    "v_2_4_2": " not in progress",
+    "v_4_1_1": "",
+    "submit_flag": "8",
+    "submit_target": "http_file_download.html",
+    "err_flag": "0",
+    "err_msg": "",
+    "clazz_information": "http_file_download.html",
+}
+
+
+class _CertSpySession:
+    """Records the single multipart POST the cert-upload writer drives."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, str], MultipartFile]] = []
+
+    def login(self) -> None:
+        return None
+
+    def get_page(self, path: str) -> str:
+        raise AssertionError(f"cert upload should not GET {path}")
+
+    def post_form(self, path: str, data: dict[str, str]) -> str:
+        raise AssertionError(f"cert upload should not post_form {path}")
+
+    def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str:
+        self.calls.append((path, dict(data), file))
+        return "<html><body>File transfer in progress</body></html>"
+
+
+class _AsyncCertSpySession(_CertSpySession):
+    async def login(self) -> None:  # type: ignore[override]
+        return None
+
+    async def post_multipart(  # type: ignore[override]
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str:
+        self.calls.append((path, dict(data), file))
+        return "<html><body>File transfer in progress</body></html>"
+
+
+def test_upload_certificate_drives_grounded_multipart_post() -> None:
+    sess = _CertSpySession()
+    writer = HttpWriter(sess, get_model("gsm7228ps"))
+    writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
+    assert len(sess.calls) == 1
+    path, data, file = sess.calls[0]
+    assert path == "/http_file_download.html/a1"
+    assert data == _EXPECTED_CERT_FORM
+    assert file.field == ".v_1_3_1_handle"
+    assert file.filename == "certificate.pem"
+    assert file.content_type == "application/octet-stream"
+    # Combined cert+key PEM, exactly as S3300Updater builds it.
+    assert file.content == f"{_CERT_PEM.rstrip(chr(10))}\n{_KEY_PEM}".encode()
+
+
+def test_upload_certificate_requires_force() -> None:
+    sess = _CertSpySession()
+    writer = HttpWriter(sess, get_model("gsm7228ps"))
+    with pytest.raises(ProtectedPortError):
+        writer.upload_certificate(_CERT_PEM, _KEY_PEM)
+    assert sess.calls == []  # nothing sent when force is withheld
+
+
+def test_upload_certificate_m4300_is_not_implemented_not_unsupported() -> None:
+    """m4300's cert mechanism (SCP) is KNOWN, so it must raise the clear
+    NotImplementedError -- never UnsupportedCapabilityError, which would falsely
+    claim the hardware cannot load a certificate."""
+    sess = _CertSpySession()
+    writer = HttpWriter(sess, get_model("m4300-24x"))
+    with pytest.raises(NotImplementedError, match="SCP"):
+        writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
+    assert not isinstance(NotImplementedError, UnsupportedCapabilityError)
+    assert sess.calls == []
+
+
+def test_upload_certificate_unknown_model_is_unsupported() -> None:
+    """A model with an HTTP backend but NO known cert mechanism (gs305ep)
+    honestly raises UnsupportedCapabilityError."""
+    sess = _CertSpySession()
+    writer = HttpWriter(sess, get_model("gs305ep"))
+    with pytest.raises(UnsupportedCapabilityError):
+        writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
+
+
+def test_async_upload_certificate_drives_grounded_multipart_post() -> None:
+    sess = _AsyncCertSpySession()
+    writer = AsyncHttpWriter(sess, get_model("gsm7228ps"))
+    _run(writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True))
+    assert len(sess.calls) == 1
+    path, data, file = sess.calls[0]
+    assert path == "/http_file_download.html/a1"
+    assert data == _EXPECTED_CERT_FORM
+    assert file.field == ".v_1_3_1_handle"
+    assert file.content == f"{_CERT_PEM.rstrip(chr(10))}\n{_KEY_PEM}".encode()
+
+
+def test_async_upload_certificate_requires_force() -> None:
+    sess = _AsyncCertSpySession()
+    writer = AsyncHttpWriter(sess, get_model("gsm7228ps"))
+    with pytest.raises(ProtectedPortError):
+        _run(writer.upload_certificate(_CERT_PEM, _KEY_PEM))
+    assert sess.calls == []
+
+
+def test_async_upload_certificate_m4300_is_not_implemented() -> None:
+    sess = _AsyncCertSpySession()
+    writer = AsyncHttpWriter(sess, get_model("m4300-24x"))
+    with pytest.raises(NotImplementedError, match="SCP"):
+        _run(writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True))
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: SyncSwitch.upload_certificate against the real virtual HTTP face,
+# proving the multipart body reaches the mock and is recorded.
+# ---------------------------------------------------------------------------
+
+
+def test_sync_switch_upload_certificate_records_on_mock() -> None:
+    from netgear_switch.protocols.http.endpoints import http_spec
+    from netgear_switch.sync_api import SyncSwitch
+    from netgear_switch.transport.http.client import HttpClient
+    from netgear_switch.virtual.server import VirtualSwitch
+
+    sw = VirtualSwitch(model="gsm7228ps")
+    sw.start()
+    try:
+        spec = http_spec(get_model("gsm7228ps"))
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", spec)
+        switch = SyncSwitch(get_model("gsm7228ps"), "127.0.0.1", http_client=client)
+        try:
+            # force required, and the mock records the combined PEM it received.
+            with pytest.raises(ProtectedPortError):
+                switch.upload_certificate(_CERT_PEM, _KEY_PEM)
+            assert sw.state.uploaded_cert is None
+            switch.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
+        finally:
+            client.close()
+        assert sw.state.uploaded_cert == f"{_CERT_PEM.rstrip(chr(10))}\n{_KEY_PEM}"
+    finally:
+        sw.stop()
+
+
+def test_sync_switch_upload_certificate_gs728tpp_not_implemented() -> None:
+    """gs728tpp has NO HTTP backend, yet its cert mechanism is known (XML-API),
+    so the facade must still raise NotImplementedError -- not the
+    UnsupportedCapabilityError a plain no-HTTP-backend check would give."""
+    from netgear_switch.sync_api import SyncSwitch
+
+    switch = SyncSwitch(get_model("gs728tpp"), "127.0.0.1")
+    with pytest.raises(NotImplementedError, match="XML-API"):
+        switch.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
