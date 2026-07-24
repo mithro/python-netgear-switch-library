@@ -16,10 +16,11 @@ different HTML dialect than gs305ep's (see ``protocols/http/parse.py``).
 
 The gsm7252ps (XE_FASTPATH) web UI covers EVERY read op this library has --
 ports/stats/PVIDs/VLANs/MACs/PoE/LLDP plus sensors and mgmt-IP from
-``sysInfo.html`` -- so no op is carved out for that model. Its spec still says
-``reads_verified=False`` until the live HTTP<->SNMP cross-verify runs, so the
-constructor refuses for now; that is the honesty gate doing its job, not a
-missing capability.
+``sysInfo.html`` -- so no op is carved out for that model. Its spec says
+``reads_verified=True``: the HTTP output was cross-verified against SNMP on the
+live switch (10.1.5.22). The honesty gate (which refuses to construct while
+``reads_verified`` is ``False``) still guards models that have NOT been
+cross-verified, e.g. gsm7228ps.
 
 All page-path selection and HTML-to-model conversion lives in the
 module-level helpers below (pure, I/O-free); ``HttpReader``/``AsyncHttpReader``

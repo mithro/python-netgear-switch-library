@@ -4,15 +4,16 @@ yet LIVE cross-verified.
 
 ``HttpReader``/``AsyncHttpReader`` refuse to construct while a model's
 ``HttpModelSpec.reads_verified`` is ``False`` -- deliberately, so the facade
-can never serve data from a scrape nobody has checked against hardware. The
-gsm7252ps XE backend is in exactly that state: every parser is grounded in a
-real capture of 10.1.5.22, but the live HTTP<->SNMP cross-verify has not run,
-so the shipped spec says ``reads_verified=False``.
+can never serve data from a scrape nobody has checked against hardware. A model
+in exactly that state is gsm7228ps: its CHEETAH_FORM login is proven, but no
+read pages have been captured and no cross-verify has run.
 
 ``reads_verified(...)`` flips that ONE flag for the duration of a test so the
-fixture-driven parser/dispatch tests can exercise the reader, and restores the
-shipped spec afterwards. It is a test seam only: nothing in ``src/`` can reach
-it, so the production honesty gate is untouched.
+fixture-driven parser/dispatch tests can exercise an unverified model's reader,
+and restores the shipped spec afterwards. It is a test seam only: nothing in
+``src/`` can reach it, so the production honesty gate is untouched. (gsm7252ps
+no longer needs it -- its shipped spec is ``reads_verified=True`` after the live
+cross-verify -- so passing it here is a harmless no-op.)
 """
 from __future__ import annotations
 

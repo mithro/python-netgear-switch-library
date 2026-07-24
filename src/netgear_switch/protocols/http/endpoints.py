@@ -47,9 +47,10 @@ flows are grounded in captured prior art or still
   (``uname``+``pwd`` -> SID cookie) was validated LIVE on 10.1.5.22, so
   ``scheme_verified`` is ``True``. Its read pages sit at the ROOT prefix and
   are grounded in real captures of that switch, covering EVERY read op
-  including sensors and mgmt-IP (``sysInfo.html``) -- but ``reads_verified``
-  stays ``False`` until the live HTTP<->SNMP cross-verify runs, so the reader
-  refuses to construct rather than trusting fixture-only grounding.
+  including sensors and mgmt-IP (``sysInfo.html``). ``reads_verified`` is
+  ``True``: the HTTP reader output was cross-verified against SNMP on the live
+  switch (10.1.5.22) -- ports/PVIDs match, mgmt-IP is an exact match, and every
+  read op returns real data.
 """
 from __future__ import annotations
 
@@ -362,10 +363,10 @@ _M4300_16X = dataclasses.replace(_M4300, model_key="m4300-16x")
 # get_mgmt_ip. Their HTML is the XE_FASTPATH dialect (see HtmlDialect), NOT
 # the M4300's: the M4300 parsers return zero rows on these pages.
 #
-# reads_verified stays False until the live HTTP<->SNMP cross-verify runs
-# against 10.1.5.22 -- so HttpReader REFUSES to construct for this model today
-# (the fixture-driven tests flip the flag explicitly). Every read op this model
-# supports has a page here; there is no UnsupportedCapabilityError carve-out.
+# reads_verified is True: the HTTP reader was cross-verified against SNMP on
+# the live switch (10.1.5.22) -- see the reads_verified=True line below. Every
+# read op this model supports has a page here; there is no
+# UnsupportedCapabilityError carve-out.
 # vlan_membership_path is None because vlanStatus.html carries each VLAN's
 # egress list inline (as on the M4300), and reboot/logout were never captured.
 _GSM7252PS = HttpModelSpec(
