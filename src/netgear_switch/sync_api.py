@@ -10,11 +10,12 @@ from ._dispatch import (
     build_sync_snmp_client,
     build_sync_snmp_write_client,
     http_reads_supported,
+    require_http_backend,
     require_mac_table,
 )
 from .errors import CredentialError, ProtectedPortError, UnsupportedCapabilityError
 from .http_read import HttpReader
-from .http_write import HttpWriter
+from .http_write import HttpWriter, _reject_known_unimplemented_cert_upload
 from .models import SwitchData
 from .nsdp_read import NsdpReader
 from .nsdp_write import NsdpWriter
@@ -70,6 +71,11 @@ class _LazyHttpSession:
     def post_form(self, path: str, data: dict[str, str]) -> str:
         return self._resolve().post_form(path, data)
 
+    def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str:
+        return self._resolve().post_multipart(path, data, file)
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -89,7 +95,7 @@ if TYPE_CHECKING:
         VLANInfo,
         VlanMode,
     )
-    from .protocols.http.session import HttpSession
+    from .protocols.http.session import HttpSession, MultipartFile
     from .protocols.nsdp.client import NsdpClient, NsdpWriteClient
     from .protocols.nsdp.types import NsdpDevice
     from .protocols.snmp.client import SnmpClient, SnmpWriteClient
@@ -569,3 +575,35 @@ class SyncSwitch:
         self, address: str, netmask: str, gateway: str, *, force: bool = False
     ) -> None:
         self._write(lambda w: w.set_mgmt_ip(address, netmask, gateway, force=force))
+
+    def _cert_writer(self) -> HttpWriter:
+        # Cert upload is a GROUNDED web-UI write flow that is INDEPENDENT of read
+        # verification, so it deliberately bypasses _writer_for's
+        # http_reads_supported gate: gsm7228ps has reads_verified=False yet a
+        # fully-grounded cert-upload flow (see http_write / endpoints). It also
+        # bypasses the SNMP-first _write dispatch because cert upload is
+        # HTTP-only.
+        return HttpWriter(
+            _LazyHttpSession(self._http_session), self.model,
+            protected_ports=self.protected_ports,
+        )
+
+    def upload_certificate(
+        self, cert_pem: str, key_pem: str, *, force: bool = False
+    ) -> None:
+        """Upload an HTTPS SSL server certificate + private key to the switch.
+
+        Implemented for gsm7228ps/S3300 (grounded multipart web-UI upload).
+        Disruptive (replaces the running certificate), so ``force=True`` is
+        required. A model whose real mechanism is known but not yet implemented
+        (m4300 SCP, gs728tpp XML-API) raises NotImplementedError naming the
+        mechanism -- NOT UnsupportedCapabilityError, since the hardware can do
+        it; a model with no HTTP backend and no known mechanism raises
+        UnsupportedCapabilityError.
+        """
+        # Checked here FIRST so gs728tpp (which has no HTTP backend at all, so
+        # require_http_backend would wrongly say "unsupported") still reports
+        # the honest known-but-unimplemented mechanism.
+        _reject_known_unimplemented_cert_upload(self.model.key)
+        require_http_backend(self.model)
+        self._cert_writer().upload_certificate(cert_pem, key_pem, force=force)

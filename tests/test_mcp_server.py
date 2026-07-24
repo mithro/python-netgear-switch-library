@@ -266,6 +266,49 @@ def test_new_write_tools_reach_the_switch(monkeypatch) -> None:
     ]
 
 
+def test_upload_certificate_tool_reaches_the_switch(monkeypatch) -> None:
+    """upload_certificate drives the library write path with the PEMs + force."""
+    calls: list[tuple] = []
+
+    class _Recording:
+        def upload_certificate(self, cert_pem, key_pem, *, force):
+            calls.append((cert_pem, key_pem, force))
+
+    monkeypatch.setattr(
+        mod, "resolve_switch", lambda _ns, *, env=None, prompt=None: _Recording()
+    )
+    srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
+    res = _call(
+        srv, "upload_certificate",
+        {"host": "h", "model": "gsm7228ps", "cert_pem": "CERT",
+         "key_pem": "KEY", "force": True},
+    )[0]
+    assert res == {"ok": True, "op": "upload_certificate"}
+    assert calls == [("CERT", "KEY", True)]
+
+
+def test_upload_certificate_tool_reports_not_implemented(monkeypatch) -> None:
+    """A known-but-unimplemented mechanism (m4300 SCP) surfaces as
+    ``not_implemented`` -- never ``unsupported`` (the hardware CAN do it) and
+    never an uncaught stack trace."""
+    class _M4300Like:
+        def upload_certificate(self, cert_pem, key_pem, *, force):
+            raise NotImplementedError("uses SCP file-copy to the switch")
+
+    monkeypatch.setattr(
+        mod, "resolve_switch", lambda _ns, *, env=None, prompt=None: _M4300Like()
+    )
+    srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
+    res = _call(
+        srv, "upload_certificate",
+        {"host": "h", "model": "m4300-24x", "cert_pem": "C", "key_pem": "K",
+         "force": True},
+    )[0]
+    assert res["not_implemented"] is True
+    assert res["op"] == "upload_certificate"
+    assert "unsupported" not in res
+
+
 def test_set_vlan_membership_rejects_bad_mode(monkeypatch) -> None:
     monkeypatch.setattr(
         mod, "resolve_switch", lambda _ns, *, env=None, prompt=None: object()

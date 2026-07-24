@@ -19,6 +19,7 @@ listening socket — so nothing leaks under ``-W error::ResourceWarning``.
 from __future__ import annotations
 
 import dataclasses
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
@@ -62,6 +63,43 @@ def _known_paths(spec: HttpModelSpec) -> set[str]:
     }
 
 
+def _parse_multipart(
+    raw: bytes, boundary: str
+) -> tuple[dict[str, str], dict[str, tuple[str, bytes]]]:
+    """Minimal ``multipart/form-data`` parser for the mock face.
+
+    Returns ``(fields, files)`` where ``fields`` maps each plain part's name to
+    its text value and ``files`` maps each file part's name to
+    ``(filename, content_bytes)``. Deliberately small (test infra only); it is
+    enough to validate the field names and record the uploaded certificate.
+    """
+    fields: dict[str, str] = {}
+    files: dict[str, tuple[str, bytes]] = {}
+    delim = b"--" + boundary.encode("latin-1")
+    for chunk in raw.split(delim):
+        # Trim only the ONE framing CRLF each side (never .strip(), which would
+        # also eat an empty-value part's body separator -> the field would look
+        # absent). The preamble ("") and the closing "--"/"--\r\n" have no
+        # header block and fall through the ``\r\n\r\n`` check below.
+        part = chunk[2:] if chunk.startswith(b"\r\n") else chunk
+        if part.endswith(b"\r\n"):
+            part = part[:-2]
+        if b"\r\n\r\n" not in part:
+            continue
+        head, _, body = part.partition(b"\r\n\r\n")
+        headers = head.decode("latin-1")
+        name_m = re.search(r'name="([^"]*)"', headers)
+        if name_m is None:
+            continue
+        name = name_m.group(1)
+        file_m = re.search(r'filename="([^"]*)"', headers)
+        if file_m is not None:
+            files[name] = (file_m.group(1), body)
+        else:
+            fields[name] = body.decode("latin-1")
+    return fields, files
+
+
 class VirtualHttpFace:
     """A ``ThreadingHTTPServer`` web-UI face serving a ``VirtualSwitchState``."""
 
@@ -99,10 +137,14 @@ class VirtualHttpFace:
             def log_message(self, *_args: object) -> None:  # silence stderr
                 return
 
-            def _body(self) -> dict[str, str]:
+            def _raw(self) -> bytes:
                 length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length).decode() if length else ""
-                return {k: v[0] for k, v in parse_qs(raw).items()}
+                return self.rfile.read(length) if length else b""
+
+            def _body(self, raw: bytes) -> dict[str, str]:
+                return {
+                    k: v[0] for k, v in parse_qs(raw.decode("latin-1")).items()
+                }
 
             def _send(
                 self, text: str, status: int = 200, *, cookie: bool = False
@@ -157,7 +199,20 @@ class VirtualHttpFace:
                 if not self._referer_ok():
                     self._send("403 Forbidden", 403)
                     return
-                form = self._body()
+                raw = self._raw()
+                content_type = self.headers.get("Content-Type", "")
+                # SSL-cert upload: a multipart POST to this model's grounded
+                # cert-upload endpoint. Handle it BEFORE the urlencoded body
+                # parse (a multipart body is not urlencoded) so the mock records
+                # the certificate exactly as real firmware would receive it.
+                if (
+                    path == face.spec.cert_upload_path
+                    and content_type.startswith("multipart/form-data")
+                ):
+                    status, page = face._handle_cert_upload(content_type, raw)
+                    self._send(page, status)
+                    return
+                form = self._body(raw)
                 login_post_path = face.spec.login_post_path or face.spec.login_path
                 if path == login_post_path:
                     ok = face._login_response(form) == "OK"
@@ -296,6 +351,33 @@ class VirtualHttpFace:
             vid = int(form.get("VLAN_ID", "1"))
             return web_gs110emx.render_vlan_membership(self.state, self._token, vid)
         return "<html><body>Not Found</body></html>"
+
+    def _handle_cert_upload(
+        self, content_type: str, raw: bytes
+    ) -> tuple[int, str]:
+        """Accept a multipart SSL-cert upload, validate the field names the
+        real S3300 form carries, and record the received certificate on state.
+
+        Returns ``(status, page)``. A missing boundary, missing file field, or
+        any missing required form field yields 400 -- so a transport regression
+        that dropped a field would be caught here rather than passing silently,
+        exactly like the login-field validation in ``_login_response``.
+        """
+        match = re.search(r"boundary=([^;]+)", content_type)
+        if match is None:
+            return 400, "<html><body>missing multipart boundary</body></html>"
+        boundary = match.group(1).strip().strip('"')
+        fields, files = _parse_multipart(raw, boundary)
+        file_field = self.spec.cert_upload_file_field
+        if file_field is None or file_field not in files:
+            return 400, "<html><body>missing cert file field</body></html>"
+        missing = [k for k in self.spec.cert_upload_form_fields if k not in fields]
+        if missing:
+            return 400, f"<html><body>missing fields: {missing}</body></html>"
+        _filename, content = files[file_field]
+        with self._lock:
+            self.state.uploaded_cert = content.decode("latin-1")
+        return 200, "<html><body>File transfer in progress</body></html>"
 
     def _login_response(self, form: dict[str, str]) -> str:
         field = self.spec.password_field

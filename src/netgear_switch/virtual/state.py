@@ -186,6 +186,12 @@ class VirtualSwitchState:
     # 1.3.6.1.4.1.4526 vendor subtree, so sysObjectID round-trips end-to-end.
     # Empty means unseeded: oid_map() derives one from the model's vendor base.
     sys_object_id: str = ""
+    # SSL server certificate last accepted by the virtual HTTP face's
+    # cert-upload endpoint (see faces/http.py). None = nothing uploaded yet;
+    # a successful multipart upload records the combined cert+key PEM here so a
+    # test can assert the bytes actually arrived. Not part of any SNMP/NSDP
+    # projection -- purely a record of what the web-UI upload received.
+    uploaded_cert: str | None = None
     # dot1dBaseBridgeAddress wire quirk: VERIFIED on the real M4300-24X (see
     # protocols/snmp/parse.py::_mac_from_ascii_text) -- that firmware answers
     # this scalar as a 17-character ASCII colon-hex STRING ("XX:XX:..:XX")
