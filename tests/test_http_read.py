@@ -486,12 +486,14 @@ def _gsm7252ps_pages() -> dict[str, str]:
     }
 
 
-def test_gsm7252ps_reads_refused_until_live_verified() -> None:
-    """The shipped spec says reads_verified=False (the parsers are grounded in
-    captures, but the live HTTP<->SNMP cross-verify has not run), so the reader
-    must refuse to construct rather than serve unverified scrapes."""
+def test_http_reader_refuses_unverified_model() -> None:
+    """The reads_verified gate: a model whose HTTP reads are NOT verified
+    (gsm7228ps -- CHEETAH_FORM login proven, but no read pages captured and no
+    cross-verify) must refuse to construct an HttpReader rather than serve
+    unverified scrapes. gsm7252ps used to sit here; it graduated once its reads
+    were live cross-verified (see test_gsm7252ps_every_read_op_is_served_over_http)."""
     with pytest.raises(UnsupportedCapabilityError):
-        HttpReader(_FakeSession(_gsm7252ps_pages()), get_model("gsm7252ps"))
+        HttpReader(_FakeSession({}), get_model("gsm7228ps"))
 
 
 def test_gsm7252ps_every_read_op_is_served_over_http() -> None:

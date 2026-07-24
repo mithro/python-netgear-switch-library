@@ -31,10 +31,12 @@ def test_http_reads_supported() -> None:
     assert http_reads_supported(get_model("gs305ep")) is True    # NSDP+HTTP, grounded
     assert http_reads_supported(get_model("gsm7228ps")) is False  # SNMP-authoritative
     assert http_reads_supported(get_model("gs110emx")) is True    # Gambit, grounded
-    # gsm7252ps HAS an HTTP backend whose parsers are fixture-grounded, but its
-    # reads are not LIVE cross-verified yet (reads_verified=False), so HTTP
-    # stays out of read dispatch until that runs -- SNMP remains authoritative.
-    assert http_reads_supported(get_model("gsm7252ps")) is False
+    # gsm7252ps HTTP reads are fixture-grounded AND live HTTP<->SNMP
+    # cross-verified on 10.1.5.22 (reads_verified=True), so HTTP is a valid
+    # read backend. SNMP still stays authoritative for the ops it serves via
+    # the per-op backend preference; this flag only gates whether HTTP MAY be
+    # used, which it now may.
+    assert http_reads_supported(get_model("gsm7252ps")) is True
 
 
 def test_build_sync_http_client_requires_password() -> None:

@@ -94,13 +94,13 @@ def test_gsm7252ps_spec_xe_fastpath() -> None:
     """gsm7252ps HTTP: the CHEETAH_FORM login (uname+pwd -> SID cookie) was
     validated LIVE on 10.1.5.22, so scheme_verified is True. The read pages
     live at the ROOT prefix (not /base/, not /v1/) and are grounded in real
-    captures (tests/fixtures/http/gsm7252ps_*.html) -- but reads_verified
-    stays False until the live HTTP<->SNMP cross-verify runs against the
-    switch itself."""
+    captures (tests/fixtures/http/gsm7252ps_*.html). reads_verified is True:
+    the HTTP reader output was cross-verified against SNMP on the live switch
+    (ports/PVIDs match, mgmt-IP exact match, all read ops return real data)."""
     spec = http_spec(get_model("gsm7252ps"))
     assert spec.scheme is LoginScheme.CHEETAH_FORM
     assert spec.scheme_verified is True
-    assert spec.reads_verified is False
+    assert spec.reads_verified is True
     assert spec.login_path == "/base/cheetah_login.html"
     assert spec.username_field == "uname"
     assert spec.username == "admin"
