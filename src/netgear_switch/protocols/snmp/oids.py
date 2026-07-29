@@ -42,6 +42,16 @@ DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"
 DOT1Q_VLAN_STATIC_ROW_STATUS = "1.3.6.1.2.1.17.7.1.4.3.1.5"  # dot1qVlanStaticRowStatus
 ROW_STATUS_CREATE_AND_GO = 4  # RowStatus createAndGo
 ROW_STATUS_DESTROY = 6        # RowStatus destroy
+# ENTITY-MIB entPhysicalTable columns (RFC 4133/2737). Some Netgear agents
+# (verified: the GS728TPP, whose SNMP agent implements ZERO 4526 vendor OIDs)
+# expose their fan/PSU sensor components ONLY as this standard physical
+# inventory -- entPhysicalClass says what a row is, entPhysicalName/Descr name
+# it -- with NO live status/value anywhere in SNMP. See parse_entity_sensors.
+ENT_PHYSICAL_DESCR = "1.3.6.1.2.1.47.1.1.1.1.2"
+ENT_PHYSICAL_CLASS = "1.3.6.1.2.1.47.1.1.1.1.5"   # int enum; 6=powerSupply,7=fan
+ENT_PHYSICAL_NAME = "1.3.6.1.2.1.47.1.1.1.1.7"
+ENT_CLASS_POWER_SUPPLY = 6
+ENT_CLASS_FAN = 7
 # columns 5=chassis,7=portId,8=portDesc,9=sysName
 LLDP_REM_TABLE = "1.0.8802.1.1.2.1.4.1"
 # RFC3621; col3=admin, col6=detect
@@ -93,6 +103,19 @@ class VendorOids:
     force-gated and documented UNVERIFIED); they exist so the mutable mock and
     the writer agree under test, mirroring the ``dhcp_mode_unverified``
     precedent above. No call site may hard-code these literals."""
+
+
+def has_vendor_oids(model: SwitchModel) -> bool:
+    """True when this model's SNMP agent implements the Netgear vendor OID
+    subtree (``snmp_vendor_base`` set), so ``vendor_oids`` is safe to call.
+
+    False for a model whose agent serves EVERYTHING via standard MIBs and
+    registers no 4526 vendor OIDs at all (verified: the GS728TPP -- a walk of
+    ``1.3.6.1.4.1.4526`` answers ``noSuchObject``). Such a model's PoE, box
+    sensors and DHCP-mode reads use the standard-MIB code paths in
+    ``snmp_read`` instead of the vendor columns; see there.
+    """
+    return model.snmp_vendor_base is not None
 
 
 def unimplemented_roots(model: SwitchModel) -> list[str]:

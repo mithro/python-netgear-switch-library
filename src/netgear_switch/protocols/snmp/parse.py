@@ -567,6 +567,51 @@ def parse_box_sensors(
     return result
 
 
+def parse_entity_sensors(
+    class_rows: Sequence[SnmpRow],
+    name_rows: Sequence[SnmpRow],
+    descr_rows: Sequence[SnmpRow],
+) -> list[Sensor]:
+    """Build box sensors from the standard ENTITY-MIB physical inventory.
+
+    For a model whose SNMP agent implements NO Netgear vendor OIDs (verified:
+    the GS728TPP), the fan/PSU components are exposed ONLY as ENTITY-MIB
+    ``entPhysicalTable`` rows: ``entPhysicalClass`` (6=powerSupply, 7=fan)
+    identifies each, ``entPhysicalName`` (falling back to ``entPhysicalDescr``)
+    names it. This is INVENTORY ONLY -- the switch exposes NO live sensor
+    value/status anywhere in SNMP (ENTITY-SENSOR-MIB and the vendor tree both
+    answer noSuchObject on real hardware), so each Sensor carries
+    ``value=NaN`` and ``unit="inventory"``: the component is honestly reported
+    as present without a fabricated reading. (HTTP DOES expose a health status
+    for these same components -- that is a real per-backend difference, not a
+    parser bug; see the cross-backend test.)
+
+    Rows are matched by their shared entPhysicalIndex (the trailing OID
+    component). Only powerSupply/fan classes become sensors; chassis/slot/port
+    rows are ignored. A non-integer class value present under the class column
+    is drift and raises SnmpError naming the offending OID.
+    """
+    from . import oids
+
+    names = index_str_column(name_rows, oids.ENT_PHYSICAL_NAME)
+    descrs = index_str_column(descr_rows, oids.ENT_PHYSICAL_DESCR)
+    classes = index_int_column(class_rows, oids.ENT_PHYSICAL_CLASS)
+    kind_of = {
+        oids.ENT_CLASS_POWER_SUPPLY: "power",
+        oids.ENT_CLASS_FAN: "fan",
+    }
+    result: list[Sensor] = []
+    for idx in sorted(classes):
+        kind = kind_of.get(classes[idx])
+        if kind is None:
+            continue
+        name = names.get(idx) or descrs.get(idx) or f"{kind}{idx}"
+        result.append(
+            Sensor(name=name, kind=kind, value=float("nan"), unit="inventory")
+        )
+    return result
+
+
 def _ip_str(row: SnmpRow) -> str:
     """Return an IP-valued row's value as ``str``.
 
