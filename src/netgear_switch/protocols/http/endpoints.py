@@ -198,7 +198,14 @@ class HttpModelSpec:
     # http_write.CERT_UPLOAD_KNOWN_UNIMPLEMENTED).
     cert_upload_path: str | None = None
     cert_upload_file_field: str | None = None
-    cert_upload_form_fields: Mapping[str, str] = MappingProxyType({})
+    # default_factory (not a bare MappingProxyType default): Python 3.11's
+    # dataclass rejects an unhashable mappingproxy as a field default
+    # ("mutable default ... use default_factory"); 3.12 tolerated it, which is
+    # why local 3.12 runs missed it. The factory keeps the empty-immutable-map
+    # default while staying 3.11-compatible.
+    cert_upload_form_fields: Mapping[str, str] = dataclasses.field(
+        default_factory=lambda: MappingProxyType({})
+    )
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
