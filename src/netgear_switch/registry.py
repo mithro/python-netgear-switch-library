@@ -199,31 +199,30 @@ _MODELS: dict[str, SwitchModel] = {
             # the product name's "28" port count and Gigabit PoE+ line
             # convention, not a capture).
             #
-            # HTTP backend deliberately OMITTED even though this model's
-            # web UI is real and reachable: certbot-hook-netgear-switches/
-            # netgear-updater.py's GS728TPPUpdater (grounded prior art) shows
-            # GS728TPP uses a THIRD, distinct login scheme -- a GET / redirect
-            # to a per-session path, then GET {path}/System.xml?action=login&
-            # user=...&password=... (not a POST), with userStatus/usernme/
-            # sessionID cookies set from the response rather than via a
-            # normal Set-Cookie login POST. That is neither MERGE_HASH_CGI,
-            # GAMBIT, nor CHEETAH_FORM (registry.protocols.http.endpoints
-            # .LoginScheme), and transport/http/client.py's login() only
-            # knows how to drive those three. Registering Backend.HTTP here
-            # without real scheme/transport support would either (a) fail
-            # tests/protocols/http/test_endpoints.py::
-            # test_every_http_model_has_a_spec, or (b) force picking an
-            # existing (wrong) LoginScheme and have login() attempt a
-            # garbage POST against a real switch -- both dishonest. Wiring
-            # in a real LoginScheme.XML_API is a dedicated future slice, not
-            # a registry-only change. SNMP-only here is sufficient for
-            # gdoc2netcfg's SyncSwitch construction; only the SNMP vendor
-            # OID family is UNVERIFIED-pending-capture.
+            # HTTP backend NOW IMPLEMENTED (was deliberately omitted). This
+            # model's web UI uses a THIRD, distinct login scheme --
+            # LoginScheme.XML_API, the GoAhead ``wcd`` XML API: a GET /
+            # redirect to a per-session path, then GET {path}/System.xml?
+            # action=login&user=...&password=... (not a POST) yielding
+            # <statusCode>0</statusCode> + a sessionID response header, with
+            # userStatus/usernme/sessionID cookies set from that response.
+            # Grounded in certbot-hook-netgear-switches/netgear-updater.py's
+            # GS728TPPUpdater AND real captures of the live switch 10.2.5.10;
+            # transport/http/client.py's login() now drives it and
+            # protocols/http/endpoints.py::_GS728TPP carries the wcd read
+            # queries (HtmlDialect.GOAHEAD_XML). The web reads are
+            # reads_verified=False pending a live HTTP<->SNMP cross-verify, so
+            # HttpReader still refuses to serve them until then.
+            #
+            # Only the SNMP vendor OID family remains UNVERIFIED-pending-capture
+            # (verified=False), hence the flag stays False; get_stats over HTTP
+            # is honestly UnsupportedCapabilityError (per-port stats are
+            # SNMP-only on this UI).
             "GS728TPP",
             SwitchClass.SMART_MANAGED_PRO,
             28,
             24,
-            {Backend.SNMP},
+            {Backend.SNMP, Backend.HTTP},
             _SMP,
             verified=False,
         ),

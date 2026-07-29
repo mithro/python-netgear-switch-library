@@ -74,6 +74,14 @@ class LoginScheme(enum.Enum):
     GAMBIT = "gambit"                   # EMx merge-hash + token (gs110emx) — GROUNDED
     CHEETAH_FORM = "cheetah_form"       # Pro/S3300 (gsm7228ps) — plaintext form
     CHEETAH_V1 = "cheetah_v1"           # M4300 /v1 — uname+pwd + Referer CSRF
+    # GS728TPP GoAhead XML-API (grounded in certbot-hook GS728TPPUpdater): a
+    # THREE-step handshake, not a form POST -- GET / returns a 302 redirect to a
+    # per-session path, then a GET of ``<sess>/System.xml?action=login&user=..&
+    # password=..`` returns ``<statusCode>0</statusCode>`` and a ``sessionID``
+    # RESPONSE HEADER (never a Set-Cookie), which the client then sets as the
+    # ``sessionID`` cookie alongside ``userStatus=ok``/``usernme=<user>``. Every
+    # subsequent read is a GET under that session path (see transport client).
+    XML_API = "xml_api"
 
 
 class HtmlDialect(enum.Enum):
@@ -99,6 +107,15 @@ class HtmlDialect(enum.Enum):
     # a FASTPATH/XE trait -- but it is so far VALIDATED ONLY against gsm7252ps
     # captures; another XE model's column maps must be re-checked, not assumed.
     XE_FASTPATH = "xe_fastpath"
+    # GS728TPP GoAhead ``wcd`` XML API (real captures, tmp/gs728tpp_ground_truth
+    # .json): every read is a ``GET <sess>/wcd?{file=/path/X.xml}{Object}..``
+    # whose response is a template of ``BIND=`` placeholders followed by a
+    # trailing ``<DeviceConfiguration>`` data block of ``<Object type="section">``
+    # elements (scalars, or repeated ``<Interface>``/``<Entry>``/``<VLAN>`` rows).
+    # The parsers extract ONLY that data block and read it as XML -- see
+    # parse.parse_goahead_*. Structured XML, NOT the HTML-scraping the other
+    # dialects do.
+    GOAHEAD_XML = "goahead_xml"
 
 
 @dataclass(frozen=True)
@@ -139,6 +156,15 @@ class HttpModelSpec:
     # ``None`` means this model has no such HTTP page (gs305ep/gsm7228ps
     # read this via NSDP/SNMP instead).
     sysinfo_path: str | None = None
+    # Dedicated management-IP query, for a model whose mgmt-IP lives on a
+    # DIFFERENT page than ``sysinfo_path``. On the GS728TPP GoAhead API the
+    # ``sysinfo_path`` wcd query serves device identity + box sensors, but the
+    # IPv4 interface/gateway config is a SEPARATE ``IPConf_master.xml`` wcd
+    # query -- so ``get_mgmt_ip`` reads this field instead of ``sysinfo_path``
+    # for the GOAHEAD_XML dialect. ``None`` (the default) means mgmt-IP is read
+    # from ``sysinfo_path`` (every other model), or is unsupported when that is
+    # ``None`` too.
+    mgmt_ip_path: str | None = None
     # Which HTML family this model's read pages use -- see HtmlDialect. Selects
     # the ports/stats/PVID/VLAN-list parser set. Defaults to the gs305ep CGI
     # shape every model but gs110emx uses.
@@ -443,10 +469,82 @@ _GSM7252PS = HttpModelSpec(
     html_dialect=HtmlDialect.XE_FASTPATH,
 )
 
+# gs728tpp (Smart Managed Pro, 28-port/24-PoE+, SNMP+HTTP). The LOGIN is the
+# GoAhead XML API (LoginScheme.XML_API), GROUNDED in
+# certbot-hook-netgear-switches/netgear-updater.py's GS728TPPUpdater AND in real
+# captures of the live switch 10.2.5.10 (tmp/gs728tpp_ground_truth.json): GET /
+# 302-redirects to a per-session path, GET ``<sess>/System.xml?action=login&
+# user=admin&password=..`` returns ``<statusCode>0</statusCode>`` + a sessionID
+# response header, and every read is a GET ``<sess>/wcd?{file=..}{Object}..``
+# returning a ``<DeviceConfiguration>`` XML data block -- so scheme_verified is
+# True. The read PARSERS are grounded in those same captures but have NOT yet
+# been live cross-verified against SNMP, so reads_verified is False (the honesty
+# gate keeps HttpReader refusing to construct until the live cross-verify flips
+# it -- exactly as gsm7252ps did before its own verify).
+#
+# The read-op "paths" are the wcd QUERIES (the transport prefixes the captured
+# session path); the HTML dialect is GOAHEAD_XML. get_mgmt_ip reads a SEPARATE
+# IPConf wcd query (mgmt_ip_path), since sysinfo_path here serves device
+# identity + box sensors. stats_path is None: per-port statistics are behind an
+# unresolvable JS nav indirection on this UI (SwitchStatistics.htm is CPU-only),
+# so get_stats honestly raises UnsupportedCapabilityError -- SNMP is the source
+# for per-port counters on this model.
+_GS728TPP = HttpModelSpec(
+    model_key="gs728tpp",
+    scheme=LoginScheme.XML_API,
+    scheme_verified=True,
+    login_path="/",
+    password_field="password",
+    username_field="user",
+    username="admin",
+    cookie_name="sessionID",
+    needs_rand=False,
+    dashboard_path=(
+        "wcd?{file=/Switching/Ports/portConfiguration_master_jq.htm}"
+        "{Standard802_3List}"
+    ),
+    stats_path=None,  # per-port stats unavailable via HTTP -> get_stats raises
+    sysinfo_path=(
+        "wcd?{file=/System/Management/SystemInfo_master_745.xml}"
+        "{DeviceBasicInfo}{TimeSetting}{DiagnosticsUnitList}"
+    ),
+    mgmt_ip_path=(
+        "wcd?{file=/System/Management/IPConf_master.xml}"
+        "{IPv4InterfaceList}{IPv4GatewayList}"
+    ),
+    poe_config_path=None,
+    poe_status_path=(
+        "wcd?{file=/System/PoE/PoeInterfaceConf_master.xml}{PoEPSEInterfaceList}"
+    ),
+    vlan_config_path=(
+        "wcd?{file=/Switching/VLAN/VlanConfBasic_master.xml}{VLANList}"
+    ),
+    # VLAN membership is derived from the per-port JoinVLANList carried inline in
+    # the PVID page (VLANInterfaceList), so there is no separate membership POST.
+    vlan_membership_path=None,
+    pvid_path=(
+        "wcd?{file=/Switching/VLAN/PortPvidConf_master_745.xml}{VLANInterfaceList}"
+    ),
+    mac_table_path=(
+        "wcd?{file=/Switching/Address Table/DynamicAddresses_master.xml}"
+        "{ForwardingTable}"
+    ),
+    lldp_path=(
+        "wcd?{file=/System/LLDP/NeighborsInformation_master.xml}"
+        "{LLDPMEDNeighborList}"
+    ),
+    reboot_path=None,
+    logout_path=None,
+    is_epx_poe=False,
+    reads_verified=False,  # pending live HTTP<->SNMP cross-verify (10.2.5.10)
+    html_dialect=HtmlDialect.GOAHEAD_XML,
+)
+
 _SPECS: dict[str, HttpModelSpec] = {
     s.model_key: s
     for s in (
         _GS305EP, _GS110EMX, _GSM7228PS, _GS105PE, _M4300, _M4300_16X, _GSM7252PS,
+        _GS728TPP,
     )
 }
 

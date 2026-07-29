@@ -31,6 +31,7 @@ Two different failure shapes are deliberate:
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ElementTree
 from html import unescape
 
 from ...errors import HttpUnexpectedPageError
@@ -1599,4 +1600,347 @@ def parse_sysinfo(html: str) -> HttpSysInfo:
         ip_address=fields["IP_ADDRESS"] or "",
         subnet_mask=fields["SUBNET_MASK"] or "",
         gateway_address=fields["GATEWAY_ADDRESS"] or "",
+    )
+
+
+# --- gs728tpp GoAhead ``wcd`` XML API (GOAHEAD_XML dialect) -----------------
+#
+# Every read is a ``GET <sess>/wcd?{file=/path/X.xml}{Object}..`` whose body is
+# a template of ``BIND=`` placeholders followed by a trailing
+# ``<DeviceConfiguration>`` data block of ``<Object type="section">`` elements
+# (scalars, or repeated ``<Interface>``/``<Entry>``/``<VLAN>`` rows). GROUNDED
+# in real captures of the live switch 10.2.5.10 (tmp/gs728tpp_ground_truth.json).
+# Only the data block is parsed -- as XML, via ElementTree; the surrounding
+# template markup is NOT even well-formed XML (unclosed <script>/<link>, a
+# ``class=xui"`` typo), so it is sliced off first rather than parsed.
+#
+# Enum wire codes, read from the pages' own <ENUM> blocks / observed values:
+#   adminState/adminEnable 1=enabled 2=disabled;  linkState 1=up 2=down
+#   taggingMode 1=untagged 2=tagged
+#   PoE detectionStatus 1=Disabled 2=Searching 3=DeliveringPower 4=Fault
+#                       5=Test 6=OtherFault
+#   Diagnostics *Status 1=OK 2=Fail 5=N/A(absent slot)
+_GOAHEAD_PORT_RE = re.compile(r"^g(\d+)$")
+_GOAHEAD_POE_DETECT = {
+    "1": PoEDetect.DISABLED,
+    "2": PoEDetect.SEARCHING,
+    "3": PoEDetect.DELIVERING,
+    "4": PoEDetect.FAULT,
+    "6": PoEDetect.FAULT,  # OtherFault -- still a fault
+}
+# Diagnostics-status codes that mean the slot is ABSENT (unpopulated fan bay,
+# no redundant PSU): reported as nothing, not as a failed sensor.
+_GOAHEAD_ABSENT_STATUS = {"", "5"}
+
+
+def _goahead_data_block(body: str) -> ElementTree.Element:
+    """The parsed ``<DeviceConfiguration>`` element of a wcd response.
+
+    The surrounding template is deliberately NOT parsed (it is not well-formed
+    XML); this slices out just the data block, which IS clean XML. Raises
+    ``HttpUnexpectedPageError`` if the block is absent (the wrong page came
+    back) or malformed.
+
+    XXE/entity-expansion hardening without a new dependency (``defusedxml`` is
+    not a project dependency and the stdlib ``ElementTree`` is mandated):
+    slicing to ``<DeviceConfiguration>`` already excludes the XML prolog where a
+    DTD would live, and any ``<!DOCTYPE``/``<!ENTITY`` appearing INSIDE the data
+    block is rejected outright below -- so a billion-laughs/XXE payload cannot be
+    parsed. (expat resolves no external entities by default, so undefined entity
+    refs simply raise ``ParseError``, which is caught.)"""
+    start = body.find("<DeviceConfiguration>")
+    end = body.find("</DeviceConfiguration>")
+    if start < 0 or end < 0:
+        raise HttpUnexpectedPageError(
+            "wcd response: no <DeviceConfiguration> data block found"
+        )
+    block = body[start : end + len("</DeviceConfiguration>")]
+    if "<!DOCTYPE" in block or "<!ENTITY" in block:
+        raise HttpUnexpectedPageError(
+            "wcd response: DTD/entity declaration in data block rejected"
+        )
+    try:
+        return ElementTree.fromstring(block)
+    except ElementTree.ParseError as exc:
+        raise HttpUnexpectedPageError(
+            f"wcd response: <DeviceConfiguration> is not valid XML: {exc}"
+        ) from exc
+
+
+def _goahead_section(body: str, name: str) -> ElementTree.Element:
+    """The ``<name type="section">`` element of a wcd data block, or raise."""
+    sec = _goahead_data_block(body).find(name)
+    if sec is None:
+        raise HttpUnexpectedPageError(
+            f"wcd response: no <{name}> section (wrong page?)"
+        )
+    return sec
+
+
+def _goahead_port_num(name: str) -> int | None:
+    """``"g24"`` -> 24. A LAG (``"LAG3"``) or any non-physical interface name
+    yields ``None`` so callers skip it rather than mis-attributing it."""
+    m = _GOAHEAD_PORT_RE.match(name.strip())
+    return int(m.group(1)) if m else None
+
+
+def _gtext(el: ElementTree.Element, tag: str) -> str:
+    child = el.find(tag)
+    return (child.text or "").strip() if child is not None else ""
+
+
+def parse_goahead_ports(body: str) -> list[PortStatus]:
+    """GS728TPP ``Standard802_3List`` -> per-port status.
+
+    Only physical ``g<n>`` ports are returned; the page also lists LAG
+    aggregations (``LAG1``..), which are not ports. ``speed_mbps`` is the
+    negotiated ``speedOper`` while the link is up, and honestly ``None`` on a
+    down port (whose ``speedOper`` still reports the configured rate)."""
+    sec = _goahead_section(body, "Standard802_3List")
+    out: list[PortStatus] = []
+    for e in sec.findall("Entry"):
+        port = _goahead_port_num(_gtext(e, "interfaceName"))
+        if port is None:
+            continue  # a LAG/aggregation row, not a physical port
+        link_up = _gtext(e, "linkState") == "1"
+        out.append(
+            PortStatus(
+                port=port,
+                name=_gtext(e, "interfaceName") or None,
+                admin_enabled=_gtext(e, "adminState") == "1",
+                link_up=link_up,
+                speed_mbps=_int(_gtext(e, "speedOper")) if link_up else None,
+                description=_gtext(e, "interfaceDescription") or None,
+            )
+        )
+    if not out:
+        raise HttpUnexpectedPageError(
+            "Standard802_3List: no physical-port Entry rows found"
+        )
+    return out
+
+
+def parse_goahead_pvids(body: str) -> list[tuple[int, int]]:
+    """GS728TPP ``VLANInterfaceList`` -> ``(port, pvid)`` pairs (physical only)."""
+    sec = _goahead_section(body, "VLANInterfaceList")
+    out: list[tuple[int, int]] = []
+    for iface in sec.findall("Interface"):
+        port = _goahead_port_num(_gtext(iface, "interfaceName"))
+        pvid = _int(_gtext(iface, "PVID"))
+        if port is None or pvid is None:
+            continue
+        out.append((port, pvid))
+    if not out:
+        raise HttpUnexpectedPageError(
+            "VLANInterfaceList: no (port, pvid) pair could be parsed"
+        )
+    return out
+
+
+def parse_goahead_vlan_names(body: str) -> dict[int, str | None]:
+    """GS728TPP ``VLANList`` -> ``{vlan_id: name or None}``."""
+    sec = _goahead_section(body, "VLANList")
+    names: dict[int, str | None] = {}
+    for v in sec.findall("VLAN"):
+        vid = _int(_gtext(v, "VLANID"))
+        if vid is None:
+            continue
+        names[vid] = _gtext(v, "VLANName") or None
+    if not names:
+        raise HttpUnexpectedPageError("VLANList: no VLAN row could be parsed")
+    return names
+
+
+def parse_goahead_port_vlan_membership(
+    body: str,
+) -> dict[int, tuple[frozenset[int], frozenset[int]]]:
+    """GS728TPP ``VLANInterfaceList`` -> ``{vlan_id: (tagged, untagged)}``.
+
+    Built from each physical port's inline ``JoinVLANList`` (``taggingMode``
+    1=untagged, 2=tagged), which carries the complete per-port membership --
+    so no separate per-VLAN membership request is needed."""
+    sec = _goahead_section(body, "VLANInterfaceList")
+    tagged: dict[int, set[int]] = {}
+    untagged: dict[int, set[int]] = {}
+    for iface in sec.findall("Interface"):
+        port = _goahead_port_num(_gtext(iface, "interfaceName"))
+        jvl = iface.find("JoinVLANList")
+        if port is None or jvl is None:
+            continue
+        for ve in jvl.findall("VLANEntry"):
+            vid = _int(_gtext(ve, "VLANID"))
+            if vid is None:
+                continue
+            bucket = untagged if _gtext(ve, "taggingMode") == "1" else tagged
+            bucket.setdefault(vid, set()).add(port)
+    return {
+        vid: (frozenset(tagged.get(vid, ())), frozenset(untagged.get(vid, ())))
+        for vid in set(tagged) | set(untagged)
+    }
+
+
+def parse_goahead_vlans(vlans_body: str, membership_body: str) -> list[VLANInfo]:
+    """GS728TPP VLANs: ``VLANList`` names + per-port ``VLANInterfaceList``
+    membership -> full ``VLANInfo`` list (member/tagged/untagged sets)."""
+    names = parse_goahead_vlan_names(vlans_body)
+    membership = parse_goahead_port_vlan_membership(membership_body)
+    out: list[VLANInfo] = []
+    for vid in sorted(set(names) | set(membership)):
+        tagged, untagged = membership.get(vid, (frozenset(), frozenset()))
+        out.append(
+            VLANInfo(
+                vlan_id=vid,
+                name=names.get(vid),
+                member_ports=tagged | untagged,
+                tagged_ports=tagged,
+                untagged_ports=untagged,
+            )
+        )
+    return out
+
+
+def parse_goahead_macs(body: str) -> list[MacEntry]:
+    """GS728TPP ``ForwardingTable`` -> the dynamic MAC/FDB table.
+
+    Only entries learned on a physical ``g<n>`` port are returned; a LAG
+    aggregation carries no port number and is skipped rather than
+    mis-attributed. An empty table is legitimate (a freshly-booted switch)."""
+    sec = _goahead_section(body, "ForwardingTable")
+    out: list[MacEntry] = []
+    for e in sec.findall("Entry"):
+        port = _goahead_port_num(_gtext(e, "interfaceName"))
+        if port is None:
+            continue
+        mac = _gtext(e, "MACAddress").upper()
+        if not _MAC_TEXT_RE.fullmatch(mac):
+            continue
+        out.append(MacEntry(mac=mac, port=port, vlan_id=_int(_gtext(e, "VLANID"))))
+    return out
+
+
+def parse_goahead_poe(body: str) -> list[PoEStatus]:
+    """GS728TPP ``PoEPSEInterfaceList`` -> per-port PoE status.
+
+    ``power_mw`` is ``outputPower`` (the live draw, mW) and ``detect`` maps the
+    ``detectionStatus`` wire code; the ``Test`` code (5) has no RFC3621 detect
+    equivalent and reads UNKNOWN rather than being invented."""
+    sec = _goahead_section(body, "PoEPSEInterfaceList")
+    out: list[PoEStatus] = []
+    for iface in sec.findall("Interface"):
+        port = _goahead_port_num(_gtext(iface, "interfaceName"))
+        if port is None:
+            continue
+        out.append(
+            PoEStatus(
+                port=port,
+                admin_enabled=_gtext(iface, "adminEnable") == "1",
+                detect=_GOAHEAD_POE_DETECT.get(
+                    _gtext(iface, "detectionStatus"), PoEDetect.UNKNOWN
+                ),
+                power_mw=_int(_gtext(iface, "outputPower")),
+            )
+        )
+    if not out:
+        raise HttpUnexpectedPageError(
+            "PoEPSEInterfaceList: no PoE port row could be parsed"
+        )
+    return out
+
+
+def parse_goahead_lldp(body: str) -> list[LLDPNeighbor]:
+    """GS728TPP ``LLDPMEDNeighborList`` -> LLDP neighbours.
+
+    An empty neighbour list is LEGITIMATE (a switch with no neighbours), so
+    this returns ``[]`` rather than raising; ``_goahead_section`` still raises
+    if the whole section is absent (wrong page)."""
+    sec = _goahead_section(body, "LLDPMEDNeighborList")
+    out: list[LLDPNeighbor] = []
+    for ne in sec.findall("NeighborEntry"):
+        port = _goahead_port_num(_gtext(ne, "interfaceName"))
+        if port is None:
+            continue
+        out.append(
+            LLDPNeighbor(
+                local_port=port,
+                remote_sys_name=_gtext(ne, "systemName") or None,
+                remote_port_desc=_gtext(ne, "portDescription") or None,
+                remote_chassis_id=_gtext(ne, "deviceID").upper() or None,
+                remote_port_id=_gtext(ne, "advertisedPortID") or None,
+            )
+        )
+    return out
+
+
+def _goahead_state_sensor(
+    entry: ElementTree.Element, tag: str, name: str, kind: str
+) -> list[Sensor]:
+    """One ``unit="state"`` health-flag Sensor for a Diagnostics status field,
+    or ``[]`` for an absent slot (status 5/blank -- absence is not failure)."""
+    raw = _gtext(entry, tag)
+    if raw in _GOAHEAD_ABSENT_STATUS:
+        return []
+    return [Sensor(name=name, kind=kind, value=1.0 if raw == "1" else 0.0,
+                   unit="state")]
+
+
+def parse_goahead_sensors(body: str) -> list[Sensor]:
+    """GS728TPP ``DiagnosticsUnitList`` -> box sensors.
+
+    Fans and PSUs report a health STATUS code (1=OK), not RPM/watts, so they
+    are emitted as ``unit="state"`` flags (1.0 healthy, 0.0 any other reported
+    state); an absent slot (status 5) is skipped. ``tempSensorValue`` is emitted
+    as a numeric temperature only when it is a positive reading -- a 0 with
+    ``tempSensorStatus`` 2 (this unit's captured value) is not a real reading
+    and is not fabricated as 0 C. SNMP remains the source of real fan RPM / PSU
+    watts on this model."""
+    sec = _goahead_section(body, "DiagnosticsUnitList")
+    entry = sec.find("Entry")
+    if entry is None:
+        return []
+    out: list[Sensor] = []
+    for n in range(1, 6):
+        out += _goahead_state_sensor(entry, f"fan{n}Status", f"Fan{n}", "fan")
+    out += _goahead_state_sensor(entry, "mainPSStatus", "Main PS", "power")
+    out += _goahead_state_sensor(
+        entry, "redundantPSStatus", "Redundant PS", "power"
+    )
+    temp = _int(_gtext(entry, "tempSensorValue"))
+    if temp is not None and temp > 0:
+        out.append(
+            Sensor(name="Temperature", kind="temperature", value=float(temp),
+                   unit="C")
+        )
+    return out
+
+
+def parse_goahead_mgmt_ip(body: str) -> MgmtIpConfig:
+    """GS728TPP ``IPConf_master.xml`` -> management IP + gateway.
+
+    ``IPv4InterfaceList/ifEntry`` carries the address/netmask (on the mgmt VLAN
+    interface) and ``IPv4GatewayList/GWEntry`` the default gateway. The page
+    carries no DHCP/static indicator and no base MAC (that is on the SystemInfo
+    page), so ``mode`` is UNKNOWN and ``base_mac`` is None rather than guessed."""
+    root = _goahead_data_block(body)
+    addr = netmask = gateway = None
+    iface_list = root.find("IPv4InterfaceList")
+    if iface_list is not None:
+        ent = iface_list.find("ifEntry")
+        if ent is not None:
+            addr = _gtext(ent, "IPAddr") or None
+            netmask = _gtext(ent, "subnetMask") or None
+    gw_list = root.find("IPv4GatewayList")
+    if gw_list is not None:
+        ge = gw_list.find("GWEntry")
+        if ge is not None:
+            gateway = _gtext(ge, "IPAddr") or None
+    if addr is None and gateway is None:
+        raise HttpUnexpectedPageError(
+            "IPConf: no IPv4 interface address or gateway found"
+        )
+    return MgmtIpConfig(
+        mode=IpMode.UNKNOWN,
+        address=addr,
+        netmask=netmask,
+        gateway=gateway,
+        base_mac=None,
     )

@@ -455,3 +455,110 @@ def test_parse_xe_sysinfo_parsers_reject_malformed_page() -> None:
     assert parse.parse_xe_sensors(_MALFORMED) == []
     with pytest.raises(HttpUnexpectedPageError):
         parse.parse_xe_mgmt_ip(_MALFORMED)
+
+
+# --- gs728tpp GoAhead ``wcd`` XML API: all tests below are grounded in REAL ---
+# --- captures of the live switch 10.2.5.10 (tests/fixtures/http/gs728tpp_*.xml, ---
+# --- transcribed from tmp/gs728tpp_ground_truth.json). ---
+
+def test_goahead_ports() -> None:
+    ports = {p.port: p for p in parse.parse_goahead_ports(_read("gs728tpp_ports.xml"))}
+    # 28 physical ports (g1..g28); the 8 LAG rows are not ports
+    assert set(ports) == set(range(1, 29))
+    # g1 is admin-up but link-down -> speed honestly None
+    assert ports[1].admin_enabled is True
+    assert ports[1].link_up is False
+    assert ports[1].speed_mbps is None
+    # g2 link-up at 1000; g5 link-up at 100
+    assert ports[2].link_up is True
+    assert ports[2].speed_mbps == 1000
+    assert ports[5].speed_mbps == 100
+    assert ports[1].name == "g1"
+
+
+def test_goahead_pvids() -> None:
+    pvids = dict(parse.parse_goahead_pvids(_read("gs728tpp_pvids_membership.xml")))
+    assert len(pvids) == 28
+    assert pvids[1] == 10
+    assert pvids[3] == 5
+    assert pvids[2] == 1
+
+
+def test_goahead_vlans() -> None:
+    membership = _read("gs728tpp_pvids_membership.xml")
+    vlans = {v.vlan_id: v for v in parse.parse_goahead_vlans(
+        _read("gs728tpp_vlans.xml"), membership
+    )}
+    assert set(vlans) == {1, 2, 3, 5, 6, 7, 10, 20, 31, 41, 90, 99}
+    assert vlans[5].name == "net"
+    # VLAN 5 (net): ports 3/5/12/23 are untagged (their PVID), the rest tagged
+    assert vlans[5].untagged_ports == frozenset({3, 5, 12, 23})
+    assert {3, 5, 12, 23} <= vlans[5].member_ports
+    assert vlans[5].tagged_ports == vlans[5].member_ports - vlans[5].untagged_ports
+    # VLAN 3 (Auto Video) has no members
+    assert vlans[3].member_ports == frozenset()
+
+
+def test_goahead_macs() -> None:
+    macs = parse.parse_goahead_macs(_read("gs728tpp_macs.xml"))
+    assert macs, "expected dynamic MAC entries"
+    # every entry is a physical port and an uppercased MAC
+    for m in macs:
+        assert 1 <= m.port <= 28
+        assert m.mac == m.mac.upper()
+    by = {(m.mac, m.port, m.vlan_id) for m in macs}
+    assert ("2C:CF:67:BB:49:A1", 2, 1) in by
+
+
+def test_goahead_poe() -> None:
+    poe = {p.port: p for p in parse.parse_goahead_poe(_read("gs728tpp_poe.xml"))}
+    assert set(poe) == set(range(1, 25))  # 24 PoE+ ports
+    assert poe[1].admin_enabled is True
+    assert poe[1].detect is PoEDetect.SEARCHING  # detectionStatus 2
+    assert poe[1].power_mw == 0
+
+
+def test_goahead_lldp() -> None:
+    lldp = {n.local_port: n for n in parse.parse_goahead_lldp(_read("gs728tpp_lldp.xml"))}
+    assert set(lldp) == {2, 24, 26, 28}
+    assert lldp[2].remote_sys_name == "reterm1"
+    assert lldp[2].remote_chassis_id == "2C:CF:67:BB:49:A1"
+    # port-id is kept verbatim (as the XE parser does); only chassis-id is upper
+    assert lldp[2].remote_port_id == "2c:cf:67:bb:49:a1"
+    assert lldp[2].remote_port_desc == "eth0"
+
+
+def test_goahead_sensors() -> None:
+    sensors = {(s.kind, s.name): s for s in parse.parse_goahead_sensors(
+        _read("gs728tpp_device_info_and_sensors.xml")
+    )}
+    # fan1/fan2 report OK; fan3-5 are absent (status 5) and skipped
+    assert sensors[("fan", "Fan1")].value == 1.0
+    assert sensors[("fan", "Fan2")].value == 1.0
+    assert ("fan", "Fan3") not in sensors
+    assert sensors[("fan", "Fan1")].unit == "state"
+    # PSU health flags
+    assert sensors[("power", "Main PS")].value == 1.0
+    # tempSensorValue is 0 on this unit -> no fabricated 0 C reading
+    assert not [s for (k, _n), s in sensors.items() if k == "temperature"]
+
+
+def test_goahead_mgmt_ip() -> None:
+    mgmt = parse.parse_goahead_mgmt_ip(_read("gs728tpp_mgmt_ip.xml"))
+    assert mgmt.address == "10.2.5.10"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.gateway == "10.2.5.1"
+    assert mgmt.mode is IpMode.UNKNOWN
+    assert mgmt.base_mac is None  # MAC is on the SystemInfo page, not here
+
+
+def test_goahead_rejects_wrong_page_and_dtd() -> None:
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_goahead_ports("<html>not a wcd response</html>")
+    # a DTD/entity payload inside the data block is rejected outright
+    evil = (
+        '<DeviceConfiguration><!DOCTYPE x [<!ENTITY a "b">]>'
+        "<Standard802_3List/></DeviceConfiguration>"
+    )
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_goahead_ports(evil)

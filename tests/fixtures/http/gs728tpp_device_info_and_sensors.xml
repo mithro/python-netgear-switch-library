@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResponseData>
+<MASTER ONLOAD="getRegistrationStatus(false);SystemInformation.addKeyEvent();SystemInformation.hideStack();SystemInformation.onLoad();">
+<jscript SRC="Behaviour/SystemInformation.js"></jscript>
+<NODE TYPE="NG_buttonsPanel" ONLOAD="NG_buttonsPannel.draw();">
+<NODE ID="Refresh" SRC="images/refresh_on.gif" ONCLICK="oNavigator.navigate(oNavigator.selectedTab)" />
+<NODE ID="Cancel" SRC="images/cancel_off.gif" ONCLICK="cancelBthClick()" />
+<NODE ID="Apply" SRC="images/apply_off.gif" ONCLICK="SystemInformation.BeforeApply();" />
+</NODE>
+<div ID="sysInfo" STYLE="display:none;">
+<screenName>System Information</screenName>
+<screenSection TITLE="System Information" WIDTH="435px" HELP_PRM="180">
+<table CLASS="xuiTableStyle">
+<tr>
+<td CLASS="black10b">System Name</td>
+<td CLASS="black10">
+<inputtext CLASS="xuiInputTextEnabled" VALID_TYPE="109" FIELD_NAME="System Name" BIND="DeviceBasicInfo/deviceName" ID="txtSystemName" MAXLENGTH="160" SUBMIT="true"
+ONCLICK="disableControls(['Cancel','Apply'],false)" ONCHANGE="disableControls(['Cancel','Apply'],false)" />
+</td>
+</tr>
+<tr>
+<td CLASS="black10b">System Location </td>
+<td CLASS="black10">
+<inputtext CLASS="xuiInputTextEnabled" VALID_TYPE="109" FIELD_NAME="System Location" BIND="DeviceBasicInfo/deviceLocation" ID="txtSystemLocation" MAXLENGTH="160" SUBMIT="true"
+ONCLICK="disableControls(['Cancel','Apply'],false)" ONCHANGE="disableControls(['Cancel','Apply'],false)" />
+</td>
+</tr>
+<tr>
+<td CLASS="black10b">System Contact </td>
+<td CLASS="black10">
+<inputtext CLASS="xuiInputTextEnabled" VALID_TYPE="109" FIELD_NAME="System Contact" BIND="DeviceBasicInfo/systemContact" ID="txtSystemContact" MAXLENGTH="160" SUBMIT="true"
+ONCLICK="disableControls(['Cancel','Apply'],false)" ONCHANGE="disableControls(['Cancel','Apply'],false)" />
+</td>
+</tr>
+<tr>
+<td CLASS="black10b" oSTYLE="padding-top:8px;padding-bottom:4px;">Serial Number</td>
+<td CLASS="black10" BIND="DeviceBasicInfo/serialNumber" oSTYLE="padding-top:8px;padding-bottom:4px;"></td>
+</tr>
+<tr>
+<td CLASS="black10b" oSTYLE="padding-top:8px;padding-bottom:4px;">System Object ID </td>
+<td CLASS="black10" BIND="DeviceBasicInfo/systemObjectID" oSTYLE="padding-top:8px;padding-bottom:4px;"></td>
+</tr>
+<tr>
+<td CLASS="black10b" oSTYLE="padding-bottom:4px;">Date &amp; Time </td>
+<td CLASS="black10" BIND="DeviceBasicInfo/currentLocalTime" ID="txtsystemTime" oSTYLE="padding-bottom:4px;"
+ONLOAD="SystemInformation.date_format('txtsystemTime')"></td>
+</tr>
+<tr>
+<td CLASS="black10b" oSTYLE="padding-bottom:4px;">System Up Time </td>
+<td CLASS="black10" BIND="DeviceBasicInfo/systemUpTime" ID="txtsystemUpTime" oSTYLE="padding-bottom:4px;"
+ONLOAD="SystemInformation.convertSystemUpTime('txtsystemUpTime')"></td>
+</tr>
+<tr>
+<td CLASS="black10b" oSTYLE="padding-bottom:4px;">Base MAC Address </td>
+<td CLASS="black10CAPS" oSTYLE="padding-bottom:4px;" BIND="DeviceBasicInfo/MacAddre"></td>
+</tr>
+<tr>
+<td CLASS="black10b" oSTYLE="padding-top:8px;padding-bottom:4px;">Fan Status</td>
+<td CLASS="black10" oSTYLE="padding-top:8px;padding-bottom:4px;" BIND="DiagnosticsUnitList/Entry/fan1Status" ENUM="true"></td>
+</tr>
+</table>
+</screenSection>
+<div ID="div2">
+<screenSection TITLE="Versions" WIDTH="435px" HELP_PRM="180" >
+<table ID="table2" CLASS="xuiTableStyle">
+<thead>
+<th CLASS="tableFieldTitleFirstCol">Model Name</th>
+<th CLASS="tableFieldTitle2">Boot Version</th>
+<th CLASS="tableFieldTitle2">Software Version</th>
+</thead>
+<tr CLASS="repeated_row">
+<td ID="textName" CLASS="messageTableBorderFirstCol" ENUM="true" BIND="DeviceBasicInfo/model" ></td>
+<td CLASS="messageTableBorder" BIND="DeviceBasicInfo/bootVersion" />
+<td CLASS="messageTableBorder" BIND="DeviceBasicInfo/firmwareVersion" />
+</tr>
+</table>
+</screenSection>
+</div>
+</div>
+<hidden ID="checkMBS" ONLOAD="SystemInformation.checkMBS()" />
+<ENUM>
+<currentUnitId>
+<NODE VALUE="0">Standalone</NODE>
+<NODE VALUE="1">Stack</NODE>
+</currentUnitId>
+<TimeZoneID>
+<NODE VALUE="1">GMT-12:00</NODE>
+<NODE VALUE="2">GMT-11:00</NODE>
+<NODE VALUE="3">GMT-10:00</NODE>
+<NODE VALUE="4">GMT-9:00</NODE>
+<NODE VALUE="5">GMT-8:00</NODE>
+<NODE VALUE="6">GMT-7:00</NODE>
+<NODE VALUE="9">GMT-6:00</NODE>
+<NODE VALUE="13">GMT-5:00</NODE>
+<NODE VALUE="16">GMT-4:00</NODE>
+<NODE VALUE="19">GMT-3:30</NODE>
+<NODE VALUE="20">GMT-3:00</NODE>
+<NODE VALUE="23">GMT-2:00</NODE>
+<NODE VALUE="24">GMT-1:00</NODE>
+<NODE VALUE="27">GMT 0:00</NODE>
+<NODE VALUE="28">GMT+1:00</NODE>
+<NODE VALUE="33">GMT+2:00</NODE>
+<NODE VALUE="39">GMT+3:00</NODE>
+<NODE VALUE="43">GMT+3:30</NODE>
+<NODE VALUE="44">GMT+4:00</NODE>
+<NODE VALUE="46">GMT+4:30</NODE>
+<NODE VALUE="48">GMT+5:00</NODE>
+<NODE VALUE="49">GMT+5:30</NODE>
+<NODE VALUE="50">GMT+5:45</NODE>
+<NODE VALUE="52">GMT+6:00</NODE>
+<NODE VALUE="54">GMT+6:30</NODE>
+<NODE VALUE="55">GMT+7:00</NODE>
+<NODE VALUE="57">GMT+8:00</NODE>
+<NODE VALUE="62">GMT+9:00</NODE>
+<NODE VALUE="65">GMT+9:30</NODE>
+<NODE VALUE="67">GMT+10:00</NODE>
+<NODE VALUE="72">GMT+11:00</NODE>
+<NODE VALUE="73">GMT+12:00</NODE>
+<NODE VALUE="75">GMT+13:00</NODE>
+</TimeZoneID>
+<model>
+<Node VALUE="163">GS728TP</Node>
+<Node VALUE="164">GS728TPP</Node>
+<Node VALUE="165">GS752TP</Node>
+<Node VALUE="166">GS752TPP</Node>
+<Node VALUE="167">GS516TP</Node>
+</model>
+<unitModel>
+<Node VALUE="163">GS728TP</Node>
+<Node VALUE="164">GS728TPP</Node>
+<Node VALUE="165">GS752TP</Node>
+<Node VALUE="166">GS752TPP</Node>
+<Node VALUE="167">GS516TP</Node>
+</unitModel>
+<jumboFrameEnabledAfterReset>
+<NODE VALUE="1">Enable</NODE>
+<NODE VALUE="2">Disable</NODE>
+</jumboFrameEnabledAfterReset>
+<jumboFrameEnabled>
+<NODE VALUE="1">Enabled</NODE>
+<NODE VALUE="2">Disabled</NODE>
+</jumboFrameEnabled>
+<fan1Status>
+<NODE VALUE="1">OK</NODE>
+<NODE VALUE="2">Fail</NODE>
+<NODE VALUE="3">Enabled</NODE>
+<NODE VALUE="4">Fail</NODE>
+<NODE VALUE="5">N/A</NODE>
+<NODE VALUE="6">Fail</NODE>
+</fan1Status>
+</ENUM>
+<TEMPLATES>
+<TEMPLATE API="DeviceBasicInfo" action="">
+<deviceName />
+<deviceLocation />
+<currentLocalTime required="true" />
+<systemContact />
+<systemUpTime />
+<idleTimeout />
+<MacAddre />
+<activeUnitModeAfterReset />
+<serialNumber />
+<firmwareVersion required="true" />
+<systemObjectID />
+<jumboFrameEnabledAfterReset />
+<jumboFrameEnabled />
+<model />
+<deviceDescription />
+<hardwareVersion />
+<firmwareVersion />
+<bootVersion />
+</TEMPLATE>
+<TEMPLATE API="TimeSetting" action="">
+<TimeZone>
+<timeZoneID required="true" />
+</TimeZone>
+</TEMPLATE>
+</TEMPLATES>
+<TEMPLATE API="DiagnosticsUnitList" action="">
+<Entry>
+<fan1Status/>
+</Entry>
+</TEMPLATE>
+<TEMPLATE API="DeviceStackInfo" action="">
+<StackTable>
+<StackTableEntry>
+<unitStackUnit required="true"/>
+<unitSoftwareVersion required="true"/>
+<unitFirmwareVersion required="true"/>
+<unitHardwareVersion/>
+<unitModel/>
+</StackTableEntry>
+</StackTable>
+</TEMPLATE>
+</MASTER>
+
+<DeviceConfiguration>
+<version>1.0</version>
+<DeviceBasicInfo type="section">
+<deviceName>sw-netgear-gs728tpp</deviceName>
+<deviceDescription>24-Port Gigabit Smart Switch with PoE+ and 4 SFP uplinks</deviceDescription>
+<deviceLocation></deviceLocation>
+<systemContact></systemContact>
+<currentLocalTime>07292026  15:43:04</currentLocalTime>
+<systemUpTime>1366421600</systemUpTime>
+<idleTimeout>60</idleTimeout>
+<jumboFrameEnabled>1</jumboFrameEnabled>
+<jumboFrameEnabledAfterReset>1</jumboFrameEnabledAfterReset>
+<MacAddre>b0:39:56:77:54:29</MacAddre>
+<model>164</model>
+<productClass>ManagedSwitch</productClass>
+<manufacturer>Marvell</manufacturer>
+<firmwareVersion>6.0.1.30</firmwareVersion>
+<hardwareVersion> </hardwareVersion>
+<bootVersion>2.0.0.11</bootVersion>
+<serialNumber>3AR476520016D</serialNumber>
+<systemObjectID>1.3.6.1.4.1.4526.100.4.27</systemObjectID>
+</DeviceBasicInfo>
+<TimeSetting type="section">
+<setTimeMode>2</setTimeMode>
+<dayLightSavingMode>3</dayLightSavingMode>
+<CurrentLocalTime>
+<year>2026</year>
+<month>07</month>
+<day>29</day>
+<hour>15</hour>
+<minute>43</minute>
+<second>04</second>
+</CurrentLocalTime>
+<TimeZone>
+<offsetHour>09</offsetHour>
+<offsetMinute>30</offsetMinute>
+<timeZoneID>65</timeZoneID>
+</TimeZone>
+<DayLightSaving>
+</DayLightSaving>
+</TimeSetting>
+<DiagnosticsUnitList type="section">
+<Entry>
+<unitID>1</unitID>
+<mainPSStatus>1</mainPSStatus>
+<redundantPSStatus>1</redundantPSStatus>
+<fan1Status>1</fan1Status>
+<fan2Status>1</fan2Status>
+<fan3Status>5</fan3Status>
+<fan4Status>5</fan4Status>
+<fan5Status>5</fan5Status>
+<tempSensorValue>0</tempSensorValue>
+<tempSensorStatus>2</tempSensorStatus>
+<upTime>1366421600</upTime>
+</Entry>
+</DiagnosticsUnitList>
+</DeviceConfiguration>
+<ActionStatus>
+<requestURL>DiagnosticsUnitList</requestURL>
+<statusCode></statusCode>
+</ActionStatus>
+</ResponseData>

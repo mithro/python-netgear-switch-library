@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResponseData>
+<MASTER ONLOAD="oIPConf.initPage();">
+<jscript SRC="Behaviour/IpConfig.js">
+</jscript>
+<screenName>IP Configuration</screenName>
+<NODE OBJECT="IPConfControls" ONOBJECTINIT="IPConf.create()"
+HDN_IFNAME="hdnIfName" HDN_OWNER="hdnOwner" HDN_GWIP="hdnGWIP"
+RAD_DHCP="rDhcp" RAD_STAT="rSt"
+TXT_IP="txtIp" TXT_MASK="txtMask" TXT_GW="txtGateway" CHK_DEL="chkDelete"
+CMB_VLAN="cmbVLAN"
+/>
+<NODE TYPE="NG_buttonsPanel" ONLOAD="NG_buttonsPannel.draw()">
+<NODE ID="Cancel" SRC="images/cancel_off.gif" ONCLICK="IPConf.cancelBthClickNew()"/>
+<NODE ID="Apply" SRC="images/apply_off.gif" ONCLICK="IPConf.ApplyBtnClick()"/>
+</NODE>
+<inputtext ID="hdnIPAddr" STYLE="display:none;" BIND="IPv4InterfaceList/ifEntry/IPAddr" oSUBMIT="true"></inputtext>
+<inputtext ID="hdnIfName" STYLE="display:none;" BIND="IPv4InterfaceList/ifEntry/interfaceName" SUBMIT="true"></inputtext>
+<inputtext ID="hdnMask" STYLE="display:none;" BIND="IPv4InterfaceList/ifEntry/subnetMask" oSUBMIT="true"></inputtext>
+<inputtext ID="hdnOwner" STYLE="display:none;" BIND="IPv4InterfaceList/ifEntry/owner" SUBMIT="true"></inputtext>
+<inputtext ID="hdnGWIP" STYLE="display:none;" BIND="IPv4GatewayList/GWEntry/IPAddr" oSUBMIT="true"></inputtext>
+<screenSection TITLE="IP Configuration" WIDTH="426px" HELP_PRM="IPConf">
+<table>
+<tr>
+<td CLASS="black10b" COLSPAN="2" >
+<radio oONLOAD="ipConfig.setAppearance()" ID="rDhcp" ONCLICK=" oIPConf.ownerRadioClicked();IPConf.enableButtons();" NAME="addrType"></radio>
+<span>Get Dynamic IP From DHCP Server</span>
+<br/>
+<radio NAME="addrType" ID="rSt" ONCLICK="oIPConf.ownerRadioClicked();IPConf.enableButtons();"></radio>
+<span>Static IP Address </span>
+</td>
+</tr>
+<tr>
+<td CLASS="black10b" STYLE = "WIDTH:180px">IP address</td>
+<td CLASS="black10">
+<inputtext ID="txtIp" BIND="IPv4InterfaceList/ifEntry/IPAddr" SUBMIT="true" FIELD_NAME="IP Address" ONCHANGE="IPConf.enableButtons()" VALID_TYPE="9" MANDATORY="1" STYLE = "width:100px">
+</inputtext>
+</td>
+</tr>
+<tr>
+<td CLASS="black10b">Subnet Mask</td>
+<td CLASS="black10">
+<inputtext ID="txtMask" MANDATORY="1" VALID_TYPE="12" IP_CTR = "txtIp" ONCHANGE="IPConf.enableButtons()" BIND="IPv4InterfaceList/ifEntry/subnetMask" SUBMIT="true" FIELD_NAME="Subnet Mask" STYLE = "width:100px">
+</inputtext>
+</td>
+</tr>
+<tr>
+<td CLASS="black10b">Gateway</td>
+<td CLASS="black10">
+<inputtext VALID_TYPE="9" ID="txtGateway" ONCHANGE = "IPConf.enableButtons()" SUBMIT="true" BIND="IPv4GatewayList/GWEntry/IPAddr" FIELD_NAME="Gateway" STYLE = "width:100px">
+</inputtext>
+<checkbox ID="chkDelete" ONCLICK="IPConf.enableButtons();">
+</checkbox>
+<span CLASS="tableField1">Delete</span>
+</td>
+</tr>
+</table>
+</screenSection>
+<br/>
+<screenSection TITLE="Management VLAN" WIDTH="426px" HELP_PRM="IPConf">
+<table>
+<tr>
+<td CLASS="black10b" STYLE = "WIDTH:180px">Management VLAN ID</td>
+<td>
+<combobox ID="cmbVLAN" LOAD_OPTION_TEXT="VLANList/VLAN/VLANID" LOAD_OPTION_VALUE="VLANList/VLAN/VLANID" ONCHANGE="IPConf.enableButtons();"/>
+</td>
+</tr>
+</table>
+</screenSection>
+<TEMPLATES>
+<TEMPLATE API="IPv4InterfaceList" action="">
+<ifEntry>
+<IPAddr required="true" />
+<interfaceName required="true" />
+<subnetMask required="true" />
+<owner required="true" />
+</ifEntry>
+</TEMPLATE>
+<TEMPLATE API="IPv4GatewayList" action="">
+<GWEntry>
+<IPAddr required="true" />
+<fwdStatus />
+</GWEntry>
+</TEMPLATE>
+<TEMPLATE API="VLANList" action="">
+<VLAN>
+<VLANID />
+<VLANType />
+</VLAN>
+</TEMPLATE>
+</TEMPLATES>
+</MASTER>
+
+<DeviceConfiguration>
+<version>1.0</version>
+<IPv4InterfaceList type="section">
+<ifEntry>
+<interfaceName>VLAN5</interfaceName>
+<IPAddr>10.2.5.10</IPAddr>
+<subnetMask>255.255.255.0</subnetMask>
+<owner>2</owner>
+</ifEntry>
+</IPv4InterfaceList>
+<IPv4GatewayList type="section">
+<GWEntry>
+<IPAddr>10.2.5.1</IPAddr>
+<fwdStatus>1</fwdStatus>
+</GWEntry>
+</IPv4GatewayList>
+</DeviceConfiguration>
+<ActionStatus>
+<requestURL>IPv4GatewayList</requestURL>
+<statusCode></statusCode>
+</ActionStatus>
+</ResponseData>
