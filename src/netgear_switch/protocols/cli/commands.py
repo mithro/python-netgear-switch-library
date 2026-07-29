@@ -5,24 +5,24 @@ records the ``show`` command each read op issues plus the session-setup commands
 (``enable`` + disable output paging), and two honesty flags:
 
 * ``captured`` -- True only for a model with a REAL captured CLI transcript
-  backing its parsers (today only ``gsm7252ps``; see
-  ``tests/fixtures/cli/gsm7252ps_*.txt``). The M4300 pair and gsm7228ps run the
-  identical FASTPATH firmware CLI, so the command set and parsers carry over --
-  but no transcript was captured from those SKUs, so ``captured`` is False and
-  their CLI surface is INHERITED-not-captured, marked exactly like the M4300-16X
-  HTTP spec is.
-* ``reads_verified`` -- True for gsm7252ps (its CLI reader output was live
-  CLI-vs-SNMP cross-verified on 10.1.5.22: ports/PVIDs match, mgmt-IP is an
-  exact match, every read op returns real data). False for the M4300/gsm7228ps
-  SKUs: they share the same grounded FASTPATH parsers but have NOT been
-  live-checked on those models, so the facade refuses to dispatch a read to
-  their CLI backend until someone cross-verifies it against that hardware
+  backing its parsers: ``gsm7252ps`` (see ``tests/fixtures/cli/gsm7252ps_*.txt``)
+  and ``m4300-24x`` (``tests/fixtures/cli/m4300_24x_*.txt``, captured live from
+  10.1.5.13 on 2026-07-29). The M4300-16X and gsm7228ps run the identical
+  FASTPATH firmware CLI, so the command set and parsers carry over -- but no
+  transcript was captured from those SKUs, so ``captured`` is False and their CLI
+  surface is INHERITED-not-captured, marked exactly like the M4300-16X HTTP spec.
+* ``reads_verified`` -- True for gsm7252ps (live CLI-vs-SNMP cross-verified on
+  10.1.5.22) and m4300-24x (live CLI-verified on 10.1.5.13, 2026-07-29: ports/
+  PVIDs/VLANs/MACs/LLDP/sensors/stats/mgmt-IP all correct). False for the
+  M4300-16X and gsm7228ps SKUs: they share the same grounded FASTPATH parsers but
+  have NOT been live-checked on those models, so the facade refuses to dispatch a
+  read to their CLI backend until someone cross-verifies it against that hardware
   (mirroring the HTTP backend's ``reads_verified`` gate). The parsers and the
   mock CLI face are fully exercised in tests regardless of this flag.
 
-All four registered models share ONE command set: FASTPATH's ``show`` grammar is
-identical across the Fully Managed (M4300/GSM7252PS) and Smart Managed Pro
-(GSM7228PS/S3300) lines.
+FASTPATH's ``show`` grammar is nearly identical across the Fully Managed
+(M4300/GSM7252PS) and Smart Managed Pro (GSM7228PS/S3300) lines, but the newer
+M4300 firmware (12.0.13.8) renamed two commands -- see ``_M4300_OVERRIDES``.
 """
 from __future__ import annotations
 
@@ -72,13 +72,35 @@ class CliModelSpec:
         return self.interface_stats_cmd.format(iface=f"1/0/{port}")
 
 
-# gsm7252ps: the ONE model with a real captured transcript (SSH, 10.1.5.22).
+# M4300 FASTPATH 12.0.13.8 renamed two read commands vs the older gsm7252ps
+# image (live-confirmed on 10.1.5.13):
+#   "show vlan brief" -> "show vlan"          ("show vlan brief" is Invalid input)
+#   "show network"    -> "show ip management" ("show network" deprecated)
+# The output formats are otherwise the same fixed-width tables/dotted-leader
+# scalars, so the existing parse_vlan_brief/parse_mgmt_ip parsers apply unchanged.
+_M4300_OVERRIDES = {
+    "vlan_brief_cmd": "show vlan",
+    "network_cmd": "show ip management",
+}
+
+# gsm7252ps: real captured transcript (SSH, 10.1.5.22).
 # reads_verified=True: live CLI<->SNMP cross-verified 2026-07-25 on 10.1.5.22.
 _GSM7252PS = CliModelSpec(model_key="gsm7252ps", captured=True, reads_verified=True)
 
-# INHERITED-not-captured: same FASTPATH CLI image, no SKU-specific transcript.
-_M4300_24X = CliModelSpec(model_key="m4300-24x", captured=False, reads_verified=False)
-_M4300_16X = CliModelSpec(model_key="m4300-16x", captured=False, reads_verified=False)
+# m4300-24x: real captured transcript (10.1.5.13, tests/fixtures/cli/m4300_24x_*).
+# reads_verified=True: live CLI-verified 2026-07-29 on 10.1.5.13 (M4300-24X,
+# FASTPATH 12.0.13.8) -- ports/pvids/vlans/macs/lldp/sensors/stats/mgmt-IP all
+# correct with the two command overrides above.
+_M4300_24X = CliModelSpec(
+    model_key="m4300-24x", captured=True, reads_verified=True, **_M4300_OVERRIDES
+)
+# m4300-16x: INHERITED-not-captured -- same FASTPATH 12.0 image and command
+# overrides, but no live access to that unit, so reads_verified stays False
+# (inherited-not-verified, like the M4300-16X HTTP spec).
+_M4300_16X = CliModelSpec(
+    model_key="m4300-16x", captured=False, reads_verified=False, **_M4300_OVERRIDES
+)
+# gsm7228ps: INHERITED-not-captured, older-image default commands.
 _GSM7228PS = CliModelSpec(model_key="gsm7228ps", captured=False, reads_verified=False)
 
 _SPECS: dict[str, CliModelSpec] = {

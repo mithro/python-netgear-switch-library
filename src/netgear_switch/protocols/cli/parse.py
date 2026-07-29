@@ -512,7 +512,11 @@ def parse_environment(text: str) -> list[Sensor]:
                 unit="RPM",
             )
         )
-    for cells in iter_table_rows(text, after="Power supplies:"):
+    # The PSU sub-table is headed "Power supplies:" on the gsm7252ps image but
+    # "Power Modules:" on M4300 FASTPATH 12.0.13.8; the table columns are
+    # identical, so pick whichever header this firmware prints.
+    psu_after = "Power supplies:" if "Power supplies:" in text else "Power Modules:"
+    for cells in iter_table_rows(text, after=psu_after):
         if len(cells) <= _ENV_PSU_STATE:
             continue
         state = cells[_ENV_PSU_STATE].strip().lower()
@@ -535,15 +539,19 @@ def parse_environment(text: str) -> list[Sensor]:
 def parse_mgmt_ip(text: str) -> MgmtIpConfig:
     """``show network`` -> ``MgmtIpConfig``.
 
-    Label map (``gsm7252ps_show_network.txt``):
+    Label map (``gsm7252ps_show_network.txt`` / ``m4300_24x_show_ip_management``):
       IP Address              -> address
       Subnet Mask             -> netmask
       Default Gateway         -> gateway
       Burned In MAC Address   -> base_mac (uppercased, as the other backends do)
       Configured IPv4 Protocol-> mode (DHCP -> DHCP, else STATIC)
+    ``show network`` labels the mode "Configured IPv4 Protocol"; M4300 12.0's
+    ``show ip management`` labels it "Method" instead -- accept either.
     """
     fields = labelled_values(text)
-    proto = fields.get("Configured IPv4 Protocol", "").strip().upper()
+    proto = (
+        fields.get("Configured IPv4 Protocol") or fields.get("Method") or ""
+    ).strip().upper()
     mode = IpMode.DHCP if proto == "DHCP" else (
         IpMode.STATIC if proto else IpMode.UNKNOWN
     )

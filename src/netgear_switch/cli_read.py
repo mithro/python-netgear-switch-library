@@ -59,11 +59,17 @@ class CliReader:
     def get_stats(self) -> list[PortStats]:
         # FASTPATH has no "all ports" octet-counter command; counters come from
         # a per-port ``show interface ethernet 1/0/<n>``. One round trip per
-        # physical port, in port order.
+        # physical port, in port order. Iterate the ACTUAL physical ports the
+        # switch reports (``show port all``) rather than ``range(1, port_count+1)``:
+        # registry ``port_count`` is a nominal value that can exceed the real
+        # physical-port count (e.g. m4300-24x registry port_count=28 but the
+        # XSM4324CS has only 24 physical ports), which would otherwise issue
+        # doomed queries for phantom ports and fabricate empty PortStats. Deriving
+        # the port list from the port table is correct on any switch.
         out: list[PortStats] = []
-        for port in range(1, self.model.port_count + 1):
-            text = self.session.run(self._spec.interface_stats(port))
-            out.append(parse.parse_interface_counters(text, port))
+        for status in self.get_ports():
+            text = self.session.run(self._spec.interface_stats(status.port))
+            out.append(parse.parse_interface_counters(text, status.port))
         return out
 
     def get_vlans(self) -> list[VLANInfo]:
