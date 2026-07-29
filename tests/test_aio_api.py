@@ -575,6 +575,21 @@ def test_async_switch_plus_model_reads_over_nsdp() -> None:
     asyncio.run(_run())
 
 
+def test_async_upload_certificate_scp_raises_cli_is_synchronous() -> None:
+    """upload_certificate_scp is CLI/SCP-based; the async facade has no CLI
+    backend (CLI is synchronous), so the method EXISTS for API-surface parity
+    with SyncSwitch but honestly raises UnsupportedCapabilityError -- mirroring
+    how async CLI reads/writes are rejected, never a silent AttributeError."""
+    async def _run() -> None:
+        sw = AsyncSwitch(get_model("m4300-16x"), "10.1.5.20")
+        with pytest.raises(UnsupportedCapabilityError, match="synchronous"):
+            await sw.upload_certificate_scp(
+                scp_source="user@host", scp_password="pw", remote_dir="/tmp"
+            )
+
+    asyncio.run(_run())
+
+
 def test_async_switch_plus_set_pvid_over_nsdp() -> None:
     from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
 

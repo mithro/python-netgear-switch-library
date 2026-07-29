@@ -577,3 +577,24 @@ class AsyncSwitch:
         _reject_known_unimplemented_cert_upload(self.model.key)
         require_http_backend(self.model)
         await self._cert_writer().upload_certificate(cert_pem, key_pem, force=force)
+
+    async def upload_certificate_scp(
+        self,
+        *,
+        scp_source: str,
+        scp_password: str,
+        remote_dir: str,
+        chain: bool = False,
+    ) -> None:
+        """Async twin of ``SyncSwitch.upload_certificate_scp`` (FASTPATH SCP cert
+        deploy). The op is CLI/SCP-based, and CLI transports are SYNCHRONOUS --
+        the async facade has no CLI backend (the same reason async CLI reads and
+        writes are unavailable). The method EXISTS for API-surface parity but
+        honestly raises ``UnsupportedCapabilityError`` rather than silently
+        lacking it: use ``SyncSwitch.upload_certificate_scp`` for this op.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: upload_certificate_scp is CLI/SCP-based "
+            "and the async facade has no CLI backend (CLI is synchronous) -- "
+            "use SyncSwitch.upload_certificate_scp"
+        )
