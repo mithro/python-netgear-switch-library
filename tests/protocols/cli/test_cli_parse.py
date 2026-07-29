@@ -165,3 +165,123 @@ def test_ruler_spans_keep_spaces_in_one_cell() -> None:
     # ifIndex still parse correctly around that spaced cell.
     mgmt_row = next(m for m in macs if m.port == 417)
     assert mgmt_row.mac == "E0:91:F5:0C:D6:DB"
+
+
+# ---------------------------------------------------------------------------
+# M4300-24X (FASTPATH 12.0.13.8) real captures, live from 10.1.5.13 2026-07-29.
+# The M4300 firmware renames two commands ("show vlan", "show ip management") and
+# labels a couple of fields differently ("Method", "Power Modules:"), but the
+# table/scalar shapes are the same, so the SAME parsers apply. Every expected
+# value is transcribed from tests/fixtures/cli/m4300_24x_*.txt.
+# ---------------------------------------------------------------------------
+
+
+def _read_m4300(name: str) -> str:
+    return (_FIX / f"m4300_24x_{name}.txt").read_text()
+
+
+def test_m4300_parse_version_identifies_model() -> None:
+    det = parse.parse_version(_read_m4300("show_version"), MODELS)
+    assert det.key == "m4300-24x"
+    assert det.sys_object_id is None
+    assert "M4300-24X" in (det.sys_descr or "")
+
+
+def test_m4300_parse_port_status_24_physical_ports() -> None:
+    ports = {p.port: p for p in parse.parse_port_status(_read_m4300("show_port_all"))}
+    # 24 physical ports; the 128 "lag N" and the "vlan N" pseudo-interfaces are
+    # dropped -- there is no port 25-28.
+    assert set(ports) == set(range(1, 25))
+    assert ports[1].link_up is True
+    assert ports[1].speed_mbps == 10000  # "10G Full"
+    assert ports[3].speed_mbps == 1000
+    # A down port: no negotiated speed -> None.
+    assert ports[4].link_up is False
+    assert ports[4].speed_mbps is None
+    # A "PC Mbr" Type value must not shift the Admin/Link columns.
+    assert ports[21].admin_enabled is True
+    assert ports[21].link_up is True
+    assert ports[21].speed_mbps == 10000
+
+
+def test_m4300_parse_vlan_list_via_show_vlan() -> None:
+    # "show vlan" on 12.0 (not "show vlan brief"): identical table shape.
+    brief = parse.parse_vlan_brief(_read_m4300("show_vlan"))
+    assert [v for v, _ in brief] == [
+        1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141
+    ]
+    assert dict(brief)[1] == "default"
+    assert dict(brief)[90] == "iot"
+
+
+def test_m4300_parse_vlan_detail_membership() -> None:
+    info = parse.parse_vlan_detail(_read_m4300("show_vlan_90"), name="iot")
+    assert info.vlan_id == 90
+    assert info.name == "iot"
+    assert info.tagged_ports == frozenset({1, 2, 5})
+    assert info.untagged_ports == frozenset({6})
+
+
+def test_m4300_parse_pvids_24_ports() -> None:
+    pvids = dict(parse.parse_pvids(_read_m4300("show_vlan_port_all")))
+    assert set(pvids) == set(range(1, 25))
+    assert pvids[1] == 1
+    assert pvids[3] == 5
+    assert pvids[6] == 90
+    assert pvids[24] == 10
+
+
+def test_m4300_parse_mgmt_ip_via_show_ip_management() -> None:
+    # "show ip management" on 12.0 labels the mode "Method" (not "Configured
+    # IPv4 Protocol"); the parser accepts either.
+    mgmt = parse.parse_mgmt_ip(_read_m4300("show_ip_management"))
+    assert mgmt.address == "10.1.5.13"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.gateway == "10.1.5.1"
+    assert mgmt.base_mac == "8C:3B:AD:6B:BB:E0"
+    assert mgmt.mode is IpMode.DHCP
+
+
+def test_m4300_parse_environment_sensors() -> None:
+    sensors = parse.parse_environment(_read_m4300("show_environment"))
+    temps = {s.name: s.value for s in sensors if s.kind == "temperature"}
+    assert temps == {"MAC": 46.0}
+    fans = {s.name: s.value for s in sensors if s.kind == "fan"}
+    assert fans == {"Fan-1": 5280.0, "Fan-2": 4560.0}
+    # PSU sub-table is headed "Power Modules:" on this firmware, not
+    # "Power supplies:" -- still parsed.
+    psus = {s.name: s.value for s in sensors if s.kind == "power"}
+    assert psus == {"Internal AC-1": 1.0}
+
+
+def test_m4300_parse_lldp_neighbours() -> None:
+    nbrs = {n.local_port: n for n in parse.parse_lldp(_read_m4300(
+        "show_lldp_remote_device_all"
+    ))}
+    assert set(nbrs) == {1, 2, 9, 10, 19, 20, 21, 22, 23, 24}  # 10 neighbours
+    assert nbrs[1].remote_chassis_id == "8C:3B:AD:69:1C:38"
+    assert nbrs[1].remote_port_id == "1/0/14"
+    assert nbrs[1].remote_port_desc is None
+
+
+def test_m4300_parse_interface_counters() -> None:
+    stats = parse.parse_interface_counters(
+        _read_m4300("show_interface_ethernet_1_0_1"), port=1
+    )
+    assert stats.port == 1
+    assert stats.rx_bytes == 15294247267585
+    assert stats.tx_bytes == 11908661422462
+    assert stats.rx_packets == 17643540356
+    assert stats.tx_packets == 16762689317
+    assert stats.rx_errors == 6
+    assert stats.tx_errors == 0
+
+
+def test_m4300_parse_mac_table_nonempty() -> None:
+    macs = parse.parse_mac_table(_read_m4300("show_mac_addr_table"))
+    assert len(macs) > 100  # 630+ live entries in the capture
+    # A physical-port entry parses to its ifIndex.
+    first = macs[0]
+    assert first.mac == "02:00:0A:01:01:01"
+    assert first.port == 1
+    assert first.vlan_id == 1
