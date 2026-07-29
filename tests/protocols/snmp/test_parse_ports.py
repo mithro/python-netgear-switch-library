@@ -32,6 +32,21 @@ def test_parse_port_status_joins_admin_oper_speed_name():
     assert ports[1].description is None
 
 
+def test_parse_port_status_down_port_reports_no_speed():
+    # A DOWN port whose ifHighSpeed still advertises the configured rate
+    # (verified real behavior: gsm7252ps down 1/0/52 reports 10000) has NO
+    # operational speed -> None, so the SNMP reader agrees field-for-field with
+    # the web UI's "Unknown"/None for the same port.
+    admin = _rows("1.3.6.1.2.1.2.2.1.7", {1: "1"}, "INTEGER")
+    oper = _rows("1.3.6.1.2.1.2.2.1.8", {1: "2"}, "INTEGER")  # link down
+    speed = _rows("1.3.6.1.2.1.31.1.1.1.15", {1: "10000"}, "Gauge32")
+    names = _rows("1.3.6.1.2.1.31.1.1.1.1", {1: "1/0/52"}, "OCTETSTR")
+
+    ports = parse.parse_port_status(admin, oper, speed, names, [])
+    assert ports[0].link_up is False
+    assert ports[0].speed_mbps is None  # down -> no operational speed
+
+
 def test_parse_port_status_empty_alias_is_none_not_empty_string():
     admin = _rows("1.3.6.1.2.1.2.2.1.7", {1: "1"}, "INTEGER")
     oper = _rows("1.3.6.1.2.1.2.2.1.8", {1: "1"}, "INTEGER")

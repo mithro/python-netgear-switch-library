@@ -115,9 +115,11 @@ def test_parse_entity_sensors_inventory_from_real_capture():
         SnmpRow(f"{descr}.67109249", "Fan", "OCTETSTR"),
     ]
     sensors = parse.parse_entity_sensors(class_rows, name_rows, descr_rows)
+    # Names are canonicalized to the web UI's PS labels (PowerSupply -> PS) so
+    # SNMP and HTTP sensor names are identical.
     assert [(s.name, s.kind, s.unit) for s in sensors] == [
-        ("Main PowerSupply", "power", "inventory"),
-        ("Redundant PowerSupply", "power", "inventory"),
+        ("Main PS", "power", "inventory"),
+        ("Redundant PS", "power", "inventory"),
         ("Fan1", "fan", "inventory"),
         ("Fan2", "fan", "inventory"),
     ]
