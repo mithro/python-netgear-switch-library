@@ -1164,7 +1164,7 @@ def parse_xe_macs(html: str) -> list[MacEntry]:
 #   1_2_22 Temperature
 _XE_POE_IFACE = "1_2_1"
 _XE_POE_ADMIN = "1_2_2"
-_XE_POE_OUTPUT_W = "1_2_15"  # "Output Power" cell; mW or watts by firmware -- see _poe_power_to_mw
+_XE_POE_OUTPUT_W = "1_2_15"  # "Output Power" cell; unit varies -- see _poe_power_to_mw
 _XE_POE_STATUS = "1_2_17"
 
 
