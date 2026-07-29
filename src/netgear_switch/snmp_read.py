@@ -95,10 +95,7 @@ class SnmpReader:
 
     def get_pvids(self) -> list[tuple[int, int]]:
         w = self.client.walk
-        return parse.parse_pvids(
-            w(oids.DOT1Q_PVID), w(oids.IF_TYPE),
-            w(oids.DOT1D_BASE_PORT_IF_INDEX),
-        )
+        return parse.parse_pvids(w(oids.DOT1Q_PVID), w(oids.IF_TYPE))
 
     def get_lldp(self) -> list[LLDPNeighbor]:
         return parse.parse_lldp(self.client.walk(oids.LLDP_REM_TABLE))
@@ -228,10 +225,7 @@ class AsyncSnmpReader:
 
     async def get_pvids(self) -> list[tuple[int, int]]:
         w = self.client.walk
-        return parse.parse_pvids(
-            await w(oids.DOT1Q_PVID), await w(oids.IF_TYPE),
-            await w(oids.DOT1D_BASE_PORT_IF_INDEX),
-        )
+        return parse.parse_pvids(await w(oids.DOT1Q_PVID), await w(oids.IF_TYPE))
 
     async def get_lldp(self) -> list[LLDPNeighbor]:
         return parse.parse_lldp(await self.client.walk(oids.LLDP_REM_TABLE))

@@ -133,15 +133,17 @@ def test_m4300_http_and_snmp_reads_agree() -> None:
         try:
             http_ports = _port_pairs(http.get_ports())
             snmp_ports = _port_pairs(snmp.get_ports())
-            common = set(http_ports) & set(snmp_ports)
-            assert common, "no overlapping ports to compare"
-            for port in sorted(common):
+            # EXACT port-set equality: the mock SNMP face emits ifType, so
+            # get_ports drops the seed's LAG/CPU/VLAN interfaces exactly as the
+            # HTTP page does. (An intersection here previously MASKED the mock's
+            # phantom-port over-report -- see the ifType physical-port filter.)
+            assert set(http_ports) == set(snmp_ports), "port set differs"
+            for port in sorted(http_ports):
                 assert http_ports[port] == snmp_ports[port], f"port {port} differs"
 
             http_pvids, snmp_pvids = dict(http.get_pvids()), dict(snmp.get_pvids())
-            shared = set(http_pvids) & set(snmp_pvids)
-            assert shared
-            for port in sorted(shared):
+            assert set(http_pvids) == set(snmp_pvids), "pvid port set differs"
+            for port in sorted(http_pvids):
                 assert http_pvids[port] == snmp_pvids[port], f"pvid {port} differs"
 
             assert {v.vlan_id for v in http.get_vlans()} == {
@@ -253,15 +255,17 @@ def test_m4300_16x_http_and_snmp_reads_agree() -> None:
         try:
             http_ports = _port_pairs(http.get_ports())
             snmp_ports = _port_pairs(snmp.get_ports())
-            common = set(http_ports) & set(snmp_ports)
-            assert common, "no overlapping ports to compare"
-            for port in sorted(common):
+            # EXACT port-set equality: the mock SNMP face emits ifType, so
+            # get_ports drops the seed's LAG/CPU/VLAN interfaces exactly as the
+            # HTTP page does. (An intersection here previously MASKED the mock's
+            # phantom-port over-report -- see the ifType physical-port filter.)
+            assert set(http_ports) == set(snmp_ports), "port set differs"
+            for port in sorted(http_ports):
                 assert http_ports[port] == snmp_ports[port], f"port {port} differs"
 
             http_pvids, snmp_pvids = dict(http.get_pvids()), dict(snmp.get_pvids())
-            shared = set(http_pvids) & set(snmp_pvids)
-            assert shared
-            for port in sorted(shared):
+            assert set(http_pvids) == set(snmp_pvids), "pvid port set differs"
+            for port in sorted(http_pvids):
                 assert http_pvids[port] == snmp_pvids[port], f"pvid {port} differs"
 
             assert {v.vlan_id for v in http.get_vlans()} == {
@@ -403,20 +407,23 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                 http_ports = _port_pairs(http.get_ports())
                 snmp_ports = _port_pairs(snmp.get_ports())
                 assert len(http_ports) == 52  # physical ports only
-                common = set(http_ports) & set(snmp_ports)
-                assert len(common) == 52
+                # EXACT equality: the mock SNMP face emits ifType, so get_ports
+                # drops the seed's CPU(417)/LAG(418) interfaces exactly as the
+                # web UI does -- no phantom ports. (Was an intersection, which
+                # masked the over-report.)
+                assert set(http_ports) == set(snmp_ports)
                 # STRICT: link AND speed must match field-for-field now. A DOWN
                 # port has no operational speed on EITHER backend -- the SNMP
                 # parser maps a down port's lingering ifHighSpeed to None (see
                 # snmp.parse.parse_port_status), matching the web UI's
                 # "Unknown"->None.
-                for port in sorted(common):
+                for port in sorted(http_ports):
                     assert http_ports[port] == snmp_ports[port], f"port {port}"
 
                 http_pvids, snmp_pvids = dict(http.get_pvids()), dict(snmp.get_pvids())
-                shared = set(http_pvids) & set(snmp_pvids)
-                assert len(shared) == 52
-                for port in sorted(shared):
+                assert set(http_pvids) == set(snmp_pvids)
+                assert len(http_pvids) == 52
+                for port in sorted(http_pvids):
                     assert http_pvids[port] == snmp_pvids[port], f"pvid {port} differs"
 
                 # the once-divergent down port (1/0/52) now agrees on both
@@ -432,7 +439,10 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
 
                 http_stats = {s.port: s for s in http.get_stats()}
                 snmp_stats = {s.port: s for s in snmp.get_stats()}
-                for port in sorted(set(http_stats) & set(snmp_stats)):
+                # EXACT stats port-set equality too: mock SNMP get_stats now
+                # filters non-physical interfaces via ifType (was intersection).
+                assert set(http_stats) == set(snmp_stats)
+                for port in sorted(http_stats):
                     h, s = http_stats[port], snmp_stats[port]
                     assert (h.rx_packets, h.tx_packets) == (s.rx_packets, s.tx_packets)
                     assert h.rx_bytes is None  # this page reports no octets

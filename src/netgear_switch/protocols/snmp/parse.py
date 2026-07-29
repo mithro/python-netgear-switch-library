@@ -281,9 +281,7 @@ def parse_vlans(
 
 
 def parse_pvids(
-    rows: Sequence[SnmpRow],
-    if_types: Sequence[SnmpRow] = (),
-    base_port_ifindex: Sequence[SnmpRow] = (),
+    rows: Sequence[SnmpRow], if_types: Sequence[SnmpRow] = ()
 ) -> list[tuple[int, int]]:
     from . import oids
 
@@ -291,17 +289,15 @@ def parse_pvids(
     physical = _physical_ports(if_types)
     if physical is None:
         return sorted(pvids.items())
-    # DOT1Q_PVID is keyed by dot1dBasePort, but the physical set is keyed by
-    # ifIndex -- distinct number spaces. Translate via dot1dBasePortIfIndex
-    # before testing membership; without that mapping fall back to the FASTPATH
-    # identity (basePort == ifIndex, verified on the M4300) per port so a
-    # missing row never silently drops a real physical PVID.
-    base_map = index_int_column(base_port_ifindex, oids.DOT1D_BASE_PORT_IF_INDEX)
-    items = [
-        (bp, v) for bp, v in pvids.items()
-        if base_map.get(bp, bp) in physical
-    ]
-    return sorted(items)
+    # DOT1Q_PVID is keyed by dot1dBasePort. On every real Netgear switch the
+    # bridge-port and ifIndex spaces COINCIDE for physical ports (SNMP-verified
+    # on the M4300: PVIDs matched the ifIndex physical set with no translation),
+    # so filtering the PVID keys directly against the physical ifIndex set drops
+    # LAG/CPU/VLAN PVIDs correctly. A dot1dBasePortIfIndex translation was tried
+    # but is WRONG here: it couples PVIDs to the independently-populated FDB
+    # base-port map (which can point a physical port's base-port at an unrelated
+    # ifIndex), silently dropping real physical PVIDs.
+    return sorted((bp, v) for bp, v in pvids.items() if bp in physical)
 
 
 def _format_mac_bytes(byte_strs: Sequence[str]) -> str:

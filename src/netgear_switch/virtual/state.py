@@ -52,6 +52,15 @@ class PortSim:
     admin: bool
     link: bool
     speed: int
+    # ifType (IF-MIB): 6=ethernetCsmacd (a physical port -- the default). Real
+    # hardware also exposes non-physical rows in the same ifTable -- LAGs
+    # (161=ieee8023adLag), the CPU interface (1=other), VLAN routing interfaces
+    # (135=l2vlan) -- which the read path filters OUT (parse._physical_ports).
+    # Seeds that add those interfaces set if_type so the mock's SNMP get_ports/
+    # get_stats/get_pvids drop them exactly as real hardware does (and as the
+    # mock's own HTTP/CLI backends already do), instead of fabricating phantom
+    # ports the web/CLI faces never list.
+    if_type: int = 6
     rx_octets: int | None = None
     tx_octets: int | None = None
     rx_ucast: int | None = None
@@ -315,6 +324,7 @@ class VirtualSwitchState:
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")
             m[f"{oids.IF_OPER_STATUS}.{port}"] = ("INTEGER", "1" if sim.link else "2")
             m[f"{oids.IF_HIGH_SPEED}.{port}"] = ("Gauge32", str(sim.speed))
+            m[f"{oids.IF_TYPE}.{port}"] = ("INTEGER", str(sim.if_type))
             m[f"{oids.IF_NAME}.{port}"] = ("OCTETSTR", sim.name)
             if sim.description is not None:
                 m[f"{oids.IF_ALIAS}.{port}"] = ("OCTETSTR", sim.description)

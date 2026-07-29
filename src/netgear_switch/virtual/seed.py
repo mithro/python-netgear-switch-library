@@ -348,12 +348,15 @@ def seed_gsm7252ps() -> VirtualSwitchState:
     # and 64 LAGs). They must never appear on a web-UI page. Both are
     # transcribed from the capture: the CPU port reports no speed/ifAlias; lag 1
     # is a 20 Gbit/s aggregation with a configured ifAlias.
-    ports[417] = PortSim(name="CPU Interface:  0/5/1", admin=True, link=True, speed=0)
+    ports[417] = PortSim(
+        name="CPU Interface:  0/5/1", admin=True, link=True, speed=0, if_type=1
+    )
     ports[418] = PortSim(
         name="lag 1",
         admin=True,
         link=True,
         speed=20000,
+        if_type=161,
         description="lag.sw-netgear-gsm7252ps-s2",
     )
 
@@ -848,13 +851,16 @@ def seed_m4300_24x() -> VirtualSwitchState:
     # Representative non-physical ifIndexes (see module docstring above):
     # the CPU interface, one real in-use LAG + one unused placeholder LAG,
     # and the switch's two VLAN interfaces.
-    ports[769] = PortSim(name="CPU Interface:  0/15/1", admin=True, link=True, speed=0)
-    ports[770] = PortSim(
-        name="lag 1", admin=True, link=True, speed=40000, description="lag.sw-bb-25g"
+    ports[769] = PortSim(
+        name="CPU Interface:  0/15/1", admin=True, link=True, speed=0, if_type=1
     )
-    ports[771] = PortSim(name="lag 2", admin=True, link=False, speed=0)
-    ports[898] = PortSim(name="vlan 1", admin=True, link=True, speed=10)
-    ports[899] = PortSim(name="vlan 5", admin=True, link=True, speed=10)
+    ports[770] = PortSim(
+        name="lag 1", admin=True, link=True, speed=40000,
+        description="lag.sw-bb-25g", if_type=161,
+    )
+    ports[771] = PortSim(name="lag 2", admin=True, link=False, speed=0, if_type=161)
+    ports[898] = PortSim(name="vlan 1", admin=True, link=True, speed=10, if_type=135)
+    ports[899] = PortSim(name="vlan 5", admin=True, link=True, speed=10, if_type=135)
 
     # All 14 real VLANs, full real member/untagged port sets (including the
     # 128-wide LAG range 770-897 every VLAN's trunk carries) -- `tagged` is
@@ -1012,9 +1018,11 @@ def seed_m4300_16x() -> VirtualSwitchState:
             name=name, admin=admin, link=link, speed=speed,
             rx_octets=rx_bytes, tx_octets=tx_bytes, rx_errors=0, tx_errors=0,
         )
-    ports[769] = PortSim(name="CPU Interface:  0/15/1", admin=True, link=True, speed=0)
-    ports[770] = PortSim(name="lag 1", admin=True, link=False, speed=0)
-    ports[898] = PortSim(name="vlan 5", admin=True, link=True, speed=10)
+    ports[769] = PortSim(
+        name="CPU Interface:  0/15/1", admin=True, link=True, speed=0, if_type=1
+    )
+    ports[770] = PortSim(name="lag 1", admin=True, link=False, speed=0, if_type=161)
+    ports[898] = PortSim(name="vlan 5", admin=True, link=True, speed=10, if_type=135)
 
     _lags = set(range(770, 898))
     _uplink_ports = {9, 10, 11, 12, 13, 14, 15, 16}
