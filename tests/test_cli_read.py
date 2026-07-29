@@ -126,24 +126,22 @@ def test_mock_face_rejects_unknown_command() -> None:
 
 def test_cli_reads_verified_only_for_live_checked_models() -> None:
     assert CLI_SPECS  # non-empty
-    # gsm7252ps (10.1.5.22, CLI<->SNMP) and m4300-24x (10.1.5.13, live CLI) were
-    # cross-verified against real hardware, so their reads are verified. The
-    # m4300-16x and gsm7228ps CLI share the same grounded FASTPATH parsers but
-    # have NOT been live-checked on those SKUs, so they stay gated until someone
-    # cross-verifies them against that hardware.
-    verified = {"gsm7252ps", "m4300-24x"}
+    # gsm7252ps (10.1.5.22, CLI<->SNMP), m4300-24x (10.1.5.13) and m4300-16x
+    # (10.1.5.20) were all cross-verified against real hardware, so their reads
+    # are verified. Only gsm7228ps CLI is inherited-not-live-checked: it shares
+    # the same grounded FASTPATH parsers but stays gated until someone cross-
+    # verifies it against that hardware.
+    verified = {"gsm7252ps", "m4300-24x", "m4300-16x"}
     assert {k for k, s in CLI_SPECS.items() if s.reads_verified} == verified
-    # The two live-captured models carry real transcripts; the inherited SKUs do
-    # not.
+    # The live-captured models carry real transcripts; the inherited SKU does not.
     assert {k for k, s in CLI_SPECS.items() if s.captured} == verified
-    assert CLI_SPECS["m4300-16x"].captured is False
+    assert CLI_SPECS["gsm7228ps"].reads_verified is False
     assert CLI_SPECS["gsm7228ps"].captured is False
 
 
 def test_m4300_cli_command_overrides() -> None:
-    # FASTPATH 12.0 renamed two commands; both M4300 specs carry the overrides
-    # (m4300-16x inherits them even though it is not reads_verified), while the
-    # older-image SKUs keep the defaults.
+    # FASTPATH 12.0 renamed two commands; both M4300 specs carry the overrides,
+    # while the older-image SKUs keep the defaults.
     for key in ("m4300-24x", "m4300-16x"):
         assert CLI_SPECS[key].vlan_brief_cmd == "show vlan"
         assert CLI_SPECS[key].network_cmd == "show ip management"

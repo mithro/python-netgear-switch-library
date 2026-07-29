@@ -285,3 +285,150 @@ def test_m4300_parse_mac_table_nonempty() -> None:
     assert first.mac == "02:00:0A:01:01:01"
     assert first.port == 1
     assert first.vlan_id == 1
+
+
+# ---------------------------------------------------------------------------
+# M4300-16X-PoE (FASTPATH 12.0.19.15) real captures, live from 10.1.5.20
+# 2026-07-29. Same FASTPATH image family as the 24X (same two command renames),
+# but this SKU IS a PoE switch, so it also exercises `show poe port info all` --
+# whose column set differs from the gsm7252ps (no `Temperature` column), the
+# regression parse_poe now handles by header name. Every expected value is
+# transcribed from tests/fixtures/cli/m4300_16x_*.txt.
+# ---------------------------------------------------------------------------
+
+
+def _read_m4300_16x(name: str) -> str:
+    return (_FIX / f"m4300_16x_{name}.txt").read_text()
+
+
+def test_m4300_16x_parse_version_identifies_model() -> None:
+    det = parse.parse_version(_read_m4300_16x("show_version"), MODELS)
+    assert det.key == "m4300-16x"
+    assert det.sys_object_id is None
+    assert "M4300-16X" in (det.sys_descr or "")
+
+
+def test_m4300_16x_parse_port_status_16_physical_ports() -> None:
+    ports = {
+        p.port: p for p in parse.parse_port_status(_read_m4300_16x("show_port_all"))
+    }
+    # 16 physical ports; the 128 "lag N" and "vlan N" pseudo-interfaces dropped.
+    assert set(ports) == set(range(1, 17))
+    assert ports[9].link_up is True
+    assert ports[9].speed_mbps == 10000  # "10G Full"
+    assert ports[12].link_up is True
+    assert ports[12].speed_mbps == 1000  # "1000 Full"
+    assert ports[1].link_up is False
+    assert ports[1].speed_mbps is None
+
+
+def test_m4300_16x_parse_vlan_list_via_show_vlan() -> None:
+    brief = parse.parse_vlan_brief(_read_m4300_16x("show_vlan"))
+    assert [v for v, _ in brief] == [
+        1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141
+    ]
+    assert dict(brief)[5] == "net"
+
+
+def test_m4300_16x_parse_vlan_detail_membership() -> None:
+    info = parse.parse_vlan_detail(_read_m4300_16x("show_vlan_5"), name="net")
+    assert info.vlan_id == 5
+    assert info.name == "net"
+    assert info.tagged_ports == frozenset({9, 10, 11, 13, 14, 15, 16})
+    assert info.untagged_ports == frozenset({12})
+
+
+def test_m4300_16x_parse_pvids_16_ports() -> None:
+    pvids = dict(parse.parse_pvids(_read_m4300_16x("show_vlan_port_all")))
+    assert set(pvids) == set(range(1, 17))
+    assert pvids[1] == 1
+    assert pvids[11] == 4
+    assert pvids[12] == 5
+
+
+def test_m4300_16x_parse_mgmt_ip() -> None:
+    mgmt = parse.parse_mgmt_ip(_read_m4300_16x("show_ip_management"))
+    assert mgmt.address == "10.1.5.20"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.gateway == "10.1.5.1"
+    assert mgmt.base_mac == "8C:3B:AD:69:1C:38"
+    assert mgmt.mode is IpMode.DHCP
+
+
+def test_m4300_16x_parse_environment_sensors() -> None:
+    sensors = parse.parse_environment(_read_m4300_16x("show_environment"))
+    temps = {s.name: s.value for s in sensors if s.kind == "temperature"}
+    assert temps == {"MAC": 46.0, "System": 46.0}
+    # Both fans report a "-" (dash) Speed -> not numeric -> absent, not zero.
+    fans = {s.name: s.value for s in sensors if s.kind == "fan"}
+    assert fans == {}
+    psus = {s.name: s.value for s in sensors if s.kind == "power"}
+    assert psus == {"Internal AC-1": 1.0}
+
+
+def test_m4300_16x_parse_lldp_neighbours() -> None:
+    nbrs = parse.parse_lldp(_read_m4300_16x("show_lldp_remote_device_all"))
+    # 4 neighbour rows: ports 12, 14, and 16 (which has two remote devices).
+    assert [n.local_port for n in nbrs] == [12, 14, 16, 16]
+    by_port = {n.local_port: n for n in nbrs if n.local_port != 16}
+    assert by_port[12].remote_chassis_id == "62:C0:EB:01:59:14"
+    assert by_port[14].remote_chassis_id == "8C:3B:AD:6B:BB:E0"
+    assert by_port[14].remote_port_id == "1/0/1"
+
+
+def test_m4300_16x_parse_interface_counters_all_zero() -> None:
+    # Every counter on 1/0/1 is 0 in the capture (the port is down).
+    stats = parse.parse_interface_counters(
+        _read_m4300_16x("show_interface_ethernet_1_0_1"), port=1
+    )
+    assert stats.port == 1
+    assert stats.rx_bytes == 0
+    assert stats.tx_bytes == 0
+    assert stats.rx_packets == 0
+    assert stats.tx_packets == 0
+
+
+def test_m4300_16x_parse_mac_table_matches_header_count() -> None:
+    macs = parse.parse_mac_table(_read_m4300_16x("show_mac_addr_table"))
+    # Header: "Address Entries Currently in Use.... 481".
+    assert len(macs) == 481
+    assert macs[0].mac == "00:0A:FA:24:28:1F"
+    assert macs[0].port == 16
+    assert macs[0].vlan_id == 1
+
+
+def test_m4300_16x_parse_poe_columns_without_temperature() -> None:
+    # The 16X `show poe port info all` has NO Temperature column (unlike the
+    # gsm7252ps): parse_poe must still read Status/Power(mW) correctly via the
+    # header-name lookup -- the regression this change fixes.
+    poe = {
+        p.port: p for p in parse.parse_poe(_read_m4300_16x("show_poe_port_info_all"))
+    }
+    assert set(poe) == set(range(1, 17))  # a 16-port PoE switch
+    # Ports 1-11 and 13-16 are Searching (no PD): detect SEARCHING, not UNKNOWN.
+    assert poe[1].detect is PoEDetect.SEARCHING
+    assert poe[1].power_mw == 0
+    assert poe[1].admin_enabled is True
+    assert all(p.detect is not PoEDetect.UNKNOWN for p in poe.values())
+    # Port 12 is the one delivering power (class 4, 4600 mW).
+    assert poe[12].detect is PoEDetect.DELIVERING
+    assert poe[12].power_mw == 4600
+    assert poe[12].admin_enabled is True
+
+
+def test_header_columns_reconstructs_wrapped_poe_headers() -> None:
+    # The header-name locator underpinning the PoE fix: the gsm7252ps prints a
+    # Temperature column that the M4300 omits, and both are reconstructed from
+    # their multi-line wrapped headers.
+    gsm = parse.header_columns(_read("show_poe_port_info_all"))
+    assert gsm == [
+        "Intf", "High Power", "Max Power (mW)", "Class", "Power (mW)",
+        "Output Current (mA)", "Output Voltage (V)", "Temperature",
+        "Status", "Fault Status",
+    ]
+    m16 = parse.header_columns(_read_m4300_16x("show_poe_port_info_all"))
+    assert "Temperature" not in m16
+    assert m16 == [
+        "Intf", "High Power", "Max Power (mW)", "Class", "Power (mW)",
+        "Output Current (mA)", "Output Voltage (V)", "Status", "Fault Status",
+    ]

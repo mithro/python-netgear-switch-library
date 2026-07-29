@@ -219,11 +219,17 @@ def render_lldp(state: VirtualSwitchState) -> str:
 
 
 def render_poe(state: VirtualSwitchState) -> str:
+    # Full FASTPATH column names (the real switch wraps them over several header
+    # lines; a single-line header of the same names parses identically). The
+    # parser locates columns by NAME -- "Power (mW)" is the live draw, distinct
+    # from "Max Power (mW)"; "Status" is the PSE state, distinct from "Fault
+    # Status" -- so these exact strings matter.
     headers = [
-        "Intf", "High", "Max", "Class", "Power", "Output",
-        "Output", "Temperature", "Status", "Fault",
+        "Intf", "High Power", "Max Power (mW)", "Class", "Power (mW)",
+        "Output Current (mA)", "Output Voltage (V)", "Temperature",
+        "Status", "Fault Status",
     ]
-    widths = [7, 5, 8, 8, 8, 8, 8, 12, 18, 12]
+    widths = [7, 11, 15, 9, 11, 20, 19, 13, 18, 13]
     rows: list[list[object]] = []
     for p in sorted(state.poe):
         psim = state.poe[p]
