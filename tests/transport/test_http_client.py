@@ -448,3 +448,46 @@ def test_async_get_page_mid_session_redirect_to_login_raises_auth() -> None:
             await client.aclose()
 
     asyncio.run(run())
+
+
+# -- HTTPS transport: the `secure` flag flips base_url + Referer to https ----
+# (the real M4300-16X Cheetah UI is HTTPS on :49152; see endpoints._M4300_16X).
+
+_M4300_SPEC = http_spec(get_model("m4300-24x"))  # needs_referer=True
+
+
+def test_secure_false_builds_http_base_url_and_referer() -> None:
+    # Default (secure omitted): plain http base_url + http Referer -- the mock
+    # HTTP face and every legacy Plus model rely on this staying unchanged.
+    client = HttpClient("sw.example", _PASSWORD, _M4300_SPEC)
+    try:
+        assert str(client._client.base_url) == "http://sw.example"
+        assert client._client.headers["Referer"] == "http://sw.example/"
+    finally:
+        client.close()
+
+
+def test_secure_true_builds_https_base_url_and_referer() -> None:
+    client = HttpClient(
+        "sw.example:49152", _PASSWORD, _M4300_SPEC, secure=True
+    )
+    try:
+        assert str(client._client.base_url) == "https://sw.example:49152"
+        # Referer strips the port (host only), and its scheme tracks `secure`.
+        assert client._client.headers["Referer"] == "https://sw.example/"
+    finally:
+        client.close()
+
+
+def test_async_secure_true_builds_https_base_url_and_referer() -> None:
+    async def run() -> None:
+        client = AsyncHttpClient(
+            "sw.example:49152", _PASSWORD, _M4300_SPEC, secure=True
+        )
+        try:
+            assert str(client._client.base_url) == "https://sw.example:49152"
+            assert client._client.headers["Referer"] == "https://sw.example/"
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())

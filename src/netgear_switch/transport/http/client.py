@@ -3,8 +3,10 @@
 One codebase: all URL/crypto/parse logic lives in the pure ``protocols.http``
 package; only the actual GET/POST differ between the sync ``httpx.Client`` and
 async ``httpx.AsyncClient``. Legacy Plus switches are HTTP-only, so ``base_url``
-is ``http://`` and TLS verification (when a model ever needs https) defaults to
-off for permissive legacy behaviour.
+defaults to ``http://``; the ``secure`` flag flips it to ``https://`` (and the
+Referer scheme with it) for a model whose real UI is HTTPS -- the M4300-16X
+Cheetah UI on :49152. TLS verification defaults off for the switches'
+self-signed certs.
 
 httpx is an optional dependency (``[http]`` extra); it is imported at module
 top-level because this module lives under ``transport/http`` and is only ever
@@ -205,16 +207,21 @@ async def _aretry_on_dropped_connection(
     raise HttpError(f"{context}: connection dropped by switch: {last}") from last
 
 
-def _referer_headers(spec: HttpModelSpec, host: str) -> dict[str, str]:
+def _referer_headers(
+    spec: HttpModelSpec, host: str, *, secure: bool
+) -> dict[str, str]:
     """Headers every request must carry for this model.
 
     The M4300 Cheetah /v1 UI answers **403 Forbidden** to any request that
     lacks a ``Referer`` naming the switch itself -- a CSRF guard. Confirmed
     live: identical requests differ only by this header (403 without, 200
-    with). Models that do not need it get no extra headers."""
+    with). The Referer scheme must match the connection scheme (``https`` when
+    ``secure`` -- the real M4300-16X Cheetah UI is HTTPS on :49152). Models that
+    do not need it get no extra headers."""
     if not spec.needs_referer:
         return {}
-    return {"Referer": f"http://{host.split(':', 1)[0]}/"}
+    scheme = "https" if secure else "http"
+    return {"Referer": f"{scheme}://{host.split(':', 1)[0]}/"}
 
 
 def _validate_response(
@@ -244,19 +251,21 @@ class HttpClient:
         password: str,
         spec: HttpModelSpec,
         *,
+        secure: bool = False,
         verify_tls: bool = False,
         transport: httpx.MockTransport | None = None,
     ) -> None:
         self._spec = spec
         self._password = password
+        scheme = "https" if secure else "http"
         self._client = httpx.Client(
-            base_url=f"http://{host}",
+            base_url=f"{scheme}://{host}",
             timeout=_TIMEOUT,
             verify=verify_tls,
             transport=transport,
             follow_redirects=True,
             limits=_LIMITS,
-            headers=_referer_headers(spec, host),
+            headers=_referer_headers(spec, host, secure=secure),
         )
         self._logged_in = False
         self._token = ""
@@ -395,19 +404,21 @@ class AsyncHttpClient:
         password: str,
         spec: HttpModelSpec,
         *,
+        secure: bool = False,
         verify_tls: bool = False,
         transport: httpx.MockTransport | None = None,
     ) -> None:
         self._spec = spec
         self._password = password
+        scheme = "https" if secure else "http"
         self._client = httpx.AsyncClient(
-            base_url=f"http://{host}",
+            base_url=f"{scheme}://{host}",
             timeout=_TIMEOUT,
             verify=verify_tls,
             transport=transport,
             follow_redirects=True,
             limits=_LIMITS,
-            headers=_referer_headers(spec, host),
+            headers=_referer_headers(spec, host, secure=secure),
         )
         self._logged_in = False
         self._token = ""
