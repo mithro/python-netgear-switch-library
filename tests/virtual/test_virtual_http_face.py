@@ -352,16 +352,31 @@ def test_goahead_face_xml_api_login_and_wrong_password(goahead_face) -> None:
     bad.close()
 
 
-def test_goahead_reads_refused_until_verified(goahead_face) -> None:
-    """gs728tpp ships reads_verified=False, so HttpReader must refuse to
-    construct until the live cross-verify flips it (the honesty gate)."""
+def test_goahead_reads_verified_but_gate_still_fires(goahead_face) -> None:
+    """gs728tpp ships reads_verified=True after the 2026-07-29 live cross-verify
+    (10.2.5.10), so HttpReader constructs. The honesty gate itself is still
+    exercised here: forcing an unverified spec variant must refuse construction."""
+    import dataclasses
+
     from netgear_switch.errors import UnsupportedCapabilityError
+    from netgear_switch.protocols.http import endpoints
 
     _f, port, _state = goahead_face
     client = HttpClient(f"127.0.0.1:{port}", "password", _GS728TPP_SPEC)
     try:
-        with pytest.raises(UnsupportedCapabilityError):
-            HttpReader(client, get_model("gs728tpp"))
+        client.login()
+        # Shipped spec is verified -> constructs fine.
+        HttpReader(client, get_model("gs728tpp"))
+        # Gate mechanism: an unverified variant of the SAME spec must refuse.
+        original = endpoints._SPECS["gs728tpp"]
+        endpoints._SPECS["gs728tpp"] = dataclasses.replace(
+            original, reads_verified=False
+        )
+        try:
+            with pytest.raises(UnsupportedCapabilityError):
+                HttpReader(client, get_model("gs728tpp"))
+        finally:
+            endpoints._SPECS["gs728tpp"] = original
     finally:
         client.close()
 

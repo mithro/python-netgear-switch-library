@@ -536,7 +536,16 @@ _GS728TPP = HttpModelSpec(
     reboot_path=None,
     logout_path=None,
     is_epx_poe=False,
-    reads_verified=False,  # pending live HTTP<->SNMP cross-verify (10.2.5.10)
+    # LIVE-VERIFIED 2026-07-29 against the real GS728TPP (10.2.5.10, via the
+    # ten64 jump host): every parse_goahead_* was run on a FRESH live wcd fetch
+    # and cross-checked against the switch's actual known config -- 28 ports
+    # g1..g28 with correct link/speed, 24 PoE ports, real VLAN names (net/pwr/
+    # store/iot/guest...), PVIDs, per-port membership, 135 MAC entries, 4 real
+    # LLDP neighbors (reterm1 + ten64 x3), Fan1/Fan2/Main+Redundant PS sensors,
+    # mgmt-IP 10.2.5.10/24 gw 10.2.5.1. (Cross-checked vs the switch's ground
+    # truth rather than vs SNMP, since this model's SNMP OID family is itself
+    # UNVERIFIED-pending-capture -- see registry.py.) get_stats stays unsupported.
+    reads_verified=True,
     html_dialect=HtmlDialect.GOAHEAD_XML,
 )
 
