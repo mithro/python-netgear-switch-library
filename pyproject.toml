@@ -11,7 +11,11 @@ requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Tim Ansell", email = "me@mith.ro" }]
-dependencies = []
+# cryptography is a first-class core dep: the SSL-certificate upload API
+# (HttpWriter.upload_certificate) uses it to convert an RSA private key to the
+# PKCS#1 "traditional" form the GS728TPP GoAhead XML API requires, with no
+# shelling out to openssl. It ships type stubs, so mypy stays clean.
+dependencies = ["cryptography>=41"]
 
 [project.optional-dependencies]
 # The sync SNMP transport shells out to the net-snmp CLI tools (snmpget/

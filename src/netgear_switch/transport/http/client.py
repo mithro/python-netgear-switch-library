@@ -362,6 +362,26 @@ class HttpClient:
         _validate_response(resp, context=f"POST {path}")
         return resp.text
 
+    def post_xml(self, path: str, body: str) -> str:
+        if not self._logged_in:
+            self.login()
+        # The GS728TPP GoAhead cert upload POSTs a raw XML body to the
+        # session-path-prefixed ``wcd`` endpoint (``_read_url`` adds the
+        # ``/<sess>/`` prefix, exactly like the reads).
+        url = self._read_url(path)
+        try:
+            # NEVER retried -- this carries a WRITE (the SSL-cert import). A
+            # dropped connection does not prove the switch ignored it.
+            resp = self._client.post(
+                url,
+                content=body.encode("utf-8"),
+                headers={"Content-Type": "application/xml; charset=utf-8"},
+            )
+        except httpx.HTTPError as exc:
+            raise HttpError(f"POST {path} transport error: {exc}") from exc
+        _validate_response(resp, context=f"POST {path}")
+        return resp.text
+
     def close(self) -> None:
         self._client.close()
 
@@ -482,6 +502,23 @@ class AsyncHttpClient:
         try:
             # NEVER retried -- see the sync twin: this carries a cert-upload write.
             resp = await self._client.post(path, data=body, files=files)
+        except httpx.HTTPError as exc:
+            raise HttpError(f"POST {path} transport error: {exc}") from exc
+        _validate_response(resp, context=f"POST {path}")
+        return resp.text
+
+    async def post_xml(self, path: str, body: str) -> str:
+        if not self._logged_in:
+            await self.login()
+        # Async twin of HttpClient.post_xml (session-path-prefixed raw XML POST).
+        url = self._read_url(path)
+        try:
+            # NEVER retried -- see the sync twin: this carries a cert-upload write.
+            resp = await self._client.post(
+                url,
+                content=body.encode("utf-8"),
+                headers={"Content-Type": "application/xml; charset=utf-8"},
+            )
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")
