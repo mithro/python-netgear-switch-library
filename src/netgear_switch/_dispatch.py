@@ -13,6 +13,7 @@ from .errors import CredentialError, UnsupportedCapabilityError
 from .registry import Backend
 
 if TYPE_CHECKING:
+    from .protocols.http.endpoints import HttpModelSpec
     from .protocols.nsdp.client import AsyncNsdpWriteClient, NsdpWriteClient
     from .protocols.snmp.client import (
         AsyncSnmpClient,
@@ -215,6 +216,13 @@ def _require_http_password(host: str, password: str | None) -> str:
     return password
 
 
+def _http_host(host: str, spec: HttpModelSpec) -> str:
+    """The web-UI host[:port] for ``spec``: the bare IP for a standard-port
+    model, or ``<ip>:<web_port>`` for one on a non-standard port (m4300-16x on
+    :49152). ``host`` is the switch IP, never already carrying a port."""
+    return f"{host}:{spec.web_port}" if spec.web_port is not None else host
+
+
 def build_sync_http_client(
     host: str, password: str | None, model: SwitchModel
 ) -> HttpClient:
@@ -222,7 +230,13 @@ def build_sync_http_client(
     from .protocols.http.endpoints import http_spec
     from .transport.http.client import HttpClient
 
-    return HttpClient(host, _require_http_password(host, password), http_spec(model))
+    spec = http_spec(model)
+    return HttpClient(
+        _http_host(host, spec),
+        _require_http_password(host, password),
+        spec,
+        secure=spec.secure,
+    )
 
 
 def build_async_http_client(
@@ -232,6 +246,10 @@ def build_async_http_client(
     from .protocols.http.endpoints import http_spec
     from .transport.http.client import AsyncHttpClient
 
+    spec = http_spec(model)
     return AsyncHttpClient(
-        host, _require_http_password(host, password), http_spec(model)
+        _http_host(host, spec),
+        _require_http_password(host, password),
+        spec,
+        secure=spec.secure,
     )

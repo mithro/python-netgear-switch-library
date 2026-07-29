@@ -206,6 +206,15 @@ class HttpModelSpec:
     cert_upload_form_fields: Mapping[str, str] = dataclasses.field(
         default_factory=lambda: MappingProxyType({})
     )
+    # Transport: whether this model's web UI is HTTPS (self-signed cert -- the
+    # facade passes ``secure`` to the client, which leaves verify_tls off). The
+    # M4300-16X-PoE moves its Cheetah "Main UI" to HTTPS; every other model so
+    # far is plain HTTP. ``False`` (the default) = http://.
+    secure: bool = False
+    # Non-standard web-UI TCP port. ``None`` (the default) = the URL's implicit
+    # 80/443. The M4300-16X-PoE serves its Cheetah UI on 49152; the facade forms
+    # the host as ``<ip>:<web_port>`` when this is set.
+    web_port: int | None = None
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -440,7 +449,17 @@ _M4300 = HttpModelSpec(
 # 24x) -- a dedicated slice; until then HTTP stays gated so the facade uses the
 # verified SNMP/CLI backends and never a broken web path.
 _M4300_16X = dataclasses.replace(
-    _M4300, model_key="m4300-16x", reads_verified=False
+    _M4300,
+    model_key="m4300-16x",
+    reads_verified=False,
+    # The real 16X Cheetah "Main UI" is HTTPS on :49152 (see the note above).
+    # The login flow + /v1/ read paths are inherited unchanged from the 24X;
+    # only the transport (https + non-standard port) differs. reads_verified
+    # stays False -- the controller live-verifies before flipping it. No
+    # poe_status_path yet: per-port PoE is a 16X-only page, a separate slice
+    # after live-verification.
+    secure=True,
+    web_port=49152,
 )
 
 # gsm7252ps (Fully Managed, 52-port/48-PoE, SNMP+HTTP). The LOGIN is
