@@ -583,12 +583,172 @@ def test_sync_switch_upload_certificate_records_on_mock() -> None:
         sw.stop()
 
 
-def test_sync_switch_upload_certificate_gs728tpp_not_implemented() -> None:
-    """gs728tpp has NO HTTP backend, yet its cert mechanism is known (XML-API),
-    so the facade must still raise NotImplementedError -- not the
-    UnsupportedCapabilityError a plain no-HTTP-backend check would give."""
-    from netgear_switch.sync_api import SyncSwitch
+# ---------------------------------------------------------------------------
+# GS728TPP GoAhead XML-API SSL-cert upload (a distinct write path from the
+# gsm7228ps multipart form): a raw SSLCryptoCertificateImportList XML body
+# POSTed to the session-path-prefixed ``wcd`` endpoint, with the RSA private key
+# converted to PKCS#1 "traditional" form. Grounded in GS728TPPUpdater.
+# NOTE: this write path is exercised MOCK-ONLY; a live upload mutates a
+# production switch and needs separate user permission.
+# ---------------------------------------------------------------------------
 
-    switch = SyncSwitch(get_model("gs728tpp"), "127.0.0.1")
-    with pytest.raises(NotImplementedError, match="XML-API"):
-        switch.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
+# A wcd success response the mock/switch returns on a good import.
+_GOAHEAD_OK = (
+    '<?xml version="1.0" encoding="UTF-8" ?>'
+    "<ResponseData><statusCode>0</statusCode></ResponseData>"
+)
+
+
+def _rsa_key_pem(bits: int = 2048) -> str:
+    """A freshly generated RSA private key as an unencrypted PKCS#8 PEM (the
+    input shape a real cert+key pair carries), for the XML-upload tests."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=bits)
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+
+
+class _XmlCertSpySession:
+    """Records the single raw-XML POST the GoAhead cert-upload writer drives."""
+
+    def __init__(self, response: str = _GOAHEAD_OK) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._response = response
+
+    def login(self) -> None:
+        return None
+
+    def get_page(self, path: str) -> str:
+        raise AssertionError(f"cert upload should not GET {path}")
+
+    def post_form(self, path: str, data: dict[str, str]) -> str:
+        raise AssertionError(f"cert upload should not post_form {path}")
+
+    def post_multipart(
+        self, path: str, data: dict[str, str], file: MultipartFile
+    ) -> str:
+        raise AssertionError("gs728tpp cert upload must be XML, not multipart")
+
+    def post_xml(self, path: str, body: str) -> str:
+        self.calls.append((path, body))
+        return self._response
+
+
+class _AsyncXmlCertSpySession(_XmlCertSpySession):
+    async def login(self) -> None:  # type: ignore[override]
+        return None
+
+    async def post_xml(self, path: str, body: str) -> str:  # type: ignore[override]
+        self.calls.append((path, body))
+        return self._response
+
+
+def test_upload_certificate_gs728tpp_drives_grounded_xml_post() -> None:
+    key = _rsa_key_pem()
+    sess = _XmlCertSpySession()
+    writer = HttpWriter(sess, get_model("gs728tpp"))
+    writer.upload_certificate(_CERT_PEM, key, force=True)
+    assert len(sess.calls) == 1
+    path, body = sess.calls[0]
+    assert path == "wcd"
+    assert '<SSLCryptoCertificateImportList action="set">' in body
+    assert "<instance>1</instance>" in body
+    # The RSA key was converted to PKCS#1 "traditional" form, and its PKCS#1
+    # public key extracted -- NOT the PKCS#8 "BEGIN PRIVATE KEY" it came in as.
+    assert "-----BEGIN RSA PRIVATE KEY-----" in body
+    assert "-----BEGIN RSA PUBLIC KEY-----" in body
+    assert "BEGIN PRIVATE KEY" not in body  # no leftover PKCS#8 wrapper
+    assert "BEGIN CERTIFICATE" in body  # the cert PEM made it into the body
+
+
+def test_upload_certificate_gs728tpp_requires_force() -> None:
+    sess = _XmlCertSpySession()
+    writer = HttpWriter(sess, get_model("gs728tpp"))
+    with pytest.raises(ProtectedPortError):
+        writer.upload_certificate(_CERT_PEM, _rsa_key_pem())
+    assert sess.calls == []  # nothing sent when force is withheld
+
+
+def test_upload_certificate_gs728tpp_rejects_non_rsa_key() -> None:
+    """The switch accepts only RSA keys, so an EC key raises a clear ValueError
+    BEFORE anything is posted."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    ec_key = ec.generate_private_key(ec.SECP256R1()).private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    sess = _XmlCertSpySession()
+    writer = HttpWriter(sess, get_model("gs728tpp"))
+    with pytest.raises(ValueError, match="RSA"):
+        writer.upload_certificate(_CERT_PEM, ec_key, force=True)
+    assert sess.calls == []
+
+
+def test_upload_certificate_gs728tpp_surfaces_error_status() -> None:
+    """A non-zero wcd statusCode surfaces the switch's statusString."""
+    from netgear_switch.errors import HttpError
+
+    sess = _XmlCertSpySession(
+        response=(
+            '<?xml version="1.0" ?><ResponseData><statusCode>7</statusCode>'
+            "<statusString>invalid certificate</statusString></ResponseData>"
+        )
+    )
+    writer = HttpWriter(sess, get_model("gs728tpp"))
+    with pytest.raises(HttpError, match="invalid certificate"):
+        writer.upload_certificate(_CERT_PEM, _rsa_key_pem(), force=True)
+
+
+def test_async_upload_certificate_gs728tpp_drives_grounded_xml_post() -> None:
+    sess = _AsyncXmlCertSpySession()
+    writer = AsyncHttpWriter(sess, get_model("gs728tpp"))
+    _run(writer.upload_certificate(_CERT_PEM, _rsa_key_pem(), force=True))
+    assert len(sess.calls) == 1
+    path, body = sess.calls[0]
+    assert path == "wcd"
+    assert "-----BEGIN RSA PRIVATE KEY-----" in body
+    assert "-----BEGIN RSA PUBLIC KEY-----" in body
+
+
+def test_async_upload_certificate_gs728tpp_requires_force() -> None:
+    sess = _AsyncXmlCertSpySession()
+    writer = AsyncHttpWriter(sess, get_model("gs728tpp"))
+    with pytest.raises(ProtectedPortError):
+        _run(writer.upload_certificate(_CERT_PEM, _rsa_key_pem()))
+    assert sess.calls == []
+
+
+def test_sync_switch_upload_certificate_gs728tpp_records_on_mock() -> None:
+    """End-to-end: SyncSwitch.upload_certificate for gs728tpp drives the real
+    GoAhead XML POST against the virtual face, which validates + records the
+    received certificate (proving the XML body reaches the switch face)."""
+    from netgear_switch.protocols.http.endpoints import http_spec
+    from netgear_switch.sync_api import SyncSwitch
+    from netgear_switch.transport.http.client import HttpClient
+    from netgear_switch.virtual.server import VirtualSwitch
+
+    sw = VirtualSwitch(model="gs728tpp")
+    sw.start()
+    try:
+        spec = http_spec(get_model("gs728tpp"))
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", spec)
+        switch = SyncSwitch(get_model("gs728tpp"), "127.0.0.1", http_client=client)
+        try:
+            with pytest.raises(ProtectedPortError):
+                switch.upload_certificate(_CERT_PEM, _rsa_key_pem())
+            assert sw.state.uploaded_cert is None
+            switch.upload_certificate(_CERT_PEM, _rsa_key_pem(), force=True)
+        finally:
+            client.close()
+        # The face recorded the certificate PEM exactly as it arrived.
+        assert sw.state.uploaded_cert == _CERT_PEM.strip()
+    finally:
+        sw.stop()

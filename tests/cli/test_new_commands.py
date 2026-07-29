@@ -261,9 +261,9 @@ def test_upload_certificate_missing_file_is_clean_error(tmp_path) -> None:
 
 
 def test_upload_certificate_not_implemented_is_clean_error(tmp_path) -> None:
-    """A known-but-unimplemented mechanism (m4300 SCP, gs728tpp XML-API) raises
+    """A known-but-unimplemented mechanism (m4300 SCP) raises
     NotImplementedError from the library; the CLI must report it cleanly, never
-    as an uncaught stack trace."""
+    as an uncaught stack trace. (gs728tpp's XML-API upload is now implemented.)"""
     cert, key = _write_pems(tmp_path)
 
     class NotImplementedSwitch(RecordingSwitch):
