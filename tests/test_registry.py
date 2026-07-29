@@ -4,10 +4,12 @@ from netgear_switch.errors import UnknownModelError
 from netgear_switch.registry import MODELS, Backend, SwitchClass, get_model
 
 _VERIFIED_KEYS = (
-    "m4300-24x", "m4300-16x", "gsm7252ps", "gsm7228ps", "gs110emx", "gs305ep",
+    "m4300-24x", "m4300-16x", "gsm7252ps", "gs110emx", "gs305ep",
     "gs105pe", "gs728tpp",
 )
-_UNVERIFIED_KEYS = ("m7300", "xs748t")
+# gsm7228ps is UNVERIFIED-pending-capture (no real capture exists; _SMP vendor
+# family is an unconfirmed spec-guess) -- honesty flag matches m7300/xs748t.
+_UNVERIFIED_KEYS = ("m7300", "xs748t", "gsm7228ps")
 
 
 def test_known_models_present():

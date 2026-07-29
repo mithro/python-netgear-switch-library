@@ -243,6 +243,56 @@ def test_get_sensors_via_reader():
     assert kinds == {"fan", "power", "temperature"}
 
 
+def test_get_poe_raises_for_zero_pse_model():
+    # Parity fix 1: m4300-24x has poe_port_count == 0. SnmpReader.get_poe must
+    # RAISE UnsupportedCapabilityError (consistent with CliReader/HttpReader),
+    # never return [] from an empty pethPsePortTable. It must raise BEFORE
+    # walking, so even a client that would answer the PoE table raises.
+    tables = {
+        oids.PETH_PSE_PORT_TABLE: [
+            SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.1", "1", "INTEGER"),
+        ],
+    }
+    r = SnmpReader(FakeClient(tables), get_model("m4300-24x"))
+    with pytest.raises(UnsupportedCapabilityError):
+        r.get_poe()
+    ar = AsyncSnmpReader(FakeAsyncClient(tables), get_model("m4300-24x"))
+    with pytest.raises(UnsupportedCapabilityError):
+        asyncio.run(ar.get_poe())
+
+
+def test_get_poe_still_works_for_poe_model_with_vendor_power():
+    # Positive control: a model WITH PoE (gsm7252ps) is unaffected by the
+    # zero-PSE guard -- it still joins standard status + vendor mW.
+    r = SnmpReader(FakeClient(_full_tables()), get_model("gsm7252ps"))
+    poe = r.get_poe()
+    assert poe[0].detect is PoEDetect.DELIVERING
+    assert poe[0].power_mw == 12800
+
+
+def test_get_sensors_raises_when_claimed_vendor_walk_is_empty():
+    # Parity fix 2: a model that CLAIMS a vendor sensor subtree
+    # (snmp_vendor_base set -> has_vendor_oids True) but whose vendor fan/PSU/
+    # temperature walk returns NO rows must RAISE UnsupportedCapabilityError,
+    # not silently return [] (the gs728tpp silent-empty bug class). gsm7252ps
+    # has a vendor base; feed it empty tables so every vendor column walks dry.
+    r = SnmpReader(FakeClient({}), get_model("gsm7252ps"))
+    with pytest.raises(UnsupportedCapabilityError):
+        r.get_sensors()
+    ar = AsyncSnmpReader(FakeAsyncClient({}), get_model("gsm7252ps"))
+    with pytest.raises(UnsupportedCapabilityError):
+        asyncio.run(ar.get_sensors())
+
+
+def test_get_sensors_no_vendor_base_still_returns_entity_inventory():
+    # Control for the fix-2 guard: a model with NO vendor base (gs728tpp) does
+    # NOT hit the vendor-walk-empty raise; it uses the standard ENTITY-MIB
+    # inventory path. With no entity rows it honestly returns [] (a model that
+    # never claimed vendor sensors is a different, honest case).
+    r = SnmpReader(FakeClient({}), get_model("gs728tpp"))
+    assert r.get_sensors() == []
+
+
 def test_get_mgmt_ip_walks_absent_vendor_oid_to_unknown_mode():
     # The dhcp-mode vendor OID is absent from these tables entirely. Since the
     # reader WALKS the subtree (never get()s a single OID that may be

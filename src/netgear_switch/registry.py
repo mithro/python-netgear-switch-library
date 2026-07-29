@@ -136,6 +136,14 @@ _MODELS: dict[str, SwitchModel] = {
             48,
             {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _SMP,
+            # UNVERIFIED-pending-capture: NO real-hardware capture exists for
+            # this model (its seed is illustrative/structural -- see
+            # seed_gsm7228ps). The _SMP (4526.11) vendor family is a spec-guess
+            # from the same 4526 subtree that turned out WRONG on gs728tpp, so
+            # its vendor sensor/PoE-power readings are unconfirmed. Honesty
+            # convention matches m7300/xs748t: keep the backends + specs, but do
+            # NOT claim verified until a live capture confirms the OID family.
+            verified=False,
         ),
         _model(
             "gs110emx",

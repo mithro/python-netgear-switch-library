@@ -258,24 +258,29 @@ def test_type_token_round_trips_through_pysnmp_client():
 #
 # m4300-24x (0 PoE ports, verified real capture: poe=[]) is the faithful,
 # non-PoE M4300 mock seed (see virtual/seed.py::seed_m4300_24x). These tests
-# prove get_poe() degrades to [] through BOTH transports/readers AND that the
-# mock actually answers noSuchObject on the wire for the PoE MIB root -- not
-# merely that the client-side walk boundary check happens to yield [] anyway
-# (which it would even for the old, unfaithful "jump to an unrelated
-# subtree" mock behaviour this replaces).
+# prove get_poe() RAISES UnsupportedCapabilityError through BOTH readers -- the
+# 0-PSE guard (poe_port_count == 0), consistent with the CLI/HTTP backends,
+# never a silent [] -- AND, independently, that the mock actually answers
+# noSuchObject on the wire for the PoE MIB root (a faithful non-PoE agent, not
+# the old unfaithful "jump to an unrelated subtree" mock behaviour this
+# replaces).
 
 
-def test_sync_get_poe_on_non_poe_model_is_empty_and_wire_emits_no_such_object():
+def test_sync_get_poe_on_non_poe_model_raises_and_wire_emits_no_such_object():
     sw = VirtualSwitch(model="m4300-24x")
     sw.start()
     try:
         client = NetsnmpCliClient(f"{sw.host}:{sw.port}", "public")
         reader = SnmpReader(client, get_model("m4300-24x"))
-        assert reader.get_poe() == []
+        # Parity: SnmpReader.get_poe raises for a 0-PSE model (like CLI/HTTP),
+        # never returns []. It raises from the poe_port_count guard BEFORE
+        # walking, so the wire proof below is a separate, independent check.
+        with pytest.raises(UnsupportedCapabilityError):
+            reader.get_poe()
 
         # Wire-level proof: a raw snmpbulkwalk of the PoE MIB root emits the
-        # actual net-snmp text for a noSuchObject varbind, not merely an
-        # empty result the client inferred some other way.
+        # actual net-snmp text for a noSuchObject varbind -- the mock is a
+        # faithful non-PoE agent regardless of the reader's guard.
         result = subprocess.run(
             [
                 "snmpbulkwalk", "-v2c", "-c", "public", "-On", "-Oe", "-OU", "-Ln",
@@ -289,14 +294,16 @@ def test_sync_get_poe_on_non_poe_model_is_empty_and_wire_emits_no_such_object():
         sw.stop()
 
 
-def test_async_get_poe_on_non_poe_model_is_empty_and_wire_emits_no_such_object():
+def test_async_get_poe_on_non_poe_model_raises_and_wire_emits_no_such_object():
     async def run() -> None:
         sw = VirtualSwitch(model="m4300-24x")
         sw.start()
         try:
             client = PysnmpClient(sw.host, "public", port=sw.port)
             reader = AsyncSnmpReader(client, get_model("m4300-24x"))
-            assert await reader.get_poe() == []
+            # Parity: raises for a 0-PSE model (like CLI/HTTP), never [].
+            with pytest.raises(UnsupportedCapabilityError):
+                await reader.get_poe()
 
             # Wire-level proof: a raw one-shot GETNEXT (bypassing the
             # higher-level bulk_walk_cmd's own subtree-boundary handling)
