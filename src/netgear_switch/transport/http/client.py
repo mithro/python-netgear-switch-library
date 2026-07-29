@@ -37,6 +37,25 @@ if TYPE_CHECKING:
 _TIMEOUT = 15.0
 
 
+# M4300 Cheetah login form CSRF field: ``<input ... name="CSRFToken"
+# value="...">`` (attribute case/quoting varies by firmware). Match the token
+# regardless of whether ``value`` precedes or follows ``name``.
+_CHEETAH_CSRF_RE = re.compile(
+    r'name=["\']?CSRFToken["\']?[^>]*?value=["\']([^"\']*)["\']'
+    r'|value=["\']([^"\']*)["\'][^>]*?name=["\']?CSRFToken["\']?',
+    re.IGNORECASE,
+)
+
+
+def _cheetah_csrf_token(login_page_html: str) -> str | None:
+    """The M4300 Cheetah login form's ``CSRFToken`` value, or ``None`` if the
+    form has no such field (older 24X firmware). Pure; shared sync+async."""
+    m = _CHEETAH_CSRF_RE.search(login_page_html)
+    if not m:
+        return None
+    return m.group(1) if m.group(1) is not None else m.group(2)
+
+
 def _login_body(
     spec: HttpModelSpec, password: str, login_page_html: str
 ) -> dict[str, str]:
@@ -48,10 +67,20 @@ def _login_body(
     """
     if spec.scheme is LoginScheme.CHEETAH_V1:
         # M4300 /v1: plaintext username + password, no nonce.
-        return {
+        body = {
             spec.username_field or "uname": spec.username,
             spec.password_field: password,
         }
+        # The AV-era 16X firmware (HTTPS Cheetah on :49152) issues a per-page
+        # CSRFToken hidden field and BINDS the session cookie to it: without the
+        # token the login POST still returns a SIDSSL cookie, but every later
+        # read 302-bounces to the login page (session unbound). Confirmed live by
+        # isolation: token+port-Referer -> 200 data; drop the token -> 302. Older
+        # 24X firmware has no such field, so include it only when present.
+        token = _cheetah_csrf_token(login_page_html)
+        if token is not None:
+            body["CSRFToken"] = token
+        return body
     if spec.scheme is LoginScheme.CHEETAH_FORM:
         # gsm7228ps posts the password alone; the gsm7252ps XE login form also
         # carries a username field (uname=admin, live-confirmed on 10.1.5.22)
@@ -216,12 +245,15 @@ def _referer_headers(
     lacks a ``Referer`` naming the switch itself -- a CSRF guard. Confirmed
     live: identical requests differ only by this header (403 without, 200
     with). The Referer scheme must match the connection scheme (``https`` when
-    ``secure`` -- the real M4300-16X Cheetah UI is HTTPS on :49152). Models that
-    do not need it get no extra headers."""
+    ``secure`` -- the real M4300-16X Cheetah UI is HTTPS on :49152) AND must
+    carry the same port: the 16X answers **403** to a Referer that drops the
+    :49152 (origin-exact CSRF check), so the host is used verbatim -- port and
+    all. Standard-port models have no port in ``host`` and so are unaffected.
+    Models that do not need it get no extra headers."""
     if not spec.needs_referer:
         return {}
     scheme = "https" if secure else "http"
-    return {"Referer": f"{scheme}://{host.split(':', 1)[0]}/"}
+    return {"Referer": f"{scheme}://{host}/"}
 
 
 def _validate_response(

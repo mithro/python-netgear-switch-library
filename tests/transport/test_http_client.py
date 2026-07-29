@@ -110,6 +110,27 @@ def test_login_body_uses_merge_hash() -> None:
     assert body == {"password": merge_hash_md5(_PASSWORD, _RAND)}
 
 
+def test_cheetah_v1_login_body_includes_csrf_token_when_present() -> None:
+    """The M4300-16X (HTTPS Cheetah) login form carries a CSRFToken hidden
+    field and BINDS the session cookie to it -- omitting the token yields a
+    SIDSSL cookie whose every read 302-bounces (live-confirmed). So the login
+    body must round-trip the token when the page has one."""
+    page = (
+        '<form><input type="hidden" name="CSRFToken" value="abc123">'
+        '<input name="pwd"></form>'
+    )
+    body = _login_body(_M4300_SPEC, _PASSWORD, page)
+    assert body["CSRFToken"] == "abc123"
+    assert body[_M4300_SPEC.password_field] == _PASSWORD
+
+
+def test_cheetah_v1_login_body_omits_csrf_token_when_absent() -> None:
+    """Older 24X firmware has no CSRFToken field; the body must not invent one
+    (an empty token would be sent as a real value)."""
+    body = _login_body(_M4300_SPEC, _PASSWORD, "<form><input name='pwd'></form>")
+    assert "CSRFToken" not in body
+
+
 def test_sync_login_then_get_page() -> None:
     client = HttpClient(
         "sw.example", _PASSWORD, _SPEC, transport=httpx.MockTransport(_handler)
@@ -473,8 +494,10 @@ def test_secure_true_builds_https_base_url_and_referer() -> None:
     )
     try:
         assert str(client._client.base_url) == "https://sw.example:49152"
-        # Referer strips the port (host only), and its scheme tracks `secure`.
-        assert client._client.headers["Referer"] == "https://sw.example/"
+        # Referer keeps the FULL host incl. port, scheme tracks `secure`: the
+        # real M4300-16X answers 403 to a Referer that drops :49152 (origin-
+        # exact CSRF check) -- live-confirmed on 10.1.5.20.
+        assert client._client.headers["Referer"] == "https://sw.example:49152/"
     finally:
         client.close()
 
@@ -486,7 +509,7 @@ def test_async_secure_true_builds_https_base_url_and_referer() -> None:
         )
         try:
             assert str(client._client.base_url) == "https://sw.example:49152"
-            assert client._client.headers["Referer"] == "https://sw.example/"
+            assert client._client.headers["Referer"] == "https://sw.example:49152/"
         finally:
             await client.aclose()
 
