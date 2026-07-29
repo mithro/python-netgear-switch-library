@@ -29,6 +29,15 @@ def _phys_ports(state: VirtualSwitchState) -> list[int]:
     return sorted(p for p in state.ports if 1 <= p <= port_count)
 
 
+def _is_m4300(state: VirtualSwitchState) -> bool:
+    """True for the M4300 FASTPATH image, whose ``show poe``/``show environment``
+    column shapes differ from the gsm7252ps image (no PoE ``Temperature`` column;
+    the PSU sub-table is headed ``Power Modules:`` not ``Power supplies:``). Real
+    fixtures: tests/fixtures/cli/m4300_16x_show_{poe_port_info_all,environment}.txt.
+    """
+    return state.model_key.startswith("m4300")
+
+
 def _dotted(label: str, value: object) -> str:
     fill = max(2, 46 - len(label))
     return f"{label}{'.' * fill} {value}"
@@ -224,12 +233,18 @@ def render_poe(state: VirtualSwitchState) -> str:
     # parser locates columns by NAME -- "Power (mW)" is the live draw, distinct
     # from "Max Power (mW)"; "Status" is the PSE state, distinct from "Fault
     # Status" -- so these exact strings matter.
+    # The M4300 FASTPATH image omits the "Temperature" column the gsm7252ps
+    # prints (real fixtures differ 9-vs-10 columns -- see parse.py:452-461). The
+    # parser locates columns by NAME so either shape parses, but the mock must
+    # emit whichever the driving model really prints.
+    m4300 = _is_m4300(state)
     headers = [
         "Intf", "High Power", "Max Power (mW)", "Class", "Power (mW)",
-        "Output Current (mA)", "Output Voltage (V)", "Temperature",
+        "Output Current (mA)", "Output Voltage (V)",
+        *([] if m4300 else ["Temperature"]),
         "Status", "Fault Status",
     ]
-    widths = [7, 11, 15, 9, 11, 20, 19, 13, 18, 13]
+    widths = [7, 11, 15, 9, 11, 20, 19, *([] if m4300 else [13]), 18, 13]
     rows: list[list[object]] = []
     for p in sorted(state.poe):
         psim = state.poe[p]
@@ -243,7 +258,7 @@ def render_poe(state: VirtualSwitchState) -> str:
                 psim.power_mw,
                 0,
                 54 if psim.power_mw else 0,
-                30,
+                *([] if m4300 else [30]),
                 status,
                 "No Error",
             ]
@@ -286,7 +301,10 @@ def render_environment(state: VirtualSwitchState) -> str:
             ],
         )
     )
-    out += ["", "Power supplies:"]
+    # gsm7252ps heads the PSU sub-table "Power supplies:"; the M4300 image heads
+    # it "Power Modules:" (parse.py:574-577 accepts either). Emit the shape the
+    # driving model really prints.
+    out += ["", "Power Modules:" if _is_m4300(state) else "Power supplies:"]
     out.append(
         _table(
             ["Unit", "Power supply", "Description", "Type", "State"],

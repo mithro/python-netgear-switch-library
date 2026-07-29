@@ -129,6 +129,26 @@ class MgmtSim:
 
 
 @dataclass
+class ScpCertDeploy:
+    """Record of a FASTPATH ``copy scp://`` SSL-cert deploy the mock CLI face
+    received (see ``virtual.faces.cli.VirtualCliFace.run_scp_copy``).
+
+    Purely a record of the EXEC sequence the library ISSUED -- the copy commands
+    and their ``nvram:`` destinations, plus the HTTPS toggle + save-config steps
+    -- so a test can assert the deploy driver drove the switch correctly. It does
+    NOT carry cert bytes: the SCP deploy pulls the PEM from a staging server the
+    caller set up (the library only sends the copy commands), so there is no PEM
+    to observe here. Not part of any SNMP/NSDP/HTTP projection.
+    """
+
+    commands: list[str] = field(default_factory=list)
+    copies: list[tuple[str, str]] = field(default_factory=list)  # (source_url, dest)
+    https_disabled: bool = False
+    https_enabled: bool = False
+    saved: bool = False
+
+
+@dataclass
 class VirtualSwitchState:
     """The one authoritative virtual-switch device state.
 
@@ -201,6 +221,9 @@ class VirtualSwitchState:
     # test can assert the bytes actually arrived. Not part of any SNMP/NSDP
     # projection -- purely a record of what the web-UI upload received.
     uploaded_cert: str | None = None
+    # Record of a FASTPATH copy-scp SSL-cert deploy the mock CLI face received
+    # (see ScpCertDeploy above). None = no deploy driven yet.
+    scp_cert_deploy: ScpCertDeploy | None = None
     # dot1dBaseBridgeAddress wire quirk: VERIFIED on the real M4300-24X (see
     # protocols/snmp/parse.py::_mac_from_ascii_text) -- that firmware answers
     # this scalar as a 17-character ASCII colon-hex STRING ("XX:XX:..:XX")

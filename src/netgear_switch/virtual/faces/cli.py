@@ -20,6 +20,7 @@ import re
 from typing import TYPE_CHECKING
 
 from .. import cli_fastpath
+from ..state import ScpCertDeploy
 
 if TYPE_CHECKING:
     from ...protocols.cli.commands import CliModelSpec
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 _SHOW_VLAN_ID_RE = re.compile(r"^show vlan (\d+)$")
 _SHOW_IFACE_RE = re.compile(r"^show interface ethernet \d+/0/(\d+)$")
 _SETUP_RE = re.compile(r"^(enable|terminal length \d+|disable|end|exit)$")
+_COPY_RE = re.compile(r"^copy\s+(\S+)\s+(\S+)$")
 
 
 class VirtualCliFace:
@@ -37,9 +39,51 @@ class VirtualCliFace:
         self.state = state
         self.spec = spec
 
+    def _deploy(self) -> ScpCertDeploy:
+        """Lazily create + return the cert-deploy record for this switch."""
+        if self.state.scp_cert_deploy is None:
+            self.state.scp_cert_deploy = ScpCertDeploy()
+        return self.state.scp_cert_deploy
+
+    def run_scp_copy(self, command: str, scp_password: str) -> str:
+        """In-process stand-in for the interactive ``copy scp://...`` step.
+
+        The real ``ShellDriver.run_scp_copy`` drives a byte-level prompt handshake
+        (TOFU/password/(y/n)) -- exercised end-to-end by the byte-level fake-shell
+        test. This in-process face has no byte stream, so it records the copy
+        (source URL + ``nvram:`` destination) into ``ScpCertDeploy`` and reports
+        success, letting a facade-level test assert the deploy driver issued the
+        right commands + destinations against a seeded ``VirtualSwitch``.
+        """
+        m = _COPY_RE.match(command.strip())
+        if m is None:
+            return "% Invalid input: expected 'copy <src> <dest>'"
+        source_url, dest = m.group(1), m.group(2)
+        deploy = self._deploy()
+        deploy.commands.append(command.strip())
+        deploy.copies.append((source_url, dest))
+        return f"Data transfer complete. bytes transferred to {dest}"
+
+    def run_write_memory(
+        self, command: str = "write memory", *, prestuff: bool
+    ) -> str:
+        """In-process stand-in for the ``write memory`` save-config confirm."""
+        deploy = self._deploy()
+        deploy.commands.append(command.strip())
+        deploy.saved = True
+        return ""
+
     def run(self, command: str) -> str:
         c = command.strip()
         if _SETUP_RE.match(c):
+            return ""
+        if c == "no ip http secure-server":
+            self._deploy().https_disabled = True
+            self._deploy().commands.append(c)
+            return ""
+        if c == "ip http secure-server":
+            self._deploy().https_enabled = True
+            self._deploy().commands.append(c)
             return ""
         if c == self.spec.version_cmd:
             return cli_fastpath.render_version(self.state)

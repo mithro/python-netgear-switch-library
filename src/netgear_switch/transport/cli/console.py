@@ -82,6 +82,20 @@ class ConsoleCliTransport(CliSession):
         assert self._driver is not None
         return self._driver.run(command)
 
+    def run_scp_copy(self, command: str, scp_password: str) -> str:
+        if self._driver is None:
+            self.connect()
+        assert self._driver is not None
+        return self._driver.run_scp_copy(command, scp_password)
+
+    def run_write_memory(
+        self, command: str = "write memory", *, prestuff: bool
+    ) -> str:
+        if self._driver is None:
+            self.connect()
+        assert self._driver is not None
+        return self._driver.run_write_memory(command, prestuff=prestuff)
+
     def close(self) -> None:
         if self._serial is not None:
             with contextlib.suppress(Exception):  # teardown must not raise

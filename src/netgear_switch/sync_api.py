@@ -16,6 +16,7 @@ from ._dispatch import (
     require_mac_table,
 )
 from .cli_read import CliReader
+from .cli_write import deploy_certificate_scp
 from .errors import CredentialError, ProtectedPortError, UnsupportedCapabilityError
 from .http_read import HttpReader
 from .http_write import HttpWriter, _reject_known_unimplemented_cert_upload
@@ -109,6 +110,7 @@ if TYPE_CHECKING:
     from .protocols.nsdp.types import NsdpDevice
     from .protocols.snmp.client import SnmpClient, SnmpWriteClient
     from .registry import SwitchModel
+    from .transport.cli.session import CliSession
     from .transport.http.client import HttpClient
 
 
@@ -153,6 +155,7 @@ class SyncSwitch:
         http_client: HttpSession | None = None,
         http_password: str | None = None,
         http_password_resolver: Callable[[], str | None] | None = None,
+        cli_client: CliSession | None = None,
         protected_ports: frozenset[int] = frozenset(),
     ) -> None:
         self.model = model
@@ -178,6 +181,10 @@ class SyncSwitch:
         self._http_password = http_password
         self._http_password_resolver = http_password_resolver
         self._resolved_http_password: str | None | _Unset = _UNSET
+        # An injected CLI session (tests use VirtualSwitch.cli_session(); a live
+        # caller lets the facade build the SSH transport on demand). Only the
+        # CLI cert-deploy path uses it today.
+        self._cli_client = cli_client
         # A self-built HttpClient is the ONLY backend that holds a persistent
         # connection worth closing (SNMP/NSDP clients are built fresh per call
         # and need no equivalent teardown). Tracked separately from
@@ -642,3 +649,71 @@ class SyncSwitch:
         _reject_known_unimplemented_cert_upload(self.model.key)
         require_http_backend(self.model)
         self._cert_writer().upload_certificate(cert_pem, key_pem, force=force)
+
+    def _cli_session(self) -> CliSession:
+        """Return a ready CLI session: the injected one, else a freshly-built SSH
+        transport (username ``admin``, reusing the web-admin password as the CLI
+        password by default -- exactly like ``_reader_for(CLI)``)."""
+        if self._cli_client is not None:
+            return self._cli_client
+        return build_sync_cli_client(
+            self.host, "admin", self._resolve_http_password(), self.model
+        )
+
+    def upload_certificate_scp(
+        self,
+        *,
+        scp_source: str,
+        scp_password: str,
+        remote_dir: str,
+        chain: bool = False,
+    ) -> None:
+        """Deploy an HTTPS SSL server certificate to a FASTPATH switch over SCP.
+
+        For the Fully Managed FASTPATH line (M4300 / GSM7252PS) only, whose
+        firmware pulls the certificate with ``copy scp://<src> nvram:sslpem-server``
+        rather than an HTTP form. Runs the disable-HTTPS -> copy(server) ->
+        optional copy(root chain) -> re-enable-HTTPS -> save-config sequence over
+        the library's existing CLI transport (SSH by default). Re-enabling HTTPS
+        loads the new certificate in place; the switch is NOT rebooted.
+
+        The CALLER must have STAGED the PEM(s) on the SCP source first: the switch
+        pulls ``<host-with-dots-as-dashes>-server.pem`` (and, when ``chain`` is
+        set, ``<...>-root.pem``) from ``remote_dir`` on ``scp_source`` (a
+        ``user@host[:port]`` string). This library only SENDS the copy commands
+        (per the design decision) -- it does not run the staging SCP server.
+
+        Dispatched ONLY for FASTPATH models with a known copy-scp profile
+        (m4300-24x/-16x, gsm7252ps); every other model -- including FASTPATH
+        gsm7228ps, whose cert upload is HTTP multipart -- raises
+        ``UnsupportedCapabilityError``.
+
+        HONESTY: GROUNDED in the certbot-hook ``FastpathScpUpdater`` prior art and
+        MOCK-TESTED end-to-end, but NOT live-verified (a real run is a production
+        write needing a staging SCP server, which CI lacks) -- see
+        ``cli_write.deploy_certificate_scp``.
+        """
+        from .protocols.cli.commands import scp_cert_profile
+
+        # Raises UnsupportedCapabilityError for any non-FASTPATH-SCP model,
+        # BEFORE building a session -- so a wrong model never opens a connection.
+        profile = scp_cert_profile(self.model)
+        # Base name of the staged PEM: the dot-sanitised host, mirroring the
+        # certbot hook (FASTPATH's copy-scp caps the remote path length and
+        # rejects dots in the filename, so "10.1.5.22" -> "10-1-5-22").
+        base = self.host.replace(".", "-")
+        session = self._cli_session()
+        try:
+            deploy_certificate_scp(
+                session,
+                scp_source=scp_source,
+                scp_password=scp_password,
+                remote_dir=remote_dir,
+                base=base,
+                chain=chain,
+                writemem_stuff=profile.writemem_stuff,
+            )
+        finally:
+            # Only tear down a session THIS facade built; never one injected.
+            if self._cli_client is None:
+                session.close()

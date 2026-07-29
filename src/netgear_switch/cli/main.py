@@ -273,6 +273,45 @@ def _cmd_upload_certificate(
     )
 
 
+def _cmd_upload_certificate_scp(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    from pathlib import Path
+
+    switch = get_switch()
+    try:
+        scp_password = Path(args.scp_password_file).read_text().strip()
+    except OSError as exc:
+        print(f"error: {exc}", file=ctx.err)
+        return EXIT_ERROR
+    if not scp_password:
+        print("error: --scp-password-file is empty", file=ctx.err)
+        return EXIT_ERROR
+    # NOTE: the CALLER must stage the PEM(s) on the SCP source first; this only
+    # SENDS the copy-scp commands to the switch (FASTPATH M4300/GSM7252PS).
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=(
+            f"deploy SSL certificate over SCP from {args.scp_source}"
+            f"{args.remote_dir}"
+        ),
+        action=lambda: switch.upload_certificate_scp(
+            scp_source=args.scp_source,
+            scp_password=scp_password,
+            remote_dir=args.remote_dir,
+            chain=args.chain,
+        ),
+        warning=(
+            "WARNING: this replaces the switch's running HTTPS certificate "
+            "(disables + re-enables the secure web server); stage the PEM on the "
+            "SCP source first."
+        ),
+    )
+
+
 def _cmd_poe(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
@@ -503,6 +542,37 @@ def build_parser() -> argparse.ArgumentParser:
     )
     safety.add_write_args(upload_cert)
     upload_cert.set_defaults(func=_cmd_upload_certificate)
+
+    upload_cert_scp = sub.add_parser(
+        "upload-certificate-scp",
+        parents=[child_gp],
+        help="deploy an HTTPS SSL certificate over SCP (FASTPATH M4300/GSM7252PS)",
+    )
+    upload_cert_scp.add_argument(
+        "--scp-source",
+        required=True,
+        metavar="USER@HOST[:PORT]",
+        help="SCP source the switch pulls the staged PEM from",
+    )
+    upload_cert_scp.add_argument(
+        "--scp-password-file",
+        required=True,
+        metavar="FILE",
+        help="file holding the SCP source password",
+    )
+    upload_cert_scp.add_argument(
+        "--remote-dir",
+        default="/var/lib/switchcert/staging",
+        metavar="DIR",
+        help="directory on the SCP source holding the staged PEM(s)",
+    )
+    upload_cert_scp.add_argument(
+        "--chain",
+        action="store_true",
+        help="also copy the CA-chain PEM to nvram:sslpem-root",
+    )
+    safety.add_write_args(upload_cert_scp)
+    upload_cert_scp.set_defaults(func=_cmd_upload_certificate_scp)
 
     pvid = sub.add_parser("pvid", parents=[child_gp], help="set a port's PVID")
     pvid.add_argument("port", type=int, help="port number")
