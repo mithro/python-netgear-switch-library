@@ -227,11 +227,10 @@ def test_m4300_16x_http_and_snmp_reads_agree() -> None:
     FRAME counts (never octets) and its VLAN page cannot distinguish tagged
     from untagged, so only VLAN IDs are compared.
 
-    ONE genuine per-backend difference is pinned explicitly (not silently
-    tolerated): the 16X HTTP spec is inherited verbatim from the 24X, which has
-    NO PoE pages (``poe_status_path=None``), so HTTP get_poe RAISES here --
-    while the 16X genuinely HAS 16 PSE ports and SNMP get_poe returns them. PoE
-    over HTTP on this SKU is UNVERIFIED-pending a real 16X web capture.
+    PoE is compared field-for-field (admin/detect/power_mw): the 16X HTTP spec
+    now reads the real /v1/poeInterfaceConfiguration.html (HTTPS:49152, SIDSSL),
+    live cross-verified against SNMP on the real 16X (10.1.5.20) -- see
+    endpoints.py's reads_verified=True note.
     """
     from netgear_switch.snmp_read import SnmpReader
     from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
@@ -282,12 +281,21 @@ def test_m4300_16x_http_and_snmp_reads_agree() -> None:
             assert http_temps, "HTTP reported no temperature sensors"
             assert {v for _n, v in http_temps} <= snmp_temps
 
-            # PoE: the pinned per-backend difference. SNMP has real PoE (16 PSE
-            # ports); HTTP RAISES because the inherited 24X spec has no PoE page.
-            snmp_poe = snmp.get_poe()
-            assert snmp_poe, "SNMP must report the 16X's real PoE ports"
-            with pytest.raises(UnsupportedCapabilityError):
-                http.get_poe()
+            # PoE: the 16X genuinely HAS 16 PSE ports, and (unlike the earlier
+            # inherited-24X spec that had no PoE page) HTTP now reads the real
+            # /v1/poeInterfaceConfiguration.html. Both backends must agree on
+            # admin state, detect and power_mw -- the last live-verified on the
+            # real 16X (HTTP "4.60" W == SNMP 4600 mW). This is the parity that
+            # the watts->mW fix and the M4300 PoE dispatch exist to guarantee.
+            http_poe = {p.port: p for p in http.get_poe()}
+            snmp_poe = {p.port: p for p in snmp.get_poe()}
+            assert set(http_poe) == set(snmp_poe), "PoE port set differs"
+            assert http_poe, "16X must report its real PoE ports"
+            for port, hp in http_poe.items():
+                sp = snmp_poe[port]
+                assert (hp.admin_enabled, hp.detect, hp.power_mw) == (
+                    sp.admin_enabled, sp.detect, sp.power_mw,
+                ), f"PoE port {port} differs"
         finally:
             client.close()
     finally:

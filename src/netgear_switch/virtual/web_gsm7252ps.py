@@ -220,8 +220,14 @@ def render_mac_table(state: VirtualSwitchState) -> str:
 _DETECT_TEXT = {1: "Disabled", 2: "Searching", 3: "Delivering power"}
 
 
-def render_poe(state: VirtualSwitchState) -> str:
-    """``/poeInterfaceConfiguration.html`` -- per-port PoE admin/status/power."""
+def render_poe(state: VirtualSwitchState, *, watts: bool = False) -> str:
+    """``/poeInterfaceConfiguration.html`` -- per-port PoE admin/status/power.
+
+    ``watts`` selects the "Output Power" cell format to MATCH the emulated
+    firmware: the gsm7252ps renders integer milliwatts (``watts=False``, e.g.
+    "3500"); the M4300-16X renders watts with two decimals (``watts=True``,
+    e.g. "4.60"). Both decode back to the same milliwatts via
+    ``parse._poe_power_to_mw`` -- see the parity note there."""
     body = _header(
         {
             "1_2_1": "Port",
@@ -235,7 +241,9 @@ def render_poe(state: VirtualSwitchState) -> str:
         inst = f"1.{row}.{len(poe)}"
         body += _cell(inst, "1_2_1", _iface(port))
         body += _cell(inst, "1_2_2", "Enable" if sim.admin else "Disable")
-        body += _cell(inst, "1_2_15", str(sim.power_mw))
+        power = sim.power_mw or 0
+        cell = f"{power / 1000:.2f}" if watts else str(power)
+        body += _cell(inst, "1_2_15", cell)
         body += _cell(inst, "1_2_17", _DETECT_TEXT.get(sim.detect, "Other Fault"))
     return _page(body)
 

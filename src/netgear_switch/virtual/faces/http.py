@@ -400,6 +400,14 @@ class VirtualHttpFace:
             return web_m4300.render_mac_table(self.state)
         if path == self.spec.sysinfo_path:
             return web_m4300.render_sysinfo(self.state)
+        if self.spec.poe_status_path and path == self.spec.poe_status_path:
+            # The M4300-16X PoE page (poeInterfaceConfiguration.html) shares the
+            # gsm7252ps XE cell layout -- both FASTPATH -- so reuse that
+            # renderer, but with watts=True: the M4300 firmware renders the
+            # power column in decimal WATTS ("4.60"), not the gsm7252ps's
+            # integer mW. The 24X has poe_status_path=None and never reaches
+            # here (it genuinely has no PoE).
+            return web_gsm7252ps.render_poe(self.state, watts=True)
         return None
 
     def _render_xe_page(self, path: str) -> str | None:

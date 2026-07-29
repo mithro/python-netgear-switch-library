@@ -444,20 +444,25 @@ _M4300 = HttpModelSpec(
 # <TITLE>NETGEAR M4300-16X</TITLE> (Cheetah). This inherited-from-24x spec targets
 # http://<host>/v1/... (the AV-UI port) and so does NOT work against the real 16x
 # -- login POSTs 404, and :49152 resets a plaintext-http connect (it is HTTPS).
-# The 16x is otherwise fully live-verified over SNMP + CLI. Wiring 16x HTTP needs
-# HTTPS-on-49152 transport support + a poe_status_path (the 16x IS PoE, unlike the
-# 24x) -- a dedicated slice; until then HTTP stays gated so the facade uses the
-# verified SNMP/CLI backends and never a broken web path.
+# The 16x is otherwise fully live-verified over SNMP + CLI. Wiring 16x HTTP needed
+# HTTPS-on-49152 transport support (done) + the SIDSSL cookie + a poe_status_path
+# (the 16x IS PoE, unlike the 24x) -- all done + live cross-verified below.
 _M4300_16X = dataclasses.replace(
     _M4300,
     model_key="m4300-16x",
-    reads_verified=False,
-    # The real 16X Cheetah "Main UI" is HTTPS on :49152 (see the note above).
-    # The login flow + /v1/ read paths are inherited unchanged from the 24X;
-    # only the transport (https + non-standard port) differs. reads_verified
-    # stays False -- the controller live-verifies before flipping it. No
-    # poe_status_path yet: per-port PoE is a 16X-only page, a separate slice
-    # after live-verification.
+    # LIVE cross-verified 2026-07-30 on the real M4300-16X-PoE (10.1.5.20:49152):
+    # every HTTP read (ports/stats/PVIDs/VLANs/MACs/mgmt-IP + PoE) matches SNMP.
+    reads_verified=True,
+    # The real 16X Cheetah "Main UI" is HTTPS on :49152 (see the note above). The
+    # login flow + /v1/ read paths are inherited from the 24X, but the HTTPS
+    # variant names its session cookie SIDSSL (not SID) -- confirmed live: the
+    # login POST sets SIDSSL and it authenticates every read page.
+    cookie_name="SIDSSL",
+    # Per-port PoE: the 16X (unlike the non-PoE 24X) serves the FASTPATH
+    # poeInterfaceConfiguration.html under /v1/. Its cell format is byte-identical
+    # to the gsm7252ps XE page, so _parse_poe routes the M4300 dialect through
+    # parse_xe_poe (16 PSE rows, live-verified == pethPsePortTable).
+    poe_status_path="/v1/poeInterfaceConfiguration.html",
     secure=True,
     web_port=49152,
 )

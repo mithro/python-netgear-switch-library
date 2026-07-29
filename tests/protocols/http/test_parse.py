@@ -362,6 +362,20 @@ def test_parse_xe_macs_refuse_truncated_page() -> None:
         parse.parse_xe_macs(truncated)
 
 
+def test_poe_power_to_mw_firmware_variance() -> None:
+    """The FASTPATH PoE power cell differs by firmware (both real captures): the
+    gsm7252ps renders integer MILLIWATTS, the M4300-16X renders decimal WATTS
+    despite a shared "(mW)" header. The decimal point disambiguates so both
+    normalise to the same milliwatts that the SNMP vendor OID reports."""
+    f = parse._poe_power_to_mw
+    assert f("3500") == 3500        # gsm7252ps: integer mW, as-is
+    assert f("4.60") == 4600        # M4300-16X: decimal watts -> mW (live)
+    assert f("0") == 0
+    assert f("0.00") == 0
+    assert f("") is None            # empty cell -> honest absence
+    assert f("--") is None
+
+
 def test_parse_xe_poe_matches_capture() -> None:
     poe = {p.port: p for p in parse.parse_xe_poe(
         _read("gsm7252ps_poeInterfaceConfiguration.html")

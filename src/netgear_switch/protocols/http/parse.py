@@ -80,6 +80,24 @@ def _int(text: str) -> int | None:
     return int(m.group()) if m else None
 
 
+def _poe_power_to_mw(text: str) -> int | None:
+    """Parse a FASTPATH PoE "Output Power" cell into integer milliwatts, to
+    match the SNMP vendor mW OID.
+
+    FIRMWARE VARIANCE (both grounded in real captures): the gsm7252ps renders
+    the value in integer MILLIWATTS (``"3500"`` == 3500 mW); the M4300-16X
+    renders WATTS with two decimals (``"4.60"`` == 4600 mW) despite a shared
+    "(mW)" column header [sic]. The decimal point disambiguates -- an integer
+    cell is already milliwatts, a decimal cell is watts (a raw 4.60 mW draw is
+    physically absurd for a delivering PD). Empty/absent -> honest ``None``;
+    ``"0"``/``"0.00"`` -> ``0``."""
+    m = re.search(r"-?\d+(?:\.\d+)?", text)
+    if not m:
+        return None
+    value = m.group()
+    return round(float(value) * 1000) if "." in value else int(value)
+
+
 def parse_login_rand(html: str) -> str | None:
     """Scrape the login nonce from ``<input id="rand" ... value="...">``."""
     m = re.search(r'id=["\']rand["\'][^>]*value=["\']([^"\']*)["\']', html)
@@ -1146,16 +1164,17 @@ def parse_xe_macs(html: str) -> list[MacEntry]:
 #   1_2_22 Temperature
 _XE_POE_IFACE = "1_2_1"
 _XE_POE_ADMIN = "1_2_2"
-_XE_POE_OUTPUT_MW = "1_2_15"
+_XE_POE_OUTPUT_W = "1_2_15"  # "Output Power" cell; mW or watts by firmware -- see _poe_power_to_mw
 _XE_POE_STATUS = "1_2_17"
 
 
 def parse_xe_poe(html: str) -> list[PoEStatus]:
     """GSM7252PS ``poeInterfaceConfiguration.html`` -> per-port PoE status.
 
-    ``power_mw`` is the "Ouput Power (mW)" column [sic -- the firmware's own
-    spelling], the live draw, matching the vendor mW OID the SNMP backend
-    reads. The Status column's text is matched against the shared
+    ``power_mw`` is the "Output Power" column, normalised to milliwatts by
+    ``_poe_power_to_mw`` so it matches the vendor mW OID the SNMP backend reads
+    (gsm7252ps renders integer mW, the M4300-16X renders decimal watts -- see
+    that helper). The Status column's text is matched against the shared
     ``_DETECT_TEXT`` vocabulary; the captured values are "Delivering power",
     "Searching" and "Other Fault" (the last -> FAULT, where SNMP's numeric
     detect map has no code and honestly reports UNKNOWN).
@@ -1183,7 +1202,7 @@ def parse_xe_poe(html: str) -> list[PoEStatus]:
                 port=port,
                 admin_enabled=r.get(_XE_POE_ADMIN, "").lower() == "enable",
                 detect=detect,
-                power_mw=_int(r.get(_XE_POE_OUTPUT_MW, "")),
+                power_mw=_poe_power_to_mw(r.get(_XE_POE_OUTPUT_W, "")),
             )
         )
     if not out:

@@ -128,11 +128,12 @@ def _parse_macs(spec: HttpModelSpec, html: str) -> list[MacEntry]:
 
 
 def _parse_poe(spec: HttpModelSpec, html: str) -> list[PoEStatus]:
-    """Dispatch the PoE page: the XE ``poeInterfaceConfiguration.html`` cells
+    """Dispatch the PoE page: the FASTPATH ``poeInterfaceConfiguration.html``
+    cells (XE gsm7252ps *and* the M4300 Cheetah 16X -- byte-identical format)
     vs gs305ep's ``getPoePortStatus.cgi`` portID rows."""
     if _is_goahead_dialect(spec):
         return parse.parse_goahead_poe(html)
-    if _is_xe_fastpath_dialect(spec):
+    if _is_xe_fastpath_dialect(spec) or _is_m4300_dialect(spec):
         return parse.parse_xe_poe(html)
     return parse.parse_poe_status(html)
 

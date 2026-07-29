@@ -178,26 +178,31 @@ def test_m4300_spec_live_verified_cheetah_v1() -> None:
 
 def test_m4300_16x_spec_https_on_49152() -> None:
     """The real M4300-16X-PoE Cheetah "Main UI" is HTTPS on port 49152 (the
-    AV-era two-UI firmware moves it off :80). The login flow + /v1/ read paths
-    are inherited unchanged from the 24X; only the transport differs
-    (secure=True, web_port=49152). reads_verified stays False -- the controller
-    live-verifies before flipping it -- and NO poe_status_path is set yet
-    (per-port PoE is a 16X-only page, a separate slice)."""
+    AV-era two-UI firmware moves it off :80). LIVE cross-verified 2026-07-30 on
+    10.1.5.20: reads_verified=True (every HTTP read matches SNMP). The HTTPS
+    variant names its session cookie SIDSSL (not the 24X's SID), and the 16X
+    genuinely HAS PoE -- poe_status_path is the FASTPATH
+    poeInterfaceConfiguration.html. Login flow + /v1/ read paths are otherwise
+    inherited from the 24X; the transport differs (secure=True, web_port=49152)."""
     spec = http_spec(get_model("m4300-16x"))
     assert spec.secure is True
     assert spec.web_port == 49152
-    assert spec.reads_verified is False
-    assert spec.poe_status_path is None
+    assert spec.reads_verified is True
+    assert spec.cookie_name == "SIDSSL"
+    assert spec.poe_status_path == "/v1/poeInterfaceConfiguration.html"
     # Inherited unchanged from the 24X: login scheme + /v1/ read paths.
     assert spec.scheme is LoginScheme.CHEETAH_V1
     assert spec.needs_referer is True
     assert spec.login_post_path == "/v1/base/cheetah_login.html"
     assert spec.dashboard_path == "/v1/portsConfiguration.html"
     assert spec.html_dialect is HtmlDialect.M4300
-    # Every other model stays plain HTTP on the implicit port.
+    # Every other model stays plain HTTP on the implicit port; the 24X keeps its
+    # SID cookie and has no PoE.
     m24 = http_spec(get_model("m4300-24x"))
     assert m24.secure is False
     assert m24.web_port is None
+    assert m24.cookie_name == "SID"
+    assert m24.poe_status_path is None
 
 
 def test_gs105pe_spec_live_verified_real_paths() -> None:
