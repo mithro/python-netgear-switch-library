@@ -105,12 +105,14 @@ def _ruler_spans(ruler: str) -> list[tuple[int, int | None]]:
     return spans
 
 
+def _slice_cell(row: str, start: int, end: int | None) -> str:
+    """One ruler-column cell of ``row`` (``end=None`` -> to end-of-line), stripped."""
+    return (row[start:end] if end is not None else row[start:]).strip()
+
+
 def _slice_row(spans: list[tuple[int, int | None]], row: str) -> list[str]:
     """Slice ``row`` by ``spans`` (ruler columns) and strip each cell."""
-    cells: list[str] = []
-    for start, end in spans:
-        cells.append(row[start:end].strip() if end is not None else row[start:].strip())
-    return cells
+    return [_slice_cell(row, start, end) for start, end in spans]
 
 
 def iter_table_rows(
@@ -171,8 +173,7 @@ def header_columns(text: str, *, after: str | None = None) -> list[str]:
     names: list[str] = []
     for span_start, span_end in spans:
         pieces = [
-            (hl[span_start:span_end] if span_end is not None else hl[span_start:]).strip()
-            for hl in header_lines
+            _slice_cell(hl, span_start, span_end) for hl in header_lines
         ]
         names.append(re.sub(r"\s+", " ", " ".join(p for p in pieces if p)))
     return names
