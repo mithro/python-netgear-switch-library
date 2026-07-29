@@ -176,6 +176,30 @@ def test_m4300_spec_live_verified_cheetah_v1() -> None:
     assert spec.poe_status_path is None
 
 
+def test_m4300_16x_spec_https_on_49152() -> None:
+    """The real M4300-16X-PoE Cheetah "Main UI" is HTTPS on port 49152 (the
+    AV-era two-UI firmware moves it off :80). The login flow + /v1/ read paths
+    are inherited unchanged from the 24X; only the transport differs
+    (secure=True, web_port=49152). reads_verified stays False -- the controller
+    live-verifies before flipping it -- and NO poe_status_path is set yet
+    (per-port PoE is a 16X-only page, a separate slice)."""
+    spec = http_spec(get_model("m4300-16x"))
+    assert spec.secure is True
+    assert spec.web_port == 49152
+    assert spec.reads_verified is False
+    assert spec.poe_status_path is None
+    # Inherited unchanged from the 24X: login scheme + /v1/ read paths.
+    assert spec.scheme is LoginScheme.CHEETAH_V1
+    assert spec.needs_referer is True
+    assert spec.login_post_path == "/v1/base/cheetah_login.html"
+    assert spec.dashboard_path == "/v1/portsConfiguration.html"
+    assert spec.html_dialect is HtmlDialect.M4300
+    # Every other model stays plain HTTP on the implicit port.
+    m24 = http_spec(get_model("m4300-24x"))
+    assert m24.secure is False
+    assert m24.web_port is None
+
+
 def test_gs105pe_spec_live_verified_real_paths() -> None:
     """gs105pe is LIVE-VERIFIED (10.1.5.30, 2026-07-21): merge-hash login
     confirmed, and the read paths corrected from the gs305ep copies that 404 on
