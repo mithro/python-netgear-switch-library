@@ -94,6 +94,12 @@ def _is_xe_fastpath_dialect(spec: HttpModelSpec) -> bool:
     return spec.html_dialect is HtmlDialect.XE_FASTPATH
 
 
+def _is_goahead_dialect(spec: HttpModelSpec) -> bool:
+    from .protocols.http.endpoints import HtmlDialect
+
+    return spec.html_dialect is HtmlDialect.GOAHEAD_XML
+
+
 def _has_inline_vlan_egress(spec: HttpModelSpec) -> bool:
     """True for the FASTPATH dialects whose VLAN page carries each VLAN's
     egress list INLINE (M4300 vlanStatus.html and the XE one), so there is no
@@ -113,6 +119,8 @@ def _parse_macs(spec: HttpModelSpec, html: str) -> list[MacEntry]:
     """Dispatch the MAC/FDB page to its dialect's parser. Both FASTPATH
     dialects refuse a paginated (truncated) table rather than returning a
     partial FDB -- see the parsers' docstrings."""
+    if _is_goahead_dialect(spec):
+        return parse.parse_goahead_macs(html)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_macs(html)
     return parse.parse_m4300_macs(html)
@@ -121,24 +129,37 @@ def _parse_macs(spec: HttpModelSpec, html: str) -> list[MacEntry]:
 def _parse_poe(spec: HttpModelSpec, html: str) -> list[PoEStatus]:
     """Dispatch the PoE page: the XE ``poeInterfaceConfiguration.html`` cells
     vs gs305ep's ``getPoePortStatus.cgi`` portID rows."""
+    if _is_goahead_dialect(spec):
+        return parse.parse_goahead_poe(html)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_poe(html)
     return parse.parse_poe_status(html)
 
 
+def _parse_lldp(spec: HttpModelSpec, html: str) -> list[LLDPNeighbor]:
+    """Dispatch the LLDP page to its dialect's parser."""
+    if _is_goahead_dialect(spec):
+        return parse.parse_goahead_lldp(html)
+    return parse.parse_xe_lldp(html)
+
+
 def _parse_sensors(spec: HttpModelSpec, html: str) -> list[Sensor]:
     """Dispatch the sensor-bearing sysInfo page to its dialect's parser."""
+    if _is_goahead_dialect(spec):
+        return parse.parse_goahead_sensors(html)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_sensors(html)
     return parse.parse_m4300_sensors(html)
 
 
 def _supports_sensors(spec: HttpModelSpec) -> bool:
-    """Only the two FASTPATH dialects have a sysInfo page carrying box
+    """Only the FASTPATH / GoAhead dialects have a sysInfo page carrying box
     sensors; a Plus model's sysInfo (gs110emx/gs105pe) has none, so
     ``get_sensors`` raises rather than returning an empty list."""
     return (
-        _is_m4300_dialect(spec) or _is_xe_fastpath_dialect(spec)
+        _is_m4300_dialect(spec)
+        or _is_xe_fastpath_dialect(spec)
+        or _is_goahead_dialect(spec)
     ) and spec.sysinfo_path is not None
 
 
@@ -169,6 +190,8 @@ def _parse_ports(spec: HttpModelSpec, html: str) -> list[PortStatus]:
         return parse.parse_m4300_port_status(html)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_port_status(html)
+    if _is_goahead_dialect(spec):
+        return parse.parse_goahead_ports(html)
     return parse.parse_port_status(html)
 
 
@@ -183,6 +206,8 @@ def _parse_pvids(spec: HttpModelSpec, html: str) -> list[tuple[int, int]]:
         return parse.parse_m4300_pvids(html)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_pvids(html)
+    if _is_goahead_dialect(spec):
+        return parse.parse_goahead_pvids(html)
     return parse.parse_pvids(html)
 
 
@@ -271,12 +296,27 @@ def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
     )
 
 
+def _mgmt_ip_path(spec: HttpModelSpec) -> str | None:
+    """The page whose HTML ``get_mgmt_ip`` reads for this model.
+
+    The GoAhead dialect's ``sysinfo_path`` wcd query serves device identity +
+    sensors, NOT the IPv4 config, so mgmt-IP comes from the dedicated
+    ``mgmt_ip_path`` there; every other model reads it from ``sysinfo_path``.
+    ``None`` means this model exposes no mgmt-IP page at all."""
+    if _is_goahead_dialect(spec):
+        return spec.mgmt_ip_path
+    return spec.sysinfo_path
+
+
 def _mgmt_ip(spec: HttpModelSpec, page: str) -> MgmtIpConfig:
     """Dispatch ``sysinfo_path``'s HTML to the dialect's mgmt-IP reader.
 
     The two FASTPATH dialects have their own page shapes (both reporting
     address/netmask + base MAC and NO DHCP indicator, hence IpMode.UNKNOWN);
-    the Plus models go through ``HttpSysInfo``."""
+    the GoAhead dialect reads a dedicated IPConf wcd query (address/netmask/
+    gateway, no base MAC); the Plus models go through ``HttpSysInfo``."""
+    if _is_goahead_dialect(spec):
+        return parse.parse_goahead_mgmt_ip(page)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_mgmt_ip(page)
     if _is_m4300_dialect(spec):
@@ -327,6 +367,15 @@ class HttpReader:
         cfg_path = _require_path(
             self.model.key, self._spec.vlan_config_path, "VLAN configuration"
         )
+        if _is_goahead_dialect(self._spec):
+            # The GoAhead VLANList carries names only; membership comes from the
+            # per-port JoinVLANList on the PVID page. Fetch both and combine.
+            pvid_path = _require_path(
+                self.model.key, self._spec.pvid_path, "VLAN membership"
+            )
+            return parse.parse_goahead_vlans(
+                self.session.get_page(cfg_path), self.session.get_page(pvid_path)
+            )
         if _has_inline_vlan_egress(self._spec):
             # vlanStatus.html carries each VLAN's egress list inline, so there
             # is no per-VLAN membership POST for these models.
@@ -363,7 +412,7 @@ class HttpReader:
         # table) and Plus switches expose no LLDP at all, so both keep raising
         # and SNMP stays the honest source. The gsm7252ps XE UI DOES have one.
         path = _require_path(self.model.key, self._spec.lldp_path, "LLDP neighbours")
-        return parse.parse_xe_lldp(self.session.get_page(path))
+        return _parse_lldp(self._spec, self.session.get_page(path))
 
     def get_sensors(self) -> list[Sensor]:
         if not _supports_sensors(self._spec):
@@ -374,10 +423,10 @@ class HttpReader:
         )
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
-        if self._spec.sysinfo_path is None:
+        path = _mgmt_ip_path(self._spec)
+        if path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        page = self.session.get_page(self._spec.sysinfo_path)
-        return _mgmt_ip(self._spec, page)
+        return _mgmt_ip(self._spec, self.session.get_page(path))
 
 
 class AsyncHttpReader:
@@ -409,6 +458,14 @@ class AsyncHttpReader:
         cfg_path = _require_path(
             self.model.key, self._spec.vlan_config_path, "VLAN configuration"
         )
+        if _is_goahead_dialect(self._spec):
+            pvid_path = _require_path(
+                self.model.key, self._spec.pvid_path, "VLAN membership"
+            )
+            return parse.parse_goahead_vlans(
+                await self.session.get_page(cfg_path),
+                await self.session.get_page(pvid_path),
+            )
         # The inline-egress check MUST precede the vlan_membership_path
         # requirement: those models have no membership page (vlanStatus.html
         # carries the egress list inline), so requiring it first made this
@@ -444,7 +501,7 @@ class AsyncHttpReader:
 
     async def get_lldp(self) -> list[LLDPNeighbor]:
         path = _require_path(self.model.key, self._spec.lldp_path, "LLDP neighbours")
-        return parse.parse_xe_lldp(await self.session.get_page(path))
+        return _parse_lldp(self._spec, await self.session.get_page(path))
 
     async def get_sensors(self) -> list[Sensor]:
         if not _supports_sensors(self._spec):
@@ -455,7 +512,7 @@ class AsyncHttpReader:
         )
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
-        if self._spec.sysinfo_path is None:
+        path = _mgmt_ip_path(self._spec)
+        if path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        page = await self.session.get_page(self._spec.sysinfo_path)
-        return _mgmt_ip(self._spec, page)
+        return _mgmt_ip(self._spec, await self.session.get_page(path))

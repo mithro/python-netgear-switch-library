@@ -120,6 +120,41 @@ def test_gsm7252ps_spec_xe_fastpath() -> None:
     assert spec.html_dialect is HtmlDialect.XE_FASTPATH
 
 
+def test_gs728tpp_spec_goahead_xml() -> None:
+    """gs728tpp HTTP: the GoAhead XML_API login (GET / 302 -> session path, then
+    GET <sess>/System.xml?action=login -> statusCode 0 + sessionID header) is
+    GROUNDED in real captures of 10.2.5.10, so scheme_verified is True. The read
+    "paths" are wcd QUERIES (GOAHEAD_XML dialect) and reads_verified is True --
+    every parse_goahead_* was live cross-verified against 10.2.5.10 on 2026-07-29.
+    get_mgmt_ip reads a dedicated IPConf query; per-port stats are SNMP-only so
+    stats_path is None."""
+    spec = http_spec(get_model("gs728tpp"))
+    assert spec.scheme is LoginScheme.XML_API
+    assert spec.scheme_verified is True
+    assert spec.reads_verified is True
+    assert spec.html_dialect is HtmlDialect.GOAHEAD_XML
+    assert spec.login_path == "/"
+    assert spec.username == "admin"
+    assert spec.cookie_name == "sessionID"
+    assert spec.stats_path is None  # per-port stats not available via HTTP
+    assert spec.vlan_membership_path is None  # derived from the PVID page
+    # the read "paths" are wcd queries naming the source XML file
+    wcd = {
+        "portConfiguration_master": spec.dashboard_path,
+        "PortPvidConf_master": spec.pvid_path,
+        "VlanConfBasic_master": spec.vlan_config_path,
+        "PoeInterfaceConf_master": spec.poe_status_path,
+        "DynamicAddresses_master": spec.mac_table_path,
+        "NeighborsInformation_master": spec.lldp_path,
+        "SystemInfo_master": spec.sysinfo_path,
+        "IPConf_master": spec.mgmt_ip_path,
+    }
+    for needle, query in wcd.items():
+        assert query is not None, needle
+        assert query.startswith("wcd?{file=")
+        assert needle in query
+
+
 def test_m4300_spec_live_verified_cheetah_v1() -> None:
     """M4300 HTTP is LIVE-VERIFIED (10.1.5.13): uname+pwd Cheetah /v1 login,
     Referer-required, and read pages whose URLs were recovered by driving a

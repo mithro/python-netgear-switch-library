@@ -72,14 +72,15 @@ def test_xs748t_registered_smart_managed_pro_snmp_only():
     assert m.verified is False
 
 
-def test_gs728tpp_registered_smart_managed_pro_snmp_only():
-    # HTTP is deliberately NOT registered here even though a web UI exists
-    # (see registry.py's comment): the real login flow is a third, distinct
-    # scheme this codebase doesn't implement yet.
+def test_gs728tpp_registered_smart_managed_pro_snmp_http():
+    # HTTP is now REGISTERED: the GoAhead XML_API login + wcd read dialect is
+    # implemented (see registry.py's comment and protocols/http/endpoints.py).
+    # verified stays False -- only the SNMP vendor OID family is still an
+    # UNVERIFIED-pending-capture guess.
     m = get_model("gs728tpp")
     assert m.switch_class is SwitchClass.SMART_MANAGED_PRO
-    assert m.backends == frozenset({Backend.SNMP})
-    assert Backend.HTTP not in m.backends
+    assert m.backends == frozenset({Backend.SNMP, Backend.HTTP})
+    assert Backend.HTTP in m.backends
     assert m.snmp_vendor_base == "1.3.6.1.4.1.4526.11"
     assert m.port_count == 28
     assert m.poe_port_count == 24

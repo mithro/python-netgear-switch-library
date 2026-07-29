@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResponseData>
+<MASTER ONLOAD="VlanConfig.disableDefaultVlan()">
+<jscript SRC="Behaviour/VlanConfig.js"></jscript>
+<screenName>VLAN Configuration</screenName>
+<NODE TYPE="NG_buttonsPanel" ONLOAD="NG_buttonsPannel.draw()">
+<NODE ID="Add" SRC="images/add_off.gif" ONCLICK="VlanConfig.Add()" />
+<NODE ID="Delete" SRC="images/delete_off.gif" ONCLICK="NG_buttonsPannel.Delete()" ENABLED="false"/>
+<NODE ID="Cancel" SRC="images/cancel_off.gif" ONCLICK="cancelBthClick()" ENABLED="false"/>
+<NODE ID="Apply" SRC="images/apply_off.gif" ONCLICK="NG_buttonsPannel.Apply()" ENABLED="false"/>
+</NODE>
+<screenSection TITLE="VLAN Configuration" WIDTH = "425px" HELP_PRM="50">
+<repeatedtable ID="_RT" OBJECT="RT" BIND="VLANList" MULTISELECT="true"
+oWIDTH="100%" oCLASS = "repeatedTable" CLASS = "tableStyle">
+<tr>
+<th CLASS="tableFieldTitle1"></th>
+<th CLASS="tableFieldTitleFirstCol">VLAN ID</th>
+<th CLASS="tableFieldTitle2">VLAN Name</th>
+<th CLASS="tableFieldTitle2">VLAN Type</th>
+</tr>
+<tr>
+<td CLASS="tableFieldTitle11">
+<checkbox ID="chkAll" ONCLICK="VlanConfig.checkAll('_RT','selectRow',this);NG_buttonsPannel.setFieldDisable('_RT','txtVlanId');disableControls(['Add'],true)"/>
+</td>
+<td CLASS="tableFieldTitle11FirstCol">
+<inputtext ID="txtVlanId" CLASS="xuiInputTextEnabled" VALID_TYPE="2" FIELD_NAME="VLAN Id" MIN_VALUE="2" MAX_VALUE="4093" MANDATORY="1" DISABLE_ON_MULTY = "true" MAXLENGTH="4" ONCLICK="VlanConfig.disableAddButton()" ONCHANGE="VlanConfig.disableAddButton()" />
+</td>
+<td CLASS="tableFieldTitle22">
+<inputtext ID="txtVlanName" CLASS="xuiInputTextEnabled" VALID_TYPE="109" FIELD_NAME="VLAN Name" MAXLENGTH="32" DISABLE_ON_MULTY = "true" oMANDATORY="1" ONCLICK="VlanConfig.disableAddButton()" ONCHANGE="VlanConfig.disableAddButton()" />
+</td>
+<td CLASS="tableFieldTitle22">
+</td>
+</tr>
+<repeatedrow BIND="VLAN" CLASS="repeated_row" CLASS_ODD="repeated_row_odd" CLASS_SELECTED="selectRow">
+<repeatedcell CLASS="tableField">
+<checkbox TYPE="checkbox" ONCLICK="VlanConfig.selectRTRow(this)" />
+</repeatedcell>
+<repeatedcell BIND="VLANID" RELATED_ID="txtVlanId" CLASS="messageTableBorderFirstCol" />
+<repeatedcell BIND="VLANName" RELATED_ID="txtVlanName" CLASS="messageTableBorder" />
+<repeatedcell BIND="VLANType" ENUM="true" CLASS="messageTableBorder"></repeatedcell>
+</repeatedrow>
+</repeatedtable>
+</screenSection>
+<screenSection TITLE="Reset" WIDTH = "425px" HELP_PRM="50">
+<table ID="tblResetConf" CLASS="tableStyle">
+<tr>
+<td CLASS="black10b">Reset Configuration </td>
+<td CLASS="black10">
+<checkbox TYPE="checkbox" ID="chkReset" ONCLICK="VlanConfig.Reset(this);" />
+</td>
+</tr>
+</table>
+</screenSection>
+<ENUM>
+<VLANType>
+<NODE VALUE="1">Default</NODE>
+<NODE VALUE="2">Static</NODE>
+<NODE VALUE="3">Dynamic</NODE>
+</VLANType>
+</ENUM>
+<TEMPLATES>
+<TEMPLATE API="VLANList" action="">
+<VLAN>
+<VLANID required="true"/>
+<VLANName />
+<VLANType/>
+</VLAN>
+</TEMPLATE>
+</TEMPLATES>
+</MASTER>
+
+<DeviceConfiguration>
+<version>1.0</version>
+<VLANList type="section">
+<VLAN>
+<VLANID>1</VLANID>
+<VLANName></VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>1</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>2</VLANID>
+<VLANName>Voice VLAN</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>3</VLANID>
+<VLANName>Auto Video VLAN</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>5</VLANID>
+<VLANName>net</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>6</VLANID>
+<VLANName>pwr</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>7</VLANID>
+<VLANName>store</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>10</VLANID>
+<VLANName>int</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>20</VLANID>
+<VLANName>roam</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>31</VLANID>
+<VLANName>fpgas</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>41</VLANID>
+<VLANName>sm</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>90</VLANID>
+<VLANName>iot</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+<VLAN>
+<VLANID>99</VLANID>
+<VLANName>guest</VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>2</VLANType>
+</VLAN>
+</VLANList>
+</DeviceConfiguration>
+<ActionStatus>
+<requestURL>VLANList</requestURL>
+<statusCode></statusCode>
+</ActionStatus>
+</ResponseData>

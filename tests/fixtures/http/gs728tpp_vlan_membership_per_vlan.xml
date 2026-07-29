@@ -1,0 +1,460 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResponseData>
+<script id="tmpl_membership_config" type="text/x-jquery-tmpl">
+<![CDATA[
+<tr>
+<td class="black100b">ACL ID</td>
+<td class="black100b">
+<select id="slctACL" name="slctACL" onchange="changeSlctACLName()" onclick="disableControls(['Cancel','Apply'],false);" >
+{{each ACLNamesArr}}
+<option value='${$value}' {{if ((selectedACLName == $value))}}selected{{/if}}>${$value}</option>
+{{/each}}
+</select>
+</td>
+<td class="black100b">Direction</td>
+<td class="black100b">
+<select id="slctDirect" name="slctDirect" onclick="disableControls(['Cancel','Apply'],false);">
+<option value="Inbound">Inbound</option>
+</td>
+</tr>
+<tr>
+<td class="black100b">Sequence Number</td>
+<td class="black100b">
+<input type="text" id="txtNumber" name="txtNumber" size="11" onclick="disableControls(['Cancel','Apply'],false);"/>
+</td>
+<td class="black100b">(1 to 2147483647)</td>
+<td class="black100b"></td>
+</tr>
+<tr class="black10b">
+<td align="left" vAlign="middle" style="border-bottom: #ffffff 1px solid; padding-bottom: 4px; line-height: 1.6em; background-color: #d9d9d9; border-top-color: #ffffff; padding-left: 4px; padding-right: 4px; border-right-color: #ffffff; border-left-color: #ffffff; padding-top: 4px;" colSpan="4">
+Port Selection Table
+</td>
+</tr>
+{{tmpl $(templates.tmpl_membership_config_Common)}}
+]]>
+</script>
+<script id="tmpl_membership_config_Common" type="text/x-jquery-tmpl">
+<![CDATA[
+<tr>
+<td colspan="4">
+<table ID="tblUnit" class="xuiTableStyle" CELLPADDING="0" CELLSPACING="0">
+<tbody>
+<tr class="orangeMemberRow" width="100%">
+<td class="messageTable">
+<table id="tblPortsTitlePerUnit">
+<tr>
+<td id="tdArrowPort" style="cursor:pointer">
+<img id="ArrowPort" name="ArrowPort" src="../../images/blue_right_arrow.gif" style="margin-bottom:3px;"/>
+</td>
+<td id="tdAllBtnPort">
+<img id="imageTagPort" name="imageTag" src="../../images/orange_blank.gif" style="cursor:pointer;" onclick="changeAllUnits('1');disableControls(['Cancel','Apply'],false);"/>
+</td>
+<td style="padding-left:3px;">
+<span class="blue" style="cursor:pointer;align:left;" valign="middle" onclick="ShowOrHide('trPort');">Port</span>
+</td>
+<td id="tdOnclickPort" width="100%" onclick="ShowOrHide('trPort');">
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr id="trPort" style="display:none">
+<td colspan="4">
+<table id="tblPortsPerUnit" width="100%" cellpadding="0" cellspacing="0">
+{{each(mainIndex,mainValue) existArr}}
+{{each(index,value) mainValue}}
+{{if ((index%maxPerRow==0)) }}
+<tr>
+<td class='black10bMember' style='text-align:center;'>Port</td>
+{{/if}}
+<td class='black10bMember' style='text-align:center;'>${value[0]}</td>
+{{if ((index==(mainValue.length-1))) }}
+{{if (((maxPerRow-(mainValue.length))!=0))}}
+<td colspan="20">&nbsp;</td>
+{{/if}}
+</tr>
+{{/if}}
+{{/each}}
+{{each(index,value) mainValue}}
+{{if ((index%maxPerRow==0)) }}
+<tr style="background-color: #CCCCCC;">
+<td>&nbsp;</td>
+{{/if}}
+<td style="text-align:center;" id="tdBtnPort_${value[0]}" value="${value[2]}"><img name="imageTag" id="imgPortTag_${value[0]}" src="${getImageperInterfaceStatus(value[2])}" style="cursor:pointer" onclick="markInterface('tdBtnPort_${value[0]}','${value[2]}');disableControls(['Cancel','Apply'],false);"></td>
+{{if ((index==(mainValue.length-1))) }}
+{{if (((maxPerRow-(mainValue.length))!=0))}}
+<td colspan="${(maxPerRow-(mainValue.length))}">&nbsp;</td>
+{{/if}}
+</tr>
+{{/if}}
+{{/each}}
+{{/each}}
+</table>
+</td>
+</tr>
+<tr>
+<td colspan="4" ></td>
+</tr>
+{{if ((PortsOnly)) }}
+<tr class="orangeMemberRow" style="display:none">
+{{else}}
+<tr class="orangeMemberRow">
+{{/if}}
+<td class="messageTable" width="100%" colspan="4">
+<table id="tblLAGsTitlePerUnit">
+<tr>
+<td id="tdArrowLAG" style="cursor:pointer">
+<img id="ArrowLAG" name="ArrowLAG" src="../../images/blue_right_arrow.gif" style="margin-bottom:3px;"/>
+</td>
+<td id="tdAllBtnLag">
+<img id="imageTagLAG" name="imageTag" src="../../images/orange_blank.gif" style="cursor:pointer;" onclick="changeAllUnits('2');disableControls(['Cancel','Apply'],false);"/>
+</td>
+<td style="padding-left:3px;">
+<span class="blue" style="cursor:pointer;align:left;" valign="middle" onclick="ShowOrHide('trLag')">LAG</span>
+</td>
+<td id="tdOnclickLAG" width="100%" onclick="ShowOrHide('trLag')">
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr id="trLag" style="display:none">
+<td colspan="4">
+<table width="100%" cellpadding="0" cellspacing="0" id="tblLAGsPerUnit">
+{{each(mainIndex,mainValue) existLag}}
+{{each(index,value) mainValue}}
+{{if ((index%maxPerRow==0)) }}
+<tr>
+<td class='black10bMember' style='text-align:center;'>Lag</td>
+{{/if}}
+<td class='black10bMember' style='text-align:center;'>${value[0]}</td>
+{{if ((index==(mainValue.length-1))) }}
+{{if (((maxPerRow-(mainValue.length))!=0))}}
+<td colspan="20">&nbsp;</td>
+{{/if}}
+</tr>
+{{/if}}
+{{/each}}
+{{each(index,value) mainValue}}
+{{if ((index%maxPerRow==0)) }}
+<tr style="background-color: #CCCCCC;">
+<td>&nbsp;</td>
+{{/if}}
+<td style="text-align:center;" id="tdBtnLag_${value[0]}" value="${value[2]}"><img name="imageTag" id="imageLAGTag_${value[0]}" src="${getImageperInterfaceStatus(value[2])}" style="cursor:pointer" onclick="markInterface('tdBtnLag_${value[0]}','${value[2]}');disableControls(['Cancel','Apply'],false);"></td>
+{{if ((index==(mainValue.length-1))) }}
+{{if (((maxPerRow-(mainValue.length))!=0))}}
+<td colspan="${(maxPerRow-(mainValue.length))}">&nbsp;</td>
+{{/if}}
+</tr>
+{{/if}}
+{{/each}}
+{{/each}}
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+]]>
+</script>
+<script id="tmpl_VLAN_Wizard" type="text/x-jquery-tmpl">
+<![CDATA[
+<tr>
+<td class="black100b">VLAN ID</td>
+<td class="black100b" colspan="3">
+<input type="text" id="txtVLANID" name="txtVLANID" size="5" value="" onclick="disableControls(['Cancel','Apply'],false);"/>
+<span class="argHelpWhite">(1 to 4093)<span/>
+</td>
+</tr>
+<tr>
+<td class="black100b">IP Address</td>
+<td class="black100b">
+<input type="text" id="txtIPAddress" name="txtIPAddress" onclick="disableControls(['Cancel','Apply'],false);"/>
+</td>
+<td class="black100b">Network Mask</td>
+<td class="black100b"><input type="text" id="txtMask" name="txtMask" onclick="disableControls(['Cancel','Apply'],false);"/></td>
+</tr>
+{{tmpl $(templates.tmpl_membership_config_Common)}}
+]]>
+</script>
+
+<DeviceConfiguration>
+<version>1.0</version>
+<VLANMembershipList type="section">
+<VLAN>
+<VLANID>1</VLANID>
+<VLANName></VLANName>
+<authorizationType>1</authorizationType>
+<VLANType>1</VLANType>
+<MembershipList>
+<VLANMember>
+<interfaceName>g2</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>2</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g4</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>4</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g6</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>6</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g7</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>7</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g8</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>8</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g9</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>9</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g10</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>10</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g11</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>11</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g13</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>13</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g14</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>14</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g15</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>15</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g16</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>16</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g17</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>17</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g18</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>18</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g19</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>19</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g20</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>20</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g21</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>21</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g22</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>22</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g24</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>24</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g25</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>25</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>g27</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>27</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG1</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>1</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG2</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>2</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG3</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>3</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG4</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>4</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG5</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>5</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG6</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>6</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG7</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>7</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+<VLANMember>
+<interfaceName>LAG8</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>8</interfaceID>
+<membershipType>2</membershipType>
+<taggingMode>1</taggingMode>
+<customerMulticastTVVLANEnabled>2</customerMulticastTVVLANEnabled>
+<multicastTVVLANType>1</multicastTVVLANType>
+</VLANMember>
+</MembershipList>
+</VLAN>
+</VLANMembershipList>
+</DeviceConfiguration>
+<ActionStatus>
+<requestURL>VLANMembershipList</requestURL>
+<statusCode></statusCode>
+</ActionStatus>
+</ResponseData>

@@ -1,0 +1,1458 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResponseData>
+<html>
+<head>
+<title></title>
+<link rel="stylesheet" type="text/css" href="../../styles.css">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<script src="../../js/tmpl.js" type="text/javascript"></script>
+<script src="../../js/globalFunctions.js" type="text/javascript"></script>
+<script src="../../js/globalFunctionsJQ.js" type="text/javascript"></script>
+<script type="text/javascript">
+var _top = parent._top;
+</script>
+<script type="text/javascript" src="../../js/validationCore.js"></script>
+<script type="text/javascript" src="../../js/validationProject.js"></script>
+</head>
+<body id="mainBody" style="display:none" >
+<form name="MFDB Table" ID="Form1">
+<div class="xuiMainBody mainContainer">
+<table class="xuiDetailsContainer" ID="mainTable">
+<script>
+DrawCaption("Port Configuration");
+DrawTopTableEdt("Port Configuration",600,'tbl1');
+</script>
+<tr>
+<td colspan="2" class="filterfont">
+<table class=xuiTableStyle" ID="Table1">
+<tr id="interfaceFilter"><td/></tr>
+</table>
+</td>
+</tr>
+<tr>
+<td class="filterfont dataTable" colspan="2">
+<table id="dot1xAuthStatsTable" class=xuiTableStyle>
+<thead>
+<tr>
+<th class="tableFieldTitle1"></th>
+<th class="tableFieldTitleFirstCol">Port</th>
+<th class="tableFieldTitle2">Description</th>
+<th class="tableFieldTitle2">Port Type</th>
+<th class="tableFieldTitle2">Admin Mode</th>
+<th class="tableFieldTitle2">Port Speed</th>
+<th class="tableFieldTitle2">Physical Status</th>
+<th class="tableFieldTitle2">Link Status</th>
+<th class="tableFieldTitle2">MAC Address</th>
+<th class="tableFieldTitle2">ifIndex</th>
+</tr>
+<tr>
+<td class="tableFieldTitle11">
+<input type="checkbox" name="chkBox" id="chkAll" onclick="AlterAllRowsSelection(this);"/></td>
+<td class="tableFieldTitle11FirstCol" id="tdPort" style="color:white"></td>
+<td class="tableFieldTitle22" style="padding-top:3px!important;padding-bottom:3px!important"-->
+<input type="text" ID="txtDescription" maxlength="64" style="width:120px;"
+onchange="SetButtons()" onclick="SetButtons()" NAME="txtDescription"></td>
+<td class="tableFieldTitle22" id="tdPortType" style="color:white"></td>
+<td class="tableFieldTitle22" id="tdAdminMode">
+<select ID="slctAdminMode" width="65px" NAME="slctAdminMode" onchange="SetButtons()">
+<option value=""></option>
+<option value="1">Enable</option>
+<option value="2">Disable</option>
+</select>
+</td>
+<td class="tableFieldTitle22">
+<select ID="slctPortSpeed" width="65px" NAME="Select1" onchange="SetButtons()">
+<option value=""></option>
+<option value="10H">10M Half Duplex</option>
+<option value="10F">10M Full Duplex</option>
+<option value="100H">100M Half Duplex</option>
+<option value="100F">100M Full Duplex</option>
+<option value="1000F">1000M Full Duplex</option>
+<option value="0">Auto</option>
+</select>
+</td>
+<td class="tableFieldTitle22" id="tdPhysicalStatus" style="color:white"></td>
+<td class="tableFieldTitle22" id="tdLinkStatus" style="color:white"></td>
+<td class="tableFieldTitle22" id="tdMACAddress" style="color:white"></td>
+<td class="tableFieldTitle22" id="tdifIndex" style="color:white"></td>
+</tr>
+</thead>
+<tbody id="tblPorts_Body"><tr><td/></tr></tbody>
+</table>
+</td></tr></table>
+<tr>
+<td colspan="2" class="filterfont">
+<table class=xuiTableStyle ID="Table2">
+<tr id="interfaceFilterFooter" class="growRow"><td/></tr>
+</table>
+</td>
+</tr>
+</td>
+<td class="subSectionBody"></td>
+</tr>
+<tr>
+<td colspan=3 class="subSectionBottom" ></td>
+</tr>
+</tbody></table></td></tr></table>
+</div>
+<script id="tmpl_PortsTableBody" type="text/x-jquery-tmpl">
+<![CDATA[
+{{each Standard802_3List}}
+<tr id="r${$index}_tblPORT">
+<td class="tableField"><input type="checkbox" onclick="AlterRowSelection(this,null,'Apply');SetSpan();" name="chkBox" class="checkbox" id="tblList_cb${$index}" value="${$index}" ></td>
+<td class="messageTableBorderFirstCol" id="td_port_${$index}_tblPORT">${$value.interfaceName}</td>
+<td class="messageTableBorder"><span id="span_Description_${$index}_tblPORT">${$value.interfaceDescription}</span></td>
+<td class="messageTableBorder"><span id="span_portType_${$index}_tblPORT" ></span></td>
+<td class="messageTableBorder"><span id="span_adminMode_${$index}_tblPORT" RELATED_ID="slctAdminMode">${$value.adminState}</span></td>
+<td class="messageTableBorder"><span id="span_speedAdmin_${$index}_tblPORT" RELATED_ID="slctPortSpeed" >${$value.speedAdmin}</span></td>
+<td class="messageTableBorder"><span id="span_PhysicalStatus_${$index}_tblPORT" ></span></td>
+<td class="messageTableBorder"><span id="span_linkState_${$index}_tblPORT">${$value.linkState}</span></td>
+<td class="messageTableBorder"><span id="span_MACAddress_${$index}_tblPORT">${$value.MACAddress}</span></td>
+<td class="messageTableBorder"><span id="span_interfaceID_${$index}_tblPORT" RELATED_ID="tdifIndex">${$value.interfaceID}</span></td>
+</tr>
+{{/each}}
+]]>
+</script>
+<script type="text/javascript">
+var filterStr="&interfaceType=1";
+function goFilter(buttonSearch)
+{
+getData($('#txtInterface')[0].value);
+showPageContent();
+}
+function filterShowPorts()
+{
+filterStr = "&interfaceType=1";
+getData();
+showPageContent();
+StylingInit();
+}
+function filterShowLAGS()
+{
+filterStr = "&interfaceType=2";
+getData();
+showPageContent();
+StylingInit();
+}
+function filterShowALL()
+{
+filterStr = "";
+getData();
+showPageContent();
+StylingInit();
+}
+function getData()
+{
+tmpl.wcd('wcd?{Standard802_3List' + filterStr + '}');
+}
+function drawSerch(element,index)
+{
+var htmlStr = '<table class="xuiTableStyle">'+
+'<tr ' + ((index == 2)? 'class=growRow': '') + '> ' +
+'<td style="padding-left:5px" class="urlListTr" colspan="2">'+
+'</b><a id="lnkPorts_' + index + '" href="javascript:filterShowPorts();" ><span><b>PORTS&nbsp;</span></a>'+
+'<a id="lnkLags_' + index + '" href="javascript:filterShowLAGS();"><span><B>LAGS&nbsp;</span></a>'+
+'<a id="lnkAll_' + index + '" href="javascript:filterShowALL();"><span><b>All</span></a>'+
+'</td>'+
+'<td nowrap align=center class="spaser4Percent urlListTr">'+
+'<table align=left>'+
+'<tbody>'+
+'<tr>'+
+'<td class=filterfont width="50%"></td>'+
+'<td td nowrap class=filterfont>&nbsp;Go&nbsp;To&nbsp;Interface&nbsp;</td>'+
+'<td nowrap class=filterfont style="padding-right:7px" id="filterIfName' + index + '">'+
+'<input type="text" style=vertical-align:bottom size=10 maxlength=10 id="txtInterface' + index + '" align="right" NAME="txtInterface"/>'+
+'<img src="/images/go_on.gif" id="img_Seek'+ index + '" style="cursor:pointer;vertical-align:bottom" onClick="goFilter(this);"></td>'+
+'</tr>'+
+'</tbody>'+
+'</table>'+
+'</td>'+
+'</tr>'+
+'</table>';
+element.innerHTML = htmlStr;
+}
+function showPageStaticContent()
+{
+drawTableIfFilter("dot1xAuthStatsTable",null,null,null,null,null,"interfaceFilter");
+drawTableIfFilter("dot1xAuthStatsTable",null,null,null,null,null,"interfaceFilterFooter");
+addButton("Cancel","",true);
+addButton("Apply","",true);
+bindButtonsToPanel();
+disableControls(['Cancel','Apply'],true);
+}
+function showPageContent()
+{
+tmpl.bind($('#tmpl_PortsTableBody'), '#tblPorts_Body')
+fillStandard802_3List();
+SetSpan();
+Validation.deregisterAll();
+Validation.register($("#txtDescription")[0], "UnicodeString", false, [0,64]);
+Validation.addPageHandler(checkValid);
+}
+function fillStandard802_3List()
+{
+var spanID, str;
+$.each(tmpl.get.Standard802_3List,function(key, field)
+{
+str ="";
+spanID = "span_adminMode_" + (key) + "_tblPORT";
+if (field.adminState == "1")
+str = "Enable";
+else
+str = "Disable";
+setControlDataJQ(spanID,str);
+str="";
+spanID = "span_speedAdmin_" + (key) + "_tblPORT";
+if(field.autoNegotiationAdminEnabled == "1")
+str = "Auto";
+else
+str = (field.speedAdmin>0)? field.speedAdmin + "M" : "Auto";
+if (str!= "Auto")
+{
+var contStr= field.duplexAdminMode
+contStr = (contStr=="3") ? " Full" : " Half";
+str =str + contStr + " Duplex"
+}
+$('#'+ spanID).text(str);
+str = "";
+spanID = "span_PhysicalStatus_" + (key) + "_tblPORT";
+if(field.linkState == 1 && field.interfaceType != "2")
+str = setPhysicalStatus(key,field.speedOper ,field.duplexOperMode);
+$('#'+ spanID).text(str);
+str ="";
+spanID = "span_linkState_" + (key) + "_tblPORT";
+str = (field.linkState > 1) ? "Link Down" : "Link Up" ;
+$('#'+ spanID).text(str);
+str ="";
+spanID = "span_portType_" + (key) + "_tblPORT";
+if(field.LAGID > 0)
+str = "Port Channel";
+else
+{
+str = portExistsInString(field.interfaceName, str)
+}
+$('#'+ spanID).text(str);
+});
+}
+function setPhysicalStatus(index,speedVal, duplexVal)
+{
+var str, spanID;
+str="";
+spanID = "span_PhysicalStatus_" + (index) + "_tblPORT";
+var duplexOperMode="";
+switch(duplexVal)
+{
+case "1":
+duplexOperMode = "Half";
+break;
+case "2":
+duplexOperMode = "Full";
+break;
+case "3":
+duplexOperMode = "Hybrid";
+break;
+case "4":
+duplexOperMode = "Unknown";
+break;
+}
+str = ((speedVal>0) ? speedVal : speedVal) + " Mbps " + duplexOperMode;
+return str;
+}
+function portExistsInString(port, str)
+{
+$.each(tmpl.get.Standard802_3List,function(key, field)
+{
+if(field.srcInterfaceName == port)
+str = "Mirrored";
+else if(field.destInterfaceName == port)
+str = "Probe";
+});
+return str;
+}
+function setSpeed()
+{
+$.each(tmpl.get.Standard802_3List,function(key, field)
+{
+if(field.autoNegotiationAdminEnabled == 1)
+str = "Auto";
+else
+str = "M";
+});
+return str;
+}
+function checkValid()
+{
+return true;
+}
+function SetButtons()
+{
+AlterTableButtons(selectedCheckBoxCounter["dot1xAuthStatsTable"], null , "Apply" ,"Cancel", null);;
+}
+function SetSpan()
+{
+var count=0;
+var index;
+$.each(tmpl.get.Standard802_3List,function(key, field)
+{
+if($("#tblList_cb" + (key))[0].checked==true)
+{
+count++;
+index = key;
+}
+});
+if(count == 1)
+{
+setInnerText(document.getElementById("tdPort"),getInnerText(document.getElementById("td_port_" + (index) + "_tblPORT")));
+setInnerText(document.getElementById("txtDescription"),getInnerText(document.getElementById("span_Description_" + (index) + "_tblPORT")));
+$("#txtDescription")[0].disabled = false;
+$("#txtDescription")[0].style.backgroundColor = "";
+setInnerText(document.getElementById("tdPortType"),getInnerText(document.getElementById("span_portType_" + (index) + "_tblPORT")));
+if(tmpl.get.Standard802_3List[index].autoNegotiationAdminEnabled == "1")
+$("#slctPortSpeed")[0].value = "0";
+else
+{
+var speedAdmin= tmpl.get.Standard802_3List[index].speedAdmin
+var duplexAdminMode= tmpl.get.Standard802_3List[index].duplexAdminMode
+duplexAdminMode = (duplexAdminMode=="3") ? "F" : "H";
+var str = speedAdmin+duplexAdminMode
+$("#slctPortSpeed")[0].value = str
+}
+setInnerText(document.getElementById("tdPhysicalStatus"),setPhysicalStatus(index,tmpl.get.Standard802_3List[index].speedOper,tmpl.get.Standard802_3List[index].duplexOperMode));
+setInnerText(document.getElementById("tdLinkStatus"),getInnerText(document.getElementById("span_linkState_" + (index) + "_tblPORT")));
+setInnerText(document.getElementById("tdMACAddress"),getInnerText(document.getElementById("span_MACAddress_" + (index) + "_tblPORT")));
+setInnerText(document.getElementById("tdifIndex"),getInnerText(document.getElementById("span_interfaceID_" + (index) + "_tblPORT")));
+}
+else
+{
+setInnerText(document.getElementById("tdPort"),"");
+setInnerText(document.getElementById("txtDescription"),"");
+$("#txtDescription")[0].disabled = false;
+$("#txtDescription")[0].style.backgroundColor = "";
+setInnerText(document.getElementById("tdPortType"),"");
+$("#slctAdminMode")[0].selectedIndex = 0;
+$("#slctPortSpeed")[0].selectedIndex = 0;
+setInnerText(document.getElementById("tdPhysicalStatus"),"");
+setInnerText(document.getElementById("tdLinkStatus"),"");
+setInnerText(document.getElementById("tdMACAddress"),"");
+setInnerText(document.getElementById("tdifIndex"),"");
+}
+}
+function getApplyPostData(post)
+{
+if(!Validation.pass(true))
+return post;
+var isLAG = false;
+$("#chkAll")[0].checked=false
+var selectedIndexes = new Array();
+$('[id^="tblList_cb"]:checked').each(function () {
+selectedIndexes.push(parseInt(this.value,10)).toString();
+});
+post.Standard802_3List = { set: [] };
+for (var i = 0 ; i < selectedIndexes.length ; i++)
+{
+var interfaceName = getControlDataJQ("td_port_" + selectedIndexes[i] + "_tblPORT");
+var interfaceType = tmpl.get.Standard802_3List[selectedIndexes[i]].interfaceType;
+var interfaceID = getControlDataJQ("span_interfaceID_" + selectedIndexes[i] + "_tblPORT");
+var interfaceDescription = getControlDataJQ("txtDescription");
+var adminState = getControlDataJQ("slctAdminMode");
+var speedAdmin = (getControlDataJQ("slctPortSpeed",false)>0) ? ""+ getControlDataJQ("slctPortSpeed",false) +"" : getControlDataJQ("slctPortSpeed",false);
+var autoNegAdmin = (speedAdmin == "0") ? "1" : "2";
+var duplexAdmin;
+if(speedAdmin == "")
+duplexAdmin = "";
+else if(speedAdmin == "0")
+duplexAdmin = "3";
+else
+{
+var duplexCode = speedAdmin.charAt(speedAdmin.length - 1);
+duplexAdmin = (duplexCode == "H") ? "2" : "3";
+speedAdmin = parseInt(speedAdmin,10);
+}
+var LAGID = tmpl.get.Standard802_3List[selectedIndexes[i]].LAGID;
+if(LAGID > 0 )
+isLAG = true
+post.Standard802_3List.set.push(
+{
+Entry:
+{
+interfaceName:interfaceName,
+interfaceType:interfaceType,
+interfaceID:interfaceID,
+interfaceDescription:interfaceDescription,
+adminState:(adminState != "") ? adminState : undefined,
+autoNegotiationAdminEnabled:(speedAdmin != "") ? autoNegAdmin : undefined,
+speedAdmin:(speedAdmin != "") ? speedAdmin.toString() : undefined,
+duplexAdminMode:(duplexAdmin != "") ? duplexAdmin : undefined
+}
+});
+}
+if (isLAG == true)
+alert("The configuration on port won’t take effect until the port is taken out of the LAG.");
+disableControls(['Cancel','Apply'],true);
+return post;
+}
+function updatePageMethod()
+{
+checkPortFromDevice();
+}
+function checkPortFromDevice()
+{
+if(top.deviceContextNum != null)
+{
+var chkBoxElm = document.getElementById("tblList_cb" + top.deviceContextNum);
+chkBoxElm.checked = true;
+chkBoxElm.onclick();
+top.deviceContextNum = null;
+}
+}
+</script>
+</form>
+</body>
+</html>
+
+<DeviceConfiguration>
+<version>1.0</version>
+<Standard802_3List type="section">
+<Entry>
+<interfaceName>g1</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>1</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g2</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>2</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>1</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>00111101</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>1</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g3</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>3</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g4</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>4</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g5</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>5</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>100</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>1</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>00111101</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g6</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>6</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g7</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>7</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g8</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>8</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g9</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>9</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g10</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>10</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g11</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>11</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g12</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>12</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>100</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>1</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>00111101</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g13</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>13</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g14</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>14</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g15</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>15</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g16</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>16</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g17</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>17</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g18</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>18</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g19</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>19</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g20</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>20</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g21</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>21</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g22</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>22</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>3</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g23</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>23</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>100</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>1</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>00111101</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g24</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>24</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>1</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>00111101</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>1</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g25</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>25</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>2</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>2</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g26</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>26</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>2</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>2</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>2</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>1</LACPEnabled>
+<LAGID>1</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g27</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>27</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>2</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>2</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>2</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>0</LACPEnabled>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>g28</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>28</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>2</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>1000</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>2</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>2</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LACPEnabled>1</LACPEnabled>
+<LAGID>1</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG1</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>1</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:2a</MACAddress>
+<adminState>1</adminState>
+<linkState>1</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>1000</speedOper>
+<duplexOperMode>2</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>2</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>2</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG2</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>2</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:29</MACAddress>
+<adminState>1</adminState>
+<linkState>6</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>0</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG3</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>3</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:29</MACAddress>
+<adminState>1</adminState>
+<linkState>6</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>0</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG4</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>4</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:29</MACAddress>
+<adminState>1</adminState>
+<linkState>6</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>0</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG5</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>5</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:29</MACAddress>
+<adminState>1</adminState>
+<linkState>6</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>0</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG6</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>6</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:29</MACAddress>
+<adminState>1</adminState>
+<linkState>6</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>0</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG7</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>7</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:29</MACAddress>
+<adminState>1</adminState>
+<linkState>6</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>0</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+<Entry>
+<interfaceName>LAG8</interfaceName>
+<interfaceType>2</interfaceType>
+<interfaceID>8</interfaceID>
+<interfaceDescription></interfaceDescription>
+<MACAddress>b0:39:56:77:54:29</MACAddress>
+<adminState>1</adminState>
+<linkState>6</linkState>
+<linkStateTrapEnabled>1</linkStateTrapEnabled>
+<mediaType>1</mediaType>
+<adminComboMode>3</adminComboMode>
+<speedAdmin>0</speedAdmin>
+<speedOper>0</speedOper>
+<duplexOperMode>4</duplexOperMode>
+<duplexAdminMode>3</duplexAdminMode>
+<autoNegotiationOperEnabled>4</autoNegotiationOperEnabled>
+<autoNegotiationAdminEnabled>1</autoNegotiationAdminEnabled>
+<backPressureAdminEnabled>2</backPressureAdminEnabled>
+<backPressureOperEnabled>4</backPressureOperEnabled>
+<flowControlAdminType>2</flowControlAdminType>
+<flowControlOperType>2</flowControlOperType>
+<adminAdvertisementList>10000000</adminAdvertisementList>
+<operAdvertisementList>01000000</operAdvertisementList>
+<MDIAdminMode>3</MDIAdminMode>
+<MDIOprerMode>2</MDIOprerMode>
+<reActivate>2</reActivate>
+<LAGID>0</LAGID>
+</Entry>
+</Standard802_3List>
+</DeviceConfiguration>
+<ActionStatus>
+<requestURL>Standard802_3List</requestURL>
+<statusCode></statusCode>
+</ActionStatus>
+</ResponseData>

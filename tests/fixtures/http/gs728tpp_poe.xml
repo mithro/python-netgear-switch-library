@@ -1,0 +1,557 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResponseData>
+<MASTER ONLOAD="oUnitsPoeRT.update_get();">
+<jscript SRC="Behaviour/UnitsPoe.js" />
+<message ID="msg_seek_name"><![CDATA[Port with entered name doesn't exist]]></message>
+<message ID="msg_seek_portid"><![CDATA[Port with entered id doesn't exist]]></message>
+<message ID="msg_seek_lagname"><![CDATA[Lag is not configured on this screen]]></message>
+<screenName>PoE Port Configuration</screenName>
+<NODE TYPE="NG_buttonsPanel" ONLOAD="NG_buttonsPannel.draw()">
+<NODE ID="Refresh" SRC="images/refresh_on.gif" ONCLICK="oNavigator.navigate(oNavigator.selectedTab)" />
+<NODE ID="Cancel" SRC="images/cancel_off.gif" ONCLICK="cancelBthClick()"/>
+<NODE ID="Apply" SRC="images/apply_off.gif" ONCLICK="oUnitsPoeRT.Apply()"/>
+</NODE>
+<hidden ID="hUnitID"/>
+<hidden ID="hUrl">wcd?{file=/../../../System/PoE/PoeInterfaceConf_master.xml}{PoEPSEInterfaceList</hidden>
+<screenSection TITLE="PoE Port Configuration" oWIDTH="950px" HELP_PRM="156">
+<div ID="dvContainer">
+<table CLASS="xuiTableStyle" ONOBJECTINIT="UnitsPoe.create()">
+<tr ID="topGoToInterface" STYLE="display:none">
+<td>
+<span STYLE = "font-size:1px">&#160;</span>
+<div ID="div_Unit" STYLE="left:7px;position:relative">
+<units WIDTH="130px" ID="_Unit" OBJECT="UnitsPoe" CONTAINER_ID="div_Unit" SHOW_LAGS="true" SHOW_ALL="true" CALLBACK_FUNCTION="setHiddenUnitInput('_Unit');Units.getDataUnit('_Unit');" TYPE="link" RELATED_OBJECT="RT">
+<![CDATA[wcd?{PoEPSEInterfaceList&UnitID=#UnitID#}]]>
+</units>
+</div>
+</td>
+<td ALIGN="right">
+<div id="dvSeek1" STYLE="right:7px;position:relative">
+<seek ID="_Seek1" OBJECT="Seek" TYPE="inputtext" POST_SEARCH_FUNCTION="document.getElementById('chkAll').checked=false;"
+RELATED_OBJECT="UnitsPoeRT" RELATED_ID="oUnitsPoeRT" SEARCH_TAG = "interfaceName" ONOBJECTINIT="SeekInterface.create('_Seek1','dvSeek1')"
+SHOW_LAGS="true" CALLBACK_FUNCTION="oUnitsPoeRT.search(SeekInterface.coll[SeekInterface.findIndex('_Seek1')][1],true);">
+<![CDATA[wcd?{PoEPSEInterfaceList&UnitID=#UnitID#}]]>
+</seek>
+</div>
+</td>
+</tr>
+</table>
+<repeatedtable ID="oUnitsPoeRT" OBJECT="UnitsPoeRT" ONOBJECTINIT="UnitsPoeRT.create('oUnitsPoeRT','dvContainer')" BIND="PoEPSEInterfaceList" ONLOAD="RT.SetOddStyles('repeated_row_odd','#FFFFFF');" WIDTH="100%" CLASS="tableStyle" MULTISELECT="true" STYLE="display:none">
+<thead>
+<th CLASS="tableFieldTitle1" NOWRAP="noWrap"></th>
+<th CLASS="tableFieldTitleFirstCol" NOWRAP="noWrap">Interface</th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap">Admin Mode</th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap">Priority Level</th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap">High Power Mode</th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap">Class</th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap"><span>Timer</span><span><br /></span><span>Schedule</span></th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap"><span>Output</span><span><br /></span><span>Voltage</span><span><br /></span><span>(Volt)</span></th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap"><span>Output</span><span><br /></span><span>Current</span><span><br /></span><span>(mA)</span></th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap"><span>Output</span><span><br /></span><span>Power</span><span><br /></span><span>(Watt)</span></th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap" ><span>Power</span><span><br /></span><span>Limit</span></th>
+<th CLASS="tableFieldTitle2" NOWRAP="noWrap">Status</th>
+</thead>
+<tr>
+<td CLASS="tableFieldTitle11">
+<checkbox ID="chkAll" ONCLICK="RT.checkAll('oUnitsPoeRT','selectRow',this)"/>
+</td>
+<td TYPE="td" CLASS="tableFieldTitle11FirstCol" STYLE="color:white" ID="interfaceSpan">
+<hidden ID="hInterfaceName"></hidden>
+</td>
+<td CLASS="tableFieldTitle22">
+<combobox CLASS="xuiSelectEnabled" ID="cmbAdminMode">
+<option VALUE=""></option>
+<option VALUE="1">Enable</option>
+<option VALUE="2">Disable</option>
+</combobox>
+</td>
+<td CLASS="tableFieldTitle22">
+<combobox CLASS="xuiSelectEnabled" ID="cmbPriority">
+<option VALUE=""></option>
+<option VALUE="1">High</option>
+<option VALUE="2">Medium</option>
+<option VALUE="3">Low</option>
+</combobox>
+</td>
+<td CLASS="tableFieldTitle22" STYLE="color:white" ID="highPowerModeSpan">
+<hidden ID="hHighPowerMode"></hidden>
+</td>
+<td CLASS="tableFieldTitle22" STYLE="color:white" ID="classSpan">
+<hidden ID="hClass"></hidden>
+</td>
+<td CLASS="tableFieldTitle22"><combobox CLASS="xuiSelectEnabled" ID="cmbTimerSchedule" LOAD_OPTION_TEXT= "TimeRangeList/TimeRangeEntry/timeRangeName" LOAD_OPTION_VALUE ="TimeRangeList/TimeRangeEntry/timeRangeName"/></td>
+<td CLASS="tableFieldTitle22" STYLE="color:white" ID="outputVoltageSpan">
+<hidden ID="hOutputVoltage"></hidden>
+</td>
+<td CLASS="tableFieldTitle22" STYLE="color:white" ID="outputCurrentSpan">
+<hidden ID="hOutputCurrent"></hidden>
+</td>
+<td CLASS="tableFieldTitle22" STYLE="color:white" ID="outputPowerSpan">
+<hidden ID="hOutputPower"></hidden>
+</td>
+<td CLASS="tableFieldTitle22">
+<inputtext CLASS="xuiInputTextEnabled" ID="txtPowLimit" oWIDTH="120px" oDISABLE_ON_MULTY="true" oDISABLE_APPLY_ON_MULTI="true" MIN_VALUE="0" MAX_VALUE="30000" MAXLENGTH="5"></inputtext>
+</td>
+<td CLASS="tableFieldTitle22" STYLE="color:white" ID="statusSpan">
+<hidden ID="hStatus"></hidden>
+</td>
+</tr>
+<repeatedrow CLASS="repeated_row" BIND="Interface" CLASS_ODD="repeated_row_odd" CLASS_SELECTED="selectRow">
+<repeatedcell TYPE="td" oSTYLE="border-left:none" CLASS="tableField"><checkbox ONCLICK="RT.selectRTRow(this);oUnitsPoeRT.SetSpans();"/></repeatedcell>
+<repeatedcell TYPE="td" BIND="interfaceName" RELATED_ID="hInterfaceName" CLASS="messageTableBorderFirstCol" READONLY="true"></repeatedcell>
+<repeatedcell TYPE="td" BIND="adminEnable" CLASS="messageTableBorder" RELATED_ID="cmbAdminMode" ENUM="true"></repeatedcell>
+<repeatedcell TYPE="td" BIND="powerPriority" CLASS="messageTableBorder" RELATED_ID="cmbPriority" ENUM="true"></repeatedcell>
+<repeatedcell TYPE="td" CLASS="messageTableBorder" RELATED_ID="hHighPowerMode"><span>802.3at</span></repeatedcell>
+<repeatedcell TYPE="td" BIND="powerClassification" RELATED_ID="hClass" CLASS="messageTableBorder" READONLY="true" ENUM="true"></repeatedcell>
+<repeatedcell TYPE="td" BIND="timeRangeName" CLASS="messageTableBorder" RELATED_ID="cmbTimerSchedule"></repeatedcell>
+<repeatedcell TYPE="td" BIND="outputVoltage" CLASS="messageTableBorder" RELATED_ID="hOutputVoltage" READONLY="true"></repeatedcell>
+<repeatedcell TYPE="td" BIND="outputCurrent" CLASS="messageTableBorder" RELATED_ID="hOutputCurrent" READONLY="true"></repeatedcell>
+<repeatedcell TYPE="td" BIND="outputPower" CLASS="messageTableBorder" RELATED_ID="hOutputPower" READONLY="true"></repeatedcell>
+<repeatedcell TYPE="td" BIND="powerLimit" CLASS="messageTableBorder" RELATED_ID="txtPowLimit"></repeatedcell>
+<repeatedcell TYPE="td" BIND="detectionStatus" CLASS="messageTableBorder" RELATED_ID="hStatus" ENUM="true" READONLY="true"></repeatedcell>
+</repeatedrow>
+</repeatedtable>
+<table CLASS = "xuiTableStyle growRow" >
+<tr ID="bottomGoToInterface" STYLE="display:none">
+<td>
+<span STYLE = "font-size:1px">&#160;</span>
+<div ID="div_Unit1" STYLE="left:7px;position:relative">
+<units WIDTH="130px" ID="_Unit1" OBJECT="UnitsPoe" CONTAINER_ID="div_Unit1" SHOW_LAGS="true" SHOW_ALL="true" CALLBACK_FUNCTION="Units.getDataUnit('_Unit1');" TYPE="link" RELATED_OBJECT="RT">
+<![CDATA[wcd?{PoEPSEInterfaceList&UnitID=#UnitID#}]]>
+</units>
+</div>
+</td>
+<td ALIGN="right">
+<div id="dvSeek2" STYLE="right:7px;position:relative">
+<seek ID="_Seek2" OBJECT="Seek" TYPE="inputtext" POST_SEARCH_FUNCTION="document.getElementById('chkAll').checked=false;"
+RELATED_OBJECT="UnitsPoeRT" RELATED_ID="oUnitsPoeRT" SEARCH_TAG = "interfaceName" ONOBJECTINIT="SeekInterface.create('_Seek2','dvSeek2')"
+SHOW_LAGS="true" CALLBACK_FUNCTION="oUnitsPoeRT.search(SeekInterface.coll[SeekInterface.findIndex('_Seek2')][1]);">
+<![CDATA[wcd?{PoEPSEInterfaceList&UnitID=#UnitID#}]]>
+</seek>
+</div>
+</td>
+</tr>
+</table>
+</div>
+</screenSection>
+<ENUM>
+<powerClassification>
+<NODE VALUE="1">0</NODE>
+<NODE VALUE="2">1</NODE>
+<NODE VALUE="3">2</NODE>
+<NODE VALUE="4">3</NODE>
+<NODE VALUE="5">4</NODE>
+</powerClassification>
+<adminEnable>
+<NODE VALUE="1">Enable</NODE>
+<NODE VALUE="2">Disable</NODE>
+</adminEnable>
+<powerPriority>
+<NODE VALUE="1">High</NODE>
+<NODE VALUE="2">Medium</NODE>
+<NODE VALUE="3">Low</NODE>
+</powerPriority>
+<detectionStatus>
+<NODE VALUE="1">Disabled</NODE>
+<NODE VALUE="2">Searching</NODE>
+<NODE VALUE="3">DeliveringPower</NODE>
+<NODE VALUE="4">Fault</NODE>
+<NODE VALUE="5">Test</NODE>
+<NODE VALUE="6">OtherFault</NODE>
+</detectionStatus>
+</ENUM>
+<TEMPLATES>
+<TEMPLATE API="PoEPSEInterfaceList" action="">
+<Interface>
+<interfaceName required="true"/>
+<interfaceID/>
+<adminEnable/>
+<detectionStatus/>
+<poweredDevice/>
+<powerPriority/>
+<powerClassification/>
+<outputVoltage/>
+<outputCurrent/>
+<outputPower/>
+<powerLimit/>
+<timeRangeName/>
+</Interface>
+</TEMPLATE>
+<TEMPLATE API="TimeRangeList" action="">
+<TimeRangeEntry>
+<timeRangeName required="true"/>
+</TimeRangeEntry>
+</TEMPLATE>
+</TEMPLATES>
+</MASTER>
+
+<DeviceConfiguration>
+<version>1.0</version>
+<PoEPSEInterfaceList type="section">
+<Interface>
+<interfaceName>g1</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>1</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g2</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>2</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g3</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>3</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g4</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>4</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g5</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>5</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g6</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>6</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g7</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>7</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g8</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>8</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g9</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>9</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g10</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>10</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g11</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>11</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g12</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>12</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g13</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>13</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g14</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>14</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g15</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>15</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g16</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>16</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g17</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>17</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g18</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>18</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g19</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>19</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g20</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>20</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g21</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>21</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g22</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>22</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g23</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>23</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+<Interface>
+<interfaceName>g24</interfaceName>
+<interfaceType>1</interfaceType>
+<interfaceID>24</interfaceID>
+<adminEnable>1</adminEnable>
+<detectionStatus>2</detectionStatus>
+<poweredDevice></poweredDevice>
+<powerPriority>3</powerPriority>
+<powerClassification>1</powerClassification>
+<outputVoltage>0</outputVoltage>
+<outputCurrent>0</outputCurrent>
+<outputPower>0</outputPower>
+<powerLimit>30000</powerLimit>
+<timeRangeName></timeRangeName>
+</Interface>
+</PoEPSEInterfaceList>
+</DeviceConfiguration>
+<ActionStatus>
+<requestURL>PoEPSEInterfaceList</requestURL>
+<statusCode></statusCode>
+</ActionStatus>
+</ResponseData>

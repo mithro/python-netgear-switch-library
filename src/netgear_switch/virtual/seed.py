@@ -1097,3 +1097,135 @@ def seed_m4300_16x() -> VirtualSwitchState:
         sys_descr="NETGEAR M4300-16X (XSM4316) Managed Switch",
         sys_object_id="1.3.6.1.4.1.4526.10.100.16",
     )
+
+
+# Ports carrying every access VLAN as a tagged member on this unit: g1-g25 and
+# g27 (the two SFP uplinks g26/g28 are absent from the captured membership).
+_GS728TPP_TRUNK = set(range(1, 26)) | {27}
+# Ports untagged in VLAN 1 (their access/native VLAN is 1) -- from the captured
+# per-port JoinVLANList.
+_GS728TPP_VLAN1 = {
+    2, 4, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 27,
+}
+
+
+def seed_gs728tpp() -> VirtualSwitchState:
+    """Build a GS728TPP (28-port Smart Managed Pro, SNMP+HTTP) virtual state
+    from REAL captures of the live switch 10.2.5.10 (2026-07-29 --
+    tmp/gs728tpp_ground_truth.json). The HTTP GoAhead ``wcd`` face renders these
+    values back through the same ``parse_goahead_*`` parsers the real captures
+    exercise. Ports g1-g28 (7 up: g2/g5/g12/g23/g24/g26/g28), the real 12 VLANs
+    with their member/untagged sets, real PVIDs, 24 PoE+ ports (all Searching,
+    0 mW on this idle unit), a subset of the real dynamic FDB, 4 LLDP neighbours,
+    the box DiagnosticsUnitList sensors (fan1/2 OK, fan3-5 absent, both PSU rows
+    OK, temp unreported) and the static mgmt-IP.
+
+    SNMP vendor OID family for this model is UNVERIFIED-pending-capture (see
+    registry.py), so ``state.sensors`` (the SNMP box-sensor set) is left empty;
+    the HTTP sysInfo sensors live in ``http_sensors`` and are the set the library
+    reads over HTTP for this model."""
+    up = {2, 5, 12, 23, 24, 26, 28}
+    speed100 = {5, 12, 23}
+    ports = {
+        p: PortSim(
+            name=f"g{p}",
+            admin=True,
+            link=p in up,
+            speed=100 if p in speed100 else 1000,
+        )
+        for p in range(1, 29)
+    }
+    # VLAN 1 is untagged on the access ports; every other VLAN is carried tagged
+    # on the trunk set, except the untagged sets captured below.
+    vlans = {
+        1: VlanSim(name="", member=set(_GS728TPP_VLAN1), untagged=set(_GS728TPP_VLAN1)),
+        2: VlanSim(name="Voice VLAN", member=set(_GS728TPP_TRUNK), untagged=set()),
+        3: VlanSim(name="Auto Video VLAN", member=set(), untagged=set()),
+        5: VlanSim(
+            name="net", member=set(_GS728TPP_TRUNK), untagged={3, 5, 12, 23}
+        ),
+        6: VlanSim(name="pwr", member=set(_GS728TPP_TRUNK), untagged=set()),
+        7: VlanSim(name="store", member=set(_GS728TPP_TRUNK), untagged=set()),
+        10: VlanSim(name="int", member=set(_GS728TPP_TRUNK), untagged={1}),
+        20: VlanSim(name="roam", member=set(_GS728TPP_TRUNK), untagged=set()),
+        31: VlanSim(name="fpgas", member=set(_GS728TPP_TRUNK), untagged=set()),
+        41: VlanSim(name="sm", member=set(_GS728TPP_TRUNK), untagged=set()),
+        90: VlanSim(name="iot", member=set(_GS728TPP_TRUNK), untagged=set()),
+        99: VlanSim(name="guest", member=set(_GS728TPP_TRUNK), untagged=set()),
+    }
+    pvids = {
+        1: 10, 2: 1, 3: 5, 4: 1, 5: 5, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1,
+        12: 5, 13: 1, 14: 1, 15: 1, 16: 1, 17: 1, 18: 1, 19: 1, 20: 1, 21: 1,
+        22: 1, 23: 5, 24: 1, 25: 1, 26: 1, 27: 1, 28: 1,
+    }
+    poe = {p: PoeSim(admin=True, detect=2, power_mw=0) for p in range(1, 25)}
+    # A subset of the real dynamic FDB (VLANs 1 and 5, on physical ports).
+    macs = [
+        MacSim(vlan=1, mac_bytes=(0x00, 0x0A, 0xFA, 0x24, 0x28, 0xD8), bridge_port=24),
+        MacSim(vlan=1, mac_bytes=(0x02, 0x00, 0x0A, 0x02, 0x00, 0x01), bridge_port=24),
+        MacSim(vlan=1, mac_bytes=(0x02, 0x00, 0x0A, 0x02, 0x01, 0x01), bridge_port=24),
+        MacSim(vlan=1, mac_bytes=(0x2C, 0xCF, 0x67, 0xBB, 0x49, 0xA1), bridge_port=2),
+        MacSim(vlan=5, mac_bytes=(0x02, 0x00, 0x0A, 0x02, 0x00, 0x01), bridge_port=24),
+        MacSim(vlan=5, mac_bytes=(0x02, 0x00, 0x0A, 0x02, 0x05, 0x01), bridge_port=24),
+        MacSim(vlan=5, mac_bytes=(0xAC, 0x86, 0x74, 0x07, 0x94, 0x98), bridge_port=12),
+        MacSim(vlan=5, mac_bytes=(0xAC, 0x86, 0x74, 0x07, 0x94, 0x9F), bridge_port=12),
+        MacSim(vlan=5, mac_bytes=(0xAC, 0x86, 0x74, 0x07, 0x95, 0x80), bridge_port=23),
+        MacSim(vlan=5, mac_bytes=(0xAC, 0x86, 0x74, 0x07, 0x95, 0x87), bridge_port=23),
+        MacSim(vlan=5, mac_bytes=(0xAC, 0x86, 0x74, 0x07, 0x95, 0x88), bridge_port=5),
+        MacSim(vlan=5, mac_bytes=(0xAC, 0x86, 0x74, 0x07, 0x95, 0x8F), bridge_port=5),
+    ]
+    _ten64 = "ten64.monarto.mithis.com"
+    lldp = [
+        LldpSim(
+            time_mark=0, local_port=2, rem_idx=1, chassis="2c:cf:67:bb:49:a1",
+            port_id="2c:cf:67:bb:49:a1", port_desc="eth0", sys_name="reterm1",
+        ),
+        LldpSim(
+            time_mark=0, local_port=24, rem_idx=2, chassis="00:0a:fa:24:28:d1",
+            port_id="00:0a:fa:24:28:d8", port_desc="eth7", sys_name=_ten64,
+        ),
+        LldpSim(
+            time_mark=0, local_port=26, rem_idx=3, chassis="00:0a:fa:24:28:d1",
+            port_id="00:0a:fa:24:28:d9", port_desc="eth8", sys_name=_ten64,
+        ),
+        LldpSim(
+            time_mark=0, local_port=28, rem_idx=4, chassis="00:0a:fa:24:28:d1",
+            port_id="00:0a:fa:24:28:da", port_desc="eth9", sys_name=_ten64,
+        ),
+    ]
+    # DiagnosticsUnitList wire fields (tag in ``instance``, code in ``raw``):
+    # 1=OK, 5=N/A(absent). Both PSU rows and fan1/fan2 report OK; fan3-5 and the
+    # temperature reading are absent on this unit.
+    http_sensors = [
+        SensorSim(kind="power", instance="mainPSStatus", raw="1"),
+        SensorSim(kind="power", instance="redundantPSStatus", raw="1"),
+        SensorSim(kind="fan", instance="fan1Status", raw="1"),
+        SensorSim(kind="fan", instance="fan2Status", raw="1"),
+        SensorSim(kind="fan", instance="fan3Status", raw="5"),
+        SensorSim(kind="fan", instance="fan4Status", raw="5"),
+        SensorSim(kind="fan", instance="fan5Status", raw="5"),
+        SensorSim(kind="temperature", instance="tempSensorValue", raw="0"),
+        SensorSim(kind="temperature", instance="tempSensorStatus", raw="2"),
+    ]
+    return VirtualSwitchState(
+        model_key="gs728tpp",
+        ports=ports,
+        vlans=vlans,
+        pvids=pvids,
+        poe=poe,
+        macs=macs,
+        lldp=lldp,
+        http_sensors=http_sensors,
+        mgmt=MgmtSim(
+            address="10.2.5.10",
+            netmask="255.255.255.0",
+            gateway="10.2.5.1",
+            mode="static",
+        ),
+        model_name="GS728TPP",
+        serial="3AR476520016D",
+        firmware="6.0.1.30",
+        hostname="sw-netgear-gs728tpp",
+        nsdp_mac=b"\xb0\x39\x56\x77\x54\x29",
+        sys_descr="Netgear GS728TPP ProSafe Smart Managed Pro Switch",
+    )

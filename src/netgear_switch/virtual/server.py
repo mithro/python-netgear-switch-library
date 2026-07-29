@@ -22,6 +22,7 @@ from .seed import (
     seed_gs105pe,
     seed_gs110emx,
     seed_gs305ep,
+    seed_gs728tpp,
     seed_gsm7228ps,
     seed_gsm7252ps,
     seed_m4300_16x,
@@ -40,6 +41,7 @@ _SEEDS = {
     "gs105pe": seed_gs105pe,
     "m4300-24x": seed_m4300_24x,
     "m4300-16x": seed_m4300_16x,
+    "gs728tpp": seed_gs728tpp,
 }
 
 
