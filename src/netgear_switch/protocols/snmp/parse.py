@@ -97,12 +97,34 @@ def index_str_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, str]:
     return out
 
 
+ETHERNET_CSMACD = 6  # ifType value for a physical Ethernet port
+
+
+def _physical_ports(if_types: Sequence[SnmpRow]) -> set[int] | None:
+    """The set of physical (ethernetCsmacd) ifIndexes from an ifType walk.
+
+    Returns ``None`` when the walk is EMPTY -- the caller then keeps every
+    interface, so a transport/mock that does not surface ifType is unchanged.
+    When ifType IS present (every real switch), non-physical interfaces are
+    excluded: the M4300 ifTable carries 128 ieee8023adLag(161) + a CPU(1) + a
+    VLAN(135) interface alongside its 16 ethernetCsmacd(6) ports, none of which
+    the web UI's port pages list -- so filtering here makes SNMP get_ports/
+    get_pvids agree field-for-field with the HTTP backend."""
+    from . import oids
+
+    type_map = index_int_column(if_types, oids.IF_TYPE)
+    if not type_map:
+        return None
+    return {idx for idx, t in type_map.items() if t == ETHERNET_CSMACD}
+
+
 def parse_port_status(
     admin: Sequence[SnmpRow],
     oper: Sequence[SnmpRow],
     speed: Sequence[SnmpRow],
     names: Sequence[SnmpRow],
     aliases: Sequence[SnmpRow],
+    if_types: Sequence[SnmpRow] = (),
 ) -> list[PortStatus]:
     from . import oids
 
@@ -115,7 +137,10 @@ def parse_port_status(
     # description set" -> honest None, never a fabricated "".
     alias_map = index_str_column(aliases, oids.IF_ALIAS)
 
+    physical = _physical_ports(if_types)
     ports = sorted(set(admin_map) | set(oper_map))
+    if physical is not None:
+        ports = [p for p in ports if p in physical]
     result: list[PortStatus] = []
     for p in ports:
         link_up = oper_map.get(p) == 1
@@ -247,11 +272,17 @@ def parse_vlans(
     return result
 
 
-def parse_pvids(rows: Sequence[SnmpRow]) -> list[tuple[int, int]]:
+def parse_pvids(
+    rows: Sequence[SnmpRow], if_types: Sequence[SnmpRow] = ()
+) -> list[tuple[int, int]]:
     from . import oids
 
     pvids = index_int_column(rows, oids.DOT1Q_PVID)
-    return sorted(pvids.items())
+    physical = _physical_ports(if_types)
+    items = pvids.items()
+    if physical is not None:
+        items = [(p, v) for p, v in items if p in physical]
+    return sorted(items)
 
 
 def _format_mac_bytes(byte_strs: Sequence[str]) -> str:
@@ -645,6 +676,29 @@ def _ip_str(row: SnmpRow) -> str:
     return row.value
 
 
+def _ipv4_from_rfc4293_index(rows: Sequence[SnmpRow]) -> str | None:
+    """The management IPv4 from an RFC-4293 ipAddressTable walk (the address is
+    in the ROW INDEX: ``<base>.<type>.<len>.<b1>.<b2>.<b3>.<b4>``, type 1=ipv4,
+    len 4). Skips loopback and non-IPv4 (IPv6) rows. Returns ``None`` when the
+    walk is empty (older firmware that populates the RFC-1213 ipAddrTable
+    instead). Used only as a FALLBACK -- see ``parse_mgmt_ip``."""
+    from . import oids
+
+    prefix = oids.IP_ADDRESS_IFINDEX + "."
+    for row in rows:
+        if not row.oid.startswith(prefix):
+            continue
+        parts = row.oid[len(prefix):].split(".")
+        # ipv4 (type 1) with a 4-byte address: type, len=4, then 4 octets.
+        if len(parts) < 6 or parts[0] != "1" or parts[1] != "4":
+            continue
+        ip = ".".join(parts[2:6])
+        if ip == "127.0.0.1":
+            continue
+        return ip
+    return None
+
+
 def parse_mgmt_ip(
     addr: Sequence[SnmpRow],
     netmask: Sequence[SnmpRow],
@@ -652,6 +706,7 @@ def parse_mgmt_ip(
     route_nexthop: Sequence[SnmpRow],
     dhcp_mode: Sequence[SnmpRow],
     base_mac: Sequence[SnmpRow],
+    addr_rfc4293: Sequence[SnmpRow] = (),
 ) -> MgmtIpConfig:
     """Build the management-IP config from ipAddrTable/ipRouteTable + vendor mode.
 
@@ -681,6 +736,13 @@ def parse_mgmt_ip(
         ip = _ip_str(row)
         ip_index = row.oid[len(aprefix):]
         break
+
+    # RFC-4293 fallback: firmware that leaves ipAddrTable empty (M4300) carries
+    # the address in the ipAddressTable index instead. Netmask there is only a
+    # pointer into the prefix table (unusable on this firmware), so the mask
+    # stays None -- honest absence, not a fabricated value.
+    if ip is None:
+        ip = _ipv4_from_rfc4293_index(addr_rfc4293)
 
     mask: str | None = None
     if ip_index is not None:

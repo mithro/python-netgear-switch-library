@@ -21,6 +21,7 @@ SYS_DESCR = "1.3.6.1.2.1.1.1.0"       # sysDescr: text incl. the model name
 SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"   # sysObjectID: read-only signal, unused
 # for matching (no known OID->model table exists -- see parse.py's
 # detect_model_from_sysdescr docstring).
+IF_TYPE = "1.3.6.1.2.1.2.2.1.3"                # ifType (6=ethernetCsmacd=physical)
 IF_ADMIN_STATUS = "1.3.6.1.2.1.2.2.1.7"        # ifAdminStatus (1=up,2=down)
 IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"        # ifOperStatus  (1=up,2=down)
 IF_IN_ERRORS = "1.3.6.1.2.1.2.2.1.14"
@@ -60,6 +61,10 @@ PETH_PSE_PORT_TABLE = "1.3.6.1.2.1.105.1.1.1"
 IP_ADENT_ADDR = "1.3.6.1.2.1.4.20.1.1"
 IP_ADENT_IFINDEX = "1.3.6.1.2.1.4.20.1.2"
 IP_ADENT_NETMASK = "1.3.6.1.2.1.4.20.1.3"
+# RFC-4293 ipAddressTable: newer firmware (M4300) leaves the RFC-1213
+# ipAddrTable EMPTY and publishes the management address here instead, encoded
+# in the ROW INDEX: ipAddressIfIndex .<type>.<len>.<ip-bytes> (type 1=ipv4).
+IP_ADDRESS_IFINDEX = "1.3.6.1.2.1.4.34.1.3"
 IP_ROUTE_DEST = "1.3.6.1.2.1.4.21.1.1"       # ipRouteDest
 # ipRouteNextHop (gateway where dest=0.0.0.0)
 IP_ROUTE_NEXTHOP = "1.3.6.1.2.1.4.21.1.7"

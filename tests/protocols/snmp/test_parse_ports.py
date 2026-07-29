@@ -32,6 +32,53 @@ def test_parse_port_status_joins_admin_oper_speed_name():
     assert ports[1].description is None
 
 
+def test_parse_port_status_filters_to_physical_ethernet_ports():
+    """The M4300 ifTable carries 16 ethernetCsmacd(6) physical ports alongside
+    ieee8023adLag(161) LAGs, a CPU(1) interface and an l2vlan(135) routing
+    interface -- none of which the web UI's port page lists. Given an ifType
+    walk, parse_port_status must keep ONLY the physical ports so SNMP get_ports
+    agrees field-for-field with the HTTP backend (live: 16 vs 146 without this).
+    """
+    idx = {1: "1", 2: "1", 769: "1", 770: "1", 898: "1"}
+    admin = _rows("1.3.6.1.2.1.2.2.1.7", idx, "INTEGER")
+    oper = _rows("1.3.6.1.2.1.2.2.1.8", idx, "INTEGER")
+    names = _rows(
+        "1.3.6.1.2.1.31.1.1.1.1",
+        {1: "1/0/1", 2: "1/0/2", 769: "CPU", 770: "lag 1", 898: "vlan 1"},
+        "OCTETSTR",
+    )
+    if_types = _rows(
+        "1.3.6.1.2.1.2.2.1.3",
+        {1: "6", 2: "6", 769: "1", 770: "161", 898: "135"},
+        "INTEGER",
+    )
+    ports = parse.parse_port_status(admin, oper, [], names, [], if_types)
+    assert [p.port for p in ports] == [1, 2]  # LAG/CPU/VLAN dropped
+
+
+def test_parse_port_status_keeps_all_when_no_iftype_walk():
+    """With NO ifType walk (a transport/mock that does not surface ifType), every
+    interface is kept -- backward-compatible, no silent drop."""
+    admin = _rows("1.3.6.1.2.1.2.2.1.7", {1: "1", 770: "1"}, "INTEGER")
+    oper = _rows("1.3.6.1.2.1.2.2.1.8", {1: "1", 770: "1"}, "INTEGER")
+    ports = parse.parse_port_status(admin, oper, [], [], [])
+    assert [p.port for p in ports] == [1, 770]
+
+
+def test_parse_pvids_filters_to_physical_ports():
+    """PVIDs are reported for LAG interfaces too; filter them out via ifType so
+    the SNMP PVID map matches the HTTP page's physical-only view."""
+    pvid_rows = _rows(
+        "1.3.6.1.2.1.17.7.1.4.5.1.1", {1: "10", 2: "20", 770: "1"}, "Gauge32"
+    )
+    if_types = _rows(
+        "1.3.6.1.2.1.2.2.1.3", {1: "6", 2: "6", 770: "161"}, "INTEGER"
+    )
+    assert parse.parse_pvids(pvid_rows, if_types) == [(1, 10), (2, 20)]
+    # No ifType walk -> keep all (backward-compatible).
+    assert parse.parse_pvids(pvid_rows) == [(1, 10), (2, 20), (770, 1)]
+
+
 def test_parse_port_status_down_port_reports_no_speed():
     # A DOWN port whose ifHighSpeed still advertises the configured rate
     # (verified real behavior: gsm7252ps down 1/0/52 reports 10000) has NO

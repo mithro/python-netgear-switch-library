@@ -14,6 +14,43 @@ from netgear_switch.registry import get_model
 _DHCP_MODE_OID = f"{oids.vendor_oids(get_model('gsm7252ps')).dhcp_mode_unverified}.0"
 
 
+def test_parse_mgmt_ip_rfc4293_fallback_when_ipaddrtable_empty():
+    """The M4300 leaves the RFC-1213 ipAddrTable EMPTY and publishes its mgmt
+    address in the RFC-4293 ipAddressTable index instead
+    (ipAddressIfIndex.<type>.<len>.<ip-bytes>). parse_mgmt_ip must recover the
+    IPv4 from that index -- live: SNMP returned address=None before this, while
+    HTTP read 10.1.5.20, breaking cross-backend parity."""
+    base_mac = [
+        SnmpRow(
+            f"{oids.DOT1D_BASE_BRIDGE_ADDRESS}.0",
+            bytes([0x8C, 0x3B, 0xAD, 0x69, 0x1C, 0x38]),
+            "OCTETSTR",
+        )
+    ]
+    rfc4293 = [
+        # loopback (must be skipped) + an IPv6 row (type 2, must be skipped) +
+        # the real IPv4 mgmt address.
+        SnmpRow(f"{oids.IP_ADDRESS_IFINDEX}.1.4.127.0.0.1", 1, "INTEGER"),
+        SnmpRow(
+            f"{oids.IP_ADDRESS_IFINDEX}.2.16.36.4.14.128.161.55.1.5.0.0.0.0.0.0.0.32",
+            898, "INTEGER",
+        ),
+        SnmpRow(f"{oids.IP_ADDRESS_IFINDEX}.1.4.10.1.5.20", 898, "INTEGER"),
+    ]
+    cfg = parse.parse_mgmt_ip([], [], [], [], [], base_mac, rfc4293)
+    assert cfg.address == "10.1.5.20"
+    assert cfg.base_mac == "8C:3B:AD:69:1C:38"
+
+
+def test_parse_mgmt_ip_rfc1213_wins_over_rfc4293():
+    """When the classic ipAddrTable IS populated it is authoritative; the
+    RFC-4293 walk is only a fallback and must not override it."""
+    addr = [SnmpRow("1.3.6.1.2.1.4.20.1.1.10.9.9.9", "10.9.9.9", "IPADDR")]
+    rfc4293 = [SnmpRow(f"{oids.IP_ADDRESS_IFINDEX}.1.4.10.1.5.20", 1, "INTEGER")]
+    cfg = parse.parse_mgmt_ip(addr, [], [], [], [], [], rfc4293)
+    assert cfg.address == "10.9.9.9"
+
+
 def test_parse_mgmt_ip_static_with_gateway():
     addr = [
         SnmpRow("1.3.6.1.2.1.4.20.1.1.127.0.0.1", "127.0.0.1", "IPADDR"),

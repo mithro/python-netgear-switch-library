@@ -74,6 +74,7 @@ class SnmpReader:
         return parse.parse_port_status(
             w(oids.IF_ADMIN_STATUS), w(oids.IF_OPER_STATUS),
             w(oids.IF_HIGH_SPEED), w(oids.IF_NAME), w(oids.IF_ALIAS),
+            w(oids.IF_TYPE),
         )
 
     def get_stats(self) -> list[PortStats]:
@@ -92,7 +93,8 @@ class SnmpReader:
         )
 
     def get_pvids(self) -> list[tuple[int, int]]:
-        return parse.parse_pvids(self.client.walk(oids.DOT1Q_PVID))
+        w = self.client.walk
+        return parse.parse_pvids(w(oids.DOT1Q_PVID), w(oids.IF_TYPE))
 
     def get_lldp(self) -> list[LLDPNeighbor]:
         return parse.parse_lldp(self.client.walk(oids.LLDP_REM_TABLE))
@@ -169,6 +171,7 @@ class SnmpReader:
             w(oids.IP_ROUTE_DEST), w(oids.IP_ROUTE_NEXTHOP),
             dhcp,
             w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
+            w(oids.IP_ADDRESS_IFINDEX),  # RFC-4293 fallback (M4300)
         )
 
     def get_system_info(self) -> DetectedModel:
@@ -196,7 +199,7 @@ class AsyncSnmpReader:
         return parse.parse_port_status(
             await w(oids.IF_ADMIN_STATUS), await w(oids.IF_OPER_STATUS),
             await w(oids.IF_HIGH_SPEED), await w(oids.IF_NAME),
-            await w(oids.IF_ALIAS),
+            await w(oids.IF_ALIAS), await w(oids.IF_TYPE),
         )
 
     async def get_stats(self) -> list[PortStats]:
@@ -219,7 +222,8 @@ class AsyncSnmpReader:
         )
 
     async def get_pvids(self) -> list[tuple[int, int]]:
-        return parse.parse_pvids(await self.client.walk(oids.DOT1Q_PVID))
+        w = self.client.walk
+        return parse.parse_pvids(await w(oids.DOT1Q_PVID), await w(oids.IF_TYPE))
 
     async def get_lldp(self) -> list[LLDPNeighbor]:
         return parse.parse_lldp(await self.client.walk(oids.LLDP_REM_TABLE))
@@ -286,6 +290,7 @@ class AsyncSnmpReader:
             await w(oids.IP_ROUTE_DEST), await w(oids.IP_ROUTE_NEXTHOP),
             dhcp,
             await w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
+            await w(oids.IP_ADDRESS_IFINDEX),  # RFC-4293 fallback (M4300)
         )
 
     async def get_system_info(self) -> DetectedModel:
