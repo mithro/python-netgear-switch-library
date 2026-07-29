@@ -115,6 +115,78 @@ _SPECS: dict[str, CliModelSpec] = {
 CLI_SPECS: Mapping[str, CliModelSpec] = MappingProxyType(_SPECS)
 
 
+@dataclass(frozen=True)
+class ScpCertProfile:
+    """Per-model FASTPATH SSL-cert-over-SCP deploy profile (pure data).
+
+    A TRANSCRIPTION of the working certbot-hook ``MODEL_PROFILES`` (see
+    ``tmp/certbot_hook_prior_art.py`` -- grounded prior art). Only the Fully
+    Managed FASTPATH models that take a certificate over ``copy scp://`` carry
+    one; the Smart Managed Pro line (gsm7228ps/S3300) uses an HTTP multipart
+    upload instead and is deliberately absent here.
+
+    * ``crypto`` -- ``"modern"`` or ``"legacy"``: which SSH key-exchange /
+      host-key algorithm set the switch's sshd needs. The library's SSH transport
+      already re-inserts the legacy algorithms this old firmware requires (see
+      ``transport/cli/ssh.py``); this flag is carried for the CALLER (e.g. the
+      certbot hook) that stages the PEM and may open its own SCP source.
+    * ``writemem_stuff`` -- True when ``write memory``'s confirm has a tiny
+      timeout, so the ``y`` must be pre-stuffed in one write (GSM7252PS); False
+      for the M4300s, which take a normal read-then-answer confirm.
+    * ``verify_port`` -- the HTTPS port a post-deploy fingerprint check connects
+      to. NOT used by the deploy itself (the library only SENDS the copy
+      commands; verification is the caller's job), carried for parity with the
+      prior art so a caller need not re-derive it.
+    """
+
+    model_key: str
+    crypto: str
+    writemem_stuff: bool
+    verify_port: int
+
+
+# GROUNDED: transcribed from certbot-hook MODEL_PROFILES. NOT live-verified in
+# this library (a real SCP upload is a production write needing a staging SCP
+# server) -- see ``cli_write.deploy_certificate_scp``.
+_SCP_CERT_PROFILES: dict[str, ScpCertProfile] = {
+    p.model_key: p
+    for p in (
+        ScpCertProfile(
+            "m4300-24x", crypto="modern", writemem_stuff=False, verify_port=443
+        ),
+        ScpCertProfile(
+            "m4300-16x", crypto="modern", writemem_stuff=False, verify_port=49152
+        ),
+        ScpCertProfile(
+            "gsm7252ps", crypto="legacy", writemem_stuff=True, verify_port=443
+        ),
+    )
+}
+
+SCP_CERT_PROFILES: Mapping[str, ScpCertProfile] = MappingProxyType(_SCP_CERT_PROFILES)
+
+
+def scp_cert_profile(model: SwitchModel) -> ScpCertProfile:
+    """Return the FASTPATH SCP cert-deploy profile for ``model``.
+
+    Raises ``UnsupportedCapabilityError`` for any model with no ``copy scp://``
+    cert-deploy path -- i.e. every non-FASTPATH model, AND FASTPATH models whose
+    cert upload uses a different mechanism (gsm7228ps: HTTP multipart). This is
+    the gate the facade's ``upload_certificate_scp`` dispatches on.
+    """
+    if not (CLI_BACKENDS & model.backends):
+        raise UnsupportedCapabilityError(
+            f"model {model.key!r} has no CLI backend for an SCP cert deploy"
+        )
+    try:
+        return _SCP_CERT_PROFILES[model.key]
+    except KeyError:
+        raise UnsupportedCapabilityError(
+            f"model {model.key!r} has no known copy-scp SSL-certificate "
+            "deploy profile"
+        ) from None
+
+
 def cli_spec(model: SwitchModel) -> CliModelSpec:
     """Return the CLI command spec for ``model`` or raise if it has no CLI backend."""
     if not (CLI_BACKENDS & model.backends):

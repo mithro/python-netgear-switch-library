@@ -30,6 +30,21 @@ _PASSWORD_RE = re.compile(r"[Pp]assword:\s*$")
 # fails instead of looping forever.
 _MAX_READS = 10_000
 
+# Prompts the interactive ``copy scp://...`` command emits mid-flight, and the
+# success/failure markers that close it. GROUNDED in the working certbot-hook
+# ``FastpathScpUpdater._send_copy`` regexes -- see that prior art. Not anchored to
+# end-of-buffer (unlike ``_PROMPT_RE``): these appear inline as the switch's SCP
+# client runs, so they are matched anywhere in the accumulated read buffer.
+_SCP_TOFU_RE = re.compile(r"host key|continue connecting|\(yes\s*/\s*no", re.IGNORECASE)
+_SCP_PASSWORD_RE = re.compile(r"[Pp]assword:")
+_SCP_CONFIRM_RE = re.compile(r"\(y\s*/\s*n\)")
+_SCP_SUCCESS_RE = re.compile(
+    r"bytes transferred|completed successfully|operation completed", re.IGNORECASE
+)
+_SCP_FAILURE_RE = re.compile(
+    r"transfer failed|failed!|%\s*error|error during", re.IGNORECASE
+)
+
 
 class CliSession(Protocol):
     """A ready-to-use authenticated CLI session for one switch.
@@ -40,6 +55,18 @@ class CliSession(Protocol):
     """
 
     def run(self, command: str) -> str: ...
+
+    def run_scp_copy(self, command: str, scp_password: str) -> str:
+        """Issue an interactive ``copy scp://...`` and drive its mid-command
+        prompts (host-key TOFU, remote password, ``(y/n)`` overwrite), returning
+        the transcript on success and raising ``CliTransportError`` on failure.
+        Only the FASTPATH cert-deploy path (``cli_write``) uses this; a session
+        used purely for reads never calls it."""
+        ...
+
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
+        """Issue ``write memory`` and answer its ``(y/n)`` save-config confirm."""
+        ...
 
     def close(self) -> None: ...
 
@@ -109,6 +136,98 @@ class ShellDriver:
         self._write_line(command)
         raw = self._read_until(allow_password=False)
         return self._clean(raw, command)
+
+    def run_scp_copy(self, command: str, scp_password: str) -> str:
+        """Drive a ``copy scp://<src> <dest>`` transfer to completion.
+
+        The genuinely-new interactive transport bit: unlike a plain EXEC command
+        (``run``), ``copy scp://`` prompts the operator mid-flight. This sends the
+        command then loops over ``_recv`` chunks, answering each prompt with the
+        same ``_send``/``_write_line`` primitives ``run`` uses -- no new transport,
+        no ``pexpect``:
+
+        * host-key TOFU (``... continue connecting (yes/no)?``) -> ``yes``
+        * remote ``Password:`` -> ``scp_password``
+        * ``(y/n)`` overwrite confirm -> a bare ``y`` (no newline, matching the
+          real FASTPATH prompt)
+
+        It returns when the shell prompt reappears after the switch reports the
+        transfer, and raises ``CliTransportError`` if the switch reports a failed
+        transfer or the stream ends without a prompt. GROUNDED in the working
+        certbot-hook ``FastpathScpUpdater._send_copy``; MOCK-TESTED, not
+        live-verified (a real SCP upload is a production write needing a staging
+        SCP server), so it cannot be exercised from CI -- covered by a byte-level
+        fake-shell test, like the rest of ShellDriver.
+        """
+        self._write_line(command)
+        transcript = ""
+        buf = ""
+        succeeded = False
+        for _ in range(_MAX_READS):
+            chunk = self._recv(4096)
+            if chunk:
+                text = chunk.decode("latin-1", errors="replace")
+                transcript += text
+                buf += text
+            if _SCP_FAILURE_RE.search(buf):
+                raise CliTransportError(
+                    f"SCP copy reported a failed transfer: {command!r}"
+                )
+            if _SCP_TOFU_RE.search(buf):
+                self._write_line("yes")
+                buf = ""
+                continue
+            if _SCP_PASSWORD_RE.search(buf):
+                self._write_line(scp_password)
+                buf = ""
+                continue
+            if _SCP_CONFIRM_RE.search(buf):
+                # FASTPATH's (y/n) overwrite confirm takes a single keystroke.
+                self._send(b"y")
+                buf = ""
+                continue
+            if _SCP_SUCCESS_RE.search(buf):
+                succeeded = True
+            if _PROMPT_RE.search(buf):
+                return transcript
+            if not chunk:
+                break
+        if succeeded:
+            return transcript
+        raise CliTransportError(f"SCP copy did not complete: {command!r}")
+
+    def run_write_memory(
+        self, command: str = "write memory", *, prestuff: bool
+    ) -> str:
+        """Persist the running config, answering the ``(y/n)`` save confirm.
+
+        ``prestuff=True`` (GSM7252PS) pre-stuffs the ``y`` in the SAME write as the
+        command, because that image's confirm has a tiny timeout that a
+        read-then-answer round trip races -- exactly the certbot-hook
+        ``writemem_stuff`` behaviour. ``prestuff=False`` (M4300) waits for the
+        ``(y/n)`` prompt then answers ``y``. GROUNDED in prior art, mock-tested.
+        """
+        if prestuff:
+            self._send((command + "\ry\r").encode("latin-1"))
+        else:
+            self._write_line(command)
+        transcript = ""
+        buf = ""
+        for _ in range(_MAX_READS):
+            chunk = self._recv(4096)
+            if chunk:
+                text = chunk.decode("latin-1", errors="replace")
+                transcript += text
+                buf += text
+            if not prestuff and _SCP_CONFIRM_RE.search(buf):
+                self._send(b"y")
+                buf = ""
+                continue
+            if _PROMPT_RE.search(buf):
+                return transcript
+            if not chunk:
+                break
+        raise CliTransportError("write memory did not complete")
 
     @staticmethod
     def _clean(raw: str, command: str) -> str:
