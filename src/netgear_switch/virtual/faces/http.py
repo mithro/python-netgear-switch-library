@@ -236,6 +236,31 @@ class VirtualHttpFace:
                     return
                 self._send("<html><body>Not Found</body></html>", 404)
 
+            def _goahead_post(self) -> None:
+                """Serve the GoAhead XML_API write flow: a POST of the
+                ``SSLCryptoCertificateImportList`` XML to ``<sess>/wcd`` records
+                the certificate and returns a wcd statusCode. Any other POST
+                404s (the mock never fabricates a page)."""
+                path_only = self.path.split("?", 1)[0]
+                # Real hardware refuses an unauthenticated write (redirects to
+                # login); mirror that so the suite catches a client that uploads
+                # before logging in.
+                if "sessionID=virtualsid" not in self.headers.get("Cookie", ""):
+                    self.send_response(302)
+                    self.send_header("Location", f"/{face._session_path}/")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if not path_only.endswith("/wcd"):
+                    self._send("<html><body>Not Found</body></html>", 404)
+                    return
+                raw = self._raw()
+                with face._lock:
+                    response = web_gs728tpp.apply_cert_import(
+                        face.state, raw.decode("utf-8")
+                    )
+                self._send(response)
+
             def do_GET(self) -> None:
                 path = self.path.split("?", 1)[0]
                 if not self._referer_ok():
@@ -272,9 +297,9 @@ class VirtualHttpFace:
                     self._send("403 Forbidden", 403)
                     return
                 if face.spec.html_dialect is HtmlDialect.GOAHEAD_XML:
-                    # The GoAhead read surface is GET-only; no write flow is
-                    # wired for this model, so a POST is honestly Not Found.
-                    self._send("<html><body>Not Found</body></html>", 404)
+                    # The only GoAhead write wired is the SSL-cert import (a raw
+                    # XML POST to <sess>/wcd); _goahead_post 404s anything else.
+                    self._goahead_post()
                     return
                 raw = self._raw()
                 content_type = self.headers.get("Content-Type", "")
