@@ -17,6 +17,8 @@ A real HTTP<->NSDP diff against live hardware is the same comparison run against
 (see the live-hardware memory notes)."""
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from http_specs import reads_verified
@@ -374,3 +376,133 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                 client.close()
         finally:
             sw.stop()
+
+
+def test_gs728tpp_http_and_snmp_reads_agree() -> None:
+    """The gs728tpp is reachable over BOTH SNMP and HTTP, so both must report
+    the same switch. This is the model whose SNMP was BROKEN: registry.py wrongly
+    put it on the S3300 vendor subtree (4526.11), but a real live walk (10.2.5.10)
+    proved its agent implements ZERO Netgear vendor OIDs and serves EVERYTHING
+    via standard MIBs (snmp_vendor_base=None). This drives both faces of one
+    VirtualSwitch (seed transcribed from that capture + the HTTP ground truth)
+    and cross-verifies every shared read op.
+
+    Three legitimate per-backend differences are ASSERTED rather than papered
+    over, each grounded in real hardware:
+    - a DOWN port's speed: SNMP's ifHighSpeed keeps reporting the configured
+      rate, the wcd Physical Status reads Unknown -> None (as on the gsm7252ps);
+    - per-port PoE mW: SNMP has NO vendor power column at all (standard
+      pethPsePortTable carries none), so power_mw is None, vs the web UI's live
+      0 mW draw on an idle port;
+    - box sensors: SNMP exposes only the ENTITY-MIB component INVENTORY (no live
+      value -- NaN), while the HTTP DiagnosticsUnitList reports a live health
+      flag for the SAME four components. SNMP genuinely cannot supply the status.
+    """
+    from netgear_switch.protocols.snmp import oids
+    from netgear_switch.snmp_read import SnmpReader
+    from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+
+    model = get_model("gs728tpp")
+    # The crux of the fix: gs728tpp reads NO Netgear vendor OIDs.
+    assert model.snmp_vendor_base is None
+    assert oids.has_vendor_oids(model) is False
+
+    sw = VirtualSwitch(model="gs728tpp")
+    sw.start()
+    try:
+        client = HttpClient(
+            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
+        )
+        client.login()
+        http = HttpReader(client, model)
+        snmp = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
+        try:
+            # ports: link matches everywhere; speed only while UP (see docstring)
+            http_ports = {p.port: p for p in http.get_ports()}
+            snmp_ports = {p.port: p for p in snmp.get_ports()}
+            assert set(http_ports) == set(snmp_ports) == set(range(1, 29))
+            for port in sorted(http_ports):
+                hp, sp = http_ports[port], snmp_ports[port]
+                assert hp.link_up == sp.link_up, f"port {port} link differs"
+                if hp.link_up:
+                    assert hp.speed_mbps == sp.speed_mbps, f"port {port} speed"
+            # pin the DOWN-port speed difference so it stays visible
+            assert http_ports[1].speed_mbps is None
+            assert snmp_ports[1].speed_mbps == 1000
+
+            assert dict(http.get_pvids()) == dict(snmp.get_pvids())
+            assert _vlan_sets(http.get_vlans()) == _vlan_sets(snmp.get_vlans())
+
+            assert {(m.mac, m.port, m.vlan_id) for m in http.get_macs()} == {
+                (m.mac, m.port, m.vlan_id) for m in snmp.get_macs()
+            }
+
+            # LLDP: chassis/sys-name/port-desc match exactly; the MAC-form
+            # port-id differs ONLY in letter case (the wcd UI renders
+            # advertisedPortID lowercase; SNMP formats the raw MAC uppercase),
+            # so it is compared case-insensitively and the case pinned.
+            http_lldp = {n.local_port: n for n in http.get_lldp()}
+            snmp_lldp = {n.local_port: n for n in snmp.get_lldp()}
+            assert set(http_lldp) == set(snmp_lldp)
+            for lp, hn in http_lldp.items():
+                sn = snmp_lldp[lp]
+                assert (hn.remote_sys_name, hn.remote_chassis_id,
+                        hn.remote_port_desc) == (
+                    sn.remote_sys_name, sn.remote_chassis_id,
+                    sn.remote_port_desc)
+                assert (hn.remote_port_id or "").upper() == (
+                    sn.remote_port_id or "").upper()
+            assert http_lldp[2].remote_port_id == "2c:cf:67:bb:49:a1"  # lower
+            assert snmp_lldp[2].remote_port_id == "2C:CF:67:BB:49:A1"  # upper
+
+            # PoE: 24 ports; admin + detect (searching) match exactly. power_mw
+            # is a VENDOR column this agent lacks -> None over SNMP vs the web
+            # UI's live 0 mW (pinned).
+            http_poe = {p.port: p for p in http.get_poe()}
+            snmp_poe = {p.port: p for p in snmp.get_poe()}
+            assert set(http_poe) == set(snmp_poe) == set(range(1, 25))
+            for port, hp2 in http_poe.items():
+                sp2 = snmp_poe[port]
+                assert (hp2.admin_enabled, hp2.detect) == (
+                    sp2.admin_enabled, sp2.detect), f"PoE {port}"
+            assert {p.power_mw for p in http_poe.values()} == {0}
+            assert {p.power_mw for p in snmp_poe.values()} == {None}
+
+            # mgmt-IP: address/netmask/gateway/mode all agree. base_mac is on
+            # the standard BRIDGE-MIB over SNMP but absent from the wcd IPConf
+            # page, so HTTP has None there (pinned).
+            hm, sm = http.get_mgmt_ip(), snmp.get_mgmt_ip()
+            assert (hm.address, hm.netmask, hm.gateway, hm.mode) == (
+                sm.address, sm.netmask, sm.gateway, sm.mode)
+            assert sm.base_mac == "B0:39:56:77:54:29"
+            assert hm.base_mac is None
+
+            # Sensors: the KEY per-backend gap. SNMP names the same four
+            # components from the ENTITY-MIB inventory but has NO live value
+            # (NaN, unit "inventory"); the wcd DiagnosticsUnitList reports a
+            # live health flag (unit "state") for those same components.
+            snmp_sensors = snmp.get_sensors()
+            assert [(s.name, s.kind, s.unit) for s in snmp_sensors] == [
+                ("Main PowerSupply", "power", "inventory"),
+                ("Redundant PowerSupply", "power", "inventory"),
+                ("Fan1", "fan", "inventory"),
+                ("Fan2", "fan", "inventory"),
+            ]
+            assert all(math.isnan(s.value) for s in snmp_sensors)
+
+            http_sensors = http.get_sensors()
+            assert {(s.name, s.kind, s.unit, s.value) for s in http_sensors} == {
+                ("Fan1", "fan", "state", 1.0),
+                ("Fan2", "fan", "state", 1.0),
+                ("Main PS", "power", "state", 1.0),
+                ("Redundant PS", "power", "state", 1.0),
+            }
+            # both backends see the same COMPONENT KINDS; only SNMP lacks the
+            # live status and only HTTP lacks the RPM/watt reading.
+            assert sorted(s.kind for s in snmp_sensors) == sorted(
+                s.kind for s in http_sensors
+            )
+        finally:
+            client.close()
+    finally:
+        sw.stop()
