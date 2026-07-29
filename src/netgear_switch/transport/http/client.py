@@ -13,7 +13,9 @@ SNMP transports — ``import netgear_switch`` never reaches here.
 """
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import httpx
 
@@ -64,6 +66,59 @@ def _login_body(
         )
     hashed = merge_hash_md5(password, rand or "")
     return {spec.password_field: hashed}
+
+
+# GS728TPP GoAhead XML_API: the login GET / 302-redirects to a per-session
+# path (``/cs5f72b8e1/``); this pulls that opaque path token out of the
+# ``Location`` header so every later read can be prefixed with it.
+_XML_API_SESSION_PATH_RE = re.compile(r"/([A-Za-z0-9]+)/")
+
+
+def _xml_api_session_path(resp: httpx.Response) -> str:
+    """The per-session path from the login redirect's ``Location`` header, or
+    raise ``HttpAuthError`` (pure; shared sync+async)."""
+    location = resp.headers.get("Location", "")
+    m = _XML_API_SESSION_PATH_RE.search(location)
+    if not m:
+        raise HttpAuthError(
+            f"GS728TPP login: GET / gave no session-path redirect "
+            f"(Location={location!r})"
+        )
+    return m.group(1)
+
+
+def _xml_api_login_url(spec: HttpModelSpec, session_path: str, password: str) -> str:
+    """The ``System.xml?action=login`` GET URL under the session path (pure)."""
+    return (
+        f"/{session_path}/System.xml?action=login"
+        f"&user={quote(spec.username)}&password={quote(password)}"
+    )
+
+
+def _apply_xml_api_login(
+    spec: HttpModelSpec, resp: httpx.Response, cookies: httpx.Cookies
+) -> None:
+    """Validate the ``System.xml`` login response and set the session cookies.
+
+    Success is ``<statusCode>0</statusCode>`` in the body AND a ``sessionID``
+    RESPONSE HEADER (never a Set-Cookie on this firmware); the client then sets
+    ``userStatus=ok``/``usernme=<user>``/``sessionID=<hdr>`` as cookies. Raises
+    ``HttpAuthError`` on either missing (wrong password / lock-out). Pure w.r.t.
+    the cookie jar; shared sync+async."""
+    if "<statusCode>0</statusCode>" not in resp.text:
+        raise HttpAuthError(
+            f"web-UI login failed for {spec.model_key} — no <statusCode>0</"
+            "statusCode> (check password, or switch may be locked out)"
+        )
+    session_id = resp.headers.get("sessionID", "")
+    if not session_id:
+        raise HttpAuthError(
+            f"web-UI login failed for {spec.model_key} — no sessionID response "
+            "header"
+        )
+    cookies.set("userStatus", "ok")
+    cookies.set("usernme", spec.username)
+    cookies.set(spec.cookie_name, session_id)
 
 
 def _check_authed(spec: HttpModelSpec, cookies: httpx.Cookies) -> None:
@@ -205,6 +260,14 @@ class HttpClient:
         )
         self._logged_in = False
         self._token = ""
+        self._session_path = ""
+
+    def _read_url(self, path: str) -> str:
+        """Prefix the captured session path for the GoAhead XML_API (whose read
+        paths are wcd queries relative to ``/<sess>/``); pass others through."""
+        if self._spec.scheme is LoginScheme.XML_API:
+            return f"/{self._session_path}/{path}"
+        return path
 
     def __enter__(self) -> Self:
         return self
@@ -218,6 +281,9 @@ class HttpClient:
         self.close()
 
     def login(self) -> None:
+        if self._spec.scheme is LoginScheme.XML_API:
+            self._xml_api_login()
+            return
         post_path = self._spec.login_post_path or self._spec.login_path
         try:
             page = self._client.get(self._spec.login_path)
@@ -233,13 +299,31 @@ class HttpClient:
             _check_authed(self._spec, self._client.cookies)
         self._logged_in = True
 
+    def _xml_api_login(self) -> None:
+        """GS728TPP GoAhead three-step login (see ``LoginScheme.XML_API``)."""
+        try:
+            redirect = self._client.get(
+                self._spec.login_path, follow_redirects=False
+            )
+            self._session_path = _xml_api_session_path(redirect)
+            url = _xml_api_login_url(
+                self._spec, self._session_path, self._password
+            )
+            resp = self._client.get(url)
+            _validate_response(resp, context="GET System.xml?action=login")
+        except httpx.HTTPError as exc:
+            raise HttpError(f"web-UI login transport error: {exc}") from exc
+        _apply_xml_api_login(self._spec, resp, self._client.cookies)
+        self._logged_in = True
+
     def get_page(self, path: str) -> str:
         if not self._logged_in:
             self.login()
+        url = self._read_url(path)
         params = _token_params(self._spec, self._token)
         try:
             resp = _retry_on_dropped_connection(
-                lambda: self._client.get(path, params=params), f"GET {path}"
+                lambda: self._client.get(url, params=params), f"GET {path}"
             )
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
@@ -307,6 +391,13 @@ class AsyncHttpClient:
         )
         self._logged_in = False
         self._token = ""
+        self._session_path = ""
+
+    def _read_url(self, path: str) -> str:
+        """Async twin of ``HttpClient._read_url`` (session-path prefixing)."""
+        if self._spec.scheme is LoginScheme.XML_API:
+            return f"/{self._session_path}/{path}"
+        return path
 
     async def __aenter__(self) -> Self:
         return self
@@ -320,6 +411,9 @@ class AsyncHttpClient:
         await self.aclose()
 
     async def login(self) -> None:
+        if self._spec.scheme is LoginScheme.XML_API:
+            await self._xml_api_login()
+            return
         post_path = self._spec.login_post_path or self._spec.login_path
         try:
             page = await self._client.get(self._spec.login_path)
@@ -335,13 +429,31 @@ class AsyncHttpClient:
             _check_authed(self._spec, self._client.cookies)
         self._logged_in = True
 
+    async def _xml_api_login(self) -> None:
+        """Async twin of ``HttpClient._xml_api_login``."""
+        try:
+            redirect = await self._client.get(
+                self._spec.login_path, follow_redirects=False
+            )
+            self._session_path = _xml_api_session_path(redirect)
+            url = _xml_api_login_url(
+                self._spec, self._session_path, self._password
+            )
+            resp = await self._client.get(url)
+            _validate_response(resp, context="GET System.xml?action=login")
+        except httpx.HTTPError as exc:
+            raise HttpError(f"web-UI login transport error: {exc}") from exc
+        _apply_xml_api_login(self._spec, resp, self._client.cookies)
+        self._logged_in = True
+
     async def get_page(self, path: str) -> str:
         if not self._logged_in:
             await self.login()
+        url = self._read_url(path)
         params = _token_params(self._spec, self._token)
         try:
             resp = await _aretry_on_dropped_connection(
-                lambda: self._client.get(path, params=params), f"GET {path}"
+                lambda: self._client.get(url, params=params), f"GET {path}"
             )
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc

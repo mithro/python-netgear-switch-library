@@ -26,8 +26,15 @@ from typing import TYPE_CHECKING
 from urllib.parse import parse_qs
 
 from ...protocols.http.crypt import merge_hash_md5
-from ...protocols.http.endpoints import HttpModelSpec, LoginScheme
-from .. import web, web_gs105pe, web_gs110emx, web_gsm7252ps, web_m4300
+from ...protocols.http.endpoints import HtmlDialect, HttpModelSpec, LoginScheme
+from .. import (
+    web,
+    web_gs105pe,
+    web_gs110emx,
+    web_gs728tpp,
+    web_gsm7252ps,
+    web_m4300,
+)
 
 if TYPE_CHECKING:
     from ..state import VirtualSwitchState
@@ -122,6 +129,10 @@ class VirtualHttpFace:
         self._thread: threading.Thread | None = None
         self._cookie = f"{spec.cookie_name}=virtualsid"
         self._token = _VIRTUAL_TOKEN
+        # Fixed per-session path the GoAhead XML_API login redirect advertises
+        # (real firmware mints a fresh one per login; the mock proves the shape,
+        # not the randomness -- like ``_token`` for the GAMBIT scheme).
+        self._session_path = "cs0000face"
         # ThreadingHTTPServer runs one thread per request; do_GET/do_POST
         # mutate shared VirtualSwitchState via web.render_page/apply_form
         # with no lock of their own, so two overlapping requests (e.g. a
@@ -167,10 +178,61 @@ class VirtualHttpFace:
                     return True
                 return "Referer" in self.headers
 
+            def _goahead_get(self) -> None:
+                """Serve the GoAhead XML_API GET flow: GET / -> 302 to the
+                session path; ``<sess>/System.xml?action=login`` -> statusCode +
+                sessionID header; ``<sess>/wcd?{..}`` -> the rendered data
+                block. Any other path 404s (the mock never fabricates a page)."""
+                from urllib.parse import parse_qs, unquote
+
+                path_only = self.path.split("?", 1)[0]
+                query = self.path[len(path_only) + 1 :] if "?" in self.path else ""
+                if path_only == "/":
+                    self.send_response(302)
+                    self.send_header("Location", f"/{face._session_path}/")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if path_only.endswith("/System.xml") and "action=login" in query:
+                    params = {k: v[0] for k, v in parse_qs(query).items()}
+                    ok = params.get("user") == face.spec.username and params.get(
+                        "password"
+                    ) == face.password
+                    code = "0" if ok else "1"
+                    body = (
+                        '<?xml version="1.0" encoding="UTF-8" ?>'
+                        f"<ResponseData><statusCode>{code}</statusCode>"
+                        "</ResponseData>"
+                    )
+                    data = body.encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/xml")
+                    if ok:
+                        self.send_header("sessionID", "virtualsid")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                decoded = unquote(self.path)
+                if "wcd?" in decoded:
+                    with face._lock:
+                        page = web_gs728tpp.render_wcd(
+                            face.state, decoded[decoded.find("wcd?") :]
+                        )
+                    if page is None:
+                        self._send("<html><body>Not Found</body></html>", 404)
+                    else:
+                        self._send(page)
+                    return
+                self._send("<html><body>Not Found</body></html>", 404)
+
             def do_GET(self) -> None:
                 path = self.path.split("?", 1)[0]
                 if not self._referer_ok():
                     self._send("403 Forbidden", 403)
+                    return
+                if face.spec.html_dialect is HtmlDialect.GOAHEAD_XML:
+                    self._goahead_get()
                     return
                 if path == face.spec.login_path:
                     if face.spec.session_token_field is not None:
@@ -198,6 +260,11 @@ class VirtualHttpFace:
                 path = self.path.split("?", 1)[0]
                 if not self._referer_ok():
                     self._send("403 Forbidden", 403)
+                    return
+                if face.spec.html_dialect is HtmlDialect.GOAHEAD_XML:
+                    # The GoAhead read surface is GET-only; no write flow is
+                    # wired for this model, so a POST is honestly Not Found.
+                    self._send("<html><body>Not Found</body></html>", 404)
                     return
                 raw = self._raw()
                 content_type = self.headers.get("Content-Type", "")
