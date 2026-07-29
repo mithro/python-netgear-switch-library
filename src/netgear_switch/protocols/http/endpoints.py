@@ -428,7 +428,20 @@ _M4300 = HttpModelSpec(
 # firmware family", NOT "captured from a 16X". Treat a 16X-specific HTTP
 # surprise (different port count, PoE pages the 24X lacks) as unverified until
 # someone captures one.
-_M4300_16X = dataclasses.replace(_M4300, model_key="m4300-16x")
+# reads_verified=False (unlike the 24x): the M4300-16X-PoE runs the AV-era
+# two-UI firmware where the FASTPATH "Main UI" (Cheetah) is moved OFF port 80 to
+# HTTPS on port 49152 (port 80/443 serve the Vue "AV UI" instead). Confirmed live
+# on 10.1.5.20 (2026-07-30): port 80 -> <title>network</title> (Vue), port 49152 ->
+# <TITLE>NETGEAR M4300-16X</TITLE> (Cheetah). This inherited-from-24x spec targets
+# http://<host>/v1/... (the AV-UI port) and so does NOT work against the real 16x
+# -- login POSTs 404, and :49152 resets a plaintext-http connect (it is HTTPS).
+# The 16x is otherwise fully live-verified over SNMP + CLI. Wiring 16x HTTP needs
+# HTTPS-on-49152 transport support + a poe_status_path (the 16x IS PoE, unlike the
+# 24x) -- a dedicated slice; until then HTTP stays gated so the facade uses the
+# verified SNMP/CLI backends and never a broken web path.
+_M4300_16X = dataclasses.replace(
+    _M4300, model_key="m4300-16x", reads_verified=False
+)
 
 # gsm7252ps (Fully Managed, 52-port/48-PoE, SNMP+HTTP). The LOGIN is
 # LIVE-VALIDATED against the real switch 10.1.5.22 (2026-07-22): the Cheetah

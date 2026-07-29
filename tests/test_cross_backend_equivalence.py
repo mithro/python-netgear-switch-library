@@ -244,7 +244,12 @@ def test_m4300_16x_http_and_snmp_reads_agree() -> None:
             f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
         )
         client.login()
-        http = HttpReader(client, model)
+        # m4300-16x HTTP ships reads_verified=False (the real 16X FASTPATH web UI
+        # is HTTPS-on-49152, unlike this inherited-from-24X http:80 spec -- see
+        # endpoints.py). This is a MOCK parity test (the virtual HTTP face serves
+        # the seed regardless), so force the flag to exercise the parsers.
+        with reads_verified("m4300-16x"):
+            http = HttpReader(client, model)
         snmp = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
         try:
             http_ports = _port_pairs(http.get_ports())
