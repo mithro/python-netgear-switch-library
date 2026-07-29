@@ -1,0 +1,157 @@
+                 Admin     Physical   Physical   Link   Link    LACP   Flow    Stack
+Intf      Type   Mode      Mode       Status     Status Trap    Mode   Mode    Capable
+--------- ------ --------- ---------- ---------- ------ ------- ------ ------- --------
+1/0/1            Enable    Auto       10G Full   Up     Enable  Enable Disable Yes
+1/0/2            Enable    Auto       10G Full   Up     Enable  Enable Disable Yes
+1/0/3            Enable    Auto       1000 Full  Up     Enable  Enable Disable Yes
+1/0/4            Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/5            Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/6            Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/7            Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/8            Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/9            Enable    Auto       1000 Full  Up     Enable  Enable Disable Yes
+1/0/10           Enable    Auto       1000 Full  Up     Enable  Enable Disable Yes
+1/0/11           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/12           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/13           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/14           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/15           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/16           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/17           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/18           Enable    Auto                  Down   Enable  Enable Disable Yes
+1/0/19           Enable    Auto       10G Full   Up     Enable  Enable Disable Yes
+1/0/20           Enable    Auto       10G Full   Up     Enable  Enable Disable Yes
+1/0/21    PC Mbr Enable    10G Full   10G Full   Up     Enable  Enable Disable Yes
+1/0/22    PC Mbr Enable    10G Full   10G Full   Up     Enable  Enable Disable Yes
+1/0/23    PC Mbr Enable    10G Full   10G Full   Up     Enable  Enable Disable Yes
+1/0/24    PC Mbr Enable    10G Full   10G Full   Up     Enable  Enable Disable Yes
+lag 1            Enable                          Up     Disable N/A    Disable No
+lag 2            Enable                          Down   Disable N/A    Disable No
+lag 3            Enable                          Down   Disable N/A    Disable No
+lag 4            Enable                          Down   Disable N/A    Disable No
+lag 5            Enable                          Down   Disable N/A    Disable No
+lag 6            Enable                          Down   Disable N/A    Disable No
+lag 7            Enable                          Down   Disable N/A    Disable No
+lag 8            Enable                          Down   Disable N/A    Disable No
+lag 9            Enable                          Down   Disable N/A    Disable No
+lag 10           Enable                          Down   Disable N/A    Disable No
+lag 11           Enable                          Down   Disable N/A    Disable No
+lag 12           Enable                          Down   Disable N/A    Disable No
+lag 13           Enable                          Down   Disable N/A    Disable No
+lag 14           Enable                          Down   Disable N/A    Disable No
+lag 15           Enable                          Down   Disable N/A    Disable No
+lag 16           Enable                          Down   Disable N/A    Disable No
+lag 17           Enable                          Down   Disable N/A    Disable No
+lag 18           Enable                          Down   Disable N/A    Disable No
+lag 19           Enable                          Down   Disable N/A    Disable No
+lag 20           Enable                          Down   Disable N/A    Disable No
+lag 21           Enable                          Down   Disable N/A    Disable No
+lag 22           Enable                          Down   Disable N/A    Disable No
+lag 23           Enable                          Down   Disable N/A    Disable No
+lag 24           Enable                          Down   Disable N/A    Disable No
+lag 25           Enable                          Down   Disable N/A    Disable No
+lag 26           Enable                          Down   Disable N/A    Disable No
+lag 27           Enable                          Down   Disable N/A    Disable No
+lag 28           Enable                          Down   Disable N/A    Disable No
+lag 29           Enable                          Down   Disable N/A    Disable No
+lag 30           Enable                          Down   Disable N/A    Disable No
+lag 31           Enable                          Down   Disable N/A    Disable No
+lag 32           Enable                          Down   Disable N/A    Disable No
+lag 33           Enable                          Down   Disable N/A    Disable No
+lag 34           Enable                          Down   Disable N/A    Disable No
+lag 35           Enable                          Down   Disable N/A    Disable No
+lag 36           Enable                          Down   Disable N/A    Disable No
+lag 37           Enable                          Down   Disable N/A    Disable No
+lag 38           Enable                          Down   Disable N/A    Disable No
+lag 39           Enable                          Down   Disable N/A    Disable No
+lag 40           Enable                          Down   Disable N/A    Disable No
+lag 41           Enable                          Down   Disable N/A    Disable No
+lag 42           Enable                          Down   Disable N/A    Disable No
+lag 43           Enable                          Down   Disable N/A    Disable No
+lag 44           Enable                          Down   Disable N/A    Disable No
+lag 45           Enable                          Down   Disable N/A    Disable No
+lag 46           Enable                          Down   Disable N/A    Disable No
+lag 47           Enable                          Down   Disable N/A    Disable No
+lag 48           Enable                          Down   Disable N/A    Disable No
+lag 49           Enable                          Down   Disable N/A    Disable No
+lag 50           Enable                          Down   Disable N/A    Disable No
+lag 51           Enable                          Down   Disable N/A    Disable No
+lag 52           Enable                          Down   Disable N/A    Disable No
+lag 53           Enable                          Down   Disable N/A    Disable No
+lag 54           Enable                          Down   Disable N/A    Disable No
+lag 55           Enable                          Down   Disable N/A    Disable No
+lag 56           Enable                          Down   Disable N/A    Disable No
+lag 57           Enable                          Down   Disable N/A    Disable No
+lag 58           Enable                          Down   Disable N/A    Disable No
+lag 59           Enable                          Down   Disable N/A    Disable No
+lag 60           Enable                          Down   Disable N/A    Disable No
+lag 61           Enable                          Down   Disable N/A    Disable No
+lag 62           Enable                          Down   Disable N/A    Disable No
+lag 63           Enable                          Down   Disable N/A    Disable No
+lag 64           Enable                          Down   Disable N/A    Disable No
+lag 65           Enable                          Down   Disable N/A    Disable No
+lag 66           Enable                          Down   Disable N/A    Disable No
+lag 67           Enable                          Down   Disable N/A    Disable No
+lag 68           Enable                          Down   Disable N/A    Disable No
+lag 69           Enable                          Down   Disable N/A    Disable No
+lag 70           Enable                          Down   Disable N/A    Disable No
+lag 71           Enable                          Down   Disable N/A    Disable No
+lag 72           Enable                          Down   Disable N/A    Disable No
+lag 73           Enable                          Down   Disable N/A    Disable No
+lag 74           Enable                          Down   Disable N/A    Disable No
+lag 75           Enable                          Down   Disable N/A    Disable No
+lag 76           Enable                          Down   Disable N/A    Disable No
+lag 77           Enable                          Down   Disable N/A    Disable No
+lag 78           Enable                          Down   Disable N/A    Disable No
+lag 79           Enable                          Down   Disable N/A    Disable No
+lag 80           Enable                          Down   Disable N/A    Disable No
+lag 81           Enable                          Down   Disable N/A    Disable No
+lag 82           Enable                          Down   Disable N/A    Disable No
+lag 83           Enable                          Down   Disable N/A    Disable No
+lag 84           Enable                          Down   Disable N/A    Disable No
+lag 85           Enable                          Down   Disable N/A    Disable No
+lag 86           Enable                          Down   Disable N/A    Disable No
+lag 87           Enable                          Down   Disable N/A    Disable No
+lag 88           Enable                          Down   Disable N/A    Disable No
+lag 89           Enable                          Down   Disable N/A    Disable No
+lag 90           Enable                          Down   Disable N/A    Disable No
+lag 91           Enable                          Down   Disable N/A    Disable No
+lag 92           Enable                          Down   Disable N/A    Disable No
+lag 93           Enable                          Down   Disable N/A    Disable No
+lag 94           Enable                          Down   Disable N/A    Disable No
+lag 95           Enable                          Down   Disable N/A    Disable No
+lag 96           Enable                          Down   Disable N/A    Disable No
+lag 97           Enable                          Down   Disable N/A    Disable No
+lag 98           Enable                          Down   Disable N/A    Disable No
+lag 99           Enable                          Down   Disable N/A    Disable No
+lag 100          Enable                          Down   Disable N/A    Disable No
+lag 101          Enable                          Down   Disable N/A    Disable No
+lag 102          Enable                          Down   Disable N/A    Disable No
+lag 103          Enable                          Down   Disable N/A    Disable No
+lag 104          Enable                          Down   Disable N/A    Disable No
+lag 105          Enable                          Down   Disable N/A    Disable No
+lag 106          Enable                          Down   Disable N/A    Disable No
+lag 107          Enable                          Down   Disable N/A    Disable No
+lag 108          Enable                          Down   Disable N/A    Disable No
+lag 109          Enable                          Down   Disable N/A    Disable No
+lag 110          Enable                          Down   Disable N/A    Disable No
+lag 111          Enable                          Down   Disable N/A    Disable No
+lag 112          Enable                          Down   Disable N/A    Disable No
+lag 113          Enable                          Down   Disable N/A    Disable No
+lag 114          Enable                          Down   Disable N/A    Disable No
+lag 115          Enable                          Down   Disable N/A    Disable No
+lag 116          Enable                          Down   Disable N/A    Disable No
+lag 117          Enable                          Down   Disable N/A    Disable No
+lag 118          Enable                          Down   Disable N/A    Disable No
+lag 119          Enable                          Down   Disable N/A    Disable No
+lag 120          Enable                          Down   Disable N/A    Disable No
+lag 121          Enable                          Down   Disable N/A    Disable No
+lag 122          Enable                          Down   Disable N/A    Disable No
+lag 123          Enable                          Down   Disable N/A    Disable No
+lag 124          Enable                          Down   Disable N/A    Disable No
+lag 125          Enable                          Down   Disable N/A    Disable No
+lag 126          Enable                          Down   Disable N/A    Disable No
+lag 127          Enable                          Down   Disable N/A    Disable No
+lag 128          Enable                          Down   Disable N/A    Disable No
+vlan 1           Enable                          Up     Enable  N/A    Disable No
+vlan 5           Enable                          Up     Enable  N/A    Disable No

@@ -85,6 +85,27 @@ def test_cli_reader_identify() -> None:
     assert _reader("gsm7252ps").identify().key == "gsm7252ps"
 
 
+def test_cli_reader_m4300_uses_overridden_commands() -> None:
+    # The M4300 reader drives "show vlan" / "show ip management"; the mock face
+    # is spec-driven, so these route to the same renderers and round-trip.
+    reader = _reader("m4300-24x")
+    vlans = {v.vlan_id for v in reader.get_vlans()}
+    assert vlans  # non-empty -> "show vlan" dispatched and parsed
+    assert reader.get_mgmt_ip().address  # "show ip management" dispatched
+
+
+def test_cli_reader_m4300_stats_only_physical_ports() -> None:
+    # m4300-24x registry port_count is 28 but the switch has 24 physical ports.
+    # get_stats must iterate the real ports (24), never phantom ports 25-28.
+    reader = _reader("m4300-24x")
+    n_ports = len(reader.get_ports())
+    stats = reader.get_stats()
+    assert n_ports == 24
+    assert len(stats) == 24
+    assert {s.port for s in stats} == {p.port for p in reader.get_ports()}
+    assert max(s.port for s in stats) == 24  # no phantom 25-28
+
+
 def test_cli_reader_poe_unsupported_on_non_poe_model() -> None:
     with pytest.raises(UnsupportedCapabilityError):
         _reader("m4300-24x").get_poe()  # M4300-24X has 0 PSE ports
@@ -103,19 +124,30 @@ def test_mock_face_rejects_unknown_command() -> None:
 # --- command spec + registry ------------------------------------------------
 
 
-def test_cli_reads_verified_only_for_live_checked_model() -> None:
+def test_cli_reads_verified_only_for_live_checked_models() -> None:
     assert CLI_SPECS  # non-empty
-    # gsm7252ps CLI was live CLI<->SNMP cross-verified on 10.1.5.22, so its
-    # reads are verified. The M4300/gsm7228ps CLI shares the same grounded
-    # FASTPATH parsers but has NOT been live-checked on those SKUs, so it stays
-    # gated until someone cross-verifies it against their hardware.
-    assert CLI_SPECS["gsm7252ps"].reads_verified is True
-    assert all(
-        not s.reads_verified for k, s in CLI_SPECS.items() if k != "gsm7252ps"
-    )
-    # Only the gsm7252ps has a real captured transcript.
-    assert CLI_SPECS["gsm7252ps"].captured is True
-    assert CLI_SPECS["m4300-24x"].captured is False
+    # gsm7252ps (10.1.5.22, CLI<->SNMP), m4300-24x (10.1.5.13) and m4300-16x
+    # (10.1.5.20) were all cross-verified against real hardware, so their reads
+    # are verified. Only gsm7228ps CLI is inherited-not-live-checked: it shares
+    # the same grounded FASTPATH parsers but stays gated until someone cross-
+    # verifies it against that hardware.
+    verified = {"gsm7252ps", "m4300-24x", "m4300-16x"}
+    assert {k for k, s in CLI_SPECS.items() if s.reads_verified} == verified
+    # The live-captured models carry real transcripts; the inherited SKU does not.
+    assert {k for k, s in CLI_SPECS.items() if s.captured} == verified
+    assert CLI_SPECS["gsm7228ps"].reads_verified is False
+    assert CLI_SPECS["gsm7228ps"].captured is False
+
+
+def test_m4300_cli_command_overrides() -> None:
+    # FASTPATH 12.0 renamed two commands; both M4300 specs carry the overrides,
+    # while the older-image SKUs keep the defaults.
+    for key in ("m4300-24x", "m4300-16x"):
+        assert CLI_SPECS[key].vlan_brief_cmd == "show vlan"
+        assert CLI_SPECS[key].network_cmd == "show ip management"
+    for key in ("gsm7252ps", "gsm7228ps"):
+        assert CLI_SPECS[key].vlan_brief_cmd == "show vlan brief"
+        assert CLI_SPECS[key].network_cmd == "show network"
 
 
 def test_cli_spec_raises_for_non_cli_model() -> None:

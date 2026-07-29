@@ -105,12 +105,14 @@ def _ruler_spans(ruler: str) -> list[tuple[int, int | None]]:
     return spans
 
 
+def _slice_cell(row: str, start: int, end: int | None) -> str:
+    """One ruler-column cell of ``row`` (``end=None`` -> to end-of-line), stripped."""
+    return (row[start:end] if end is not None else row[start:]).strip()
+
+
 def _slice_row(spans: list[tuple[int, int | None]], row: str) -> list[str]:
     """Slice ``row`` by ``spans`` (ruler columns) and strip each cell."""
-    cells: list[str] = []
-    for start, end in spans:
-        cells.append(row[start:end].strip() if end is not None else row[start:].strip())
-    return cells
+    return [_slice_cell(row, start, end) for start, end in spans]
 
 
 def iter_table_rows(
@@ -137,6 +139,44 @@ def iter_table_rows(
         if not line.strip() or _RULER_RE.match(line):
             break
         yield _slice_row(spans, line)
+
+
+def header_columns(text: str, *, after: str | None = None) -> list[str]:
+    """Reconstruct each table column's HEADER NAME, in order.
+
+    The header of a fixed-width FASTPATH table often wraps over two or three
+    lines (``High Power`` / ``Max Power (mW)`` / ``Output Current (mA)`` stack
+    their words above the ruler). Each of those header lines is sliced by the
+    SAME ruler spans that slice the data rows, and the per-column pieces are
+    joined (whitespace-collapsed) into one name. This lets a parser locate a
+    column by NAME rather than a fixed index -- needed because the column set is
+    not identical across firmware images (e.g. the M4300 ``show poe port info
+    all`` omits the ``Temperature`` column the gsm7252ps prints). Returns ``[]``
+    if no ruler is found.
+    """
+    lines = text.splitlines()
+    idx = 0
+    if after is not None:
+        while idx < len(lines) and after not in lines[idx]:
+            idx += 1
+    while idx < len(lines) and not _RULER_RE.match(lines[idx]):
+        idx += 1
+    if idx >= len(lines):
+        return []
+    spans = _ruler_spans(lines[idx])
+    # Header lines: the contiguous run of non-blank, non-ruler lines directly
+    # above the ruler.
+    start = idx - 1
+    while start >= 0 and lines[start].strip() and not _RULER_RE.match(lines[start]):
+        start -= 1
+    header_lines = lines[start + 1:idx]
+    names: list[str] = []
+    for span_start, span_end in spans:
+        pieces = [
+            _slice_cell(hl, span_start, span_end) for hl in header_lines
+        ]
+        names.append(re.sub(r"\s+", " ", " ".join(p for p in pieces if p)))
+    return names
 
 
 def _int(text: str) -> int | None:
@@ -409,11 +449,19 @@ def parse_lldp(text: str) -> list[LLDPNeighbor]:
 # show poe port info all -> PoE status
 # ---------------------------------------------------------------------------
 
-# gsm7252ps_show_poe_port_info_all.txt:
-#   Intf | High Power | Max Power (mW) | Class | Power (mW) |
-#   Output Current (mA) | Output Voltage (V) | Temperature | Status |
-#   Fault Status
-_POE_INTF, _POE_OUTPUT_MW, _POE_STATUS = 0, 4, 8
+# The column set of `show poe port info all` is NOT fixed across FASTPATH images:
+# the gsm7252ps prints a "Temperature" column that the M4300 firmware omits, so a
+# fixed column index for Status lands one column off on the M4300 (it read the
+# "Fault Status" cell -> every port UNKNOWN). Both headers below are REAL:
+#   gsm7252ps: Intf|High Power|Max Power (mW)|Class|Power (mW)|Output Current (mA)|
+#              Output Voltage (V)|Temperature|Status|Fault Status   (10 columns)
+#   m4300:     Intf|High Power|Max Power (mW)|Class|Power (mW)|Output Current (mA)|
+#              Output Voltage (V)|Status|Fault Status               (9 columns)
+# So the columns are located by HEADER NAME (see ``header_columns``), not index --
+# correct on both firmwares regardless of the Temperature column's presence.
+_POE_INTF_HDR = "Intf"
+_POE_OUTPUT_MW_HDR = "Power (mW)"  # the live draw, NOT "Max Power (mW)"
+_POE_STATUS_HDR = "Status"  # the PSE state, NOT "Fault Status"
 
 _POE_DETECT_TEXT: dict[str, PoEDetect] = {
     "delivering": PoEDetect.DELIVERING,
@@ -433,15 +481,26 @@ def parse_poe(text: str) -> list[PoEStatus]:
     column, so ``admin_enabled`` is INFERRED: a port whose Status is anything
     other than "Disabled" is admin-enabled (a searching/delivering PSE port is
     administratively on). Documented inference, not a fabricated field.
+
+    Columns are keyed by HEADER NAME, not a fixed index, because the M4300 image
+    drops the ``Temperature`` column the gsm7252ps prints -- see ``header_columns``.
     """
+    names = header_columns(text)
+    try:
+        intf_i = names.index(_POE_INTF_HDR)
+        mw_i = names.index(_POE_OUTPUT_MW_HDR)
+        status_i = names.index(_POE_STATUS_HDR)
+    except ValueError:
+        return []
+    last = max(intf_i, mw_i, status_i)
     out: list[PoEStatus] = []
     for cells in iter_table_rows(text):
-        if len(cells) <= _POE_STATUS:
+        if len(cells) <= last:
             continue
-        port = _phys_port(cells[_POE_INTF])
+        port = _phys_port(cells[intf_i])
         if port is None:
             continue
-        status = cells[_POE_STATUS].strip().lower()
+        status = cells[status_i].strip().lower()
         detect = next(
             (v for k, v in _POE_DETECT_TEXT.items() if k in status),
             PoEDetect.UNKNOWN,
@@ -451,7 +510,7 @@ def parse_poe(text: str) -> list[PoEStatus]:
                 port=port,
                 admin_enabled=detect is not PoEDetect.DISABLED,
                 detect=detect,
-                power_mw=_int(cells[_POE_OUTPUT_MW]),
+                power_mw=_int(cells[mw_i]),
             )
         )
     return out
@@ -512,7 +571,11 @@ def parse_environment(text: str) -> list[Sensor]:
                 unit="RPM",
             )
         )
-    for cells in iter_table_rows(text, after="Power supplies:"):
+    # The PSU sub-table is headed "Power supplies:" on the gsm7252ps image but
+    # "Power Modules:" on M4300 FASTPATH 12.0.13.8; the table columns are
+    # identical, so pick whichever header this firmware prints.
+    psu_after = "Power supplies:" if "Power supplies:" in text else "Power Modules:"
+    for cells in iter_table_rows(text, after=psu_after):
         if len(cells) <= _ENV_PSU_STATE:
             continue
         state = cells[_ENV_PSU_STATE].strip().lower()
@@ -535,15 +598,19 @@ def parse_environment(text: str) -> list[Sensor]:
 def parse_mgmt_ip(text: str) -> MgmtIpConfig:
     """``show network`` -> ``MgmtIpConfig``.
 
-    Label map (``gsm7252ps_show_network.txt``):
+    Label map (``gsm7252ps_show_network.txt`` / ``m4300_24x_show_ip_management``):
       IP Address              -> address
       Subnet Mask             -> netmask
       Default Gateway         -> gateway
       Burned In MAC Address   -> base_mac (uppercased, as the other backends do)
       Configured IPv4 Protocol-> mode (DHCP -> DHCP, else STATIC)
+    ``show network`` labels the mode "Configured IPv4 Protocol"; M4300 12.0's
+    ``show ip management`` labels it "Method" instead -- accept either.
     """
     fields = labelled_values(text)
-    proto = fields.get("Configured IPv4 Protocol", "").strip().upper()
+    proto = (
+        fields.get("Configured IPv4 Protocol") or fields.get("Method") or ""
+    ).strip().upper()
     mode = IpMode.DHCP if proto == "DHCP" else (
         IpMode.STATIC if proto else IpMode.UNKNOWN
     )

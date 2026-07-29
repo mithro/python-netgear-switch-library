@@ -1,0 +1,14 @@
+IPv4 Interface Status.......................... Up
+IPv4 Management Interface...................... vlan 5
+IP Address..................................... 10.1.5.13
+Subnet Mask.................................... 255.255.255.0
+Method......................................... DHCP
+Routing Mode................................... Enable
+Default Gateway................................ 10.1.5.1
+
+Source Interface............................... serviceport
+Burned In MAC Address.......................... 8C:3B:AD:6B:BB:E0
+Locally Administered MAC address............... 00:00:00:00:00:00
+MAC Address Type............................... Burned In
+
+IPv6 Management Interface is not Configured.

@@ -1,0 +1,11 @@
+Switch: 1
+
+System Description............................. M4300-24X ProSAFE 20-port 10GBASE-T and 4-port 10G combo, 12.0.13.8, B1.0.0.15
+Machine Model.................................. M4300-24X
+Serial Number.................................. 6C92067P80003
+Burned In MAC Address.......................... 8C:3B:AD:6B:BB:E0
+Software Version............................... 12.0.13.8
+CPLD version................................... 0x6
+Bootcode Version............................... B1.0.0.15
+Current Time................................... Jul 29 18:27:33 2026 ACST(UTC+9:30)
+Current SNTP Sync Status....................... Success

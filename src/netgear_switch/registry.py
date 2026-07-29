@@ -91,6 +91,12 @@ _MODELS: dict[str, SwitchModel] = {
             "m4300-24x",
             "M4300-24X (XSM4324CS)",
             SwitchClass.FULLY_MANAGED,
+            # port_count=28 is a nominal upper bound; the live XSM4324CS reports
+            # only 24 physical ports (1/0/1..24; SNMP/CLI capture 2026-07-29).
+            # Left at 28 because it also sizes the verified HTTP VLAN-membership
+            # bitmap and SNMP/NSDP port bitmaps -- changing it risks regressing
+            # those. CLI get_stats iterates the switch's ACTUAL physical ports
+            # (see cli_read.CliReader.get_stats), so it does not depend on this.
             28,
             0,
             {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},

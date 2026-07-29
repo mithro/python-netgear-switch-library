@@ -1,0 +1,22 @@
+IPv4 Interface Status.......................... Up
+IPv4 Management Interface...................... vlan 5
+IP Address..................................... 10.1.5.20
+Subnet Mask.................................... 255.255.255.0
+Method......................................... DHCP
+Routing Mode................................... Enable
+Default Gateway................................ 10.1.5.1
+
+Source Interface............................... vlan 5
+Burned In MAC Address.......................... 8C:3B:AD:69:1C:38
+Locally Administered MAC address............... 00:00:00:00:00:00
+MAC Address Type............................... Burned In
+
+IPv6 Interface Status/Operational Mode......... Up
+IPv6 Management Interface...................... vlan 5
+IPv6 Prefix is ................................ fe80::8e3b:adff:fe69:1c3b/64
+                                                2404:e80:a137:105::20/64 [DHCP]
+IPv6 Default Gateway...........................
+IPv6 Next Hop Interface........................
+IPv6 Routing Mode.............................. Enabled
+IPv6 Enable Mode............................... Enabled
+Address DHCP Mode.............................. Enabled

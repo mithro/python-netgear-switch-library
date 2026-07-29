@@ -1,0 +1,19 @@
+Temp (C)....................................... 46
+Temperature traps range: 0 to 90 degrees (Celsius)
+
+Temperature Sensors:
+Unit     Sensor  Description       Temp (C)    State           Max_Temp (C)
+----     ------  ----------------  ----------  --------------  --------------
+1        1       MAC               46          Normal          79
+1        2       System            46          Normal          79
+
+Fans:
+Unit Fan Description    Type      Speed         Duty level    State
+---- --- -------------- --------- ------------- ------------- --------------
+1    1   Fan-1          Fixed     -             -             Stop
+1    2   Fan-2          Fixed     -             -             Stop
+
+Power Modules:
+Unit     Power supply   Description        Type          State
+----     ------------   ----------------   ----------    --------------
+1        1              Internal AC-1      Fixed         Operational

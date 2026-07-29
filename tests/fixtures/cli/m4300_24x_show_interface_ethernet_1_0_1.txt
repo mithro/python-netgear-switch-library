@@ -1,0 +1,89 @@
+Total Packets Received (Octets)................ 15294247267585
+Packets Received 64 Octets..................... 1558151971
+Packets Received 65-127 Octets................. 4339849387
+Packets Received 128-255 Octets................ 171499655
+Packets Received 256-511 Octets................ 133189341
+Packets Received 512-1023 Octets............... 2834309467
+Packets Received 1024-1518 Octets.............. 4210589168
+Packets Received > 1518 Octets................. 4503399638
+Packets RX and TX 64 Octets.................... 1727989258
+Packets RX and TX 65-127 Octets................ 9530757245
+Packets RX and TX 128-255 Octets............... 411623879
+Packets RX and TX 256-511 Octets............... 275491289
+Packets RX and TX 512-1023 Octets.............. 8681201353
+Packets RX and TX 1024-1518 Octets............. 7157081484
+Packets RX and TX 1519-2047 Octets............. 0
+Packets RX and TX 2048-4095 Octets............. 0
+Packets RX and TX 4096-9216 Octets............. 0
+
+Total Packets Received Without Errors.......... 17750828413
+Unicast Packets Received....................... 17643540356
+Multicast Packets Received..................... 53895613
+Broadcast Packets Received..................... 53392444
+
+Receive Packets Discarded...................... 0
+
+Total Packets Received with MAC Errors......... 6
+Jabbers Received............................... 0
+Fragments Received............................. 0
+Undersize Received............................. 0
+Alignment Errors............................... 0
+FCS Errors..................................... 6
+Overruns....................................... 0
+
+Total Received Packets Not Forwarded........... 120944
+802.3x Pause Frames Received................... 12782
+Unacceptable Frame Type........................ 108162
+
+Total Packets Transmitted (Octets)............. 11908661422462
+Packets Transmitted 64 Octets.................. 169837287
+Packets Transmitted 65-127 Octets.............. 5190907858
+Packets Transmitted 128-255 Octets............. 240124224
+Packets Transmitted 256-511 Octets............. 142301948
+Packets Transmitted 512-1023 Octets............ 5846891886
+Packets Transmitted 1024-1518 Octets........... 2946492316
+Packets Transmitted > 1518 Octets.............. 2374555375
+Max Frame Size................................. 9216
+Maximum Transmit Unit.......................... 9198
+
+Total Packets Transmitted Successfully......... 16911110894
+Unicast Packets Transmitted.................... 16762689317
+Multicast Packets Transmitted.................. 11119121
+Broadcast Packets Transmitted.................. 137302456
+
+Transmit Packets Discarded..................... 0
+
+Total Transmit Errors.......................... 0
+
+Total Transmit Packets Discarded............... 0
+Single Collision Frames........................ 0
+Multiple Collision Frames...................... 0
+Excessive Collision Frames..................... 0
+
+802.3x Pause Frames Transmitted................ 0
+GVRP PDUs received............................. 0
+GVRP PDUs Transmitted.......................... 0
+GVRP Failed Registrations...................... 0
+GMRP PDUs Received............................. 0
+GMRP PDUs Transmitted.......................... 0
+GMRP Failed Registrations...................... 0
+
+STP BPDUs Transmitted.......................... 957988
+STP BPDUs Received............................. 17619827
+RSTP BPDUs Transmitted......................... 87601
+RSTP BPDUs Received............................ 4264
+MSTP BPDUs Transmitted......................... 0
+MSTP BPDUs Received............................ 0
+
+EAPOL Frames Transmitted....................... 0
+EAPOL Start Frames Received.................... 0
+
+Load Interval.................................. 300
+Received Rate(Mbps)............................ 1.0
+Transmitted Rate(Mbps)......................... 1.0
+Received Error Rate............................ 0
+Transmitted Error Rate......................... 0
+Packets Received Per Second.................... 497
+Packets Transmitted Per Second................. 471
+
+Time Since Counters Last Cleared............... 39 day 3 hr 12 min 53 sec
