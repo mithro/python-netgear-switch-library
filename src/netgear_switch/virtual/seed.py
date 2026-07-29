@@ -23,6 +23,7 @@ each function's docstring for exactly what is captured-real vs illustrative.
 from __future__ import annotations
 
 from .state import (
+    EntitySim,
     LldpSim,
     MacSim,
     MgmtSim,
@@ -1120,10 +1121,17 @@ def seed_gs728tpp() -> VirtualSwitchState:
     the box DiagnosticsUnitList sensors (fan1/2 OK, fan3-5 absent, both PSU rows
     OK, temp unreported) and the static mgmt-IP.
 
-    SNMP vendor OID family for this model is UNVERIFIED-pending-capture (see
-    registry.py), so ``state.sensors`` (the SNMP box-sensor set) is left empty;
-    the HTTP sysInfo sensors live in ``http_sensors`` and are the set the library
-    reads over HTTP for this model."""
+    SNMP is now grounded in a real live walk (10.2.5.10, 2026-07-29 --
+    tmp/gs728tpp_snmp_full.json): this agent implements ZERO Netgear vendor OIDs
+    and serves everything via standard MIBs (registry snmp_vendor_base=None). So
+    ``state.sensors`` (the vendor SNMP box-sensor set) stays empty; instead the
+    fan/PSU sensor INVENTORY is exposed via the standard ENTITY-MIB
+    ``entity_components`` (Main/Redundant PowerSupply + Fan1/Fan2, the real
+    entPhysicalIndex/Class/Name/Descr rows from the capture) -- inventory ONLY,
+    no live value over SNMP. The HTTP sysInfo sensors (with live health status)
+    live in ``http_sensors``; that status is the real HTTP-only difference. PoE
+    per-port mW is likewise a vendor column this agent lacks, so SNMP get_poe
+    reports power_mw=None (vs HTTP's live 0)."""
     up = {2, 5, 12, 23, 24, 26, 28}
     speed100 = {5, 12, 23}
     ports = {
@@ -1175,22 +1183,35 @@ def seed_gs728tpp() -> VirtualSwitchState:
         MacSim(vlan=5, mac_bytes=(0xAC, 0x86, 0x74, 0x07, 0x95, 0x8F), bridge_port=5),
     ]
     _ten64 = "ten64.monarto.mithis.com"
+    # Chassis/port-id are the MAC-address LLDP subtype -> stored as the 6 raw
+    # bytes (like every other seed), so the SNMP face emits proper binary
+    # lldpRemChassisId/lldpRemPortId and the wcd web face decodes them to the
+    # real captured lowercase colon-hex. Values transcribed from the live LLDP
+    # capture (tmp/gs728tpp_ground_truth.json).
     lldp = [
         LldpSim(
-            time_mark=0, local_port=2, rem_idx=1, chassis="2c:cf:67:bb:49:a1",
-            port_id="2c:cf:67:bb:49:a1", port_desc="eth0", sys_name="reterm1",
+            time_mark=0, local_port=2, rem_idx=1,
+            chassis=_mac_hex_to_raw("2c:cf:67:bb:49:a1"),
+            port_id=_mac_hex_to_raw("2c:cf:67:bb:49:a1"),
+            port_desc="eth0", sys_name="reterm1",
         ),
         LldpSim(
-            time_mark=0, local_port=24, rem_idx=2, chassis="00:0a:fa:24:28:d1",
-            port_id="00:0a:fa:24:28:d8", port_desc="eth7", sys_name=_ten64,
+            time_mark=0, local_port=24, rem_idx=2,
+            chassis=_mac_hex_to_raw("00:0a:fa:24:28:d1"),
+            port_id=_mac_hex_to_raw("00:0a:fa:24:28:d8"),
+            port_desc="eth7", sys_name=_ten64,
         ),
         LldpSim(
-            time_mark=0, local_port=26, rem_idx=3, chassis="00:0a:fa:24:28:d1",
-            port_id="00:0a:fa:24:28:d9", port_desc="eth8", sys_name=_ten64,
+            time_mark=0, local_port=26, rem_idx=3,
+            chassis=_mac_hex_to_raw("00:0a:fa:24:28:d1"),
+            port_id=_mac_hex_to_raw("00:0a:fa:24:28:d9"),
+            port_desc="eth8", sys_name=_ten64,
         ),
         LldpSim(
-            time_mark=0, local_port=28, rem_idx=4, chassis="00:0a:fa:24:28:d1",
-            port_id="00:0a:fa:24:28:da", port_desc="eth9", sys_name=_ten64,
+            time_mark=0, local_port=28, rem_idx=4,
+            chassis=_mac_hex_to_raw("00:0a:fa:24:28:d1"),
+            port_id=_mac_hex_to_raw("00:0a:fa:24:28:da"),
+            port_desc="eth9", sys_name=_ten64,
         ),
     ]
     # DiagnosticsUnitList wire fields (tag in ``instance``, code in ``raw``):
@@ -1207,6 +1228,18 @@ def seed_gs728tpp() -> VirtualSwitchState:
         SensorSim(kind="temperature", instance="tempSensorValue", raw="0"),
         SensorSim(kind="temperature", instance="tempSensorStatus", raw="2"),
     ]
+    # ENTITY-MIB entPhysical inventory (real entPhysicalIndex/Class/Name/Descr
+    # rows from the live capture): the two PSUs (class 6=powerSupply) and two
+    # fans (class 7=fan). This is the ONLY place SNMP names these components --
+    # no live value/status exists anywhere in this agent's SNMP.
+    entity_components = [
+        EntitySim(index=67109185, phys_class=6,
+                  name="Main PowerSupply", descr="PowerSupply"),
+        EntitySim(index=67109186, phys_class=6,
+                  name="Redundant PowerSupply", descr="PowerSupply"),
+        EntitySim(index=67109249, phys_class=7, name="Fan1", descr="Fan"),
+        EntitySim(index=67109250, phys_class=7, name="Fan2", descr="Fan"),
+    ]
     return VirtualSwitchState(
         model_key="gs728tpp",
         ports=ports,
@@ -1216,6 +1249,7 @@ def seed_gs728tpp() -> VirtualSwitchState:
         macs=macs,
         lldp=lldp,
         http_sensors=http_sensors,
+        entity_components=entity_components,
         mgmt=MgmtSim(
             address="10.2.5.10",
             netmask="255.255.255.0",
@@ -1228,4 +1262,8 @@ def seed_gs728tpp() -> VirtualSwitchState:
         hostname="sw-netgear-gs728tpp",
         nsdp_mac=b"\xb0\x39\x56\x77\x54\x29",
         sys_descr="Netgear GS728TPP ProSafe Smart Managed Pro Switch",
+        # Real captured sysObjectID (1.3.6.1.4.1.4526.100.4.27): a bare
+        # identifier under 4526.100, NOT a vendor OID subtree the agent serves
+        # -- a walk of 1.3.6.1.4.1.4526 answers noSuchObject on this switch.
+        sys_object_id="1.3.6.1.4.1.4526.100.4.27",
     )

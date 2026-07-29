@@ -107,15 +107,27 @@ class SnmpReader:
         )
 
     def get_poe(self) -> list[PoEStatus]:
-        vendor = oids.vendor_oids(self.model)
+        # Per-port PoE status is the STANDARD RFC3621 pethPsePortTable on every
+        # SNMP model. The per-port delivered-power (mW) is a Netgear VENDOR
+        # column; a model with no vendor subtree (gs728tpp -- serves everything
+        # via standard MIBs) has no such column, so power_mw is honestly None.
         w = self.client.walk
-        return parse.parse_poe(
-            w(oids.PETH_PSE_PORT_TABLE), w(vendor.poe_power_mw)
+        power = (
+            w(oids.vendor_oids(self.model).poe_power_mw)
+            if oids.has_vendor_oids(self.model) else []
         )
+        return parse.parse_poe(w(oids.PETH_PSE_PORT_TABLE), power)
 
     def get_sensors(self) -> list[Sensor]:
-        vendor = oids.vendor_oids(self.model)
         w = self.client.walk
+        if not oids.has_vendor_oids(self.model):
+            # No vendor subtree (gs728tpp): the fan/PSU components live only in
+            # the standard ENTITY-MIB physical inventory, with no live value.
+            return parse.parse_entity_sensors(
+                w(oids.ENT_PHYSICAL_CLASS), w(oids.ENT_PHYSICAL_NAME),
+                w(oids.ENT_PHYSICAL_DESCR),
+            )
+        vendor = oids.vendor_oids(self.model)
         columns = [
             ("fan", "RPM", w(vendor.box_fan)),
             ("power", "W", w(vendor.box_psu_power)),
@@ -124,12 +136,18 @@ class SnmpReader:
         return parse.parse_box_sensors(columns)
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
-        vendor = oids.vendor_oids(self.model)
+        # Address/netmask/gateway/base-MAC are all STANDARD MIBs. Only the
+        # DHCP-vs-static mode is a Netgear VENDOR OID (UNVERIFIED); a model
+        # with no vendor subtree (gs728tpp) has no such OID -> mode UNKNOWN.
         w = self.client.walk
+        dhcp = (
+            w(oids.vendor_oids(self.model).dhcp_mode_unverified)
+            if oids.has_vendor_oids(self.model) else []
+        )
         return parse.parse_mgmt_ip(
             w(oids.IP_ADENT_ADDR), w(oids.IP_ADENT_NETMASK),
             w(oids.IP_ROUTE_DEST), w(oids.IP_ROUTE_NEXTHOP),
-            w(vendor.dhcp_mode_unverified),  # single named UNVERIFIED OID (Task 4)
+            dhcp,
             w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
         )
 
@@ -195,15 +213,25 @@ class AsyncSnmpReader:
         )
 
     async def get_poe(self) -> list[PoEStatus]:
-        vendor = oids.vendor_oids(self.model)
+        # See SnmpReader.get_poe: standard pethPsePortTable; per-port mW is a
+        # vendor column, absent (-> None) on a model with no vendor subtree.
         w = self.client.walk
-        return parse.parse_poe(
-            await w(oids.PETH_PSE_PORT_TABLE), await w(vendor.poe_power_mw)
+        power = (
+            await w(oids.vendor_oids(self.model).poe_power_mw)
+            if oids.has_vendor_oids(self.model) else []
         )
+        return parse.parse_poe(await w(oids.PETH_PSE_PORT_TABLE), power)
 
     async def get_sensors(self) -> list[Sensor]:
-        vendor = oids.vendor_oids(self.model)
         w = self.client.walk
+        if not oids.has_vendor_oids(self.model):
+            # No vendor subtree (gs728tpp): standard ENTITY-MIB inventory only.
+            return parse.parse_entity_sensors(
+                await w(oids.ENT_PHYSICAL_CLASS),
+                await w(oids.ENT_PHYSICAL_NAME),
+                await w(oids.ENT_PHYSICAL_DESCR),
+            )
+        vendor = oids.vendor_oids(self.model)
         columns = [
             ("fan", "RPM", await w(vendor.box_fan)),
             ("power", "W", await w(vendor.box_psu_power)),
@@ -212,12 +240,17 @@ class AsyncSnmpReader:
         return parse.parse_box_sensors(columns)
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
-        vendor = oids.vendor_oids(self.model)
+        # See SnmpReader.get_mgmt_ip: standard MIBs for addr/mask/gw/base-MAC;
+        # the DHCP-mode vendor OID is absent (-> UNKNOWN) with no vendor subtree.
         w = self.client.walk
+        dhcp = (
+            await w(oids.vendor_oids(self.model).dhcp_mode_unverified)
+            if oids.has_vendor_oids(self.model) else []
+        )
         return parse.parse_mgmt_ip(
             await w(oids.IP_ADENT_ADDR), await w(oids.IP_ADENT_NETMASK),
             await w(oids.IP_ROUTE_DEST), await w(oids.IP_ROUTE_NEXTHOP),
-            await w(vendor.dhcp_mode_unverified),  # single named UNVERIFIED OID
+            dhcp,
             await w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
         )
 

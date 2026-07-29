@@ -524,8 +524,9 @@ def test_goahead_lldp() -> None:
     assert set(lldp) == {2, 24, 26, 28}
     assert lldp[2].remote_sys_name == "reterm1"
     assert lldp[2].remote_chassis_id == "2C:CF:67:BB:49:A1"
-    # port-id is kept verbatim (as the XE parser does); only chassis-id is upper
-    assert lldp[2].remote_port_id == "2c:cf:67:bb:49:a1"
+    # chassis AND port MACs are canonicalized upper-case (_canon_lldp_id) so
+    # they equal the SNMP reader's formatting field-for-field.
+    assert lldp[2].remote_port_id == "2C:CF:67:BB:49:A1"
     assert lldp[2].remote_port_desc == "eth0"
 
 
@@ -551,6 +552,16 @@ def test_goahead_mgmt_ip() -> None:
     assert mgmt.gateway == "10.2.5.1"
     assert mgmt.mode is IpMode.UNKNOWN
     assert mgmt.base_mac is None  # MAC is on the SystemInfo page, not here
+
+
+def test_goahead_base_mac_from_systeminfo() -> None:
+    # The switch's base MAC lives on the SystemInfo page (DeviceBasicInfo/
+    # MacAddre), uppercased to match the SNMP/NSDP base_mac formatting so
+    # HTTP get_mgmt_ip reaches full parity with SNMP.
+    mac = parse.parse_goahead_base_mac(
+        _read("gs728tpp_device_info_and_sensors.xml")
+    )
+    assert mac == "B0:39:56:77:54:29"
 
 
 def test_goahead_rejects_wrong_page_and_dtd() -> None:

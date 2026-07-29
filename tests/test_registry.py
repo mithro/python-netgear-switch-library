@@ -5,9 +5,9 @@ from netgear_switch.registry import MODELS, Backend, SwitchClass, get_model
 
 _VERIFIED_KEYS = (
     "m4300-24x", "m4300-16x", "gsm7252ps", "gsm7228ps", "gs110emx", "gs305ep",
-    "gs105pe",
+    "gs105pe", "gs728tpp",
 )
-_UNVERIFIED_KEYS = ("m7300", "xs748t", "gs728tpp")
+_UNVERIFIED_KEYS = ("m7300", "xs748t")
 
 
 def test_known_models_present():
@@ -73,18 +73,18 @@ def test_xs748t_registered_smart_managed_pro_snmp_only():
 
 
 def test_gs728tpp_registered_smart_managed_pro_snmp_http():
-    # HTTP is now REGISTERED: the GoAhead XML_API login + wcd read dialect is
-    # implemented (see registry.py's comment and protocols/http/endpoints.py).
-    # verified stays False -- only the SNMP vendor OID family is still an
-    # UNVERIFIED-pending-capture guess.
+    # SNMP OID family RESOLVED by a real live capture (10.2.5.10): this agent
+    # implements ZERO Netgear vendor OIDs and serves everything via standard
+    # MIBs, so snmp_vendor_base is None (NOT the old _SMP guess). verified=True:
+    # SNMP<->HTTP parity is cross-verified (see test_cross_backend_equivalence).
     m = get_model("gs728tpp")
     assert m.switch_class is SwitchClass.SMART_MANAGED_PRO
     assert m.backends == frozenset({Backend.SNMP, Backend.HTTP})
     assert Backend.HTTP in m.backends
-    assert m.snmp_vendor_base == "1.3.6.1.4.1.4526.11"
+    assert m.snmp_vendor_base is None
     assert m.port_count == 28
     assert m.poe_port_count == 24
-    assert m.verified is False
+    assert m.verified is True
 
 
 def test_gs105pe_registered_plus_nsdp_http_verified():

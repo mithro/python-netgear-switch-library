@@ -51,8 +51,10 @@ class SwitchModel:
     # best-effort guess, and vendor-specific reads (get_sensors, vendor PoE
     # power, etc.) are UNVERIFIED-pending-capture even though the
     # model-agnostic standard-MIB/CGI reads should still work. See the
-    # UNVERIFIED-pending-capture entries below (m7300, xs748t, gs728tpp) for
-    # the honesty rationale; do NOT flip this to True without a real capture.
+    # UNVERIFIED-pending-capture entries below (m7300, xs748t) for the honesty
+    # rationale; do NOT flip this to True without a real capture. (gs728tpp was
+    # one of these until a real SNMP capture resolved its OID family -- see its
+    # entry.)
     verified: bool = True
 
     @property
@@ -154,17 +156,18 @@ _MODELS: dict[str, SwitchModel] = {
             None,
         ),
         # --- UNVERIFIED-pending-capture below: no device capture exists for
-        # any of these three models (gdoc2netcfg fleet models with no
-        # prior-art fixture). Registered from spec sheets/product briefs only
-        # so gdoc2netcfg can construct a SyncSwitch for them; see each
-        # entry's comment for what specifically is a guess. The
-        # model-agnostic standard-MIB SNMP reads (ports/vlans/lldp/PoE
-        # admin/stats/mgmt-IP) should work regardless of the vendor OID
-        # family guess below, but get_sensors() and vendor PoE-power
-        # readings are UNVERIFIED until a real capture confirms the
-        # 4526.10 vs 4526.11 subtree. Do NOT treat any of these three as a
-        # source of confirmed behaviour -- confirm via hardware
-        # verification before relying on anything beyond the standard MIBs.
+        # these two models (gdoc2netcfg fleet models with no prior-art
+        # fixture). Registered from spec sheets/product briefs only so
+        # gdoc2netcfg can construct a SyncSwitch for them; see each entry's
+        # comment for what specifically is a guess. The model-agnostic
+        # standard-MIB SNMP reads (ports/vlans/lldp/PoE admin/stats/mgmt-IP)
+        # should work regardless of the vendor OID family guess below, but
+        # get_sensors() and vendor PoE-power readings are UNVERIFIED until a
+        # real capture confirms the 4526.10 vs 4526.11 subtree. Do NOT treat
+        # either of these as a source of confirmed behaviour -- confirm via
+        # hardware verification before relying on anything beyond the standard
+        # MIBs. (gs728tpp, once in this group, is now verified: a real SNMP
+        # capture resolved its OID family to "none, standard MIBs only".)
         _model(
             "m7300",
             # M7300-24XF (24x SFP+, 0 PoE) picked as the assumed/documented
@@ -225,17 +228,30 @@ _MODELS: dict[str, SwitchModel] = {
             # the switch's ground truth, not vs SNMP, since this model's SNMP
             # OID family is itself UNVERIFIED-pending-capture.)
             #
-            # The SNMP vendor OID family remains UNVERIFIED-pending-capture, so
-            # the model-level verified=False stays; get_stats over HTTP is
-            # honestly UnsupportedCapabilityError (per-port stats are SNMP-only
-            # on this UI).
+            # SNMP now RESOLVED by a real live capture (10.2.5.10, 2026-07-29 --
+            # tmp/gs728tpp_snmp_full.json): this agent implements ZERO Netgear
+            # vendor OIDs -- a walk of 1.3.6.1.4.1.4526 answers noSuchObject
+            # (sysObjectID 4526.100.4.27 is just an identifier value). It serves
+            # EVERYTHING via standard MIBs, so snmp_vendor_base=None: per-port
+            # PoE via RFC3621 pethPsePortTable, mgmt-IP via ipAddrTable, and the
+            # fan/PSU sensor INVENTORY via ENTITY-MIB entPhysical (there is NO
+            # live sensor value/status anywhere in SNMP on this model). The SNMP
+            # reader's standard-MIB code paths (snmp_read.get_poe/get_sensors/
+            # get_mgmt_ip guard on oids.has_vendor_oids) cover all three.
+            # verified=True: SNMP<->HTTP parity is cross-verified for ports/
+            # vlans/pvids/macs/lldp/poe(admin+detect)/mgmt-IP (see
+            # tests/test_cross_backend_equivalence.py). Two honest per-backend
+            # differences remain (not bugs): SNMP has no per-port PoE mW column
+            # (power_mw None vs HTTP's live 0), and SNMP sensors are inventory-
+            # only (no live health status the HTTP DiagnosticsUnitList reports).
+            # get_stats over HTTP is honestly UnsupportedCapabilityError
+            # (per-port stats are SNMP-only on this UI).
             "GS728TPP",
             SwitchClass.SMART_MANAGED_PRO,
             28,
             24,
             {Backend.SNMP, Backend.HTTP},
-            _SMP,
-            verified=False,
+            None,
         ),
         _model(
             "gs105pe",

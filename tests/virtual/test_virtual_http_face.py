@@ -426,7 +426,11 @@ def test_goahead_face_serves_every_read_op_from_state(goahead_face) -> None:
                 state.mgmt.address, state.mgmt.netmask, state.mgmt.gateway,
             )
             assert mgmt.mode is IpMode.UNKNOWN
-            assert mgmt.base_mac is None
+            # base_mac now read from the SystemInfo page (DeviceBasicInfo/
+            # MacAddre), uppercased -> parity with the SNMP base MAC.
+            assert mgmt.base_mac == ":".join(
+                f"{b:02X}" for b in state.nsdp_mac
+            )
         finally:
             client.close()
 
