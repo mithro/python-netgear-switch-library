@@ -112,14 +112,29 @@ def render_macs(state: VirtualSwitchState) -> str:
     return _wcd(f'<ForwardingTable type="section">{rows}</ForwardingTable>')
 
 
+def _lldp_id_text(raw: str) -> str:
+    """Render an LLDP chassis/port-id for the wcd page.
+
+    A MAC-address subtype id is stored in the shared ``LldpSim`` field as the
+    6 raw latin-1 bytes (so the SNMP face emits the proper binary
+    lldpRemChassisId/lldpRemPortId that ``parse._format_chassis_id`` decodes) --
+    the real GS728TPP web page renders that as LOWERCASE colon-hex (see the
+    captured ``deviceID``/``advertisedPortID`` values), so decode it back to
+    that exact text here. A non-MAC id (a plain interface-name string) is
+    rendered unchanged."""
+    if len(raw) == 6:
+        return ":".join(f"{ord(c):02x}" for c in raw)
+    return raw
+
+
 def render_lldp(state: VirtualSwitchState) -> str:
     rows = "".join(
         f"<NeighborEntry><interfaceID>{n.local_port}</interfaceID>"
         f"<interfaceType>1</interfaceType><interfaceName>g{n.local_port}"
         "</interfaceName><deviceIDSubtype>4</deviceIDSubtype>"
-        f"<deviceID>{escape(n.chassis)}</deviceID>"
+        f"<deviceID>{escape(_lldp_id_text(n.chassis))}</deviceID>"
         "<advertisedPortIDSubtype>3</advertisedPortIDSubtype>"
-        f"<advertisedPortID>{escape(n.port_id)}</advertisedPortID>"
+        f"<advertisedPortID>{escape(_lldp_id_text(n.port_id))}</advertisedPortID>"
         f"<portDescription>{escape(n.port_desc)}</portDescription>"
         f"<systemName>{escape(n.sys_name)}</systemName></NeighborEntry>"
         for n in state.lldp

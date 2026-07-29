@@ -97,6 +97,22 @@ class SensorSim:
 
 
 @dataclass
+class EntitySim:
+    """One ENTITY-MIB entPhysicalTable component (index + class/name/descr).
+
+    Used only by models whose SNMP agent exposes the fan/PSU sensor INVENTORY
+    via the standard ENTITY-MIB rather than a Netgear vendor sensor column
+    (verified: the GS728TPP). ``phys_class`` is the entPhysicalClass int enum
+    (6=powerSupply, 7=fan). No live value/status exists on the wire -- this is
+    inventory only (see protocols/snmp/parse.parse_entity_sensors)."""
+
+    index: int
+    phys_class: int
+    name: str
+    descr: str
+
+
+@dataclass
 class MacSim:
     """One learned MAC/FDB entry: VLAN, 6-byte MAC, bridge-port index."""
 
@@ -171,6 +187,11 @@ class VirtualSwitchState:
     # whose web renderer reads ``sensors`` directly); a renderer that wants the
     # web-specific set uses ``sysinfo_sensors`` below.
     http_sensors: list[SensorSim] | None = None
+    # ENTITY-MIB entPhysical inventory (entPhysicalClass/Name/Descr), for a
+    # model whose SNMP agent exposes fan/PSU sensors ONLY as this standard
+    # physical inventory and implements NO vendor sensor column (the GS728TPP).
+    # Empty on every model that projects vendor box sensors via ``sensors``.
+    entity_components: list[EntitySim] = field(default_factory=list)
     macs: list[MacSim] = field(default_factory=list)
     bridge_ports: dict[int, int] = field(default_factory=dict)
     lldp: list[LldpSim] = field(default_factory=list)
@@ -254,7 +275,11 @@ class VirtualSwitchState:
         from ..protocols.snmp.write import vlan_bitmap_width
 
         model = get_model(self.model_key)
-        v = oids.vendor_oids(model)
+        # A model with no vendor subtree (gs728tpp) serves everything via
+        # standard MIBs -- vendor_oids() would raise, so it stays None and the
+        # vendor-column projections below are skipped, matching a real agent
+        # that answers noSuchObject for the whole 4526 tree.
+        v = oids.vendor_oids(model) if oids.has_vendor_oids(model) else None
         vlan_width = vlan_bitmap_width(model)
         m: dict[str, tuple[str, str]] = {}
 
@@ -280,7 +305,11 @@ class VirtualSwitchState:
         m[oids.SYS_DESCR] = (
             "OCTETSTR", self.sys_descr or f"Netgear {model.display_name}"
         )
-        m[oids.SYS_OBJECT_ID] = ("OID", self.sys_object_id or f"{v.base}.1")
+        # sysObjectID: the seeded value, else a plausible placeholder under the
+        # model's vendor subtree (or the generic mgmt.mib-2 root when the model
+        # has no vendor subtree at all -- see the field docstring).
+        default_object_id = f"{v.base}.1" if v is not None else "1.3.6.1.2.1"
+        m[oids.SYS_OBJECT_ID] = ("OID", self.sys_object_id or default_object_id)
 
         for port, sim in self.ports.items():
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")
@@ -319,15 +348,30 @@ class VirtualSwitchState:
                 "INTEGER", "1" if psim.admin else "2")
             m[f"{oids.PETH_PSE_PORT_TABLE}.6.1.{port}"] = (
                 "INTEGER", str(psim.detect))
-            m[f"{v.poe_power_mw}.1.{port}"] = ("Gauge32", str(psim.power_mw))
+            # Per-port delivered-power (mW) is a Netgear VENDOR column; a model
+            # with no vendor subtree (gs728tpp) exposes no such column at all.
+            if v is not None:
+                m[f"{v.poe_power_mw}.1.{port}"] = ("Gauge32", str(psim.power_mw))
 
-        for ssim in self.sensors:
-            base = {
-                "fan": v.box_fan,
-                "power": v.box_psu_power,
-                "temperature": v.box_temp,
-            }[ssim.kind]
-            m[f"{base}.{ssim.instance}"] = ("OCTETSTR", ssim.raw)
+        # Vendor box sensors (fan RPM / PSU watts / temperature) -- only for a
+        # model with a vendor subtree. Empty ``sensors`` on a no-vendor model.
+        if v is not None:
+            for ssim in self.sensors:
+                base = {
+                    "fan": v.box_fan,
+                    "power": v.box_psu_power,
+                    "temperature": v.box_temp,
+                }[ssim.kind]
+                m[f"{base}.{ssim.instance}"] = ("OCTETSTR", ssim.raw)
+
+        # ENTITY-MIB entPhysical inventory: the standard-MIB sensor components
+        # for a no-vendor model (gs728tpp exposes fan/PSU ONLY here, with no
+        # live value). entPhysicalClass is the int enum; Name/Descr are text.
+        for ent in self.entity_components:
+            m[f"{oids.ENT_PHYSICAL_CLASS}.{ent.index}"] = (
+                "INTEGER", str(ent.phys_class))
+            m[f"{oids.ENT_PHYSICAL_NAME}.{ent.index}"] = ("OCTETSTR", ent.name)
+            m[f"{oids.ENT_PHYSICAL_DESCR}.{ent.index}"] = ("OCTETSTR", ent.descr)
 
         # MAC/FDB: dot1qTpFdbPort values keyed by <vlan>.<6 MAC bytes>, plus
         # the dot1dBasePortIfIndex bridge-port -> ifIndex rows the parser
@@ -355,9 +399,11 @@ class VirtualSwitchState:
         m[f"{oids.IP_ROUTE_DEST}.0.0.0.0"] = ("IPADDR", "0.0.0.0")
         m[f"{oids.IP_ROUTE_NEXTHOP}.0.0.0.0"] = ("IPADDR", self.mgmt.gateway)
         # Single named UNVERIFIED DHCP-mode OID (Task 4) — never a bare
-        # ".99.1" literal.
-        m[f"{v.dhcp_mode_unverified}.0"] = (
-            "INTEGER", "2" if self.mgmt.mode == "static" else "1")
+        # ".99.1" literal. Absent on a no-vendor model (gs728tpp) -> reader
+        # returns IpMode.UNKNOWN, matching that model's HTTP mgmt-IP read.
+        if v is not None:
+            m[f"{v.dhcp_mode_unverified}.0"] = (
+                "INTEGER", "2" if self.mgmt.mode == "static" else "1")
 
         return m
 
@@ -401,7 +447,8 @@ class VirtualSwitchState:
         from ..protocols.snmp import oids
         from ..registry import get_model
 
-        v = oids.vendor_oids(get_model(self.model_key))
+        model = get_model(self.model_key)
+        v = oids.vendor_oids(model) if oids.has_vendor_oids(model) else None
 
         def _tail(base: str) -> int | None:
             prefix = base + "."
@@ -475,23 +522,24 @@ class VirtualSwitchState:
                 self.vlans[vid] = VlanSim(name=name)
             return
 
-        # UNVERIFIED mgmt-IP write OIDs -> MgmtSim (read projection follows).
-        if oid == v.mgmt_write_addr_unverified:
-            self.mgmt.address = str(value)
-            return
-        if oid == v.mgmt_write_netmask_unverified:
-            self.mgmt.netmask = str(value)
-            return
-        if oid == v.mgmt_write_gateway_unverified:
-            self.mgmt.gateway = str(value)
-            return
-
-        # UNVERIFIED dhcp-mode write OID (same scalar the read projection
-        # advertises, mirroring the mgmt-write precedent above): 2=static,
-        # anything else=dhcp, matching oid_map()'s own encoding exactly.
-        if oid == f"{v.dhcp_mode_unverified}.0":
-            self.mgmt.mode = "static" if int(value) == 2 else "dhcp"
-            return
+        # UNVERIFIED mgmt-IP + dhcp-mode write OIDs live under the vendor
+        # subtree, so they only exist for a model that HAS one. A no-vendor
+        # model (gs728tpp) never advertises or accepts them (its SNMP mgmt-IP
+        # write is honestly UnsupportedCapabilityError in snmp_write).
+        if v is not None:
+            if oid == v.mgmt_write_addr_unverified:
+                self.mgmt.address = str(value)
+                return
+            if oid == v.mgmt_write_netmask_unverified:
+                self.mgmt.netmask = str(value)
+                return
+            if oid == v.mgmt_write_gateway_unverified:
+                self.mgmt.gateway = str(value)
+                return
+            # 2=static, anything else=dhcp, matching oid_map()'s encoding.
+            if oid == f"{v.dhcp_mode_unverified}.0":
+                self.mgmt.mode = "static" if int(value) == 2 else "dhcp"
+                return
 
         # Unhandled writable OID: deliberate no-op (verify-after-write catches it).
 
@@ -663,7 +711,8 @@ class VirtualSwitchState:
         from ..protocols.snmp import oids
         from ..registry import get_model
 
-        v = oids.vendor_oids(get_model(self.model_key))
+        model = get_model(self.model_key)
+        v = oids.vendor_oids(model) if oids.has_vendor_oids(model) else None
 
         def _is_col(base: str) -> bool:
             prefix = base + "."
@@ -684,6 +733,10 @@ class VirtualSwitchState:
             return True
         if _is_col(oids.DOT1Q_VLAN_STATIC_NAME):
             return True
+        # The vendor-subtree mgmt-IP/dhcp-mode write OIDs exist only for a
+        # model with a vendor subtree; a no-vendor model has none of them.
+        if v is None:
+            return False
         if oid in (
             v.mgmt_write_addr_unverified,
             v.mgmt_write_netmask_unverified,
