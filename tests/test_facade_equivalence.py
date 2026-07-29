@@ -24,11 +24,13 @@ def test_facades_equivalent_gsm7252ps(virtual_gsm7252ps: VirtualSwitch) -> None:
 def test_facades_equivalent_m4300_24x_no_poe(
     virtual_m4300_24x: VirtualSwitch,
 ) -> None:
-    """m4300-24x (0 PoE ports, verified real capture poe=[]): every OTHER
-    read op still round-trips identically sync vs async through a real
-    virtual-mock SNMP agent, and get_poe() honestly degrades to [] on BOTH
-    transports -- this model was previously covered only by parse.py-level
-    tests (tests/virtual/test_m4300_seeds.py) that never touched
+    """m4300-24x (0 PoE ports): every OTHER read op still round-trips
+    identically sync vs async through a real virtual-mock SNMP agent, and
+    get_poe() honestly RAISES UnsupportedCapabilityError on BOTH transports --
+    consistent with the CLI/HTTP backends, never a silent [] (the SNMP reader
+    now guards on poe_port_count == 0 before walking). This model was
+    previously covered only by parse.py-level tests
+    (tests/virtual/test_m4300_seeds.py) that never touched
     VirtualSnmpFace/SnmpReader/AsyncSnmpReader/SyncSwitch/AsyncSwitch at all."""
     assert_m4300_facades_equivalent(virtual_m4300_24x, M4300_24X_PINS)
 
@@ -46,14 +48,13 @@ def test_facades_equivalent_m4300_16x_with_poe(
 def test_facade_serves_gsm7228ps_snmp_reads(
     virtual_gsm7228ps: VirtualSwitch,
 ) -> None:
-    """Gap C: gsm7228ps is registered ``verified=True`` (SNMP+HTTP) in
-    registry.py, yet had NO virtual seed (a blank state) and no SNMP wire
-    test at all -- inconsistent with the honest ``verified=False`` blank
-    treatment of m7300/xs748t/gs728tpp (those are blank BECAUSE they're
-    unverified; gsm7228ps was blank despite claiming verified=True). Prove
-    the new ``seed_gsm7228ps()`` (see its own docstring: illustrative/
-    structural -- no real capture exists for this model) at least serves
-    every SNMP read op non-vacuously, sync and async alike."""
+    """gsm7228ps (SNMP+HTTP) is now honestly ``verified=False``
+    (UNVERIFIED-pending-capture: no real capture exists and its _SMP vendor
+    family is a spec-guess -- same honesty convention as m7300/xs748t). It
+    still carries an illustrative/structural ``seed_gsm7228ps()`` (see its own
+    docstring -- nothing here is a claim about real hardware) so the SNMP read
+    path stays exercised: prove it serves every SNMP read op non-vacuously,
+    sync and async alike."""
     sync, aio = facades_for(virtual_gsm7228ps)
 
     ports = sync.get_ports()

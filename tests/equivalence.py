@@ -158,10 +158,11 @@ M4300_16X_PINS = M4300Pins(
 
 def assert_m4300_facades_equivalent(sw: VirtualSwitch, pins: M4300Pins) -> None:
     """Run every applicable read op through both facades for an M4300
-    variant; assert non-empty (except PoE on the non-PoE 24X, which is
-    honestly ``[]``), content-pinned to the real capture-grounded seed (see
-    ``M4300Pins``), and byte-for-byte identical between sync (net-snmp CLI)
-    and async (pysnmp).
+    variant; assert non-empty (except PoE on the non-PoE 24X, where get_poe
+    honestly RAISES UnsupportedCapabilityError on BOTH facades -- consistent
+    with CLI/HTTP, not a silent ``[]``), content-pinned to the real
+    capture-grounded seed (see ``M4300Pins``), and byte-for-byte identical
+    between sync (net-snmp CLI) and async (pysnmp).
 
     Deliberately does NOT assert ifAlias (``description``) presence/absence
     the way ``assert_facades_equivalent`` does for gsm7252ps: m4300-16x's
@@ -176,7 +177,6 @@ def assert_m4300_facades_equivalent(sw: VirtualSwitch, pins: M4300Pins) -> None:
     pvids = sync.get_pvids()
     lldp = sync.get_lldp()
     macs = sync.get_macs()
-    poe = sync.get_poe()
     sensors = sync.get_sensors()
     mgmt = sync.get_mgmt_ip()
 
@@ -190,8 +190,16 @@ def assert_m4300_facades_equivalent(sw: VirtualSwitch, pins: M4300Pins) -> None:
     assert sensors, "sensors must be non-empty"
     assert mgmt.address, "mgmt-ip must be populated"
     if pins.poe_port is None:
-        assert poe == [], "this model has no PoE (verified real capture poe=[])"
+        # PoE parity: a 0-PSE model (m4300-24x) must raise
+        # UnsupportedCapabilityError from get_poe on BOTH facades -- NOT return
+        # [] on one path while another raises. (SnmpReader.get_poe now guards on
+        # poe_port_count == 0 exactly like CliReader/HttpReader.)
+        with pytest.raises(UnsupportedCapabilityError):
+            sync.get_poe()
+        with pytest.raises(UnsupportedCapabilityError):
+            asyncio.run(aio.get_poe())
     else:
+        poe = sync.get_poe()
         assert any(p.power_mw for p in poe), "poe must show delivered power"
 
     # Content pins: prove equivalence is over real, capture-grounded data.
@@ -224,7 +232,10 @@ def assert_m4300_facades_equivalent(sw: VirtualSwitch, pins: M4300Pins) -> None:
     assert pvids == asyncio.run(aio.get_pvids())
     assert lldp == asyncio.run(aio.get_lldp())
     assert macs == asyncio.run(aio.get_macs())
-    assert poe == asyncio.run(aio.get_poe())
+    if pins.poe_port is not None:
+        # (The 0-PSE case asserted both facades raise, above -- nothing to
+        # compare here.)
+        assert poe == asyncio.run(aio.get_poe())
     assert sensors == asyncio.run(aio.get_sensors())
     aio_mgmt = asyncio.run(aio.get_mgmt_ip())
     assert mgmt == aio_mgmt
@@ -261,12 +272,23 @@ def facades_for(sw: VirtualSwitch) -> tuple[SyncSwitch, AsyncSwitch]:
     if Backend.SNMP in model.backends:
         sync_client = NetsnmpCliClient(f"{sw.host}:{sw.port}", sw.community)
         aio_client = PysnmpClient(sw.host, sw.community, port=sw.port)
+        # http_password is supplied so the facade can CONSTRUCT its HTTP and CLI
+        # readers for the per-op backend fallback (both back ends resolve their
+        # password from http_password). SNMP is authoritative and serves every
+        # op these models support, so the fallback is exercised only when SNMP
+        # itself raises UnsupportedCapabilityError -- e.g. m4300-24x get_poe (0
+        # PSE ports): SNMP/HTTP/CLI must ALL then report the op unsupported, and
+        # the facade re-raises that UnsupportedCapabilityError consistently
+        # rather than a CredentialError. The SSH transport is built lazily (no
+        # connection), and CliReader.get_poe's poe_port_count==0 guard short-
+        # circuits before any session use, so no real network I/O occurs.
         sync = SyncSwitch(
             model,
             sw.host,
             snmp_community=sw.community,
             snmp_client=sync_client,
             snmp_write_client=sync_client,
+            http_password="unused-mock-password",
         )
         aio = AsyncSwitch(
             model,
@@ -274,6 +296,7 @@ def facades_for(sw: VirtualSwitch) -> tuple[SyncSwitch, AsyncSwitch]:
             snmp_community=sw.community,
             snmp_client=aio_client,
             snmp_write_client=aio_client,
+            http_password="unused-mock-password",
         )
         return sync, aio
     # NSDP (Plus) backend.

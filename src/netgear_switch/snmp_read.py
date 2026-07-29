@@ -107,6 +107,15 @@ class SnmpReader:
         )
 
     def get_poe(self) -> list[PoEStatus]:
+        # A model with zero PSE ports (m4300-24x) has no PoE at all: raise
+        # UnsupportedCapabilityError BEFORE walking, mirroring CliReader.get_poe
+        # and HttpReader.get_poe, so PoE is reported unsupported CONSISTENTLY
+        # across every backend rather than SNMP silently returning [] from an
+        # empty pethPsePortTable while CLI/HTTP raise.
+        if self.model.poe_port_count == 0:
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} has no PoE (no PSE ports)"
+            )
         # Per-port PoE status is the STANDARD RFC3621 pethPsePortTable on every
         # SNMP model. The per-port delivered-power (mW) is a Netgear VENDOR
         # column; a model with no vendor subtree (gs728tpp -- serves everything
@@ -133,6 +142,17 @@ class SnmpReader:
             ("power", "W", w(vendor.box_psu_power)),
             ("temperature", "C", w(vendor.box_temp)),
         ]
+        if not any(rows for _kind, _unit, rows in columns):
+            # The model CLAIMS a vendor sensor subtree (snmp_vendor_base set) but
+            # every vendor sensor column walked EMPTY (agent answered
+            # noSuchObject). Returning [] here would be the exact silent-empty
+            # the parity contract forbids -- and the mechanism that hid the
+            # gs728tpp vendor-OID mismatch. Raise honestly instead.
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} declares vendor sensor OIDs "
+                f"({self.model.snmp_vendor_base}) but the vendor fan/PSU/"
+                "temperature walk returned nothing"
+            )
         return parse.parse_box_sensors(columns)
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
@@ -213,8 +233,13 @@ class AsyncSnmpReader:
         )
 
     async def get_poe(self) -> list[PoEStatus]:
-        # See SnmpReader.get_poe: standard pethPsePortTable; per-port mW is a
-        # vendor column, absent (-> None) on a model with no vendor subtree.
+        # See SnmpReader.get_poe: zero-PSE models raise (consistent with CLI/
+        # HTTP) BEFORE walking; standard pethPsePortTable otherwise; per-port mW
+        # is a vendor column, absent (-> None) on a model with no vendor subtree.
+        if self.model.poe_port_count == 0:
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} has no PoE (no PSE ports)"
+            )
         w = self.client.walk
         power = (
             await w(oids.vendor_oids(self.model).poe_power_mw)
@@ -237,6 +262,15 @@ class AsyncSnmpReader:
             ("power", "W", await w(vendor.box_psu_power)),
             ("temperature", "C", await w(vendor.box_temp)),
         ]
+        if not any(rows for _kind, _unit, rows in columns):
+            # See SnmpReader.get_sensors: a claimed vendor sensor subtree that
+            # walks empty must raise, not silently return [] (the gs728tpp bug
+            # class).
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} declares vendor sensor OIDs "
+                f"({self.model.snmp_vendor_base}) but the vendor fan/PSU/"
+                "temperature walk returned nothing"
+            )
         return parse.parse_box_sensors(columns)
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:

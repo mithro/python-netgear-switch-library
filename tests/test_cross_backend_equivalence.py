@@ -22,6 +22,7 @@ import math
 import pytest
 
 from http_specs import reads_verified
+from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.http_read import HttpReader
 from netgear_switch.nsdp_read import NsdpReader
 from netgear_switch.protocols.http.endpoints import http_spec
@@ -72,7 +73,12 @@ def _stats_pairs(stats: object) -> dict[int, tuple[int | None, int | None]]:
 def test_http_and_nsdp_reads_agree(model_key: str) -> None:
     """Every model reachable over BOTH NSDP and HTTP must report the same data
     through both. gs105pe is included because its HTTP face once silently
-    reported every port down while the seed had two ports up."""
+    reported every port down while the seed had two ports up.
+
+    (gs305ep is NOT parametrized here because two of these ops are genuine
+    per-backend differences on that model -- HTTP has no mgmt-IP page and NSDP
+    has no PoE op -- so it gets its own test,
+    ``test_gs305ep_http_and_nsdp_reads_agree``, that pins those differences.)"""
     model = get_model(model_key)
     sw = VirtualSwitch(model=model_key)
     sw.start()
@@ -157,6 +163,126 @@ def test_m4300_http_and_snmp_reads_agree() -> None:
             }
             assert http_temps, "HTTP reported no temperature sensors"
             assert {v for _n, v in http_temps} <= snmp_temps
+        finally:
+            client.close()
+    finally:
+        sw.stop()
+
+
+def test_gs305ep_http_and_nsdp_reads_agree() -> None:
+    """gs305ep (a {NSDP, HTTP} PoE switch) cross-verified with STRICT field
+    equality on every op BOTH backends expose -- ports/PVIDs/VLANs/stats -- and
+    TWO genuine per-backend differences pinned EXPLICITLY (not silently
+    tolerated), which is exactly why gs305ep is not in the shared parametrized
+    NSDP<->HTTP test:
+
+    1. PoE is HTTP-only: the web UI serves per-port PoE status, but NSDP has NO
+       PoE read op (NsdpReader.get_poe raises). Both sides pinned.
+    2. mgmt-IP is NSDP-only: gs305ep's web UI exposes no system-info/mgmt-IP
+       page (sysinfo_path is None), so HttpReader.get_mgmt_ip raises, while NSDP
+       reports it. Both sides pinned.
+    """
+    model = get_model("gs305ep")
+    sw = VirtualSwitch(model="gs305ep")
+    sw.start()
+    try:
+        client = HttpClient(
+            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
+        )
+        client.login()
+        http = HttpReader(client, model)
+        nsdp = NsdpReader(_StateNsdpClient(sw.state), model)
+        try:
+            # Shared ops: STRICT equality (fields both protocols expose).
+            assert _port_pairs(http.get_ports()) == _port_pairs(nsdp.get_ports())
+            assert dict(http.get_pvids()) == dict(nsdp.get_pvids())
+            assert _vlan_sets(http.get_vlans()) == _vlan_sets(nsdp.get_vlans())
+            assert _stats_pairs(http.get_stats()) == _stats_pairs(nsdp.get_stats())
+            assert http.get_ports()
+            assert http.get_vlans()
+
+            # Difference 1 -- PoE is HTTP-only. HTTP returns real rows; NSDP
+            # RAISES (never a silent []).
+            http_poe = http.get_poe()
+            assert http_poe, "HTTP must serve real PoE rows for gs305ep"
+            assert any(p.admin_enabled for p in http_poe)
+            with pytest.raises(UnsupportedCapabilityError):
+                nsdp.get_poe()
+
+            # Difference 2 -- mgmt-IP is NSDP-only. NSDP returns it; HTTP RAISES
+            # (this UI has no mgmt-IP page -- never a fabricated value).
+            assert nsdp.get_mgmt_ip().address
+            with pytest.raises(UnsupportedCapabilityError):
+                http.get_mgmt_ip()
+        finally:
+            client.close()
+    finally:
+        sw.stop()
+
+
+def test_m4300_16x_http_and_snmp_reads_agree() -> None:
+    """The M4300-16X is reachable over BOTH SNMP and HTTP -- mirror of
+    ``test_m4300_http_and_snmp_reads_agree`` (24X) for the 16X SKU, which had
+    NO cross-backend test. Same protocol-common ground: this web UI reports
+    FRAME counts (never octets) and its VLAN page cannot distinguish tagged
+    from untagged, so only VLAN IDs are compared.
+
+    ONE genuine per-backend difference is pinned explicitly (not silently
+    tolerated): the 16X HTTP spec is inherited verbatim from the 24X, which has
+    NO PoE pages (``poe_status_path=None``), so HTTP get_poe RAISES here --
+    while the 16X genuinely HAS 16 PSE ports and SNMP get_poe returns them. PoE
+    over HTTP on this SKU is UNVERIFIED-pending a real 16X web capture.
+    """
+    from netgear_switch.snmp_read import SnmpReader
+    from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+
+    model = get_model("m4300-16x")
+    sw = VirtualSwitch(model="m4300-16x")
+    sw.start()
+    try:
+        client = HttpClient(
+            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
+        )
+        client.login()
+        http = HttpReader(client, model)
+        snmp = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
+        try:
+            http_ports = _port_pairs(http.get_ports())
+            snmp_ports = _port_pairs(snmp.get_ports())
+            common = set(http_ports) & set(snmp_ports)
+            assert common, "no overlapping ports to compare"
+            for port in sorted(common):
+                assert http_ports[port] == snmp_ports[port], f"port {port} differs"
+
+            http_pvids, snmp_pvids = dict(http.get_pvids()), dict(snmp.get_pvids())
+            shared = set(http_pvids) & set(snmp_pvids)
+            assert shared
+            for port in sorted(shared):
+                assert http_pvids[port] == snmp_pvids[port], f"pvid {port} differs"
+
+            assert {v.vlan_id for v in http.get_vlans()} == {
+                v.vlan_id for v in snmp.get_vlans()
+            }
+            assert http.get_mgmt_ip().base_mac == snmp.get_mgmt_ip().base_mac
+
+            # Sensors: like the 24X, the HTTP page exposes temperatures; compare
+            # the temperature readings both backends can represent.
+            http_temps = {
+                (s.name, s.value) for s in http.get_sensors()
+                if s.kind == "temperature"
+            }
+            snmp_temps = {
+                s.value for s in snmp.get_sensors() if s.kind == "temperature"
+            }
+            assert http_temps, "HTTP reported no temperature sensors"
+            assert {v for _n, v in http_temps} <= snmp_temps
+
+            # PoE: the pinned per-backend difference. SNMP has real PoE (16 PSE
+            # ports); HTTP RAISES because the inherited 24X spec has no PoE page.
+            snmp_poe = snmp.get_poe()
+            assert snmp_poe, "SNMP must report the 16X's real PoE ports"
+            with pytest.raises(UnsupportedCapabilityError):
+                http.get_poe()
         finally:
             client.close()
     finally:
