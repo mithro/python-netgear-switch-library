@@ -1,0 +1,19 @@
+Maximum VLAN Entries........................... 1024
+VLAN Entries Currently in Use.................. 14
+
+VLAN ID VLAN Name                        VLAN Type
+------- -------------------------------- -------------------
+1       default                          Default
+4       wifi                             Static
+5       net                              Static
+6       pwr                              Static
+7       store                            Static
+10      int                              Static
+20      roam                             Static
+21      fpgas                            Static
+41      sm                               Static
+89      sdr                              Static
+90      iot                              Static
+99      guest                            Static
+121     t-fpgas                          Static
+141     t-sm                             Static

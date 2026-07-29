@@ -1,0 +1,150 @@
+VLAN ID: 5
+VLAN Name: net
+VLAN Type: Static
+
+Interface   Current   Configured   Tagging
+----------  --------  -----------  --------
+1/0/1       Exclude   Autodetect   Untagged
+1/0/2       Exclude   Autodetect   Untagged
+1/0/3       Exclude   Autodetect   Untagged
+1/0/4       Exclude   Autodetect   Untagged
+1/0/5       Exclude   Autodetect   Untagged
+1/0/6       Exclude   Autodetect   Untagged
+1/0/7       Exclude   Autodetect   Untagged
+1/0/8       Exclude   Autodetect   Untagged
+1/0/9       Include   Include      Tagged
+1/0/10      Include   Include      Tagged
+1/0/11      Include   Include      Tagged
+1/0/12      Include   Exclude      Untagged
+1/0/13      Include   Include      Tagged
+1/0/14      Include   Include      Tagged
+1/0/15      Include   Include      Tagged
+1/0/16      Include   Include      Tagged
+lag 1       Exclude   Autodetect   Untagged
+lag 2       Exclude   Autodetect   Untagged
+lag 3       Exclude   Autodetect   Untagged
+lag 4       Exclude   Autodetect   Untagged
+lag 5       Exclude   Autodetect   Untagged
+lag 6       Exclude   Autodetect   Untagged
+lag 7       Exclude   Autodetect   Untagged
+lag 8       Exclude   Autodetect   Untagged
+lag 9       Exclude   Autodetect   Untagged
+lag 10      Exclude   Autodetect   Untagged
+lag 11      Exclude   Autodetect   Untagged
+lag 12      Exclude   Autodetect   Untagged
+lag 13      Exclude   Autodetect   Untagged
+lag 14      Exclude   Autodetect   Untagged
+lag 15      Exclude   Autodetect   Untagged
+lag 16      Exclude   Autodetect   Untagged
+lag 17      Exclude   Autodetect   Untagged
+lag 18      Exclude   Autodetect   Untagged
+lag 19      Exclude   Autodetect   Untagged
+lag 20      Exclude   Autodetect   Untagged
+lag 21      Exclude   Autodetect   Untagged
+lag 22      Exclude   Autodetect   Untagged
+lag 23      Exclude   Autodetect   Untagged
+lag 24      Exclude   Autodetect   Untagged
+lag 25      Exclude   Autodetect   Untagged
+lag 26      Exclude   Autodetect   Untagged
+lag 27      Exclude   Autodetect   Untagged
+lag 28      Exclude   Autodetect   Untagged
+lag 29      Exclude   Autodetect   Untagged
+lag 30      Exclude   Autodetect   Untagged
+lag 31      Exclude   Autodetect   Untagged
+lag 32      Exclude   Autodetect   Untagged
+lag 33      Exclude   Autodetect   Untagged
+lag 34      Exclude   Autodetect   Untagged
+lag 35      Exclude   Autodetect   Untagged
+lag 36      Exclude   Autodetect   Untagged
+lag 37      Exclude   Autodetect   Untagged
+lag 38      Exclude   Autodetect   Untagged
+lag 39      Exclude   Autodetect   Untagged
+lag 40      Exclude   Autodetect   Untagged
+lag 41      Exclude   Autodetect   Untagged
+lag 42      Exclude   Autodetect   Untagged
+lag 43      Exclude   Autodetect   Untagged
+lag 44      Exclude   Autodetect   Untagged
+lag 45      Exclude   Autodetect   Untagged
+lag 46      Exclude   Autodetect   Untagged
+lag 47      Exclude   Autodetect   Untagged
+lag 48      Exclude   Autodetect   Untagged
+lag 49      Exclude   Autodetect   Untagged
+lag 50      Exclude   Autodetect   Untagged
+lag 51      Exclude   Autodetect   Untagged
+lag 52      Exclude   Autodetect   Untagged
+lag 53      Exclude   Autodetect   Untagged
+lag 54      Exclude   Autodetect   Untagged
+lag 55      Exclude   Autodetect   Untagged
+lag 56      Exclude   Autodetect   Untagged
+lag 57      Exclude   Autodetect   Untagged
+lag 58      Exclude   Autodetect   Untagged
+lag 59      Exclude   Autodetect   Untagged
+lag 60      Exclude   Autodetect   Untagged
+lag 61      Exclude   Autodetect   Untagged
+lag 62      Exclude   Autodetect   Untagged
+lag 63      Exclude   Autodetect   Untagged
+lag 64      Exclude   Autodetect   Untagged
+lag 65      Exclude   Autodetect   Untagged
+lag 66      Exclude   Autodetect   Untagged
+lag 67      Exclude   Autodetect   Untagged
+lag 68      Exclude   Autodetect   Untagged
+lag 69      Exclude   Autodetect   Untagged
+lag 70      Exclude   Autodetect   Untagged
+lag 71      Exclude   Autodetect   Untagged
+lag 72      Exclude   Autodetect   Untagged
+lag 73      Exclude   Autodetect   Untagged
+lag 74      Exclude   Autodetect   Untagged
+lag 75      Exclude   Autodetect   Untagged
+lag 76      Exclude   Autodetect   Untagged
+lag 77      Exclude   Autodetect   Untagged
+lag 78      Exclude   Autodetect   Untagged
+lag 79      Exclude   Autodetect   Untagged
+lag 80      Exclude   Autodetect   Untagged
+lag 81      Exclude   Autodetect   Untagged
+lag 82      Exclude   Autodetect   Untagged
+lag 83      Exclude   Autodetect   Untagged
+lag 84      Exclude   Autodetect   Untagged
+lag 85      Exclude   Autodetect   Untagged
+lag 86      Exclude   Autodetect   Untagged
+lag 87      Exclude   Autodetect   Untagged
+lag 88      Exclude   Autodetect   Untagged
+lag 89      Exclude   Autodetect   Untagged
+lag 90      Exclude   Autodetect   Untagged
+lag 91      Exclude   Autodetect   Untagged
+lag 92      Exclude   Autodetect   Untagged
+lag 93      Exclude   Autodetect   Untagged
+lag 94      Exclude   Autodetect   Untagged
+lag 95      Exclude   Autodetect   Untagged
+lag 96      Exclude   Autodetect   Untagged
+lag 97      Exclude   Autodetect   Untagged
+lag 98      Exclude   Autodetect   Untagged
+lag 99      Exclude   Autodetect   Untagged
+lag 100     Exclude   Autodetect   Untagged
+lag 101     Exclude   Autodetect   Untagged
+lag 102     Exclude   Autodetect   Untagged
+lag 103     Exclude   Autodetect   Untagged
+lag 104     Exclude   Autodetect   Untagged
+lag 105     Exclude   Autodetect   Untagged
+lag 106     Exclude   Autodetect   Untagged
+lag 107     Exclude   Autodetect   Untagged
+lag 108     Exclude   Autodetect   Untagged
+lag 109     Exclude   Autodetect   Untagged
+lag 110     Exclude   Autodetect   Untagged
+lag 111     Exclude   Autodetect   Untagged
+lag 112     Exclude   Autodetect   Untagged
+lag 113     Exclude   Autodetect   Untagged
+lag 114     Exclude   Autodetect   Untagged
+lag 115     Exclude   Autodetect   Untagged
+lag 116     Exclude   Autodetect   Untagged
+lag 117     Exclude   Autodetect   Untagged
+lag 118     Exclude   Autodetect   Untagged
+lag 119     Exclude   Autodetect   Untagged
+lag 120     Exclude   Autodetect   Untagged
+lag 121     Exclude   Autodetect   Untagged
+lag 122     Exclude   Autodetect   Untagged
+lag 123     Exclude   Autodetect   Untagged
+lag 124     Exclude   Autodetect   Untagged
+lag 125     Exclude   Autodetect   Untagged
+lag 126     Exclude   Autodetect   Untagged
+lag 127     Exclude   Autodetect   Untagged
+lag 128     Exclude   Autodetect   Untagged

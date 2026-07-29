@@ -1,0 +1,150 @@
+VLAN ID: 1
+VLAN Name: default
+VLAN Type: Default
+
+Interface   Current   Configured   Tagging
+----------  --------  -----------  --------
+1/0/1       Include   Include      Untagged
+1/0/2       Include   Include      Untagged
+1/0/3       Include   Include      Untagged
+1/0/4       Include   Include      Untagged
+1/0/5       Include   Include      Untagged
+1/0/6       Include   Include      Untagged
+1/0/7       Include   Include      Untagged
+1/0/8       Include   Include      Untagged
+1/0/9       Include   Include      Untagged
+1/0/10      Include   Include      Untagged
+1/0/11      Include   Include      Tagged
+1/0/12      Include   Include      Tagged
+1/0/13      Include   Include      Untagged
+1/0/14      Include   Include      Untagged
+1/0/15      Include   Include      Untagged
+1/0/16      Include   Include      Untagged
+lag 1       Include   Include      Untagged
+lag 2       Include   Include      Untagged
+lag 3       Include   Include      Untagged
+lag 4       Include   Include      Untagged
+lag 5       Include   Include      Untagged
+lag 6       Include   Include      Untagged
+lag 7       Include   Include      Untagged
+lag 8       Include   Include      Untagged
+lag 9       Include   Include      Untagged
+lag 10      Include   Include      Untagged
+lag 11      Include   Include      Untagged
+lag 12      Include   Include      Untagged
+lag 13      Include   Include      Untagged
+lag 14      Include   Include      Untagged
+lag 15      Include   Include      Untagged
+lag 16      Include   Include      Untagged
+lag 17      Include   Include      Untagged
+lag 18      Include   Include      Untagged
+lag 19      Include   Include      Untagged
+lag 20      Include   Include      Untagged
+lag 21      Include   Include      Untagged
+lag 22      Include   Include      Untagged
+lag 23      Include   Include      Untagged
+lag 24      Include   Include      Untagged
+lag 25      Include   Include      Untagged
+lag 26      Include   Include      Untagged
+lag 27      Include   Include      Untagged
+lag 28      Include   Include      Untagged
+lag 29      Include   Include      Untagged
+lag 30      Include   Include      Untagged
+lag 31      Include   Include      Untagged
+lag 32      Include   Include      Untagged
+lag 33      Include   Include      Untagged
+lag 34      Include   Include      Untagged
+lag 35      Include   Include      Untagged
+lag 36      Include   Include      Untagged
+lag 37      Include   Include      Untagged
+lag 38      Include   Include      Untagged
+lag 39      Include   Include      Untagged
+lag 40      Include   Include      Untagged
+lag 41      Include   Include      Untagged
+lag 42      Include   Include      Untagged
+lag 43      Include   Include      Untagged
+lag 44      Include   Include      Untagged
+lag 45      Include   Include      Untagged
+lag 46      Include   Include      Untagged
+lag 47      Include   Include      Untagged
+lag 48      Include   Include      Untagged
+lag 49      Include   Include      Untagged
+lag 50      Include   Include      Untagged
+lag 51      Include   Include      Untagged
+lag 52      Include   Include      Untagged
+lag 53      Include   Include      Untagged
+lag 54      Include   Include      Untagged
+lag 55      Include   Include      Untagged
+lag 56      Include   Include      Untagged
+lag 57      Include   Include      Untagged
+lag 58      Include   Include      Untagged
+lag 59      Include   Include      Untagged
+lag 60      Include   Include      Untagged
+lag 61      Include   Include      Untagged
+lag 62      Include   Include      Untagged
+lag 63      Include   Include      Untagged
+lag 64      Include   Include      Untagged
+lag 65      Include   Include      Untagged
+lag 66      Include   Include      Untagged
+lag 67      Include   Include      Untagged
+lag 68      Include   Include      Untagged
+lag 69      Include   Include      Untagged
+lag 70      Include   Include      Untagged
+lag 71      Include   Include      Untagged
+lag 72      Include   Include      Untagged
+lag 73      Include   Include      Untagged
+lag 74      Include   Include      Untagged
+lag 75      Include   Include      Untagged
+lag 76      Include   Include      Untagged
+lag 77      Include   Include      Untagged
+lag 78      Include   Include      Untagged
+lag 79      Include   Include      Untagged
+lag 80      Include   Include      Untagged
+lag 81      Include   Include      Untagged
+lag 82      Include   Include      Untagged
+lag 83      Include   Include      Untagged
+lag 84      Include   Include      Untagged
+lag 85      Include   Include      Untagged
+lag 86      Include   Include      Untagged
+lag 87      Include   Include      Untagged
+lag 88      Include   Include      Untagged
+lag 89      Include   Include      Untagged
+lag 90      Include   Include      Untagged
+lag 91      Include   Include      Untagged
+lag 92      Include   Include      Untagged
+lag 93      Include   Include      Untagged
+lag 94      Include   Include      Untagged
+lag 95      Include   Include      Untagged
+lag 96      Include   Include      Untagged
+lag 97      Include   Include      Untagged
+lag 98      Include   Include      Untagged
+lag 99      Include   Include      Untagged
+lag 100     Include   Include      Untagged
+lag 101     Include   Include      Untagged
+lag 102     Include   Include      Untagged
+lag 103     Include   Include      Untagged
+lag 104     Include   Include      Untagged
+lag 105     Include   Include      Untagged
+lag 106     Include   Include      Untagged
+lag 107     Include   Include      Untagged
+lag 108     Include   Include      Untagged
+lag 109     Include   Include      Untagged
+lag 110     Include   Include      Untagged
+lag 111     Include   Include      Untagged
+lag 112     Include   Include      Untagged
+lag 113     Include   Include      Untagged
+lag 114     Include   Include      Untagged
+lag 115     Include   Include      Untagged
+lag 116     Include   Include      Untagged
+lag 117     Include   Include      Untagged
+lag 118     Include   Include      Untagged
+lag 119     Include   Include      Untagged
+lag 120     Include   Include      Untagged
+lag 121     Include   Include      Untagged
+lag 122     Include   Include      Untagged
+lag 123     Include   Include      Untagged
+lag 124     Include   Include      Untagged
+lag 125     Include   Include      Untagged
+lag 126     Include   Include      Untagged
+lag 127     Include   Include      Untagged
+lag 128     Include   Include      Untagged
