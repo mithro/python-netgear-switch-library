@@ -411,6 +411,32 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
             lambda: sw.upload_certificate(cert_pem, key_pem, force=force),
         )
 
+    @mcp.tool()
+    def upload_certificate_scp(
+        scp_source: str, scp_password: str, remote_dir: str, chain: bool = False,
+        switch: str | None = None, host: str | None = None,
+        model: str | None = None, config: str | None = None,
+        community: str | None = None, http_password: str | None = None,
+        nsdp_interface: str | None = None,
+    ) -> dict[str, Any]:
+        """Deploy an HTTPS SSL certificate over SCP to a FASTPATH switch
+        (M4300/GSM7252PS): the switch pulls the PEM the CALLER has already staged
+        on ``scp_source`` (``user@host[:port]``) under ``remote_dir``. Only these
+        FASTPATH models; every other model reports unsupported. HIGHLY disruptive
+        -- replaces the running certificate (toggles the secure web server)."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        return _write(
+            "upload_certificate_scp",
+            lambda: sw.upload_certificate_scp(
+                scp_source=scp_source,
+                scp_password=scp_password,
+                remote_dir=remote_dir,
+                chain=chain,
+            ),
+        )
+
 
 def main() -> None:
     """Entry point (``ngsw-mcp``): run the server over stdio."""

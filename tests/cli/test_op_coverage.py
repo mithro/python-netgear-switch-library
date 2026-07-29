@@ -43,6 +43,7 @@ _OP_TO_COMMAND = {
     "clear_poe_fault": "clear-poe-fault",
     "set_mgmt_ip": "ip",
     "upload_certificate": "upload-certificate",
+    "upload_certificate_scp": "upload-certificate-scp",
 }
 
 
