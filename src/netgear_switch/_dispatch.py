@@ -176,12 +176,12 @@ def require_cli_backend(model: SwitchModel) -> None:
 def cli_reads_supported(model: SwitchModel) -> bool:
     """True only once a model's CLI reads are cross-verified (reads_verified).
 
-    Mirrors ``http_reads_supported``. Every CLI spec currently has
-    ``reads_verified=False`` (the CLI reader output has NOT been cross-verified
-    against SNMP on live hardware -- the controller will run that on 10.1.5.22
-    and flip the flag), so this returns False for every model today and the
-    facade never dispatches a live read to the CLI backend. The parsers and the
-    in-process mock CLI face are exercised independently of this gate.
+    Mirrors ``http_reads_supported``. A CLI spec with ``reads_verified=False``
+    (CLI reader output not yet cross-verified against SNMP on live hardware)
+    gates OFF. The FASTPATH models (m4300-24x/-16x, gsm7252ps) are now verified
+    and return True; other models return False and the facade never dispatches
+    a live read to their CLI backend. The parsers and the in-process mock CLI
+    face are exercised independently of this gate.
     """
     from .protocols.cli.commands import CLI_BACKENDS, CLI_SPECS
 

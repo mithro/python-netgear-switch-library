@@ -73,6 +73,70 @@ def test_get_macs_on_plus_model_raises_no_mac_table() -> None:
     assert "MAC" in str(exc.value) or "mac" in str(exc.value)
 
 
+def test_non_poe_m4300_get_poe_raises_unsupported_not_credential() -> None:
+    """The M4300-24X has no PoE. Reading it with ONLY an SNMP community (no
+    web/CLI password) must raise UnsupportedCapabilityError consistently: SNMP
+    raises (poe==0), HTTP raises (no PoE page), and the SSH fall-through must
+    ALSO raise Unsupported -- not CredentialError from eagerly building a CLI
+    client that needs a password. Regression for the lazy-CLI-session fix; the
+    op is genuinely unsupported, so no backend should demand a credential."""
+    # get_poe short-circuits on every backend BEFORE any network I/O (SNMP:
+    # poe==0 guard; HTTP: no poe_status_path; CLI: poe==0 guard via the LAZY
+    # session, which never connects), so this needs no reachable host.
+    sw = SyncSwitch(get_model("m4300-24x"), "10.9.9.9", snmp_community="public")
+    with pytest.raises(UnsupportedCapabilityError):
+        sw.get_poe()
+
+
+def test_lazy_cli_session_defers_build_until_first_command() -> None:
+    """_LazyCliSession must NOT build the real CLI transport (password check /
+    SSH connect) until a command actually runs, then reuse it -- and close()
+    before any command must be a no-op (nothing was built)."""
+    from netgear_switch.sync_api import _LazyCliSession
+
+    builds = {"n": 0}
+
+    class _FakeSession:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def run(self, command: str) -> str:
+            return f"ran:{command}"
+
+        def run_scp_copy(self, command: str, scp_password: str) -> str:
+            return f"scp:{command}"
+
+        def run_write_memory(
+            self, command: str = "write memory", *, prestuff: bool
+        ) -> str:
+            return f"wm:{command}:{prestuff}"
+
+        def close(self) -> None:
+            self.closed = True
+
+    built: list[_FakeSession] = []
+
+    def _resolve() -> _FakeSession:
+        builds["n"] += 1
+        s = _FakeSession()
+        built.append(s)
+        return s
+
+    lazy = _LazyCliSession(_resolve)
+    assert builds["n"] == 0  # construction builds nothing
+    lazy.close()  # no-op before any command
+    assert builds["n"] == 0
+
+    assert lazy.run("show port all") == "ran:show port all"
+    assert builds["n"] == 1  # built on first command
+    assert lazy.run_scp_copy("copy scp://x", "pw") == "scp:copy scp://x"
+    assert lazy.run_write_memory(prestuff=True) == "wm:write memory:True"
+    assert builds["n"] == 1  # reused, not rebuilt
+
+    lazy.close()
+    assert built[0].closed is True
+
+
 def test_from_config_builds_facade_without_touching_network() -> None:
     cfg = SwitchConfig(
         name="core",

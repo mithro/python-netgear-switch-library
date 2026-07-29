@@ -87,6 +87,42 @@ class _LazyHttpSession:
         return self._resolve().post_xml(path, body)
 
 
+class _LazyCliSession:
+    """Wraps CLI-transport construction so building the real SSH session (which
+    needs a resolved password and raises ``CredentialError`` if none is set) is
+    deferred until an op actually RUNS a command. Ops a ``CliReader`` refuses
+    WITHOUT touching the session -- e.g. ``get_poe`` on a non-PoE model, which
+    raises ``UnsupportedCapabilityError`` before any ``run()`` -- must never
+    trigger CLI password resolution or a live connection. Without this, the
+    facade's SSH fall-through for such an op raised ``CredentialError`` instead
+    of the honest ``UnsupportedCapabilityError`` (and diverged from AsyncSwitch,
+    which never builds a CLI client)."""
+
+    def __init__(self, resolve: Callable[[], CliSession]) -> None:
+        self._resolve = resolve
+        self._session: CliSession | None = None
+
+    def _live(self) -> CliSession:
+        if self._session is None:
+            self._session = self._resolve()
+        return self._session
+
+    def run(self, command: str) -> str:
+        return self._live().run(command)
+
+    def run_scp_copy(self, command: str, scp_password: str) -> str:
+        return self._live().run_scp_copy(command, scp_password)
+
+    def run_write_memory(
+        self, command: str = "write memory", *, prestuff: bool
+    ) -> str:
+        return self._live().run_write_memory(command, prestuff=prestuff)
+
+    def close(self) -> None:
+        if self._session is not None:
+            self._session.close()
+
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from types import TracebackType
@@ -303,12 +339,16 @@ class SyncSwitch:
                 )
             reader = HttpReader(_LazyHttpSession(self._http_session), self.model)
         else:  # a CLI backend (SSH/telnet/console)
-            # CLI reads are gated exactly like HTTP: every CLI spec is
-            # reads_verified=False today (not yet CLI<->SNMP cross-verified on
-            # live hardware), so this ALWAYS raises here and the facade never
-            # dispatches a live read to the CLI backend. Once the flag flips, a
-            # real SSH CliReader is built (reusing the web-admin password as the
-            # CLI password by default). The mock CLI face is exercised
+            # CLI reads are gated like HTTP: a model whose CLI spec is
+            # reads_verified=False (not yet CLI<->SNMP cross-verified) raises
+            # here. The FASTPATH models (m4300-24x/-16x, gsm7252ps) ARE verified,
+            # so a real SSH CliReader is built for them (reusing the web-admin
+            # password as the CLI password by default). The session is LAZY: the
+            # SSH connection + password (CredentialError if unset) are deferred
+            # to the first command, so an op the reader refuses without a command
+            # -- e.g. get_poe on a non-PoE m4300-24x -- raises the honest
+            # UnsupportedCapabilityError, never CredentialError, matching every
+            # other backend and the async facade. The mock CLI face is exercised
             # separately via VirtualSwitch.cli_session(), not through here.
             if not cli_reads_supported(self.model):
                 raise UnsupportedCapabilityError(
@@ -316,8 +356,11 @@ class SyncSwitch:
                     "UNVERIFIED-pending cross-verify"
                 )
             reader = CliReader(
-                build_sync_cli_client(
-                    self.host, "admin", self._resolve_http_password(), self.model
+                _LazyCliSession(
+                    lambda: build_sync_cli_client(
+                        self.host, "admin",
+                        self._resolve_http_password(), self.model,
+                    )
                 ),
                 self.model,
             )
