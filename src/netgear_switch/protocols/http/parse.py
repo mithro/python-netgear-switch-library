@@ -1847,12 +1847,29 @@ def parse_goahead_poe(body: str) -> list[PoEStatus]:
     return out
 
 
+_MAC_COLON_HEX_RE = re.compile(r"^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$")
+
+
+def _canon_lldp_id(text: str) -> str:
+    """Canonicalize an LLDP chassis/port-id to match the SNMP formatting.
+
+    A MAC-address subtype id (colon-hex, six octets) is upper-cased -- the same
+    canonical form the SNMP parser emits for a raw-MAC lldpRemChassisId /
+    lldpRemPortId (see ``snmp.parse._format_mac_octetstring``) -- so the two
+    backends' values are LITERALLY equal, not merely case-insensitively so. Any
+    other id (a plain interface-name string) is returned unchanged, matching the
+    SNMP side's text passthrough."""
+    return text.upper() if _MAC_COLON_HEX_RE.match(text) else text
+
+
 def parse_goahead_lldp(body: str) -> list[LLDPNeighbor]:
     """GS728TPP ``LLDPMEDNeighborList`` -> LLDP neighbours.
 
     An empty neighbour list is LEGITIMATE (a switch with no neighbours), so
     this returns ``[]`` rather than raising; ``_goahead_section`` still raises
-    if the whole section is absent (wrong page)."""
+    if the whole section is absent (wrong page). Chassis/port-id MACs are
+    canonicalized to upper-case (``_canon_lldp_id``) so they equal the SNMP
+    reader's formatting exactly."""
     sec = _goahead_section(body, "LLDPMEDNeighborList")
     out: list[LLDPNeighbor] = []
     for ne in sec.findall("NeighborEntry"):
@@ -1864,8 +1881,8 @@ def parse_goahead_lldp(body: str) -> list[LLDPNeighbor]:
                 local_port=port,
                 remote_sys_name=_gtext(ne, "systemName") or None,
                 remote_port_desc=_gtext(ne, "portDescription") or None,
-                remote_chassis_id=_gtext(ne, "deviceID").upper() or None,
-                remote_port_id=_gtext(ne, "advertisedPortID") or None,
+                remote_chassis_id=_canon_lldp_id(_gtext(ne, "deviceID")) or None,
+                remote_port_id=_canon_lldp_id(_gtext(ne, "advertisedPortID")) or None,
             )
         )
     return out
@@ -1911,6 +1928,20 @@ def parse_goahead_sensors(body: str) -> list[Sensor]:
                    unit="C")
         )
     return out
+
+
+def parse_goahead_base_mac(body: str) -> str | None:
+    """GS728TPP ``SystemInfo`` (``DeviceBasicInfo``) -> the switch's base MAC.
+
+    ``DeviceBasicInfo/MacAddre`` carries the switch's own base MAC (e.g.
+    ``"b0:39:56:77:54:29"``). Uppercased to match the SNMP
+    dot1dBaseBridgeAddress / NSDP identity-MAC formatting (see
+    ``models.MgmtIpConfig.base_mac``), so the HTTP and SNMP mgmt-IP reads agree
+    field-for-field. The IPConf page has no MAC row, so ``get_mgmt_ip`` reads
+    this from the separate SystemInfo page. Absent -> ``None`` (never
+    fabricated)."""
+    mac = _gtext(_goahead_section(body, "DeviceBasicInfo"), "MacAddre")
+    return mac.upper() or None
 
 
 def parse_goahead_mgmt_ip(body: str) -> MgmtIpConfig:

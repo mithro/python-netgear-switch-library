@@ -118,15 +118,21 @@ def parse_port_status(
     ports = sorted(set(admin_map) | set(oper_map))
     result: list[PortStatus] = []
     for p in ports:
+        link_up = oper_map.get(p) == 1
         mbps = speed_map.get(p)
         result.append(
             PortStatus(
                 port=p,
                 name=name_map.get(p) or None,
                 admin_enabled=admin_map.get(p) == 1,
-                link_up=oper_map.get(p) == 1,
-                # ifHighSpeed 0 (link down) intentionally maps to None, not 0.
-                speed_mbps=mbps if mbps else None,
+                link_up=link_up,
+                # A DOWN port has no operational speed: ifHighSpeed keeps
+                # reporting the configured rate on a down port (verified on the
+                # gsm7252ps: 10000 on down 1/0/52), which is NOT an operational
+                # speed. Report None unless the link is up, matching the web
+                # UI's "Unknown"->None so both backends agree field-for-field.
+                # (ifHighSpeed 0 also maps to None.)
+                speed_mbps=mbps if (mbps and link_up) else None,
                 description=alias_map.get(p) or None,
             )
         )
@@ -607,9 +613,23 @@ def parse_entity_sensors(
             continue
         name = names.get(idx) or descrs.get(idx) or f"{kind}{idx}"
         result.append(
-            Sensor(name=name, kind=kind, value=float("nan"), unit="inventory")
+            Sensor(name=_canon_sensor_name(name), kind=kind,
+                   value=float("nan"), unit="inventory")
         )
     return result
+
+
+def _canon_sensor_name(name: str) -> str:
+    """Canonicalize an ENTITY-MIB component name to the box-sensor label the
+    HTTP DiagnosticsUnitList uses, so the two backends' sensor NAMES are
+    identical (only the value/unit differ -- SNMP has no live reading).
+
+    entPhysicalName renders a PSU as ``"Main PowerSupply"`` /
+    ``"Redundant PowerSupply"``; the web UI labels the same component
+    ``"Main PS"`` / ``"Redundant PS"``. Abbreviating ``PowerSupply`` -> ``PS``
+    (with or without an internal space) unifies them; a fan name (``"Fan1"``)
+    already matches and is returned unchanged."""
+    return name.replace("Power Supply", "PS").replace("PowerSupply", "PS")
 
 
 def _ip_str(row: SnmpRow) -> str:

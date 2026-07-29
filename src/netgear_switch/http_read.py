@@ -28,6 +28,7 @@ differ only in whether ``session.get_page``/``post_form`` is awaited.
 """
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING
 
 from .errors import HttpUnexpectedPageError, UnsupportedCapabilityError
@@ -324,6 +325,19 @@ def _mgmt_ip(spec: HttpModelSpec, page: str) -> MgmtIpConfig:
     return _mgmt_ip_from_sysinfo(_parse_sysinfo(spec, page))
 
 
+def _with_base_mac(cfg: MgmtIpConfig, sysinfo_page: str) -> MgmtIpConfig:
+    """Merge the GoAhead SystemInfo page's base MAC into an IPConf MgmtIpConfig.
+
+    The GoAhead IPConf page (address/netmask/gateway) carries NO MAC, so the
+    switch's base MAC is read from the separate SystemInfo page
+    (``DeviceBasicInfo/MacAddre``) and merged here -- matching the SNMP
+    dot1dBaseBridgeAddress read so the HTTP and SNMP mgmt-IP agree field-for-
+    field (including ``base_mac``)."""
+    return dataclasses.replace(
+        cfg, base_mac=parse.parse_goahead_base_mac(sysinfo_page)
+    )
+
+
 def _vlan_info(vid: int, membership_html: str, port_count: int) -> VLANInfo:
     """Pure conversion of one 8021qMembe.cgi response into a ``VLANInfo``."""
     states = parse.parse_membership(membership_html, port_count)
@@ -426,7 +440,12 @@ class HttpReader:
         path = _mgmt_ip_path(self._spec)
         if path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        return _mgmt_ip(self._spec, self.session.get_page(path))
+        cfg = _mgmt_ip(self._spec, self.session.get_page(path))
+        # GoAhead: the IPConf page has no MAC row, so read the base MAC from
+        # the SystemInfo page to reach SNMP parity on base_mac.
+        if _is_goahead_dialect(self._spec) and self._spec.sysinfo_path is not None:
+            cfg = _with_base_mac(cfg, self.session.get_page(self._spec.sysinfo_path))
+        return cfg
 
 
 class AsyncHttpReader:
@@ -515,4 +534,10 @@ class AsyncHttpReader:
         path = _mgmt_ip_path(self._spec)
         if path is None:
             raise _unsupported(self.model.key, "management-IP config")
-        return _mgmt_ip(self._spec, await self.session.get_page(path))
+        cfg = _mgmt_ip(self._spec, await self.session.get_page(path))
+        # GoAhead: base MAC comes from the SystemInfo page (see sync twin).
+        if _is_goahead_dialect(self._spec) and self._spec.sysinfo_path is not None:
+            cfg = _with_base_mac(
+                cfg, await self.session.get_page(self._spec.sysinfo_path)
+            )
+        return cfg
