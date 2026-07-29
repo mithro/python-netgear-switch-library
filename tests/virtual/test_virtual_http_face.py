@@ -313,3 +313,151 @@ def test_xe_face_404s_a_path_the_spec_does_not_serve(xe_face) -> None:
     must 404 rather than fabricate a 200 for one."""
     _f, port, _state = xe_face
     assert httpx.get(f"http://127.0.0.1:{port}/device_reboot.cgi").status_code == 404
+
+
+# --- gs728tpp: the GoAhead ``wcd`` XML-API face ----------------------------
+
+_GS728TPP_SPEC = http_spec(get_model("gs728tpp"))
+
+
+@pytest.fixture
+def goahead_face():
+    from netgear_switch.virtual.seed import seed_gs728tpp
+
+    state = seed_gs728tpp()
+    f = VirtualHttpFace(state, _GS728TPP_SPEC, password="password")
+    port = f.start()
+    try:
+        yield f, port, state
+    finally:
+        f.stop()
+
+
+def test_goahead_face_xml_api_login_and_wrong_password(goahead_face) -> None:
+    """The GoAhead login is GET / (302 -> session path) then a System.xml GET;
+    the client stores the session path and a wrong password is rejected."""
+    from netgear_switch.errors import HttpAuthError
+
+    _f, port, _state = goahead_face
+    client = HttpClient(f"127.0.0.1:{port}", "password", _GS728TPP_SPEC)
+    try:
+        client.login()
+        assert client._session_path  # captured from the 302 redirect
+    finally:
+        client.close()
+
+    bad = HttpClient(f"127.0.0.1:{port}", "wrong", _GS728TPP_SPEC)
+    with pytest.raises(HttpAuthError):
+        bad.login()
+    bad.close()
+
+
+def test_goahead_reads_refused_until_verified(goahead_face) -> None:
+    """gs728tpp ships reads_verified=False, so HttpReader must refuse to
+    construct until the live cross-verify flips it (the honesty gate)."""
+    from netgear_switch.errors import UnsupportedCapabilityError
+
+    _f, port, _state = goahead_face
+    client = HttpClient(f"127.0.0.1:{port}", "password", _GS728TPP_SPEC)
+    try:
+        with pytest.raises(UnsupportedCapabilityError):
+            HttpReader(client, get_model("gs728tpp"))
+    finally:
+        client.close()
+
+
+def test_goahead_face_serves_every_read_op_from_state(goahead_face) -> None:
+    """The mock renders the real wcd XML, so the SAME parse_goahead_* parsers
+    that read the hardware captures read it back -- ports/pvids/vlans/poe/macs/
+    lldp/sensors/mgmt-IP, all from one VirtualSwitchState (== the SNMP seed)."""
+    from netgear_switch.models import IpMode, PoEDetect
+
+    _f, port, state = goahead_face
+    with reads_verified("gs728tpp"):
+        client = HttpClient(f"127.0.0.1:{port}", "password", _GS728TPP_SPEC)
+        try:
+            client.login()
+            reader = HttpReader(client, get_model("gs728tpp"))
+
+            ports = {p.port: p for p in reader.get_ports()}
+            assert set(ports) == set(range(1, 29))  # physical g1..g28 only
+            for p, sim in state.ports.items():
+                assert ports[p].link_up is sim.link
+                assert ports[p].speed_mbps == (sim.speed if sim.link else None)
+
+            assert dict(reader.get_pvids()) == state.pvids
+
+            vlans = {v.vlan_id: v for v in reader.get_vlans()}
+            assert set(vlans) == set(state.vlans)
+            for vid, sim in state.vlans.items():
+                assert vlans[vid].member_ports == frozenset(sim.member)
+                assert vlans[vid].untagged_ports == frozenset(sim.untagged)
+                assert vlans[vid].tagged_ports == frozenset(sim.member - sim.untagged)
+
+            poe = {p.port: p for p in reader.get_poe()}
+            assert set(poe) == set(state.poe)
+            assert poe[1].detect is PoEDetect.SEARCHING
+
+            assert len(reader.get_macs()) == len(state.macs)
+            assert {n.local_port for n in reader.get_lldp()} == {2, 24, 26, 28}
+
+            sensors = {(s.kind, s.name): s.value for s in reader.get_sensors()}
+            assert sensors[("fan", "Fan1")] == 1.0
+            assert ("fan", "Fan3") not in sensors  # absent slot skipped
+            assert sensors[("power", "Main PS")] == 1.0
+
+            mgmt = reader.get_mgmt_ip()
+            assert (mgmt.address, mgmt.netmask, mgmt.gateway) == (
+                state.mgmt.address, state.mgmt.netmask, state.mgmt.gateway,
+            )
+            assert mgmt.mode is IpMode.UNKNOWN
+            assert mgmt.base_mac is None
+        finally:
+            client.close()
+
+
+def test_goahead_get_stats_unsupported(goahead_face) -> None:
+    """Per-port statistics are behind an unresolvable JS nav indirection on this
+    UI, so get_stats over HTTP must raise UnsupportedCapabilityError (SNMP is
+    the source), never fabricate counters."""
+    from netgear_switch.errors import UnsupportedCapabilityError
+
+    _f, port, _state = goahead_face
+    with reads_verified("gs728tpp"):
+        client = HttpClient(f"127.0.0.1:{port}", "password", _GS728TPP_SPEC)
+        try:
+            client.login()
+            reader = HttpReader(client, get_model("gs728tpp"))
+            with pytest.raises(UnsupportedCapabilityError):
+                reader.get_stats()
+        finally:
+            client.close()
+
+
+def test_goahead_face_404s_unknown_wcd_query(goahead_face) -> None:
+    """A wcd query this face does not serve must 404, not fabricate a page."""
+    _f, port, _state = goahead_face
+    resp = httpx.get(
+        f"http://127.0.0.1:{port}/cs0000face/wcd?{{file=/nope/Bogus.xml}}{{X}}"
+    )
+    assert resp.status_code == 404
+
+
+def test_goahead_async_reader_end_to_end(goahead_face) -> None:
+    """Async twin: sync/async parity over the XML_API login + wcd reads."""
+
+    async def run() -> None:
+        _f, port, state = goahead_face
+        with reads_verified("gs728tpp"):
+            client = AsyncHttpClient(f"127.0.0.1:{port}", "password", _GS728TPP_SPEC)
+            try:
+                reader = AsyncHttpReader(client, get_model("gs728tpp"))
+                ports = {p.port: p for p in await reader.get_ports()}
+                assert set(ports) == set(range(1, 29))
+                assert dict(await reader.get_pvids()) == state.pvids
+                mgmt = await reader.get_mgmt_ip()
+                assert mgmt.address == state.mgmt.address
+            finally:
+                await client.aclose()
+
+    asyncio.run(run())

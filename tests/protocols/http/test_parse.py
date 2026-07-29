@@ -519,7 +519,8 @@ def test_goahead_poe() -> None:
 
 
 def test_goahead_lldp() -> None:
-    lldp = {n.local_port: n for n in parse.parse_goahead_lldp(_read("gs728tpp_lldp.xml"))}
+    neighbours = parse.parse_goahead_lldp(_read("gs728tpp_lldp.xml"))
+    lldp = {n.local_port: n for n in neighbours}
     assert set(lldp) == {2, 24, 26, 28}
     assert lldp[2].remote_sys_name == "reterm1"
     assert lldp[2].remote_chassis_id == "2C:CF:67:BB:49:A1"
