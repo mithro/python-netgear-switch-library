@@ -516,6 +516,30 @@ def test_upload_certificate_m4300_is_not_implemented_not_unsupported() -> None:
     assert sess.calls == []
 
 
+def test_upload_certificate_gsm7252ps_is_not_implemented_points_to_scp() -> None:
+    """Parity fix 3a: gsm7252ps DOES have a cert-upload mechanism (SCP, in
+    SCP_CERT_PROFILES, reachable via SyncSwitch.upload_certificate_scp). The
+    HTTP writer must therefore raise NotImplementedError naming SCP -- NOT
+    UnsupportedCapabilityError claiming 'no known mechanism' -- exactly like
+    m4300."""
+    sess = _CertSpySession()
+    writer = HttpWriter(sess, get_model("gsm7252ps"))
+    with pytest.raises(NotImplementedError, match="SCP") as exc:
+        writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
+    # The message must point the caller at the real (implemented) SCP path,
+    # never claim the capability is absent.
+    assert "upload_certificate_scp" in str(exc.value)
+    assert not isinstance(exc.value, UnsupportedCapabilityError)
+    assert sess.calls == []
+
+
+def test_async_upload_certificate_gsm7252ps_is_not_implemented() -> None:
+    sess = _AsyncCertSpySession()
+    writer = AsyncHttpWriter(sess, get_model("gsm7252ps"))
+    with pytest.raises(NotImplementedError, match="SCP"):
+        _run(writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True))
+
+
 def test_upload_certificate_unknown_model_is_unsupported() -> None:
     """A model with an HTTP backend but NO known cert mechanism (gs305ep)
     honestly raises UnsupportedCapabilityError."""

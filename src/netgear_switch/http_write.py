@@ -37,20 +37,26 @@ if TYPE_CHECKING:
     from .snmp_write import PoeCycleTimeouts
 
 
-# Models whose real SSL-certificate upload mechanism is KNOWN from grounded
-# prior art (certbot-hook-netgear-switches/netgear-updater.py) but is NOT yet
-# implemented in this library. Keyed by registry model key -> a human name for
-# the mechanism. These deliberately raise NotImplementedError, NOT
-# UnsupportedCapabilityError: the hardware genuinely CAN load a certificate, so
-# claiming it is unsupported would be a false statement -- see
-# ``_reject_known_unimplemented_cert_upload``.
+# Models whose real SSL-certificate upload mechanism is KNOWN but is NOT an HTTP
+# form -- it is the FASTPATH ``copy scp://`` file-copy, implemented in this
+# library as ``SyncSwitch.upload_certificate_scp`` (these keys are exactly the
+# FASTPATH members of ``registry.SCP_CERT_PROFILES``). Keyed by registry model
+# key -> a human name for the mechanism. The HTTP writer deliberately raises
+# NotImplementedError here, NOT UnsupportedCapabilityError: the hardware
+# genuinely CAN load a certificate (just not over this HTTP interface), so
+# claiming it is unsupported / has no known mechanism would be a false
+# statement -- see ``_reject_known_unimplemented_cert_upload``.
 CERT_UPLOAD_KNOWN_UNIMPLEMENTED: Mapping[str, str] = MappingProxyType(
     {
-        # FastpathScpUpdater: the M4300 FASTPATH image takes the cert over SCP
-        # (``copy scp://.../cert ...``), not an HTTP form -- a different
-        # transport entirely, out of scope for this HTTP slice.
+        # The M4300 FASTPATH image takes the cert over SCP (``copy scp://.../
+        # cert ...``), not an HTTP form -- a different transport entirely.
         "m4300-24x": "SCP file-copy to the switch (FastpathScpUpdater)",
         "m4300-16x": "SCP file-copy to the switch (FastpathScpUpdater)",
+        # gsm7252ps is ALSO a FASTPATH SCP cert switch (in SCP_CERT_PROFILES):
+        # its cert upload IS implemented, just over SCP not HTTP. The HTTP
+        # writer must therefore NOT claim "no known mechanism" -- it points at
+        # the SCP path, exactly like m4300.
+        "gsm7252ps": "SCP file-copy to the switch (copy scp://)",
         # NOTE: gs728tpp used to live here, but its GoAhead XML-API upload is now
         # IMPLEMENTED -- see ``_cert_upload_xml`` and ``upload_certificate``'s
         # GOAHEAD_XML dispatch below.
@@ -68,8 +74,9 @@ def _reject_known_unimplemented_cert_upload(model_key: str) -> None:
     mechanism = CERT_UPLOAD_KNOWN_UNIMPLEMENTED.get(model_key)
     if mechanism is not None:
         raise NotImplementedError(
-            f"SSL-certificate upload for {model_key!r} uses {mechanism}; that "
-            "mechanism is known but not yet implemented in this library"
+            f"SSL-certificate upload for {model_key!r} uses {mechanism}, which "
+            "this HTTP writer does not perform; use "
+            "SyncSwitch.upload_certificate_scp instead"
         )
 
 
@@ -407,8 +414,9 @@ class HttpWriter:
 
         GROUNDED for gsm7228ps/S3300 (multipart form) and gs728tpp (GoAhead
         XML-API) -- see endpoints.py and ``_cert_upload_xml``. A model whose
-        real mechanism is known but unimplemented (m4300 SCP) raises
-        NotImplementedError; a model with no known mechanism raises
+        real mechanism is a non-HTTP SCP copy (m4300/gsm7252ps) raises
+        NotImplementedError pointing at ``upload_certificate_scp``; a model with
+        no known mechanism raises
         UnsupportedCapabilityError. Disruptive (replaces the running
         certificate), so ``force=True`` is required -- capability is resolved
         BEFORE the force gate, mirroring ``reboot``.
