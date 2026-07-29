@@ -13,6 +13,7 @@ surrounding template), so this emits a minimal-but-faithful
 """
 from __future__ import annotations
 
+import xml.etree.ElementTree as ElementTree
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
 
@@ -182,6 +183,44 @@ _ROUTES = (
     ("PoeInterfaceConf_master", render_poe),
     ("NeighborsInformation_master", render_lldp),
 )
+
+
+def _status_response(code: int, message: str) -> str:
+    """A minimal wcd ``<ResponseData>`` status envelope (the shape the real
+    switch returns for a write): ``<statusCode>`` plus a ``<statusString>``."""
+    return (
+        '<?xml version="1.0" encoding="UTF-8" ?>'
+        f"<ResponseData><statusCode>{code}</statusCode>"
+        f"<statusString>{escape(message)}</statusString></ResponseData>"
+    )
+
+
+def apply_cert_import(state: VirtualSwitchState, xml_body: str) -> str:
+    """Accept an ``SSLCryptoCertificateImportList`` XML upload, validate it, and
+    record the received certificate on ``state.uploaded_cert``.
+
+    Returns the wcd status response. Mirrors real firmware: a well-formed body
+    carrying a non-empty ``<certificate>`` and ``<privateKey>`` yields
+    ``<statusCode>0</statusCode>`` and records the cert; a malformed or empty
+    upload yields a NON-zero statusCode (so a transport/writer regression that
+    dropped the body would be caught here rather than passing silently). DTD/
+    entity declarations are rejected outright (XXE hardening, matching
+    ``parse._goahead_data_block``)."""
+    if "<!DOCTYPE" in xml_body or "<!ENTITY" in xml_body:
+        return _status_response(3, "DTD/entity declaration rejected")
+    try:
+        root = ElementTree.fromstring(xml_body)
+    except ElementTree.ParseError as exc:
+        return _status_response(1, f"malformed XML: {exc}")
+    entry = root.find("./SSLCryptoCertificateImportList/Entry")
+    if entry is None:
+        return _status_response(2, "no SSLCryptoCertificateImportList/Entry")
+    certificate = (entry.findtext("certificate") or "").strip()
+    private_key = (entry.findtext("privateKey") or "").strip()
+    if not certificate or not private_key:
+        return _status_response(2, "missing certificate or privateKey")
+    state.uploaded_cert = certificate
+    return _status_response(0, "")
 
 
 def render_wcd(state: VirtualSwitchState, query: str) -> str | None:

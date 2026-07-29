@@ -82,6 +82,9 @@ class _LazyHttpSession:
     ) -> str:
         return self._resolve().post_multipart(path, data, file)
 
+    def post_xml(self, path: str, body: str) -> str:
+        return self._resolve().post_xml(path, body)
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping

@@ -536,6 +536,15 @@ _GS728TPP = HttpModelSpec(
     reboot_path=None,
     logout_path=None,
     is_epx_poe=False,
+    # HTTPS SSL-cert upload IS a distinct XML-API flow (NOT the gsm7228ps
+    # multipart form): the writer POSTs a raw ``SSLCryptoCertificateImportList``
+    # XML body to the session-path-prefixed ``wcd`` endpoint (see
+    # http_write._cert_upload_xml). Grounded in
+    # certbot-hook-netgear-switches/netgear-updater.py::GS728TPPUpdater
+    # (upload_certificate/_build_cert_xml). ``cert_upload_file_field`` stays
+    # None -- there is no multipart file part -- and the dialect (GOAHEAD_XML)
+    # is what routes upload_certificate to the XML path.
+    cert_upload_path="wcd",
     # LIVE-VERIFIED 2026-07-29 against the real GS728TPP (10.2.5.10, via the
     # ten64 jump host): every parse_goahead_* was run on a FRESH live wcd fetch
     # and cross-checked against the switch's actual known config -- 28 ports

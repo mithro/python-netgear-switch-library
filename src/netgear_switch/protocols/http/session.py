@@ -39,6 +39,8 @@ class HttpSession(Protocol):
         self, path: str, data: dict[str, str], file: MultipartFile
     ) -> str: ...
 
+    def post_xml(self, path: str, body: str) -> str: ...
+
 
 class AsyncHttpSession(Protocol):
     """Asynchronous authenticated web-UI session for one switch."""
@@ -52,3 +54,5 @@ class AsyncHttpSession(Protocol):
     async def post_multipart(
         self, path: str, data: dict[str, str], file: MultipartFile
     ) -> str: ...
+
+    async def post_xml(self, path: str, body: str) -> str: ...

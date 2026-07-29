@@ -75,6 +75,9 @@ class _LazyAsyncHttpSession:
     ) -> str:
         return await self._resolve().post_multipart(path, data, file)
 
+    async def post_xml(self, path: str, body: str) -> str:
+        return await self._resolve().post_xml(path, body)
+
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping

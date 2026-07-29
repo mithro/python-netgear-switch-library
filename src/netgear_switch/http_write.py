@@ -14,15 +14,17 @@ from __future__ import annotations
 import re
 from types import MappingProxyType
 from typing import TYPE_CHECKING
+from xml.sax.saxutils import escape as _xml_escape
 
 from .errors import (
+    HttpError,
     HttpUnexpectedPageError,
     ProtectedPortError,
     UnsupportedCapabilityError,
     WriteVerificationError,
 )
 from .protocols.http import forms, parse
-from .protocols.http.endpoints import http_spec
+from .protocols.http.endpoints import HtmlDialect, http_spec
 from .protocols.http.session import MultipartFile
 
 if TYPE_CHECKING:
@@ -49,9 +51,9 @@ CERT_UPLOAD_KNOWN_UNIMPLEMENTED: Mapping[str, str] = MappingProxyType(
         # transport entirely, out of scope for this HTTP slice.
         "m4300-24x": "SCP file-copy to the switch (FastpathScpUpdater)",
         "m4300-16x": "SCP file-copy to the switch (FastpathScpUpdater)",
-        # GS728TPPUpdater: a distinct XML-API upload (System.xml action flow),
-        # and this model has no HTTP backend wired in the registry at all.
-        "gs728tpp": "the GS728TPP XML-API upload (GS728TPPUpdater)",
+        # NOTE: gs728tpp used to live here, but its GoAhead XML-API upload is now
+        # IMPLEMENTED -- see ``_cert_upload_xml`` and ``upload_certificate``'s
+        # GOAHEAD_XML dispatch below.
     }
 )
 
@@ -98,6 +100,108 @@ def _cert_upload_multipart(
         content_type="application/octet-stream",
     )
     return spec.cert_upload_path, dict(spec.cert_upload_form_fields), payload
+
+
+def _rsa_pkcs1_pair(key_pem: str) -> tuple[str, str]:
+    """Convert an RSA private key PEM to the PKCS#1 "traditional" pair the
+    GS728TPP GoAhead API requires: ``(private_key_pkcs1, public_key_pkcs1)``.
+
+    Mirrors GS728TPPUpdater._convert_to_rsa_format, but uses the ``cryptography``
+    library instead of shelling out to ``openssl rsa -traditional`` /
+    ``-RSAPublicKey_out``. The switch accepts ONLY RSA keys, so a non-RSA key
+    (EC/Ed25519/DSA) raises ``ValueError`` with a clear message rather than
+    posting a body the switch would reject.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    try:
+        private_key = serialization.load_pem_private_key(
+            key_pem.encode(), password=None
+        )
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"could not parse the private key as an unencrypted PEM: {exc}"
+        ) from exc
+    if not isinstance(private_key, rsa.RSAPrivateKey):
+        raise ValueError(
+            "GS728TPP SSL-certificate upload requires an RSA private key; got "
+            f"{type(private_key).__name__}"
+        )
+    private_pkcs1 = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode()
+    public_pkcs1 = private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.PKCS1,
+    ).decode()
+    return private_pkcs1.strip(), public_pkcs1.strip()
+
+
+def _build_gs728tpp_cert_xml(cert_pem: str, public_pem: str, private_pem: str) -> str:
+    """Build the ``SSLCryptoCertificateImportList`` XML body (mirrors
+    GS728TPPUpdater._build_cert_xml, XML-escaping each PEM block)."""
+
+    def esc(text: str) -> str:
+        return _xml_escape(text, {'"': "&quot;", "'": "&apos;"})
+
+    return (
+        "<?xml version='1.0' encoding='utf-8'?>"
+        "<DeviceConfiguration>"
+        '<SSLCryptoCertificateImportList action="set">'
+        "<Entry><instance>1</instance>"
+        f"<certificate>{esc(cert_pem)}</certificate>"
+        f"<publicKey>{esc(public_pem)}</publicKey>"
+        f"<privateKey>{esc(private_pem)}</privateKey>"
+        "</Entry></SSLCryptoCertificateImportList>"
+        "</DeviceConfiguration>"
+    )
+
+
+def _cert_upload_xml(
+    spec: HttpModelSpec, cert_pem: str, key_pem: str
+) -> tuple[str, str]:
+    """Return the ``(path, xml_body)`` for ``spec``'s GoAhead XML-API SSL-cert
+    upload, or raise UnsupportedCapabilityError if it has no upload endpoint.
+
+    Pure; shared by the sync and async writers so the wire shape (the exact XML
+    envelope + PKCS#1 conversion) cannot drift between the two codebases. Raises
+    ``ValueError`` (via ``_rsa_pkcs1_pair``) for a non-RSA key.
+    """
+    if spec.cert_upload_path is None:
+        raise UnsupportedCapabilityError(
+            f"model {spec.model_key!r} has no known SSL-certificate "
+            "upload mechanism"
+        )
+    private_pkcs1, public_pkcs1 = _rsa_pkcs1_pair(key_pem)
+    body = _build_gs728tpp_cert_xml(cert_pem.strip(), public_pkcs1, private_pkcs1)
+    return spec.cert_upload_path, body
+
+
+_UPLOAD_STATUS_RE = re.compile(r"<statusCode>(\d+)</statusCode>")
+_UPLOAD_STATUS_STRING_RE = re.compile(r"<statusString>([^<]*)</statusString>")
+
+
+def _check_goahead_upload_response(text: str) -> None:
+    """Raise ``HttpError`` if a GoAhead cert-upload response is not success.
+
+    Success is ``<statusCode>0</statusCode>`` (mirrors GS728TPPUpdater); a
+    non-zero code surfaces the ``<statusString>`` the switch returned.
+    """
+    match = _UPLOAD_STATUS_RE.search(text)
+    if match is None:
+        raise HttpError(
+            "GS728TPP cert upload: response carried no <statusCode> "
+            "(unexpected page -- not logged in, or wrong endpoint?)"
+        )
+    if match.group(1) != "0":
+        detail = _UPLOAD_STATUS_STRING_RE.search(text)
+        reason = detail.group(1) if detail else "unknown error"
+        raise HttpError(
+            f"GS728TPP cert upload failed (statusCode={match.group(1)}): {reason}"
+        )
 
 
 def _csrf(html: str) -> str:
@@ -301,14 +405,24 @@ class HttpWriter:
     ) -> None:
         """Upload an HTTPS SSL server certificate (combined cert+key PEM).
 
-        GROUNDED for gsm7228ps/S3300 in S3300Updater.upload_certificate (see
-        endpoints.py). A model whose real mechanism is known but unimplemented
-        (m4300 SCP, gs728tpp XML) raises NotImplementedError; a model with no
-        known mechanism raises UnsupportedCapabilityError. Disruptive (replaces
-        the running certificate), so ``force=True`` is required -- capability is
-        resolved BEFORE the force gate, mirroring ``reboot``.
+        GROUNDED for gsm7228ps/S3300 (multipart form) and gs728tpp (GoAhead
+        XML-API) -- see endpoints.py and ``_cert_upload_xml``. A model whose
+        real mechanism is known but unimplemented (m4300 SCP) raises
+        NotImplementedError; a model with no known mechanism raises
+        UnsupportedCapabilityError. Disruptive (replaces the running
+        certificate), so ``force=True`` is required -- capability is resolved
+        BEFORE the force gate, mirroring ``reboot``.
         """
         _reject_known_unimplemented_cert_upload(self.model.key)
+        if self._spec.html_dialect is HtmlDialect.GOAHEAD_XML:
+            path, body = _cert_upload_xml(self._spec, cert_pem, key_pem)
+            if not force:
+                raise ProtectedPortError(
+                    "SSL-certificate upload replaces the switch's running "
+                    "certificate and is disruptive; pass force=True"
+                )
+            _check_goahead_upload_response(self.session.post_xml(path, body))
+            return
         path, fields, payload = _cert_upload_multipart(self._spec, cert_pem, key_pem)
         if not force:
             raise ProtectedPortError(
@@ -516,6 +630,15 @@ class AsyncHttpWriter:
         # Async twin of HttpWriter.upload_certificate -- same capability-before-
         # force ordering and same grounded wire shape (shared pure helpers).
         _reject_known_unimplemented_cert_upload(self.model.key)
+        if self._spec.html_dialect is HtmlDialect.GOAHEAD_XML:
+            path, body = _cert_upload_xml(self._spec, cert_pem, key_pem)
+            if not force:
+                raise ProtectedPortError(
+                    "SSL-certificate upload replaces the switch's running "
+                    "certificate and is disruptive; pass force=True"
+                )
+            _check_goahead_upload_response(await self.session.post_xml(path, body))
+            return
         path, fields, payload = _cert_upload_multipart(self._spec, cert_pem, key_pem)
         if not force:
             raise ProtectedPortError(
