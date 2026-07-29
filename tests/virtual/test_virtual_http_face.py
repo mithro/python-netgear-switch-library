@@ -450,12 +450,33 @@ def test_goahead_get_stats_unsupported(goahead_face) -> None:
 
 
 def test_goahead_face_404s_unknown_wcd_query(goahead_face) -> None:
-    """A wcd query this face does not serve must 404, not fabricate a page."""
+    """A wcd query this face does not serve must 404, not fabricate a page.
+    Sends a valid session cookie so this exercises the unknown-query 404 path,
+    not the unauthenticated-redirect path (see test below)."""
     _f, port, _state = goahead_face
     resp = httpx.get(
-        f"http://127.0.0.1:{port}/cs0000face/wcd?{{file=/nope/Bogus.xml}}{{X}}"
+        f"http://127.0.0.1:{port}/cs0000face/wcd?{{file=/nope/Bogus.xml}}{{X}}",
+        headers={"Cookie": "sessionID=virtualsid"},
     )
     assert resp.status_code == 404
+
+
+def test_goahead_face_refuses_unauthenticated_wcd_read(goahead_face) -> None:
+    """Fidelity: real hardware redirects an unauthenticated wcd read to login.
+    The mock must do the same (302), so the suite would catch a client that
+    tried to read before logging in. A valid session cookie is served normally."""
+    _f, port, _state = goahead_face
+    url = (
+        f"http://127.0.0.1:{port}/cs0000face/wcd?"
+        "{file=/System/Management/IPConf_master.xml}{IPv4InterfaceList}"
+    )
+    # No cookie -> refused with a redirect, NOT served.
+    refused = httpx.get(url, follow_redirects=False)
+    assert refused.status_code == 302
+    # Same query WITH the post-login session cookie -> served.
+    served = httpx.get(url, headers={"Cookie": "sessionID=virtualsid"})
+    assert served.status_code == 200
+    assert "IPv4InterfaceList" in served.text
 
 
 def test_goahead_async_reader_end_to_end(goahead_face) -> None:

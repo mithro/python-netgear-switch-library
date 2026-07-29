@@ -211,13 +211,18 @@ _MODELS: dict[str, SwitchModel] = {
             # transport/http/client.py's login() now drives it and
             # protocols/http/endpoints.py::_GS728TPP carries the wcd read
             # queries (HtmlDialect.GOAHEAD_XML). The web reads are
-            # reads_verified=False pending a live HTTP<->SNMP cross-verify, so
-            # HttpReader still refuses to serve them until then.
+            # reads_verified=True: every parse_goahead_* was run on a FRESH live
+            # wcd fetch from 10.2.5.10 (via the ten64 jump host) on 2026-07-29
+            # and cross-checked against the switch's actual config -- 28 ports,
+            # 24 PoE, real VLAN names/PVIDs/membership, MAC table, 4 real LLDP
+            # neighbours, fan/PSU sensors, mgmt-IP 10.2.5.10. (Cross-checked vs
+            # the switch's ground truth, not vs SNMP, since this model's SNMP
+            # OID family is itself UNVERIFIED-pending-capture.)
             #
-            # Only the SNMP vendor OID family remains UNVERIFIED-pending-capture
-            # (verified=False), hence the flag stays False; get_stats over HTTP
-            # is honestly UnsupportedCapabilityError (per-port stats are
-            # SNMP-only on this UI).
+            # The SNMP vendor OID family remains UNVERIFIED-pending-capture, so
+            # the model-level verified=False stays; get_stats over HTTP is
+            # honestly UnsupportedCapabilityError (per-port stats are SNMP-only
+            # on this UI).
             "GS728TPP",
             SwitchClass.SMART_MANAGED_PRO,
             28,
