@@ -83,6 +83,7 @@ class SnmpReader:
             in_octets=w(oids.IF_HC_IN_OCTETS), out_octets=w(oids.IF_HC_OUT_OCTETS),
             in_ucast=w(oids.IF_HC_IN_UCAST), out_ucast=w(oids.IF_HC_OUT_UCAST),
             in_errors=w(oids.IF_IN_ERRORS), out_errors=w(oids.IF_OUT_ERRORS),
+            if_types=w(oids.IF_TYPE),
         )
 
     def get_vlans(self) -> list[VLANInfo]:
@@ -94,7 +95,10 @@ class SnmpReader:
 
     def get_pvids(self) -> list[tuple[int, int]]:
         w = self.client.walk
-        return parse.parse_pvids(w(oids.DOT1Q_PVID), w(oids.IF_TYPE))
+        return parse.parse_pvids(
+            w(oids.DOT1Q_PVID), w(oids.IF_TYPE),
+            w(oids.DOT1D_BASE_PORT_IF_INDEX),
+        )
 
     def get_lldp(self) -> list[LLDPNeighbor]:
         return parse.parse_lldp(self.client.walk(oids.LLDP_REM_TABLE))
@@ -211,6 +215,7 @@ class AsyncSnmpReader:
             out_ucast=await w(oids.IF_HC_OUT_UCAST),
             in_errors=await w(oids.IF_IN_ERRORS),
             out_errors=await w(oids.IF_OUT_ERRORS),
+            if_types=await w(oids.IF_TYPE),
         )
 
     async def get_vlans(self) -> list[VLANInfo]:
@@ -223,7 +228,10 @@ class AsyncSnmpReader:
 
     async def get_pvids(self) -> list[tuple[int, int]]:
         w = self.client.walk
-        return parse.parse_pvids(await w(oids.DOT1Q_PVID), await w(oids.IF_TYPE))
+        return parse.parse_pvids(
+            await w(oids.DOT1Q_PVID), await w(oids.IF_TYPE),
+            await w(oids.DOT1D_BASE_PORT_IF_INDEX),
+        )
 
     async def get_lldp(self) -> list[LLDPNeighbor]:
         return parse.parse_lldp(await self.client.walk(oids.LLDP_REM_TABLE))

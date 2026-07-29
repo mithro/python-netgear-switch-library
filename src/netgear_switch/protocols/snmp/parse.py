@@ -172,6 +172,7 @@ def parse_port_stats(
     out_ucast: Sequence[SnmpRow],
     in_errors: Sequence[SnmpRow],
     out_errors: Sequence[SnmpRow],
+    if_types: Sequence[SnmpRow] = (),
 ) -> list[PortStats]:
     from . import oids
 
@@ -182,8 +183,15 @@ def parse_port_stats(
     rx_e = index_int_column(in_errors, oids.IF_IN_ERRORS)
     tx_e = index_int_column(out_errors, oids.IF_OUT_ERRORS)
 
+    # ifHC* counters are ifIndex-keyed (same space as ifType), so filter to the
+    # physical ports for the same reason get_ports does -- otherwise SNMP
+    # get_stats emits the M4300's 130 phantom LAG/CPU/VLAN interfaces that the
+    # web portStatistics page never lists, breaking HTTP<->SNMP stats parity.
+    physical = _physical_ports(if_types)
     ports = sorted(set(rx_b) | set(tx_b) | set(rx_p) | set(tx_p)
                    | set(rx_e) | set(tx_e))
+    if physical is not None:
+        ports = [p for p in ports if p in physical]
     return [
         PortStats(
             port=p,
@@ -273,15 +281,26 @@ def parse_vlans(
 
 
 def parse_pvids(
-    rows: Sequence[SnmpRow], if_types: Sequence[SnmpRow] = ()
+    rows: Sequence[SnmpRow],
+    if_types: Sequence[SnmpRow] = (),
+    base_port_ifindex: Sequence[SnmpRow] = (),
 ) -> list[tuple[int, int]]:
     from . import oids
 
     pvids = index_int_column(rows, oids.DOT1Q_PVID)
     physical = _physical_ports(if_types)
-    items = pvids.items()
-    if physical is not None:
-        items = [(p, v) for p, v in items if p in physical]
+    if physical is None:
+        return sorted(pvids.items())
+    # DOT1Q_PVID is keyed by dot1dBasePort, but the physical set is keyed by
+    # ifIndex -- distinct number spaces. Translate via dot1dBasePortIfIndex
+    # before testing membership; without that mapping fall back to the FASTPATH
+    # identity (basePort == ifIndex, verified on the M4300) per port so a
+    # missing row never silently drops a real physical PVID.
+    base_map = index_int_column(base_port_ifindex, oids.DOT1D_BASE_PORT_IF_INDEX)
+    items = [
+        (bp, v) for bp, v in pvids.items()
+        if base_map.get(bp, bp) in physical
+    ]
     return sorted(items)
 
 

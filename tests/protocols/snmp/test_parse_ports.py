@@ -65,6 +65,27 @@ def test_parse_port_status_keeps_all_when_no_iftype_walk():
     assert [p.port for p in ports] == [1, 770]
 
 
+def test_parse_port_stats_filters_to_physical_ports():
+    """ifHC counters are ifIndex-keyed; get_stats must drop the same non-physical
+    interfaces get_ports does, or SNMP stats (146 rows) != HTTP stats (16)."""
+    def _c(base, pairs):
+        return _rows(base, pairs, "Counter64")
+    in_o = _c("1.3.6.1.2.1.31.1.1.1.6", {1: "100", 770: "999"})
+    out_o = _c("1.3.6.1.2.1.31.1.1.1.10", {1: "200", 770: "999"})
+    if_types = _rows("1.3.6.1.2.1.2.2.1.3", {1: "6", 770: "161"}, "INTEGER")
+    stats = parse.parse_port_stats(
+        in_octets=in_o, out_octets=out_o, in_ucast=[], out_ucast=[],
+        in_errors=[], out_errors=[], if_types=if_types,
+    )
+    assert [s.port for s in stats] == [1]  # LAG 770 dropped
+    # No ifType walk -> keep all (backward-compatible).
+    stats_all = parse.parse_port_stats(
+        in_octets=in_o, out_octets=out_o, in_ucast=[], out_ucast=[],
+        in_errors=[], out_errors=[],
+    )
+    assert [s.port for s in stats_all] == [1, 770]
+
+
 def test_parse_pvids_filters_to_physical_ports():
     """PVIDs are reported for LAG interfaces too; filter them out via ifType so
     the SNMP PVID map matches the HTTP page's physical-only view."""
@@ -77,6 +98,25 @@ def test_parse_pvids_filters_to_physical_ports():
     assert parse.parse_pvids(pvid_rows, if_types) == [(1, 10), (2, 20)]
     # No ifType walk -> keep all (backward-compatible).
     assert parse.parse_pvids(pvid_rows) == [(1, 10), (2, 20), (770, 1)]
+
+
+def test_parse_pvids_translates_baseport_to_ifindex_before_filtering():
+    """DOT1Q_PVID is keyed by dot1dBasePort, the physical set by ifIndex. On a
+    switch where they DIFFER, the PVID filter must translate via
+    dot1dBasePortIfIndex -- else it drops real physical PVIDs (or keeps LAGs).
+
+    Here basePorts 1,2 map to physical ifIndex 4097,4098; basePort 3 maps to a
+    LAG ifIndex 5000. Only 1,2 must survive."""
+    pvid_rows = _rows(
+        "1.3.6.1.2.1.17.7.1.4.5.1.1", {1: "10", 2: "20", 3: "30"}, "Gauge32"
+    )
+    if_types = _rows(
+        "1.3.6.1.2.1.2.2.1.3", {4097: "6", 4098: "6", 5000: "161"}, "INTEGER"
+    )
+    base_map = _rows(
+        "1.3.6.1.2.1.17.1.4.1.2", {1: "4097", 2: "4098", 3: "5000"}, "INTEGER"
+    )
+    assert parse.parse_pvids(pvid_rows, if_types, base_map) == [(1, 10), (2, 20)]
 
 
 def test_parse_port_status_down_port_reports_no_speed():
