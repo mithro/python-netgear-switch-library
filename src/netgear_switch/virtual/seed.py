@@ -1955,6 +1955,89 @@ def _mac_hex_to_raw(hexstr: str) -> str:
     return "".join(chr(int(p, 16)) for p in hexstr.split(":"))
 
 
+# The FASTPATH vendor switchport configuration for the two M4300s, READ OFF THE
+# REAL SWITCHES on 2026-07-30 (read-only walk of
+# 1.3.6.1.4.1.4526.10.1.2.8.37.1 with community "public"; 1520 rows on the -24X,
+# 1440 on the -16X -- neither the GSM7252PS nor the S3300 publishes this table at
+# all, 0 rows each).
+#
+# This is seeded, not computed, precisely so the mock is an INDEPENDENT source of
+# truth: state.py derives Q-BRIDGE membership FROM these columns, so if that
+# derivation rule is wrong the derived membership stops matching the captured
+# membership these seeds ship alongside. tests/virtual/test_switchport_vlan_write
+# .py::test_seeded_switchport_columns_reproduce_the_captured_membership pins that,
+# and a second test replays all 40 live ports' columns against the live-reported
+# membership as a straight data table.
+#
+# Tuple layout: (mode, access_vlan, native_vlan, allowed_vlans, general_untagged,
+#                general_tagged) where allowed_vlans is None for "all 4093" and
+# the two general_* lists are columns 7/8 (notWritable participation config that
+# is only in force while mode == general(3)).
+_ALL_ALLOWED = None
+_SwitchportRow = tuple[int, int, int, "frozenset[int] | None", set[int], set[int]]
+_M4300_24X_SWITCHPORT: dict[int, _SwitchportRow] = {
+    # Ports 1/2 are the real uplink trunks; VLANs 3990 and 4007 happen to be
+    # absent from their allowed lists on the live device (both are non-existent
+    # VLANs, so neither affects membership -- kept because it is what was read).
+    1: (2, 1, 1, frozenset(set(range(1, 4094)) - {3990, 4007}), {1}, set()),
+    2: (2, 1, 1, frozenset(set(range(1, 4094)) - {3990, 4007}), {1}, set()),
+    3: (1, 5, 5, _ALL_ALLOWED, {1}, set()),
+    4: (1, 5, 5, _ALL_ALLOWED, {1}, set()),
+    # Port 5 is the most informative row on either switch: a trunk whose ACCESS
+    # VLAN (90) differs from its NATIVE VLAN (5) -- proving membership follows
+    # col4 not col3 in trunk mode -- with a genuinely sparse allowed list.
+    5: (
+        2, 90, 5,
+        frozenset({1, 5, 6, 7, 10, 20, 41, 90, 99, 121, 141}),
+        {1, 90},
+        set(),
+    ),
+    6: (1, 90, 5, _ALL_ALLOWED, {1}, set()),
+    7: (1, 1, 1, _ALL_ALLOWED, {1}, set()),
+    8: (1, 1, 1, _ALL_ALLOWED, {1}, set()),
+    # 9-14: access on VLAN 5 with native 1 -- another proof col4 is ignored in
+    # access mode -- and col7 reads 5 here while col7 reads 1 on 15-24, which is
+    # why col7 cannot be a mirror of effective membership.
+    **{p: (1, 5, 1, _ALL_ALLOWED, {5}, set()) for p in range(9, 15)},
+    **{p: (1, 10, 10, _ALL_ALLOWED, {1}, set()) for p in range(15, 25)},
+}
+_M4300_16X_SWITCHPORT: dict[int, _SwitchportRow] = {
+    # 1-8 are GENERAL mode: membership comes from col7/col8, so despite an access
+    # VLAN of 10/90 these ports are untagged in VLAN 1 -- exactly what the
+    # committed capture shows.
+    **{p: (3, 10, 10, _ALL_ALLOWED, {1}, set()) for p in range(1, 5)},
+    **{p: (3, 90, 90, _ALL_ALLOWED, {1}, set()) for p in range(5, 9)},
+    **{p: (2, 1, 1, _ALL_ALLOWED, {1}, set()) for p in range(9, 17)},
+    # NOTE ports 11 and 12 read (2, 4, 4, all, {1}, {}) and
+    # (2, 5, 5, all-minus-5, {1,4}, {5,6,7,10,20,21,41,89,90,99,121,141}) on the
+    # live device TODAY -- someone has re-homed them since the committed capture
+    # was taken (its membership has both untagged in VLAN 1). Seeded to the shape
+    # the CAPTURE implies, which is identical to their sibling trunks 9/10/13-16,
+    # so the mock stays internally coherent. This is device config drift, NOT a
+    # mock/hardware behavioural difference -- the live values for both ports are
+    # replayed in test_live_switchport_columns_derive_the_live_membership, and
+    # port 12 is the case that proves a native VLAN is untagged even when it is
+    # absent from the allowed list.
+}
+
+
+def _apply_switchport_seed(
+    state: VirtualSwitchState, table: dict[int, _SwitchportRow]
+) -> None:
+    """Load a measured switchport table into ``state`` (see the tables above)."""
+    from .state import _all_vlans_bitmap, _vlan_bitmap_bytes
+
+    for port, (mode, access, native, allowed, gen_u, gen_t) in table.items():
+        state.switchport_mode[port] = mode
+        state.switchport_access_vlan[port] = access
+        state.switchport_native_vlan[port] = native
+        state.switchport_allowed_vlans[port] = (
+            _all_vlans_bitmap() if allowed is None else _vlan_bitmap_bytes(set(allowed))
+        )
+        state.switchport_general_untagged[port] = set(gen_u)
+        state.switchport_general_tagged[port] = set(gen_t)
+
+
 # M4300-24X (28 registered ports, 0 PoE -- Fully Managed, SNMP-only): every
 # value below is transcribed directly from the real captured snapshot
 # (tests/fixtures/captures/m4300-24x.json, host 10.1.5.13) -- port
@@ -2173,7 +2256,7 @@ def seed_m4300_24x() -> VirtualSwitchState:
         # not itself a captured value.
         mode="static",
     )
-    return VirtualSwitchState(
+    state = VirtualSwitchState(
         model_key="m4300-24x",
         ports=ports,
         vlans=vlans,
@@ -2200,6 +2283,9 @@ def seed_m4300_24x() -> VirtualSwitchState:
         sys_descr="NETGEAR M4300-24X (XSM4324CS) Managed Switch",
         sys_object_id="1.3.6.1.4.1.4526.10.100.24",
     )
+    # The real vendor switchport configuration behind the captured membership.
+    _apply_switchport_seed(state, _M4300_24X_SWITCHPORT)
+    return state
 
 
 # M4300-16X (16 registered ports, all 16 PoE -- Fully Managed, SNMP-only):
@@ -2345,7 +2431,7 @@ def seed_m4300_16x() -> VirtualSwitchState:
             sys_name="ten64.welland.mithis.com",
         ),
     ]
-    return VirtualSwitchState(
+    state = VirtualSwitchState(
         model_key="m4300-16x",
         ports=ports,
         vlans=vlans,
@@ -2363,6 +2449,9 @@ def seed_m4300_16x() -> VirtualSwitchState:
         sys_descr="NETGEAR M4300-16X (XSM4316) Managed Switch",
         sys_object_id="1.3.6.1.4.1.4526.10.100.16",
     )
+    # The real vendor switchport configuration behind the captured membership.
+    _apply_switchport_seed(state, _M4300_16X_SWITCHPORT)
+    return state
 
 
 # Ports carrying every access VLAN as a tagged member on this unit: g1-g25 and

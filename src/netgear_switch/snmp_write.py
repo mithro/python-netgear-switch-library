@@ -33,7 +33,7 @@ from .registry import Backend
 from .snmp_read import AsyncSnmpReader, SnmpReader
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterable, Sequence
 
     from .models import PoEStatus, PortStatus, VLANInfo
     from .protocols.snmp.client import AsyncSnmpWriteClient, SnmpWriteClient
@@ -49,25 +49,263 @@ def _poe_admin_oid(port: int) -> str:
     return f"{oids.PETH_PSE_PORT_TABLE}.3.1.{port}"
 
 
-# The 802.1Q default VLAN every access port falls back to. An access port is a
-# member of exactly one VLAN, so "exclude this port from VLAN N" can only be
-# expressed on the FASTPATH switchport control plane as "put it back on VLAN 1".
+# The 802.1Q default VLAN a port falls back to when the requested change would
+# otherwise leave it untagged in NO VLAN. That state is simply not expressible on
+# this hardware: an access port always has an access VLAN, and a trunk always has
+# a native VLAN -- VERIFIED live on the M4300-24X (10.1.5.13, FASTPATH 12.0.13.8)
+# where SET switchport-native-vlan.1/0/8 := 0 and := 4094 BOTH answered
+# commitFailed, as did := a VLAN id that does not exist.
 _DEFAULT_VLAN = 1
 
 
-def _set_vlan_bit(bitmap: bytes, vlan: int) -> bytes:
-    """Set ``vlan``'s bit in a switchport VLAN bitmap, preserving its width.
+def _vlan_bitmap(vlans: Iterable[int]) -> bytes:
+    """Encode VLAN ids into a switchport VLAN bitmap (512 B, 4096 VLANs).
 
-    Same MSB-first convention as a PortList (VLAN 1 = bit 7 of byte 0), but
-    indexed by VLAN id over a 4096-VLAN (512-byte) map. Grows the buffer only if
-    the device reported a shorter one than ``vlan`` needs.
+    Same MSB-first convention as a PortList (VLAN 1 = bit 7 of byte 0) but
+    indexed by VLAN id.
+    """
+    data = bytearray(oids.SWITCHPORT_VLAN_BITMAP_BYTES)
+    for vlan in vlans:
+        data[(vlan - 1) // 8] |= 0x80 >> ((vlan - 1) % 8)
+    return bytes(data)
+
+
+def decode_vlan_bitmap(bitmap: bytes) -> frozenset[int]:
+    """Inverse of ``_vlan_bitmap``: which VLAN ids a switchport bitmap names."""
+    return frozenset(
+        i * 8 + off + 1
+        for i, byte in enumerate(bitmap)
+        for off in range(8)
+        if byte & (0x80 >> off)
+    )
+
+
+def _edit_vlan_bits(
+    bitmap: bytes, *, add: Iterable[int] = (), remove: Iterable[int] = ()
+) -> bytes:
+    """READ-MODIFY-WRITE a switchport VLAN bitmap: flip ONLY the named bits.
+
+    Never a blanket overwrite. This matters because the allowed-VLAN column
+    routinely permits VLANs that do not exist yet (a factory-default M4300 port
+    allows all 4093 of them), and only the bits for VLANs that exist contribute
+    to membership -- so rebuilding the map from the port's *current* membership
+    would silently revoke the operator's "allow future VLANs too" intent.
+    Preserves the device's own byte width, growing only if a named VLAN needs it.
     """
     data = bytearray(bitmap)
-    need = max((vlan - 1) // 8 + 1, oids.SWITCHPORT_VLAN_BITMAP_BYTES)
+    highest = max([*add, *remove], default=1)
+    need = max((highest - 1) // 8 + 1, oids.SWITCHPORT_VLAN_BITMAP_BYTES)
     if len(data) < need:
         data.extend(bytes(need - len(data)))
-    data[(vlan - 1) // 8] |= 0x80 >> ((vlan - 1) % 8)
+    for vlan in add:
+        data[(vlan - 1) // 8] |= 0x80 >> ((vlan - 1) % 8)
+    for vlan in remove:
+        data[(vlan - 1) // 8] &= ~(0x80 >> ((vlan - 1) % 8)) & 0xFF
     return bytes(data)
+
+
+def _port_membership(
+    vlans: Sequence[VLANInfo], port: int
+) -> tuple[frozenset[int], frozenset[int]]:
+    """``port``'s CURRENT (tagged, untagged) VLAN ids across every VLAN row.
+
+    Read from the standard Q-BRIDGE mirrors, which report the truth on FASTPATH
+    regardless of which switchport mode produced it -- so this works whether the
+    port is access, trunk or general.
+    """
+    return (
+        frozenset(v.vlan_id for v in vlans if port in v.tagged_ports),
+        frozenset(v.vlan_id for v in vlans if port in v.untagged_ports),
+    )
+
+
+@dataclass(frozen=True)
+class _SwitchportPlan:
+    """The exact membership a switchport write intends, plus the SETs to get it."""
+
+    untagged_vlan: int
+    tagged_vlans: frozenset[int]
+    varbinds: tuple[SetVarbind, ...]
+
+
+def _plan_switchport_membership(
+    *,
+    vlan: int,
+    port: int,
+    mode: VlanMode,
+    current_mode: int | None,
+    current_allowed: bytes,
+    current_tagged: frozenset[int],
+    current_untagged: frozenset[int],
+    existing_vlans: frozenset[int],
+) -> _SwitchportPlan:
+    """Plan a PRECISE, NON-DESTRUCTIVE membership change on the FASTPATH
+    switchport control plane.
+
+    How membership is actually derived on FASTPATH 12.x -- established live on
+    2026-07-30 against BOTH M4300 SKUs (m4300-24x @10.1.5.13 fw 12.0.13.8 port
+    1/0/8; m4300-16x @10.1.5.20 fw 12.0.19.15 port 1/0/1), by writing the vendor
+    columns and re-reading the Q-BRIDGE mirrors after every step:
+
+    * ``access(1)``  -> untagged member of the access VLAN (col3) and NOTHING
+      else; col4/col6 are stored but not in force.
+    * ``trunk(2)``   -> untagged member of the native VLAN (col4) plus a TAGGED
+      member of ``(allowed(col6) INTERSECT existing VLANs) - {native}``. The
+      native VLAN is an untagged member even when it is NOT in the allowed list
+      (proved by removing VLAN 1 from col6 while native stayed 1).
+    * ``general(3)`` -> membership comes from col7/col8, which answer
+      notWritable, so this mode cannot be driven over SNMP.
+
+    So trunk mode is a precise control plane for "exactly one untagged VLAN plus
+    an arbitrary tagged set", and that is what this plans:
+
+    * ``TAGGED``   V -> tagged = current tagged + V, untagged unchanged (minus V)
+    * ``UNTAGGED`` V -> untagged = V, tagged = current tagged - V
+    * ``EXCLUDED`` V -> BOTH sets minus V, every other VLAN left alone
+
+    then expresses the result minimally: access mode when nothing is tagged (the
+    idiomatic form, and what the switch's own CLI produces), else trunk mode with
+    col4 = the untagged VLAN and col6 read-modify-written.
+
+    Two requests cannot be honoured and are REFUSED rather than approximated
+    (precondition failure -- no SET is attempted):
+
+    * a desired state with MORE THAN ONE untagged VLAN. Reachable in practice: a
+      general-mode port can be untagged in several VLANs (observed live on
+      m4300-16x port 1/0/1, untagged in both 1 and 4007), and trunk/access mode
+      can only hold one.
+    * excluding a port from its ONLY untagged VLAN while it is a TAGGED member of
+      the default VLAN, because the fallback below would then have to demote that
+      VLAN from tagged to untagged -- a change to a VLAN the caller never named.
+
+    Excluding a port from its only untagged VLAN otherwise falls back to
+    ``_DEFAULT_VLAN`` (see its comment: the hardware has no "untagged nowhere"
+    state), which is the ONE unrequested membership this plan can produce. Unlike
+    the implementation it replaces, it never discards the port's tagged VLANs and
+    never grants membership in a VLAN that was not asked for.
+    """
+    if mode is VlanMode.TAGGED:
+        want_tagged = current_tagged | {vlan}
+        want_untagged = current_untagged - {vlan}
+    elif mode is VlanMode.UNTAGGED:
+        want_tagged = current_tagged - {vlan}
+        want_untagged = frozenset({vlan})
+    else:  # VlanMode.EXCLUDED
+        want_tagged = current_tagged - {vlan}
+        want_untagged = current_untagged - {vlan}
+
+    if len(want_untagged) > 1:
+        raise UnsupportedCapabilityError(
+            f"port {port} is currently an untagged member of VLANs "
+            f"{sorted(current_untagged)}; the FASTPATH switchport control plane "
+            f"holds at most ONE untagged VLAN per port (access VLAN / trunk "
+            f"native VLAN), and the per-VLAN participation columns that could "
+            f"express several answer notWritable. Refusing rather than silently "
+            f"dropping {sorted(want_untagged)[1:]}"
+        )
+    if want_untagged:
+        untagged_vlan = next(iter(want_untagged))
+    elif _DEFAULT_VLAN in want_tagged:
+        raise UnsupportedCapabilityError(
+            f"excluding port {port} from VLAN {vlan} would leave it untagged in "
+            f"no VLAN, which this hardware cannot express, and the fallback "
+            f"(VLAN {_DEFAULT_VLAN}) is a TAGGED member here -- honouring the "
+            f"request would silently demote VLAN {_DEFAULT_VLAN} from tagged to "
+            f"untagged. Give the port an explicit untagged VLAN first"
+        )
+    else:
+        untagged_vlan = _DEFAULT_VLAN
+
+    varbinds: list[SetVarbind] = []
+    if want_tagged:
+        if current_mode == oids.SWITCHPORT_MODE_TRUNK:
+            # Already trunk: col6 IS this port's membership definition, so
+            # read-modify-write it. Because trunk membership is
+            # (allowed INTERSECT existing) - {native}, the bits that must be right
+            # are exactly those of EXISTING VLANs; bits for VLANs that do not
+            # exist yet are left ALONE, preserving an operator's "allow future
+            # VLANs too" intent (a factory-default port allows all 4093, and only
+            # ~14 of them exist on these switches).
+            allowed = _edit_vlan_bits(
+                current_allowed,
+                add={untagged_vlan, *want_tagged},
+                remove=existing_vlans - want_tagged - {untagged_vlan},
+            )
+        else:
+            # Coming FROM access/general, col6 is stale and not in force (it is
+            # all 4093 VLANs on a factory-default port). Carrying it into trunk
+            # mode is what used to hand the port every VLAN on the switch, so
+            # rebuild it from the membership the port actually has.
+            allowed = _vlan_bitmap({untagged_vlan, *want_tagged})
+        varbinds.append(
+            SetVarbind(
+                f"{oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS}.{port}", allowed, "x"
+            )
+        )
+        varbinds.append(
+            SetVarbind(
+                f"{oids.FASTPATH_SWITCHPORT_NATIVE_VLAN}.{port}", untagged_vlan, "u"
+            )
+        )
+        varbinds.append(
+            SetVarbind(
+                f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
+                oids.SWITCHPORT_MODE_TRUNK,
+                "i",
+            )
+        )
+    else:
+        # Nothing tagged: one untagged VLAN is exactly what access mode is.
+        # col6/col4 are deliberately left untouched -- access mode ignores them.
+        varbinds.append(
+            SetVarbind(
+                f"{oids.FASTPATH_SWITCHPORT_ACCESS_VLAN}.{port}", untagged_vlan, "u"
+            )
+        )
+        varbinds.append(
+            SetVarbind(
+                f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
+                oids.SWITCHPORT_MODE_ACCESS,
+                "i",
+            )
+        )
+    return _SwitchportPlan(
+        untagged_vlan=untagged_vlan,
+        tagged_vlans=frozenset(want_tagged),
+        varbinds=tuple(varbinds),
+    )
+
+
+def _switchport_divergence(
+    plan: _SwitchportPlan, vlan: int, port: int, after: Sequence[VLANInfo]
+) -> str | None:
+    """Compare the port's FULL membership against ``plan``; message or None.
+
+    Verification deliberately covers EVERY VLAN, not just the requested one: the
+    whole point of the plan is that VLANs the caller never named keep their
+    membership, and a per-VLAN check cannot see that being violated. Reads the
+    standard Q-BRIDGE mirrors, so a device that ACKs the vendor SETs without
+    changing membership still fails.
+    """
+    if not any(v.vlan_id == vlan for v in after):
+        return f"VLAN {vlan} disappeared while setting membership for port {port}"
+    got_tagged, got_untagged = _port_membership(after, port)
+    if got_untagged != frozenset({plan.untagged_vlan}):
+        return (
+            f"port {port} should be an untagged member of VLAN "
+            f"{plan.untagged_vlan} only, but reads back untagged in "
+            f"{sorted(got_untagged)}"
+        )
+    if got_tagged != plan.tagged_vlans:
+        gained = sorted(got_tagged - plan.tagged_vlans)
+        lost = sorted(plan.tagged_vlans - got_tagged)
+        return (
+            f"port {port} tagged membership did not verify: wanted "
+            f"{sorted(plan.tagged_vlans)}, got {sorted(got_tagged)}"
+            + (f"; UNREQUESTED membership gained in {gained}" if gained else "")
+            + (f"; membership LOST in {lost}" if lost else "")
+        )
+    return None
 
 
 @dataclass(frozen=True)
@@ -282,101 +520,46 @@ class SnmpWriter:
             )
 
     def _set_vlan_switchport(
-        self, vlan: int, port: int, mode: VlanMode, before: VLANInfo
+        self,
+        vlan: int,
+        port: int,
+        mode: VlanMode,
+        before: VLANInfo,
+        vlans: Sequence[VLANInfo],
     ) -> None:
         """Set VLAN membership through the FASTPATH vendor SWITCHPORT table.
 
-        On FASTPATH 12.x the Q-BRIDGE static PortLists are read-only mirrors, so
-        membership is expressed as the port's switchport configuration instead
-        (VERIFIED live on an M4300-24X, firmware 12.0.13.8):
-
-        * ``UNTAGGED`` -> mode access(1) + access VLAN = ``vlan``. The switch then
-          reports the port in dot1qVlanStaticEgressPorts AND
-          dot1qVlanStaticUntaggedPorts for that VLAN, and sets its PVID.
-        * ``TAGGED``   -> mode trunk(2); the port stays an egress member but drops
-          out of the untagged set.
-        * ``EXCLUDED`` -> move the port back to access mode on the DEFAULT VLAN,
-          which is the only way this control plane can express "not a member of
-          ``vlan``" (an access port is always a member of exactly one VLAN).
-
-        Verification reads the standard Q-BRIDGE mirrors back, so a switch that
-        accepted the switchport write without actually changing membership still
-        raises WriteVerificationError.
+        All of the reasoning, the live evidence and the refusal cases live in
+        ``_plan_switchport_membership``; this just reads the port's current state,
+        applies the plan and verifies it. Verification reads the standard
+        Q-BRIDGE mirrors back (``_switchport_divergence``), so a switch that
+        accepted the vendor SETs without actually changing membership -- or that
+        changed a VLAN nobody asked about -- still raises WriteVerificationError.
         """
-        varbinds: list[SetVarbind] = []
-        if mode is VlanMode.UNTAGGED:
-            varbinds = [
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
-                    oids.SWITCHPORT_MODE_ACCESS,
-                    "i",
-                ),
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_ACCESS_VLAN}.{port}", vlan, "u"
-                ),
-            ]
-        elif mode is VlanMode.TAGGED:
-            # Trunk carries every allowed VLAN tagged; the allowed-VLAN column is
-            # writable, so make sure this VLAN is in it before flipping the mode.
-            allowed = self._switchport_vlan_bitmap(
+        current_tagged, current_untagged = _port_membership(vlans, port)
+        plan = _plan_switchport_membership(
+            vlan=vlan,
+            port=port,
+            mode=mode,
+            current_mode=self._switchport_mode(port),
+            current_allowed=self._switchport_vlan_bitmap(
                 oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS, port
-            )
-            varbinds = [
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS}.{port}",
-                    _set_vlan_bit(allowed, vlan),
-                    "x",
-                ),
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
-                    oids.SWITCHPORT_MODE_TRUNK,
-                    "i",
-                ),
-            ]
-        else:  # VlanMode.EXCLUDED
-            varbinds = [
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
-                    oids.SWITCHPORT_MODE_ACCESS,
-                    "i",
-                ),
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_ACCESS_VLAN}.{port}",
-                    _DEFAULT_VLAN,
-                    "u",
-                ),
-            ]
-        for vb in varbinds:
-            # Deliberately one PDU per varbind: the mode column must land before
-            # the VLAN column (a trunk's allowed list before the mode flip, an
-            # access port's mode before its access VLAN), and this agent applies
-            # each SET immediately.
+            ),
+            current_tagged=current_tagged,
+            current_untagged=current_untagged,
+            existing_vlans=frozenset(v.vlan_id for v in vlans),
+        )
+        for vb in plan.varbinds:
+            # One PDU per varbind, DATA columns before the MODE selector: the mode
+            # decides which columns are in force, so landing col6/col4/col3 first
+            # means membership never passes through a wrong intermediate state
+            # (a stale all-4093 allowed list plus an early mode:=trunk is exactly
+            # the over-grant this rewrite removes). Verified live in this order.
             self.client.set(vb)
-
-        after = self._vlan(vlan)
-        if after is None:
+        problem = _switchport_divergence(plan, vlan, port, self._reader.get_vlans())
+        if problem is not None:
             raise WriteVerificationError(
-                f"VLAN {vlan} disappeared while setting membership for port {port}",
-                before=before,
-                after=after,
-            )
-        want_member = mode in (VlanMode.UNTAGGED, VlanMode.TAGGED)
-        want_untagged = mode is VlanMode.UNTAGGED
-        if (port in after.member_ports) != want_member:
-            raise WriteVerificationError(
-                f"VLAN {vlan} membership for port {port} did not verify via the "
-                f"switchport table: wanted member={want_member}, got "
-                f"member={port in after.member_ports}",
-                before=before,
-                after=after,
-            )
-        if (port in after.untagged_ports) != want_untagged:
-            raise WriteVerificationError(
-                f"VLAN {vlan} untagged state for port {port} did not verify via "
-                f"the switchport table: wanted untagged={want_untagged}, got "
-                f"untagged={port in after.untagged_ports}",
-                before=before,
-                after=after,
+                problem, before=before, after=self._vlan(vlan)
             )
 
     def _switchport_vlan_bitmap(self, base_oid: str, port: int) -> bytes:
@@ -387,17 +570,25 @@ class SnmpWriter:
                 return row.value
         return bytes(oids.SWITCHPORT_VLAN_BITMAP_BYTES)
 
+    def _switchport_mode(self, port: int) -> int | None:
+        """The port's switchport mode column, or None if the device has no row."""
+        for row in self.client.get([f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}"]):
+            if isinstance(row.value, int):
+                return row.value
+        return None
+
     def set_vlan_membership(
         self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
     ) -> None:
         self._guard(port, force)
-        before = self._vlan(vlan)
+        vlans = self._reader.get_vlans()
+        before = next((v for v in vlans if v.vlan_id == vlan), None)
         if before is None:
             # Precondition failure: no SET has been attempted, so this is NOT a
             # verification divergence (review item 9).
             raise SnmpError(f"VLAN {vlan} does not exist")
         if self.model.snmp_vlan_write == "fastpath_switchport":
-            self._set_vlan_switchport(vlan, port, mode, before)
+            self._set_vlan_switchport(vlan, port, mode, before, vlans)
             return
         # Feed set_port_bit the device's OWN bitmaps so it preserves their exact
         # wire width (that is what it is for); fall back to a re-encode of the
@@ -731,90 +922,61 @@ class AsyncSnmpWriter:
                 return row.value
         return bytes(oids.SWITCHPORT_VLAN_BITMAP_BYTES)
 
-    async def _set_vlan_switchport(
-        self, vlan: int, port: int, mode: VlanMode, before: VLANInfo
-    ) -> None:
-        """Async twin of SnmpWriter._set_vlan_switchport -- see it for the
-        FASTPATH switchport rationale and the live verification behind it."""
-        if mode is VlanMode.UNTAGGED:
-            varbinds = [
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
-                    oids.SWITCHPORT_MODE_ACCESS,
-                    "i",
-                ),
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_ACCESS_VLAN}.{port}", vlan, "u"
-                ),
-            ]
-        elif mode is VlanMode.TAGGED:
-            allowed = await self._switchport_vlan_bitmap(
-                oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS, port
-            )
-            varbinds = [
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS}.{port}",
-                    _set_vlan_bit(allowed, vlan),
-                    "x",
-                ),
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
-                    oids.SWITCHPORT_MODE_TRUNK,
-                    "i",
-                ),
-            ]
-        else:  # VlanMode.EXCLUDED
-            varbinds = [
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}",
-                    oids.SWITCHPORT_MODE_ACCESS,
-                    "i",
-                ),
-                SetVarbind(
-                    f"{oids.FASTPATH_SWITCHPORT_ACCESS_VLAN}.{port}",
-                    _DEFAULT_VLAN,
-                    "u",
-                ),
-            ]
-        for vb in varbinds:
-            await self.client.set(vb)
+    async def _switchport_mode(self, port: int) -> int | None:
+        """Async twin of SnmpWriter._switchport_mode."""
+        for row in await self.client.get([f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}"]):
+            if isinstance(row.value, int):
+                return row.value
+        return None
 
-        after = await self._vlan(vlan)
-        if after is None:
+    async def _set_vlan_switchport(
+        self,
+        vlan: int,
+        port: int,
+        mode: VlanMode,
+        before: VLANInfo,
+        vlans: Sequence[VLANInfo],
+    ) -> None:
+        """Async twin of SnmpWriter._set_vlan_switchport. The plan itself is the
+        shared pure ``_plan_switchport_membership`` (so sync and async cannot
+        drift) -- see it for the FASTPATH switchport derivation, the live evidence
+        and the two requests it refuses instead of approximating."""
+        current_tagged, current_untagged = _port_membership(vlans, port)
+        plan = _plan_switchport_membership(
+            vlan=vlan,
+            port=port,
+            mode=mode,
+            current_mode=await self._switchport_mode(port),
+            current_allowed=await self._switchport_vlan_bitmap(
+                oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS, port
+            ),
+            current_tagged=current_tagged,
+            current_untagged=current_untagged,
+            existing_vlans=frozenset(v.vlan_id for v in vlans),
+        )
+        for vb in plan.varbinds:
+            # Data columns before the mode selector, one PDU each -- see the sync
+            # twin for why the order matters.
+            await self.client.set(vb)
+        problem = _switchport_divergence(
+            plan, vlan, port, await self._reader.get_vlans()
+        )
+        if problem is not None:
             raise WriteVerificationError(
-                f"VLAN {vlan} disappeared while setting membership for port {port}",
-                before=before,
-                after=after,
-            )
-        want_member = mode in (VlanMode.UNTAGGED, VlanMode.TAGGED)
-        want_untagged = mode is VlanMode.UNTAGGED
-        if (port in after.member_ports) != want_member:
-            raise WriteVerificationError(
-                f"VLAN {vlan} membership for port {port} did not verify via the "
-                f"switchport table: wanted member={want_member}, got "
-                f"member={port in after.member_ports}",
-                before=before,
-                after=after,
-            )
-        if (port in after.untagged_ports) != want_untagged:
-            raise WriteVerificationError(
-                f"VLAN {vlan} untagged state for port {port} did not verify via "
-                f"the switchport table: wanted untagged={want_untagged}, got "
-                f"untagged={port in after.untagged_ports}",
-                before=before,
-                after=after,
+                problem, before=before, after=await self._vlan(vlan)
             )
 
     async def set_vlan_membership(
         self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
     ) -> None:
         self._guard(port, force)
-        before = await self._vlan(vlan)
+        vlans = await self._reader.get_vlans()
+        before = next((v for v in vlans if v.vlan_id == vlan), None)
         if before is None:
             # Precondition failure (review item 9): no SET attempted.
             raise SnmpError(f"VLAN {vlan} does not exist")
         if self.model.snmp_vlan_write == "fastpath_switchport":
-            await self._set_vlan_switchport(vlan, port, mode, before)
+            await self._set_vlan_switchport(vlan, port, mode, before, vlans)
             return
         # Preserve the device's own bitmap width -- see SnmpWriter._raw_bitmap.
         raw_egress = await self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_EGRESS, vlan)

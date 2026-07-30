@@ -73,8 +73,22 @@ each. Firmware differs between SKUs of the *same* family — do not extrapolate.
 
 *Why this exists:* the M4300-16X was marked `snmp_vlan_write="fastpath_switchport"`
 purely by inference from the M4300-24X ("same firmware family"). It runs different
-firmware (12.0.19.15 vs 12.0.13.8) and actually **accepts** the Q-BRIDGE writes the
--24X refuses. The inference was wrong and would have stayed wrong.
+firmware (12.0.19.15 vs 12.0.13.8) and **accepts** Q-BRIDGE writes the -24X
+refuses, so the inference could not be trusted even though it happened to reach the
+right answer.
+
+Measuring it (2026-07-30) replaced both the inference *and* the counter-example
+with the actual rule: `dot1qVlanStaticEgressPorts` is writable only while **no
+interface on the switch is in access mode** — switch-wide, not per-VLAN, and the
+same on both firmwares. An A/B/A on -16X port 1/0/1, issuing byte-identical writes
+while flipping only that one port's mode, gave general→noError, access→**commitFailed**,
+general→noError, trunk→noError, access→**commitFailed**, general→noError. The -24X
+looks different only because 21 of its 24 ports are access-mode, so the column is
+never writable there. And because an UNTAGGED membership write is *expressed as*
+access mode, the qbridge dialect would disable itself on first use — the -16X
+belongs on the switchport dialect after all, now for a reason instead of a guess.
+The lesson stands unchanged: the extrapolation was invalid, and only measurement
+told us what the devices actually do.
 
 ## 4. A failure is something you did wrong.
 
