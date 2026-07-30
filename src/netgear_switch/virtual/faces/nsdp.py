@@ -13,11 +13,11 @@ Two write-auth schemes are modelled, selected by ``state.nsdp_auth_version``
   byte 7 (result 0x0700).
 * **v2** — validate the 8-byte ``AUTH_V2_PASSWORD`` (0x001A) token against
   ``auth_v2_password(password, mac, last-issued salt)``. This reproduces the
-  GS110EMX (fw 1.0.2.8) behaviour LIVE-VERIFIED here: config-first + trailing
-  0x001A with the right token applies the write (error 0); a wrong token returns
-  error 13 and, after a few rapid failures, escalates to error 14 and then goes
-  SILENT (no reply) for a cooldown; leading with 0x001A returns error 4; and a
-  READ naming write-only 0x001A returns error 3.
+  GS110EMX (fw 1.0.2.8) behaviour LIVE-VERIFIED here: a WRITE that LEADS with
+  the 0x001A token (then the config TLVs) and carries the right token applies
+  the change (error 0); a wrong token returns error 13 and, after a few rapid
+  failures, escalates to error 14 and then goes SILENT (no reply) for a
+  cooldown; a READ naming write-only 0x001A returns error 3.
 
 ``stop()`` closes the socket deterministically so no ResourceWarning is emitted
 under ``-W error::ResourceWarning``.
@@ -38,7 +38,6 @@ from ...protocols.nsdp.write import (
     RESULT_LOCKED_V2,
     RESULT_READONLY,
     RESULT_SUCCESS,
-    RESULT_WRITEONLY,
 )
 
 if TYPE_CHECKING:
@@ -167,12 +166,11 @@ class VirtualNsdpFace:
             server_mac=self._state.nsdp_mac,
             sequence=req.sequence,
         )
-        # Leading with the write-only auth tag is rejected structurally (error
-        # 4), before auth is even weighed -- observed live on the GS110EMX.
-        if req.tlvs and req.tlvs[0].tag == Tag.AUTH_V2_PASSWORD:
-            resp.result = RESULT_WRITEONLY
-            resp.errattr = int(Tag.AUTH_V2_PASSWORD)
-            return resp
+        # The correct structure LEADS with the 8-byte AUTH_V2_PASSWORD token,
+        # then the config TLVs -- LIVE-VERIFIED accepted on a GS110EMX. (A
+        # malformed/wrong-length token leading the packet was separately seen to
+        # return error 4, write-only, but the library never emits that; the
+        # token is validated below regardless of position.)
         # Past the silence threshold the switch stops answering writes entirely.
         if self._state.nsdp_auth_failures > _V2_SILENCE_AT:
             return None

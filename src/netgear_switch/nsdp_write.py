@@ -100,10 +100,12 @@ class NsdpWriter:
         return next((v for v in self._reader.get_vlans() if v.vlan_id == vlan), None)
 
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
-        # UNVERIFIED pending a hardware capture: PORT_PVID (0x3000) is documented
-        # READ-ONLY in the reference spec, so a real switch may reject this write
-        # (verify-after-write below is the guard). Same house style as
-        # snmp_write.py:set_mgmt_ip's unverified-OID note.
+        # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): PORT_PVID
+        # (0x3000) IS writable (the reference spec's READ-ONLY marking was
+        # conservative). Constraint observed live: the target VLAN must be one
+        # the port is already a member of, else the switch rejects with header
+        # error 2 (surfaced as NsdpError by check_result). verify-after-write
+        # below is the runtime guard.
         self._guard(port, force)
         before = dict(self._reader.get_pvids())
         self.client.write([pvid_tlv(port, vlan)], password=self._password)
@@ -118,10 +120,10 @@ class NsdpWriter:
     def set_vlan_membership(
         self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
     ) -> None:
-        # UNVERIFIED pending a hardware capture: VLAN_MEMBERS (0x2800) is
-        # documented READ-ONLY in the reference spec, so a real switch may reject
-        # this write (verify-after-write below is the guard). Same house style as
-        # snmp_write.py:set_mgmt_ip's unverified-OID note.
+        # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): VLAN_MEMBERS
+        # (0x2800) IS writable -- a link-down port was flipped tagged->excluded
+        # ->tagged in an existing VLAN and read back exactly. The reference
+        # spec's READ-ONLY marking was conservative. verify-after-write guards.
         self._guard(port, force)
         before = self._vlan(vlan)
         members, tagged = _members_after(before, port, mode)
@@ -141,10 +143,11 @@ class NsdpWriter:
         self, address: str, netmask: str, gateway: str, *, force: bool = False
     ) -> None:
         # Force-gated: a wrong management-IP write can strand the switch.
-        # UNVERIFIED pending a hardware capture: the NSDP write path + v1 auth are
-        # unconfirmed against real hardware (verify-after-write below is the
-        # guard), same house style as snmp_write.py:set_mgmt_ip. (IP/netmask/
-        # gateway are R/W in the reference spec, unlike PVID/VLAN_MEMBERS.)
+        # The NSDP write+auth path is LIVE-VERIFIED (v2) via set_pvid /
+        # set_vlan_membership on a GS110EMX; IP/netmask/gateway are R/W in the
+        # spec and go through the same authenticated write. NOT live-exercised
+        # here on purpose -- changing a switch's management IP is barred by the
+        # safety rules. verify-after-write below is the runtime guard.
         if not force:
             raise ProtectedPortError(
                 "set_mgmt_ip can strand the switch; pass force=True to override"
@@ -231,10 +234,10 @@ class AsyncNsdpWriter:
         return next((v for v in vlans if v.vlan_id == vlan), None)
 
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
-        # UNVERIFIED pending a hardware capture: PORT_PVID (0x3000) is documented
-        # READ-ONLY in the reference spec, so a real switch may reject this write
-        # (verify-after-write below is the guard). Same house style as
-        # snmp_write.py:set_mgmt_ip's unverified-OID note.
+        # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): PORT_PVID
+        # (0x3000) IS writable. Constraint observed live: the target VLAN must
+        # be one the port is already a member of, else the switch rejects with
+        # header error 2. verify-after-write below is the runtime guard.
         self._guard(port, force)
         before = dict(await self._reader.get_pvids())
         await self.client.write([pvid_tlv(port, vlan)], password=self._password)
@@ -272,10 +275,11 @@ class AsyncNsdpWriter:
         self, address: str, netmask: str, gateway: str, *, force: bool = False
     ) -> None:
         # Force-gated: a wrong management-IP write can strand the switch.
-        # UNVERIFIED pending a hardware capture: the NSDP write path + v1 auth are
-        # unconfirmed against real hardware (verify-after-write below is the
-        # guard), same house style as snmp_write.py:set_mgmt_ip. (IP/netmask/
-        # gateway are R/W in the reference spec, unlike PVID/VLAN_MEMBERS.)
+        # The NSDP write+auth path is LIVE-VERIFIED (v2) via set_pvid /
+        # set_vlan_membership on a GS110EMX; IP/netmask/gateway are R/W in the
+        # spec and go through the same authenticated write. NOT live-exercised
+        # here on purpose -- changing a switch's management IP is barred by the
+        # safety rules. verify-after-write below is the runtime guard.
         if not force:
             raise ProtectedPortError(
                 "set_mgmt_ip can strand the switch; pass force=True to override"

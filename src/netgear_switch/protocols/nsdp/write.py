@@ -92,14 +92,15 @@ def build_write_request_v2(
     tlvs: list[TLVEntry],
     auth_token: bytes,
 ) -> NSDPPacket:
-    """Build a v2-authenticated WRITE: config TLVs first, then the 8-byte
-    ``AUTH_V2_PASSWORD`` token LAST.
+    """Build a v2-authenticated WRITE: the 8-byte ``AUTH_V2_PASSWORD`` token
+    FIRST, then the config TLVs.
 
-    Ordering is load-bearing and LIVE-VERIFIED on a GS110EMX: with the auth tag
-    trailing the config change the switch evaluates auth and applies the write
-    (error 0); leading with 0x001A instead returns error 4 (write-only). The
-    caller must have just read a fresh AUTH_V2_SALT so the token matches the
-    switch's stored challenge.
+    Ordering is load-bearing and LIVE-VERIFIED on a GS110EMX: leading with the
+    0x001A token authenticates and applies the write (header error 0);
+    trailing it after the config change is rejected error 13. This matches
+    yaamai/go-nsdp's ``WriteWithAuth`` (auth TLV prepended). The caller must
+    have just read a fresh AUTH_V2_SALT so the token matches the switch's
+    stored challenge.
     """
     pkt = NSDPPacket(
         op=Op.WRITE_REQUEST,
@@ -107,8 +108,8 @@ def build_write_request_v2(
         server_mac=server_mac,
         sequence=sequence,
     )
-    pkt.tlvs.extend(tlvs)
     pkt.tlvs.append(TLVEntry(Tag.AUTH_V2_PASSWORD, auth_token))
+    pkt.tlvs.extend(tlvs)
     return pkt
 
 

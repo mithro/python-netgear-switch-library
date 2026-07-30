@@ -36,8 +36,12 @@ Investigation evidence (GS110EMX @ 10.1.5.25/.26/.27, fw 1.0.2.8, 2026-07-29):
 * AUTH_V2_ENCPASS (0x0014) returns 0x00000010 on this SKU (v2); a v1 unit
   returns 1. AUTH_V2_SALT (0x0017) is a 4-byte value that rotates on EVERY read.
   AUTH_V2_PASSWORD (0x001A) is write-only (a READ of it returns error 3).
-* Write structure matters: ``[config…, 0x001A]`` authenticates; LEADING with
-  0x001A returns error 4 (write-only). errattr echoes the first TLV.
+* Write structure matters: the 0x001A token must come FIRST, then the config
+  TLVs (``[0x001A, config…]``) -- this is what authenticates (error 0). Sending
+  it LAST is rejected error 13; a malformed/wrong-length token leading the
+  packet was seen to return error 4. Broadcast vs switch-MAC targeting and a
+  real vs dummy client MAC do NOT matter -- auth-first works with the library's
+  broadcast/dummy framing.
 * Lockout (belongs in the mock; see faces/nsdp.py): READS always work, even
   while writes are locked. Wrong-token writes return error 13 for the first few
   (4 consecutive seen at ~1.2 s spacing), then escalate to error 14, then the
