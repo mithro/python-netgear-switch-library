@@ -487,3 +487,107 @@ def test_header_columns_reconstructs_wrapped_poe_headers() -> None:
         "Status",
         "Fault Status",
     ]
+
+
+# ---------------------------------------------------------------------------
+# S3300-52X (gsm7228ps): the Smart-firmware image names physical ports "1/gN"
+# (1-48) and 10G uplinks "1/xgN" (49-52), NOT "1/0/N". These tests pin that the
+# parsers resolve those ifNames (the fix in parse._phys_port / _SMART_IFACE_RE)
+# and that the parsed values match the model's own SNMP capture. Fixtures are the
+# real telnet CLI sweep of 10.1.5.11 (port 60000), 2026-07-30.
+# ---------------------------------------------------------------------------
+
+
+def _read_s3300(name: str) -> str:
+    return (_FIX / f"gsm7228ps_{name}.txt").read_text()
+
+
+def test_s3300_smart_iface_names_resolve_to_ports() -> None:
+    # Direct check of the parser fix: 1/gN and 1/xgN both map to N; "1/0/N" is
+    # unaffected; pseudo-interfaces are still None.
+    assert parse._phys_port("1/g7") == 7
+    assert parse._phys_port("1/g48") == 48
+    assert parse._phys_port("1/xg49") == 49
+    assert parse._phys_port("1/xg52") == 52
+    assert parse._phys_port("1/0/7") == 7  # Fully Managed line unchanged
+    assert parse._phys_port("lag 3") is None
+    assert parse._phys_port("CPU Interface:  0/5/1") is None
+
+
+def test_s3300_parse_port_status_52_ports_smart_names() -> None:
+    ports = {p.port: p for p in parse.parse_port_status(_read_s3300("port_all"))}
+    assert set(ports) == set(range(1, 53))  # 48 gigabit + 4 10G uplinks
+    assert ports[1].name == "1/g1"
+    assert ports[48].name == "1/g48"
+    assert ports[49].name == "1/xg49"
+    assert ports[52].name == "1/xg52"
+    assert ports[1].admin_enabled is True
+    assert ports[1].link_up is False
+    assert ports[1].speed_mbps is None  # down -> None, never 0
+
+
+def test_s3300_parse_vlan_brief_from_show_vlan() -> None:
+    # This SKU rejects "show vlan brief"; the reader runs the bare "show vlan"
+    # (spec.vlan_brief_cmd override), whose summary table parse_vlan_brief reads.
+    brief = parse.parse_vlan_brief(_read_s3300("vlan"))
+    assert brief == [
+        (1, "Default"),
+        (5, "net"),
+        (21, "fpgas"),
+        (121, "t-fpgas"),
+        (4089, "Auto-Video"),
+    ]
+
+
+def test_s3300_parse_pvids_smart_names() -> None:
+    pvids = dict(parse.parse_pvids(_read_s3300("vlan_port_all")))
+    assert len(pvids) == 52
+    assert pvids[1] == 21  # 1/g1 default VLAN 21
+    assert pvids[41] == 5  # 1/g41 on VLAN 5
+
+
+def test_s3300_parse_poe_delivering_ports() -> None:
+    poe = {p.port: p for p in parse.parse_poe(_read_s3300("poe"))}
+    assert len(poe) == 48  # 48 PoE ports, no uplink PoE
+    # g1 is searching (no draw); g44 is delivering.
+    assert poe[1].detect is PoEDetect.SEARCHING
+    assert poe[1].power_mw == 0
+    assert poe[44].detect is PoEDetect.DELIVERING
+    assert poe[44].power_mw == 400
+    assert poe[44].admin_enabled is True
+
+
+def test_s3300_parse_lldp_uplink_neighbours() -> None:
+    nbrs = {n.local_port: n for n in parse.parse_lldp(_read_s3300("lldp"))}
+    # Only the two 10G uplinks (1/xg49, 1/xg51) have neighbours; the 48 gigabit
+    # local ports print with no remote device and are skipped.
+    assert set(nbrs) == {49, 51}
+    assert nbrs[49].remote_chassis_id == "E0:91:F5:0C:D6:DB"
+    assert nbrs[49].remote_port_id == "1/0/48"
+
+
+def test_s3300_parse_mac_table_smart_and_cpu_ifindex() -> None:
+    macs = parse.parse_mac_table(_read_s3300("mac_table"))
+    # 17 FDB rows (the fixture's "Address Entries Currently in Use... 17").
+    assert len(macs) == 17
+    by = {(m.mac, m.vlan_id): m for m in macs}
+    # 1/xg51 -> ifIndex 51; the CPU/Management row -> ifIndex 313.
+    assert by[("02:00:0A:01:05:01", 5)].port == 51
+    assert by[("08:BD:43:6B:B8:D8", 5)].port == 313
+
+
+def test_s3300_parse_mgmt_ip() -> None:
+    mgmt = parse.parse_mgmt_ip(_read_s3300("network"))
+    assert mgmt.address == "10.1.5.11"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.base_mac == "08:BD:43:6B:B8:D8"
+    assert mgmt.mode is IpMode.DHCP  # "Configured IPv4 Protocol... DHCP"
+
+
+def test_s3300_parse_environment_sensors() -> None:
+    sensors = parse.parse_environment(_read_s3300("environment"))
+    kinds = {s.kind for s in sensors}
+    assert {"temperature", "fan", "power"} <= kinds
+    fans = [s for s in sensors if s.kind == "fan"]
+    assert len(fans) == 3
+    assert fans[0].value == 4945.0  # FAN-1 speed

@@ -113,10 +113,9 @@ def test_cli_reader_poe_unsupported_on_non_poe_model() -> None:
 
 
 def test_cli_reader_works_for_every_fastpath_model() -> None:
-    # gsm7228ps (S3300-52X) is NOT here: it has no functional CLI (SSH absent,
-    # telnet enabled-but-never-listens -- live-verified 2026-07-30), so no CLI
-    # backend and no CLI spec.
-    for key in ("gsm7252ps", "m4300-24x", "m4300-16x"):
+    # gsm7228ps (S3300-52X) is a telnet-only CLI model (port 60000); its mock CLI
+    # face renders the Smart-firmware 1/gN/1/xgN port names.
+    for key in ("gsm7252ps", "m4300-24x", "m4300-16x", "gsm7228ps"):
         assert _reader(key).get_ports()  # command dispatch + parse round trip
 
 
@@ -130,14 +129,13 @@ def test_mock_face_rejects_unknown_command() -> None:
 
 def test_cli_reads_verified_only_for_live_checked_models() -> None:
     assert CLI_SPECS  # non-empty
-    # gsm7252ps (10.1.5.22, CLI<->SNMP), m4300-24x (10.1.5.13) and m4300-16x
-    # (10.1.5.20) were all cross-verified against real hardware, so their reads
-    # are verified. These are the ONLY CLI models: gsm7228ps (S3300-52X) has no
-    # functional CLI (live-verified 2026-07-30) and so has no CLI spec at all.
-    verified = {"gsm7252ps", "m4300-24x", "m4300-16x"}
+    # All four CLI models were cross-verified against real hardware: gsm7252ps
+    # (10.1.5.22, CLI<->SNMP), m4300-24x (10.1.5.13), m4300-16x (10.1.5.20) and
+    # gsm7228ps (S3300-52X @ 10.1.5.11, telnet on port 60000, 2026-07-30). Each
+    # carries a real captured transcript (tests/fixtures/cli/<key>_*.txt).
+    verified = {"gsm7252ps", "m4300-24x", "m4300-16x", "gsm7228ps"}
     assert set(CLI_SPECS) == verified
     assert {k for k, s in CLI_SPECS.items() if s.reads_verified} == verified
-    # The live-captured models carry real transcripts.
     assert {k for k, s in CLI_SPECS.items() if s.captured} == verified
 
 
@@ -147,9 +145,22 @@ def test_m4300_cli_command_overrides() -> None:
     for key in ("m4300-24x", "m4300-16x"):
         assert CLI_SPECS[key].vlan_brief_cmd == "show vlan"
         assert CLI_SPECS[key].network_cmd == "show ip management"
-    # gsm7252ps keeps the older-image defaults (gsm7228ps has no CLI spec).
+    # gsm7252ps keeps both older-image defaults.
     assert CLI_SPECS["gsm7252ps"].vlan_brief_cmd == "show vlan brief"
     assert CLI_SPECS["gsm7252ps"].network_cmd == "show network"
+    # gsm7228ps (S3300 Smart firmware) is a HYBRID: it rejects "show vlan brief"
+    # so it takes the M4300-style "show vlan", but keeps the older "show network"
+    # (NOT the M4300's "show ip management").
+    assert CLI_SPECS["gsm7228ps"].vlan_brief_cmd == "show vlan"
+    assert CLI_SPECS["gsm7228ps"].network_cmd == "show network"
+
+
+def test_gsm7228ps_telnet_port_is_60000() -> None:
+    # The S3300-52X's FASTPATH telnet CLI listens on the NON-standard port 60000
+    # (not 23); every other spec keeps the telnet default.
+    assert CLI_SPECS["gsm7228ps"].telnet_port == 60000
+    for key in ("gsm7252ps", "m4300-24x", "m4300-16x"):
+        assert CLI_SPECS[key].telnet_port == 23
 
 
 def test_cli_spec_raises_for_non_cli_model() -> None:
@@ -159,19 +170,21 @@ def test_cli_spec_raises_for_non_cli_model() -> None:
 
 @pytest.mark.parametrize("key", ["gsm7252ps", "m4300-24x", "m4300-16x"])
 def test_fastpath_models_register_ssh_and_telnet(key: str) -> None:
+    # gsm7228ps is deliberately excluded: it is telnet-only (see the dedicated
+    # test below) because the S3300-52X runs no ssh listener on any port.
     backends = get_model(key).backends
     assert Backend.SSH in backends
     assert Backend.TELNET in backends
 
 
-def test_s3300_gsm7228ps_has_no_cli_backend() -> None:
-    # The S3300-52X exposes no functional CLI (SSH absent; telnet enabled but
-    # never listens -- live-verified 2026-07-30 incl. a reboot), so unlike the
-    # FASTPATH SKUs above it declares NEITHER SSH nor TELNET; its CLI pathway is
-    # consistently UnsupportedCapabilityError across the library and the mock.
+def test_s3300_gsm7228ps_is_telnet_only() -> None:
+    # The S3300-52X's CLI is reachable over telnet (port 60000) but SSH is
+    # genuinely absent -- no ssh listener on any port (SNMP tcpConnTable shows
+    # only 80/443/60000), live-verified 2026-07-30. So it declares TELNET but
+    # NOT SSH, unlike the Fully Managed FASTPATH SKUs above.
     backends = get_model("gsm7228ps").backends
+    assert Backend.TELNET in backends
     assert Backend.SSH not in backends
-    assert Backend.TELNET not in backends
 
 
 def test_plus_models_have_no_cli_backend() -> None:
@@ -184,16 +197,34 @@ def test_plus_models_have_no_cli_backend() -> None:
 # --- facade gate: CLI reads/writes refused while reads_verified is False -----
 
 
-def test_sync_facade_refuses_cli_backend() -> None:
+def test_sync_facade_builds_cli_reader_but_refuses_cli_write() -> None:
     from netgear_switch.sync_api import SyncSwitch
 
-    # gsm7228ps (S3300-52X) has NO CLI backend (no functional CLI on the real
-    # switch), so the facade must refuse any CLI read/write dispatch to it.
+    # gsm7228ps (S3300-52X) is now a reads_verified telnet CLI model, so the
+    # facade BUILDS a (lazy) CLI reader for its telnet backend rather than
+    # refusing. There is still no CLI writer in this slice, so a CLI write is
+    # honestly unsupported (SNMP remains the write path).
     sw = SyncSwitch(get_model("gsm7228ps"), "10.0.0.1")
+    assert isinstance(sw._reader_for(Backend.TELNET), CliReader)
     with pytest.raises(UnsupportedCapabilityError):
-        sw._reader_for(Backend.SSH)
-    with pytest.raises(UnsupportedCapabilityError):
-        sw._writer_for(Backend.SSH)
+        sw._writer_for(Backend.TELNET)
+
+
+def test_sync_facade_build_cli_client_picks_telnet_for_gsm7228ps() -> None:
+    from netgear_switch._dispatch import build_sync_cli_client
+    from netgear_switch.transport.cli.ssh import SshCliTransport
+    from netgear_switch.transport.cli.telnet import TelnetCliTransport
+
+    # gsm7228ps has TELNET but not SSH -> telnet transport, dialled on port 60000.
+    client = build_sync_cli_client("10.1.5.11", "admin", "pw", get_model("gsm7228ps"))
+    assert isinstance(client, TelnetCliTransport)
+    assert client._port == 60000
+    # The SSH-capable FASTPATH models still get the SSH transport.
+    for key in ("gsm7252ps", "m4300-24x", "m4300-16x"):
+        assert isinstance(
+            build_sync_cli_client("10.0.0.1", "admin", "pw", get_model(key)),
+            SshCliTransport,
+        )
 
 
 def test_async_facade_refuses_cli_backend() -> None:

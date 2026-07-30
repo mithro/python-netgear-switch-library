@@ -43,8 +43,9 @@ def test_scp_cert_profile_rejects_non_fastpath() -> None:
 
 
 def test_scp_cert_profile_rejects_fastpath_without_scp() -> None:
-    # gsm7228ps (S3300-52X) has no CLI/SCP backend at all (its cert upload is
-    # HTTP multipart), so scp_cert_profile must reject it.
+    # gsm7228ps (S3300-52X) HAS a telnet CLI backend, but no copy-scp cert
+    # profile: its cert upload is HTTP multipart, not SCP. So scp_cert_profile
+    # passes the CLI-backend gate yet still rejects it (no known SCP profile).
     with pytest.raises(UnsupportedCapabilityError):
         scp_cert_profile(get_model("gsm7228ps"))
 
