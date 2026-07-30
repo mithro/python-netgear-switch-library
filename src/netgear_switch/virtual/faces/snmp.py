@@ -310,12 +310,19 @@ class VirtualSnmpFace:
     """
 
     def __init__(
-        self, view: StateMibView, *, community: str = "public", host: str = "127.0.0.1"
+        self,
+        view: StateMibView,
+        *,
+        community: str = "public",
+        host: str = "127.0.0.1",
+        port: int = 0,
     ) -> None:
         self._view = view
         self._community = community
         self._host = host
-        self._port = 0
+        # Requested bind port (0 = ask the OS for an ephemeral one). The
+        # actually-bound port is captured into ``self._port`` in ``start()``.
+        self._port = port
         self._engine: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -332,7 +339,7 @@ class VirtualSnmpFace:
     def start(self) -> int:
         """Bind the UDP socket, start the agent thread, and return the port."""
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((self._host, 0))
+        sock.bind((self._host, self._port))
         self._port = sock.getsockname()[1]
         self._sock = sock
 

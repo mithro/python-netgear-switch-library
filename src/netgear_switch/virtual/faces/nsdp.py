@@ -28,10 +28,14 @@ if TYPE_CHECKING:
 class VirtualNsdpFace:
     """A UDP NSDP command responder serving a ``VirtualSwitchState``."""
 
-    def __init__(self, state: VirtualSwitchState, *, host: str = "127.0.0.1") -> None:
+    def __init__(
+        self, state: VirtualSwitchState, *, host: str = "127.0.0.1", port: int = 0
+    ) -> None:
         self._state = state
         self._host = host
-        self._port = 0
+        # Requested bind port (0 = ephemeral); the bound port lands in
+        # ``self._port`` in ``start()``.
+        self._port = port
         self._sock: socket.socket | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
@@ -39,7 +43,7 @@ class VirtualNsdpFace:
     def start(self) -> int:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((self._host, 0))
+        sock.bind((self._host, self._port))
         sock.settimeout(0.2)  # so the serve loop can observe _stop promptly
         self._port = sock.getsockname()[1]
         self._sock = sock
