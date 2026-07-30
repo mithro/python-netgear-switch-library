@@ -11,10 +11,20 @@ from netgear_switch.protocols.nsdp.types import LinkSpeed, VLANEngine
 
 def test_link_speed_from_byte_and_mbps():
     assert LinkSpeed.from_byte(0x05) is LinkSpeed.GIGABIT
-    assert LinkSpeed.from_byte(0xFF) is LinkSpeed.TEN_GIGABIT
+    # 0x06 is the REAL 10G code. Captured on a GS110EMX (10.1.5.25 and .26,
+    # firmware 1.0.2.8, 2026-07-30): PORT_STATUS answers ``09 06 01`` /
+    # ``0a 06 01`` for the two 10G/Multi-Gig uplinks while the switch's own
+    # /iss/specific/port_settings.html shows them "Up ... 10G Full". Before
+    # this, 0x06 was an unknown code and both uplinks were reported LINK DOWN.
+    assert LinkSpeed.from_byte(0x06) is LinkSpeed.TEN_GIGABIT
+    assert LinkSpeed.TEN_GIGABIT.speed_mbps == 10000
+    # 0xFF is prior art that no real switch here has ever emitted; it stays
+    # DECODABLE as 10G (never silently "down") but is a separate member so it
+    # can't be mistaken for the measured value.
+    assert LinkSpeed.from_byte(0xFF) is LinkSpeed.TEN_GIGABIT_PRIOR_ART
+    assert LinkSpeed.TEN_GIGABIT_PRIOR_ART.speed_mbps == 10000
     assert LinkSpeed.from_byte(0x77) is LinkSpeed.DOWN  # unknown -> DOWN, no raise
     assert LinkSpeed.GIGABIT.speed_mbps == 1000
-    assert LinkSpeed.TEN_GIGABIT.speed_mbps == 10000
     assert LinkSpeed.DOWN.speed_mbps == 0
 
 

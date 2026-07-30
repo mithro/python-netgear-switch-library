@@ -1832,6 +1832,17 @@ def seed_gs110emx() -> VirtualSwitchState:
     membership page was captured -- and the QoS/mirroring/IGMP/broadcast/
     loop-detection tag values further down, which are test fixtures chosen so
     nsdp_device() has something non-vacuous to decode on every parsed tag.
+
+    FIRMWARE CAVEAT. This state is transcribed from captures taken while
+    10.1.5.25 ran firmware 1.0.1.4, and it keeps ``nsdp_auth_v2_only`` at its
+    default False, so NSDP writes succeed against it. That unit has since been
+    upgraded to 1.0.2.8, and on 1.0.2.8 NSDP writes are REFUSED outright (error
+    13/14 blaming ATTR_PASSWORD -- see ``seed_gs110emx_fw1028``, which models
+    exactly that, and ``VirtualSwitchState.nsdp_auth_v2_only`` for the capture).
+    Whether 1.0.1.4 accepted v1 auth was never measured, so this seed does not
+    claim it did -- it simply keeps the pre-existing, unverified write path
+    exercisable. Anything asserting real GS110EMX NSDP-write behaviour today
+    must use ``seed_gs110emx_fw1028``.
     """
     real_speed = {6: 100, 8: 1000, 9: 10000, 10: 10000}
     # Counters transcribed from gs110emx_interface_stats.html: traffic is on
@@ -1894,6 +1905,78 @@ def seed_gs110emx() -> VirtualSwitchState:
         nsdp_igmp_snooping_vlan=90,
         nsdp_broadcast_filtering=True,
         nsdp_loop_detection=True,
+    )
+
+
+def seed_gs110emx_fw1028() -> VirtualSwitchState:
+    """The SAME GS110EMX, as measured LIVE on 2026-07-30 at firmware 1.0.2.8.
+
+    Every value below came off the wire that day rather than out of the older
+    committed HTML fixtures ``seed_gs110emx`` transcribes, and each is here
+    because a claim in this library turned out to be wrong about it:
+
+    * ``nsdp_auth_v2_only=True`` -- an NSDP WRITE_REQUEST bearing the v1
+      repeating-XOR PASSWORD TLV is answered error=13 (then 14 on the next try)
+      with the header error-attribute set to 0x000A/ATTR_PASSWORD; a plaintext
+      password fares identically. So no NSDP write works on this firmware.
+    * ports 9 and 10 at 10000 Mbps -- their PORT_STATUS speed byte is 0x06
+      (``09 06 01`` / ``0a 06 01``), which the decoder used to treat as an
+      unknown code and report as LINK DOWN.
+    * port descriptions "Nicole's Room" (6) and "TV Room" (8), read from tag
+      0xB000 and matching that switch's own Port Status page exactly.
+    * ``flow_control=True`` on every port, matching the page's Flow Control
+      column (its sibling 10.1.5.27, with the column set to Disable throughout,
+      answers 0x00 on all ten ports).
+    * the twelve VLAN ids the unit really carries, from tag 0x2800.
+    """
+    speeds = {6: 100, 8: 1000, 9: 10000, 10: 10000}
+    descriptions = {6: "Nicole's Room", 8: "TV Room"}
+    ports = {
+        p: PortSim(
+            name=f"g{p}",
+            admin=True,
+            link=p in speeds,
+            speed=speeds.get(p, 0),
+            description=descriptions.get(p),
+            flow_control=True,
+        )
+        for p in range(1, 11)
+    }
+    # Read off tag 0x2800 on 10.1.5.25: VLAN 1 has all ten ports with 6/9/10
+    # tagged; the other eleven VLANs are all-ports-tagged.
+    vlans = {
+        1: VlanSim(name="", member=set(range(1, 11)), untagged={1, 2, 3, 4, 5, 7, 8})
+    }
+    for vid in (4, 5, 6, 7, 10, 20, 21, 41, 90, 99, 121):
+        vlans[vid] = VlanSim(name="", member=set(range(1, 11)), untagged=set())
+    return VirtualSwitchState(
+        model_key="gs110emx",
+        ports=ports,
+        vlans=vlans,
+        pvids={**dict.fromkeys(range(1, 11), 1), 6: 4},
+        mgmt=MgmtSim(
+            address="10.1.5.25",
+            netmask="255.255.255.0",
+            gateway="10.1.5.1",
+            mode="static",
+        ),
+        model_name="GS110EMX",
+        serial="53H60253A0032",
+        firmware="1.0.2.8",
+        hostname="sw-netgear-gs110emx1",
+        nsdp_mac=b"\xbc\xa5\x11\xb8\xec\xf1",
+        nsdp_password="password",
+        nsdp_auth_v2_only=True,
+        nsdp_qos_engine=2,
+        nsdp_port_mirroring_dest=0,
+        nsdp_port_mirroring_sources=frozenset(),
+        nsdp_igmp_snooping_enabled=True,
+        nsdp_igmp_snooping_vlan=1,
+        nsdp_broadcast_filtering=False,
+        # Tag 0x9000 (LOOP_DETECTION) is one this firmware does NOT answer at
+        # all -- it is absent from the measured tag inventory -- so it stays
+        # None, which is exactly how nsdp_tlvs() omits it.
+        nsdp_loop_detection=None,
     )
 
 

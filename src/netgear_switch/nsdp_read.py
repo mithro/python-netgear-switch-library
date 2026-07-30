@@ -1,10 +1,12 @@
 """Model-driven NSDP read operations over a sync or async client.
 
 Parallel to ``snmp_read.py``. Maps NSDP TLVs onto the SAME public ``models``
-types. NSDP genuinely exposes only port link/speed, byte/CRC statistics, VLAN
-membership, PVID and management IP on these Plus switches; MAC/FDB, LLDP,
-sensors and PoE are not in the protocol, so those ops raise
-``UnsupportedCapabilityError`` rather than fabricating empty results.
+types: port link/speed/flow-control, per-port descriptions, byte/CRC
+statistics, VLAN membership, PVID and management IP.
+
+MAC/FDB, LLDP, sensors and PoE raise ``UnsupportedCapabilityError``, and that
+is now MEASURED rather than asserted -- see ``_NO_MACS`` & co. below for the
+captured evidence and how to reproduce it.
 """
 
 from __future__ import annotations
@@ -24,19 +26,64 @@ if TYPE_CHECKING:
     from .protocols.nsdp.types import NsdpDevice
     from .registry import SwitchModel
 
-_NO_MACS = "NSDP exposes no MAC/FDB table (Plus switches have no remote FDB)"
-_NO_LLDP = "NSDP exposes no LLDP neighbours on these Plus switches"
-_NO_SENSORS = "NSDP exposes no environmental sensors on these Plus switches"
-_NO_POE = "NSDP exposes no PoE status; use the HTTP backend (Slice 6) for PoE"
+# The four refusals below used to be bare assertions. They are now grounded in
+# a MEASURED, exhaustive tag sweep of a real GS110EMX (10.1.5.25, firmware
+# 1.0.2.8, 2026-07-30) plus that firmware's own web-UI page inventory.
+#
+# Method (reproducible; see the "NSDP tag inventory" note in docs/): one
+# READ_REQUEST per tag was sent for EVERY 0xNN00 tag in the whole 16-bit space
+# (256 probes) and for every tag 0x0000-0x00FF (256 more). The switch answers a
+# tag it cannot serve with header error code 3 ("attribute not readable") naming
+# that tag in the header's error-attribute field, so the reply distinguishes
+# "tag exists" from "tag does not" without guessing. Tags resolve on a 0x0400
+# grid, so the 0xNN00 sweep covers every distinct tag.
+#
+# The complete set the GS110EMX answers is:
+#   identity/auth : 0x0001 0x0002 0x0003 0x0004 0x0005 0x0006 0x0007 0x0008
+#                   0x000A 0x000B 0x000C 0x000D 0x000E 0x000F 0x0014 0x0017
+#                   0x0019
+#   per-port      : 0x0800 0x0C00 0x1000 0x3000 0x3800 0x8800 0x9400 0xB000
+#   VLAN          : 0x2000 0x2400 0x2800 0x6400
+#   other         : 0x3400 0x5400 0x5C00 0x6000 0x6800 0x6C00 0x7000 0x7400
+#                   0x7800 0x7C00 0x8000 0x8C00 0xA800 0xF000 0xF800
+# There is NO tag anywhere in that space carrying a forwarding table, an LLDP
+# neighbour, a temperature/fan reading or a PoE row -- the largest per-port TLV
+# is the 49-byte PORT_STATISTICS counter block.
+#
+# Independent corroboration from the same device: its firmware's own navigation
+# file (``GET /frame.js``) enumerates all 37 web-UI pages, and there is no MAC
+# address table page, no LLDP page, no sensor page and no PoE page among them.
+_SWEEP = (
+    "measured by an exhaustive NSDP tag sweep of a real GS110EMX "
+    "(10.1.5.25, firmware 1.0.2.8, 2026-07-30) covering every tag in the "
+    "16-bit space; see nsdp_read.py for the full tag inventory"
+)
+_NO_MACS = f"NSDP has no MAC/FDB table tag ({_SWEEP})"
+_NO_LLDP = f"NSDP has no LLDP neighbour tag ({_SWEEP})"
+_NO_SENSORS = f"NSDP has no environmental-sensor tag ({_SWEEP})"
+# PoE: the sweep found no PoE tag either. Separately, neither NSDP-class model
+# with a reachable unit is a PSE at all -- gs110emx has poe_port_count=0 (and
+# no PoE page in its own /frame.js nav), and gs105pe is PoE PASS-THROUGH with
+# poe_port_count=0 (its web UI 404s getPoePortStatus.cgi). gs305ep IS a PSE and
+# reads PoE over its HTTP backend (poe_status_path=/getPoePortStatus.cgi).
+_NO_POE = f"NSDP has no PoE status tag ({_SWEEP}); use the HTTP backend for PoE"
 
 # Every read-tag ``parse_device`` knows how to decode, requested together so
 # ``get_device()``/``nsdp_device()`` returns the COMPLETE NsdpDevice in one
 # round trip -- identity, mgmt IP, per-port status/stats, VLANs/PVIDs, and the
 # QoS/mirroring/IGMP/broadcast-filtering/loop-detection tags (see parsers.py).
+#
+# A tag this model does not answer is simply OMITTED from a multi-tag reply --
+# MEASURED on 10.1.5.25 (fw 1.0.2.8): requesting [MODEL, LOOP_DETECTION] returns
+# error 0 with just the MODEL TLV, and the full list below (which includes
+# LOOP_DETECTION 0x9000, a tag that firmware does not serve) returns error 0
+# with 57 TLVs. The error-3 refusal only happens when an unanswerable tag is the
+# ONLY tag requested. So this list is safe to keep model-agnostic.
 _FULL_DEVICE_TAGS = [
     Tag.MODEL,
     Tag.MAC,
     Tag.HOSTNAME,
+    Tag.PORT_NAME,
     Tag.IP_ADDRESS,
     Tag.NETMASK,
     Tag.GATEWAY,
@@ -78,10 +125,15 @@ def _with_model(tags: list[Tag]) -> list[Tag]:
 
 
 def _ports(dev: NsdpDevice) -> list[PortStatus]:
+    # PORT_STATUS carries no name, but tag 0xB000 (PORT_NAME) does -- measured
+    # on three real GS110EMX units, see Tag.PORT_NAME. get_ports() requests both
+    # in one round trip, so the NSDP backend now reports the same operator
+    # descriptions the model's HTTP backend does instead of a blanket None.
+    names = {n.port_id: n.name for n in dev.port_names}
     return [
         PortStatus(
             port=s.port_id,
-            name=None,  # NSDP PORT_STATUS carries no port name
+            name=names.get(s.port_id),
             # NSDP PORT_STATUS reports link speed only; it cannot distinguish an
             # admin-disabled port from a link-down one, so admin_enabled is
             # reported True (the honest "not administratively removed" default).
@@ -152,7 +204,7 @@ class NsdpReader:
         return parse_device(self.client.read(_with_model(tags)))
 
     def get_ports(self) -> list[PortStatus]:
-        return _ports(self._device([Tag.PORT_COUNT, Tag.PORT_STATUS]))
+        return _ports(self._device([Tag.PORT_COUNT, Tag.PORT_STATUS, Tag.PORT_NAME]))
 
     def get_stats(self) -> list[PortStats]:
         return _stats(self._device([Tag.PORT_STATISTICS]))
@@ -204,7 +256,9 @@ class AsyncNsdpReader:
         return parse_device(await self.client.read(_with_model(tags)))
 
     async def get_ports(self) -> list[PortStatus]:
-        return _ports(await self._device([Tag.PORT_COUNT, Tag.PORT_STATUS]))
+        return _ports(
+            await self._device([Tag.PORT_COUNT, Tag.PORT_STATUS, Tag.PORT_NAME])
+        )
 
     async def get_stats(self) -> list[PortStats]:
         return _stats(await self._device([Tag.PORT_STATISTICS]))

@@ -32,15 +32,52 @@ def read_interface_mac(interface: str) -> bytes:
     return raw
 
 
+def _attr_name(tag: int) -> str:
+    """Name the TLV tag the switch blamed, for the error message."""
+    from .protocol import Tag as _Tag
+
+    try:
+        return f"{_Tag(tag).name} (0x{tag:04x})"
+    except ValueError:
+        return f"tag 0x{tag:04x}"
+
+
 def check_result(packet: NSDPPacket) -> None:
-    """Raise ``NsdpError`` unless the response reports success (result 0x0000)."""
+    """Raise ``NsdpError`` unless the response reports success (result 0x0000).
+
+    The message names the offending TLV tag (header bytes 4-5), because the
+    switch tells us and a caller cannot debug "the request failed" otherwise
+    (principle 1). The auth-version codes are called out by name: they are what
+    a real GS110EMX answers when it wants the v2 salted auth this library does
+    not implement, and they are NOT the classic 0x0700 bad-password result -- an
+    operator otherwise reads them as "wrong password" and rotates a credential
+    that was never wrong.
+    """
     if packet.result == RESULT_SUCCESS:
         return
-    if packet.result == RESULT_BAD_PASSWORD:
+    from .protocol import (
+        ERROR_AUTH_VERSION,
+        ERROR_AUTH_VERSION_ALT,
+        ERROR_NAMES,
+        Tag,
+    )
+
+    code = packet.error_code
+    blamed = _attr_name(packet.error_attr) if packet.error_attr else "no attribute"
+    detail = ERROR_NAMES.get(code, f"unknown error code {code}")
+    if code in (ERROR_AUTH_VERSION, ERROR_AUTH_VERSION_ALT):
+        raise NsdpError(
+            f"NSDP write rejected by {blamed}: error {code} ({detail}). "
+            f"{AUTH_V2_UNSUPPORTED}"
+        )
+    if packet.result == RESULT_BAD_PASSWORD and packet.error_attr in (0, Tag.PASSWORD):
         raise NsdpError(
             f"NSDP write rejected: bad password (result 0x0700). {AUTH_V2_UNSUPPORTED}"
         )
-    raise NsdpError(f"NSDP request failed with result 0x{packet.result:04x}")
+    raise NsdpError(
+        f"NSDP request failed with result 0x{packet.result:04x} "
+        f"(error {code}: {detail}) on {blamed}"
+    )
 
 
 class NsdpClient(Protocol):

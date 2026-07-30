@@ -17,6 +17,7 @@ _MBPS = {
     0x03: 100,
     0x04: 100,
     0x05: 1000,
+    0x06: 10000,
     0xFF: 10000,
 }
 
@@ -28,10 +29,21 @@ class LinkSpeed(IntEnum):
     HALF_100M = 0x03
     FULL_100M = 0x04
     GIGABIT = 0x05
-    # ASSUMED/UNVERIFIED — the reference spec states 2.5G/5G/10G speed byte
-    # values are undocumented and require a hardware capture; 0xFF is carried
-    # over from prior art without independent confirmation.
-    TEN_GIGABIT = 0xFF
+    # MEASURED, not assumed: on a real GS110EMX (10.1.5.25 / .26, firmware
+    # 1.0.2.8, 2026-07-30) the two 10G/Multi-Gig uplinks answer PORT_STATUS
+    # speed byte 0x06 while that switch's own web UI
+    # (/iss/specific/port_settings.html) shows them "Up ... 10G Full":
+    #     10.1.5.25 -> 09 06 01 / 0a 06 01, page says port 9,10 = 10G Full
+    #     10.1.5.26 -> 0a 06 01,            page says port 10  = 10G Full
+    # Before this, 0x06 hit ``from_byte``'s unknown-code fallback and every
+    # GS110EMX 10G uplink was reported LINK-DOWN by the NSDP backend.
+    TEN_GIGABIT = 0x06
+    # PRIOR ART, NEVER OBSERVED: 0xFF was carried over from the reference spec
+    # as "the 10G code" and has not appeared on any real switch this library has
+    # talked to. Kept so a device that does emit it is still decoded as 10G
+    # rather than silently reported down -- but it is NOT the value the GS110EMX
+    # uses, and it must not be used when ENCODING (see virtual/state.py).
+    TEN_GIGABIT_PRIOR_ART = 0xFF
 
     @classmethod
     def from_byte(cls, value: int) -> LinkSpeed:
@@ -57,6 +69,25 @@ class VLANEngine(IntEnum):
 class NsdpPortStatus:
     port_id: int
     speed: LinkSpeed
+    # PORT_STATUS byte 2. MEASURED as the port's flow-control state across all
+    # three real GS110EMX units (2026-07-30): 10.1.5.25 and .26, whose web UI
+    # shows "Flow Control: Enable" on every port, answer 0x01 on every port;
+    # 10.1.5.27, whose page shows "Disable" on every port, answers 0x00 on every
+    # port -- 30 ports, no exceptions. ``None`` when the TLV was shorter than 3
+    # bytes (no device has done that yet; the parser stays total either way).
+    flow_control: bool | None = None
+
+
+@dataclass(frozen=True)
+class NsdpPortName:
+    """One port's operator description (tag 0x0B000 / PORT_NAME).
+
+    ``name`` is ``None`` when the TLV carries only the port byte, which is how
+    a real GS110EMX reports a port with no description set.
+    """
+
+    port_id: int
+    name: str | None
 
 
 @dataclass(frozen=True)
@@ -129,6 +160,8 @@ class NsdpDevice:
     serial_number: str | None = None
     vlan_engine: VLANEngine | None = None
     port_status: tuple[NsdpPortStatus, ...] = ()
+    # Per-port operator descriptions (tag 0xB000), when that tag was requested.
+    port_names: tuple[NsdpPortName, ...] = ()
     port_statistics: tuple[NsdpPortStatistics, ...] = ()
     vlan_members: tuple[NsdpVlanMembership, ...] = ()
     port_pvids: tuple[NsdpPortPvid, ...] = field(default_factory=tuple)

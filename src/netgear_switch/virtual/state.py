@@ -84,8 +84,17 @@ def encode_port_bitmap(ports: set[int], width_bytes: int = 8) -> str:
 
 
 def _mbps_to_speed_byte(mbps: int) -> int:
-    """Map a negotiated Mbps rate to its NSDP LinkSpeed wire byte."""
-    return {10: 0x02, 100: 0x04, 1000: 0x05, 10000: 0xFF}.get(mbps, 0x00)
+    """Map a negotiated Mbps rate to its NSDP LinkSpeed wire byte.
+
+    10G is 0x06, MEASURED off real hardware -- a GS110EMX (10.1.5.25/.26, fw
+    1.0.2.8, 2026-07-30) answers PORT_STATUS ``09 06 01`` / ``0a 06 01`` for the
+    two uplinks its own web UI shows as "10G Full". This mock previously emitted
+    0xFF here, the same unverified prior-art guess the DECODER carried, so mock
+    and code agreed with each other while both disagreed with every real
+    GS110EMX -- the exact failure mode principle 5 exists to prevent. 0xFF is
+    still decoded (see LinkSpeed.TEN_GIGABIT_PRIOR_ART) but is never emitted.
+    """
+    return {10: 0x02, 100: 0x04, 1000: 0x05, 10000: 0x06}.get(mbps, 0x00)
 
 
 @dataclass
@@ -137,6 +146,13 @@ class PortSim:
     # hardware where an unset alias may not answer at all -- not a fabricated
     # "".
     description: str | None = None
+    # IEEE 802.3x flow control, as reported in NSDP PORT_STATUS byte 2 and in
+    # the Plus web UI's "Flow Control" column. MEASURED per-port on three real
+    # GS110EMX units (2026-07-30): 10.1.5.25/.26 answer 0x01 on every port and
+    # their pages say Enable; 10.1.5.27 answers 0x00 on every port and its page
+    # says Disable. Defaults True, which is the factory default those first two
+    # units are still on.
+    flow_control: bool = True
 
 
 @dataclass
@@ -372,6 +388,23 @@ class VirtualSwitchState:
     nsdp_broadcast_filtering: bool | None = None
     # Loop detection (NSDP tag 0x9000): None = unseeded.
     nsdp_loop_detection: bool | None = None
+    # Which NSDP auth versions this firmware accepts on a WRITE_REQUEST.
+    #
+    # MEASURED on the real GS110EMX at 10.1.5.25 (firmware 1.0.2.8, 2026-07-30):
+    # a WRITE_REQUEST whose PASSWORD (0x000A) TLV carries the v1 repeating-XOR
+    # encoding is answered error=13, and the next attempt error=14, with the
+    # header's error-attribute field set to 0x000A both times; a PLAINTEXT
+    # password gets the same treatment; and after those two the switch stops
+    # answering WRITE_REQUESTs entirely for a while. That firmware advertises
+    # the v2 salted-auth tags instead (AUTH_V2_SALT 0x0017 is readable and
+    # returns a DIFFERENT 4-byte salt on every read; AUTH_V2_PASSWORD 0x001A is
+    # write-only, answering error=3 on a read), and the v2 algorithm is not
+    # documented anywhere this repo can cite.
+    #
+    # False (the default) keeps the v1-accepting behaviour every other seed
+    # models. seed_gs110emx() sets it True so the mock refuses NSDP writes
+    # exactly as the device it is transcribed from does.
+    nsdp_auth_v2_only: bool = False
     # Fixed seed MAC for device identity: the NSDP identity TLV (Tag.MAC /
     # server_mac) AND the SNMP dot1dBaseBridgeAddress scalar (see oid_map())
     # both project this same value -- on real hardware they're the same
@@ -1158,7 +1191,23 @@ class VirtualSwitchState:
         if Tag.PORT_STATUS in tags:
             for port, sim in sorted(self.ports.items()):
                 speed_byte = _mbps_to_speed_byte(sim.speed) if sim.link else 0x00
-                out.append(TLVEntry(Tag.PORT_STATUS, bytes([port, speed_byte, 0x01])))
+                out.append(
+                    TLVEntry(
+                        Tag.PORT_STATUS,
+                        # Byte 2 is flow control, not a constant 0x01 -- measured
+                        # on real GS110EMX units, see PortSim.flow_control.
+                        bytes([port, speed_byte, 1 if sim.flow_control else 0]),
+                    )
+                )
+        if Tag.PORT_NAME in tags:
+            # One TLV per port, ALWAYS -- a real GS110EMX answers every port,
+            # emitting a bare 1-byte TLV for a port with no description (e.g.
+            # 10.1.5.25 answers ``01``..``05``, ``064e69636f6c65277320526f6f6d``
+            # for the described port 6, then ``07``...). Skipping undescribed
+            # ports would make the mock's row count disagree with hardware.
+            for port, sim in sorted(self.ports.items()):
+                name_bytes = (sim.description or "").encode("utf-8")
+                out.append(TLVEntry(Tag.PORT_NAME, bytes([port]) + name_bytes))
         if Tag.PORT_STATISTICS in tags:
             # Real hardware returns a PORT_STATISTICS TLV for EVERY port, with
             # zeroed counters on idle ports (verified on a real GS105PE, whose
@@ -1274,6 +1323,23 @@ class VirtualSwitchState:
                 member=set(m.member_ports),
                 untagged=set(m.untagged_ports),
             )
+        elif tag == Tag.VLAN_DESTROY:
+            # Write-only action carrying the 2-byte VLAN id (ngadmin
+            # ATTR_VLAN_DESTROY 0x2C00). Destroying a VLAN also drops every
+            # port's PVID that pointed at it back to the default VLAN 1 -- that
+            # is what a switch must do, since a PVID may not name a VLAN that no
+            # longer exists.
+            vid = struct.unpack_from(">H", value, 0)[0]
+            if self.vlans.pop(vid, None) is not None:
+                for port, pv in list(self.pvids.items()):
+                    if pv == vid:
+                        self.pvids[port] = 1
+        elif tag == Tag.PORT_NAME:
+            port = value[0]
+            sim = self.ports.get(port)
+            if sim is not None:
+                text = value[1:].decode("utf-8", errors="replace").rstrip("\x00")
+                sim.description = text or None
         elif tag == Tag.IP_ADDRESS:
             self.mgmt.address = socket.inet_ntoa(value)
         elif tag == Tag.NETMASK:

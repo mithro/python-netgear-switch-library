@@ -18,7 +18,13 @@ import threading
 from typing import TYPE_CHECKING
 
 from ...protocols.nsdp.auth import encode_password_v1
-from ...protocols.nsdp.protocol import NSDPPacket, Op, Tag
+from ...protocols.nsdp.protocol import (
+    ERROR_AUTH_VERSION,
+    ERROR_READONLY,
+    NSDPPacket,
+    Op,
+    Tag,
+)
 from ...protocols.nsdp.write import RESULT_BAD_PASSWORD, RESULT_SUCCESS
 
 if TYPE_CHECKING:
@@ -92,6 +98,19 @@ class VirtualNsdpFace:
             sequence=req.sequence,
         )
         resp.tlvs = self._state.nsdp_tlvs(tags)
+        # A SOLE unanswerable tag is an ERROR, not an empty success. MEASURED on
+        # a real GS110EMX (10.1.5.25, fw 1.0.2.8, 2026-07-30): reading one tag
+        # this firmware does not serve comes back with header error code 3 and
+        # the error-attribute field naming that tag, whereas the same tag mixed
+        # into a multi-tag read is simply OMITTED and the reply is error 0
+        # (checked directly: [MODEL, LOOP_DETECTION] -> error 0, one MODEL TLV).
+        # The mock used to answer an empty success in BOTH cases, so nothing in
+        # CI could tell a tag this model lacks from a tag it merely has no value
+        # for -- which is exactly how "NSDP has no PoE/FDB/LLDP tag" stayed an
+        # unfalsifiable claim.
+        if not resp.tlvs and len(req.tlvs) == 1 and req.tlvs[0].tag != Tag.END_OF_MARK:
+            resp.result = ERROR_READONLY << 8
+            resp.error_attr = int(req.tlvs[0].tag)
         return resp
 
     def _write_response(self, req: NSDPPacket) -> NSDPPacket:
@@ -107,8 +126,16 @@ class VirtualNsdpFace:
             server_mac=self._state.nsdp_mac,
             sequence=req.sequence,
         )
+        if self._state.nsdp_auth_v2_only:
+            # This firmware refuses v1/plaintext auth outright -- error 13 with
+            # the PASSWORD attribute blamed, BEFORE it even looks at the value.
+            # See VirtualSwitchState.nsdp_auth_v2_only for the capture.
+            resp.result = ERROR_AUTH_VERSION << 8
+            resp.error_attr = int(Tag.PASSWORD)
+            return resp
         if not password_ok:
             resp.result = RESULT_BAD_PASSWORD
+            resp.error_attr = int(Tag.PASSWORD)
             return resp
         for tlv in req.tlvs:
             if tlv.tag != Tag.PASSWORD:

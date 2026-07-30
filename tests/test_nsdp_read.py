@@ -23,7 +23,16 @@ def _canned_packet() -> NSDPPacket:
     pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
     pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")  # port 1, gigabit
     pkt.add_tlv(Tag.PORT_STATUS, b"\x03\x00\x01")  # port 3, down
-    pkt.add_tlv(Tag.PORT_STATUS, b"\x09\xff\x01")  # port 9, 10G
+    # Port 9 uses the MEASURED 10G code 0x06 (real GS110EMX 10.1.5.25/.26, fw
+    # 1.0.2.8); port 10 uses the prior-art 0xFF, which no real switch here has
+    # emitted but which must still decode as 10G rather than as link-down.
+    pkt.add_tlv(Tag.PORT_STATUS, b"\x09\x06\x01")  # port 9, 10G (measured code)
+    pkt.add_tlv(Tag.PORT_STATUS, b"\x0a\xff\x00")  # port 10, 10G, flow ctl off
+    # Tag 0xB000: one TLV per port, port byte + description; a bare port byte
+    # means "no description set" (how real hardware answers an unnamed port).
+    pkt.add_tlv(Tag.PORT_NAME, b"\x01uplink")
+    pkt.add_tlv(Tag.PORT_NAME, b"\x03")
+    pkt.add_tlv(Tag.PORT_NAME, b"\x09Nicole's Room")
     pkt.add_tlv(
         Tag.PORT_STATISTICS,
         b"\x01"
@@ -134,7 +143,48 @@ def test_get_ports_maps_speed_and_link():
     assert ports[1].admin_enabled is True  # NSDP can't read admin; documented True
     assert ports[3].link_up is False
     assert ports[3].speed_mbps is None
+    # 0x06 is the code a real GS110EMX sends for a 10G link (measured against
+    # that switch's own "10G Full" page); before this it fell through
+    # LinkSpeed.from_byte's unknown branch and the port read back LINK DOWN.
     assert ports[9].speed_mbps == 10000
+    assert ports[9].link_up is True
+    assert ports[10].speed_mbps == 10000  # 0xFF prior-art code still decodes
+
+
+def test_get_ports_reports_port_descriptions_from_tag_b000():
+    """NSDP DOES carry per-port names -- ``name=None`` was a missing read.
+
+    Tag 0xB000 was found by an exhaustive tag sweep and confirmed against three
+    real GS110EMX units' own Port Status pages (2026-07-30). ``get_ports`` asks
+    for it alongside PORT_STATUS in the same round trip.
+    """
+    ports = {p.port: p for p in _reader().get_ports()}
+    assert ports[1].name == "uplink"
+    assert ports[9].name == "Nicole's Room"
+    # A bare 1-byte TLV means "no description", which must stay None rather than
+    # becoming an "" a caller cannot tell apart from a real empty description.
+    assert ports[3].name is None
+    # A port with no PORT_NAME TLV at all is also None, never a KeyError.
+    assert ports[10].name is None
+
+
+def test_get_ports_requests_the_name_tag_in_the_same_round_trip():
+    client = FakeNsdpClient()
+    NsdpReader(client, get_model("gs110emx")).get_ports()
+    assert Tag.PORT_NAME in client.requested[0]
+
+
+def test_port_status_carries_flow_control():
+    """PORT_STATUS byte 2 is flow control, not a constant.
+
+    Measured across three real GS110EMX units: 10.1.5.25/.26 answer 0x01 on all
+    ten ports and their web UI says "Flow Control: Enable"; 10.1.5.27 answers
+    0x00 on all ten and says "Disable".
+    """
+    dev = _reader().get_device()
+    flow = {s.port_id: s.flow_control for s in dev.port_status}
+    assert flow[1] is True
+    assert flow[10] is False
 
 
 def test_get_stats_maps_bytes_and_crc_errors():
@@ -198,6 +248,24 @@ def test_async_get_device_matches_sync():
 def test_unsupported_ops_raise(op):
     with pytest.raises(UnsupportedCapabilityError):
         getattr(_reader(), op)()
+
+
+@pytest.mark.parametrize("op", ["get_macs", "get_lldp", "get_sensors", "get_poe"])
+def test_unsupported_read_refusals_carry_the_measurement(op):
+    """These four refusals must cite the sweep, not merely assert a limit.
+
+    CLAUDE.md principle 4: a limitation may only be recorded with captured
+    device output as proof, naming the firmware it applies to. Each message
+    therefore names the host and firmware version whose exhaustive tag sweep
+    established that no such tag exists.
+    """
+    with pytest.raises(UnsupportedCapabilityError) as exc:
+        getattr(_reader(), op)()
+    message = str(exc.value)
+    assert "GS110EMX" in message
+    assert "10.1.5.25" in message
+    assert "1.0.2.8" in message
+    assert "tag sweep" in message
 
 
 def test_reader_rejects_non_nsdp_model():

@@ -18,6 +18,7 @@ from .types import (
     NsdpDevice,
     NsdpIgmpSnooping,
     NsdpPortMirroring,
+    NsdpPortName,
     NsdpPortPvid,
     NsdpPortStatistics,
     NsdpPortStatus,
@@ -46,7 +47,27 @@ def parse_mac(data: bytes) -> str:
 def parse_port_status(data: bytes) -> NsdpPortStatus:
     if len(data) != 3:
         raise ValueError(f"PORT_STATUS TLV must be 3 bytes, got {len(data)}")
-    return NsdpPortStatus(port_id=data[0], speed=LinkSpeed.from_byte(data[1]))
+    return NsdpPortStatus(
+        port_id=data[0],
+        speed=LinkSpeed.from_byte(data[1]),
+        # Byte 2 = flow control, measured against the switches' own web UI on
+        # three real GS110EMX units -- see NsdpPortStatus.flow_control.
+        flow_control=bool(data[2]),
+    )
+
+
+def parse_port_name(data: bytes) -> NsdpPortName:
+    """Parse NSDP tag 0xB000: port byte + the operator description string.
+
+    MEASURED on real GS110EMX hardware (see ``Tag.PORT_NAME``). A 1-byte TLV
+    means "this port has no description" -- that is what an undescribed port
+    answers, so it maps to ``None`` rather than to an empty string that a
+    caller could not distinguish from a description of "".
+    """
+    if not data:
+        raise ValueError("PORT_NAME TLV must be at least 1 byte, got 0")
+    text = data[1:].decode("utf-8", errors="replace").rstrip("\x00")
+    return NsdpPortName(port_id=data[0], name=text or None)
 
 
 def parse_port_statistics(data: bytes) -> NsdpPortStatistics:
@@ -151,6 +172,7 @@ def parse_device(packet: NSDPPacket) -> NsdpDevice:
     mac: str | None = None
     fields: dict[str, object] = {}
     port_status: list[NsdpPortStatus] = []
+    port_names: list[NsdpPortName] = []
     port_stats: list[NsdpPortStatistics] = []
     vlan_members: list[NsdpVlanMembership] = []
     pvids: list[NsdpPortPvid] = []
@@ -184,6 +206,8 @@ def parse_device(packet: NSDPPacket) -> NsdpDevice:
             fields["vlan_engine"] = VLANEngine(tlv.value[0])
         elif tlv.tag == Tag.PORT_STATUS:
             port_status.append(parse_port_status(tlv.value))
+        elif tlv.tag == Tag.PORT_NAME:
+            port_names.append(parse_port_name(tlv.value))
         elif tlv.tag == Tag.PORT_STATISTICS:
             port_stats.append(parse_port_statistics(tlv.value))
         elif tlv.tag == Tag.VLAN_MEMBERS:
@@ -208,6 +232,7 @@ def parse_device(packet: NSDPPacket) -> NsdpDevice:
         model=model,
         mac=mac,
         port_status=tuple(port_status),
+        port_names=tuple(port_names),
         port_statistics=tuple(port_stats),
         vlan_members=tuple(vlan_members),
         port_pvids=tuple(pvids),
