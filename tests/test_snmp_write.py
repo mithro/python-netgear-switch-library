@@ -299,6 +299,42 @@ def test_set_vlan_membership_catches_dropped_untagged_write():
     assert "untagged" in str(exc.value)
 
 
+def test_set_vlan_membership_preserves_device_bitmap_width():
+    """A SET must be as wide as the PortList the device actually reports.
+
+    Netgear switches report a PortList far wider than the model's physical
+    port count -- it covers LAG and CPU pseudo-ports too. Measured live:
+    131 bytes on an M4300-24X (port_count 28) and on an M4300-16X, 79 bytes
+    on a GSM7252PS. Re-deriving the width from the decoded port set instead of
+    the device's own bitmap makes the SET a different wire length than the
+    device uses.
+    """
+    wide = bytes(131)  # the device's PortList width, no ports set yet
+    tables = _vlan_tables()
+    tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
+        SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90", wide, "Hex-STRING")
+    ]
+    tables[oids.DOT1Q_VLAN_STATIC_UNTAGGED] = [
+        SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.90", wide, "Hex-STRING")
+    ]
+    client = ApplyingVlanClient(tables)
+    w = SnmpWriter(client, get_model("m4300-24x"))
+    w.set_vlan_membership(90, 7, VlanMode.UNTAGGED, force=True)
+
+    egress_set = next(
+        vb for vb in client.sets
+        if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS)
+    )
+    untagged_set = next(
+        vb for vb in client.sets
+        if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_UNTAGGED)
+    )
+    assert len(egress_set.value) == len(wide)
+    assert len(untagged_set.value) == len(wide)
+    assert 7 in decode_port_bitmap(egress_set.value)
+    assert 7 in decode_port_bitmap(untagged_set.value)
+
+
 def test_set_vlan_membership_missing_vlan_is_precondition_not_verify_error():
     client = ApplyingVlanClient({})  # no VLAN 90 present
     w = SnmpWriter(client, get_model("gsm7252ps"))
