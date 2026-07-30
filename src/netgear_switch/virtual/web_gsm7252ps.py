@@ -27,7 +27,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from . import web_fastpath_xui as xui
+
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .state import SensorSim, VirtualSwitchState
 
 
@@ -75,8 +79,29 @@ def _physical_ports(state: VirtualSwitchState) -> list[int]:
     return [p for p in sorted(state.ports) if p <= port_count]
 
 
-def render_ports(state: VirtualSwitchState) -> str:
-    """``/portsConfiguration.html`` -- per-port admin/link/speed + ifindex."""
+# The per-row selection checkbox names, taken from the LIVE pages (they differ
+# per firmware and per page, which is why the writer scrapes them):
+#   gsm7252ps 10.1.5.22  portsConfiguration -> 1.<row>.52.gecb5
+#                        poeInterfaceConfiguration -> 1.<row>.48.gecb234
+_PORTS_CHECKBOX = "gecb5"
+_POE_CHECKBOX = "gecb234"
+
+
+def render_ports(
+    state: VirtualSwitchState,
+    *,
+    err_msg: str = "",
+    iface: Callable[[int], str] = _iface,
+    checkbox: str = _PORTS_CHECKBOX,
+    path: str = "/portsConfiguration.html",
+) -> str:
+    """``/portsConfiguration.html`` -- per-port admin/link/speed + ifindex.
+
+    This is the WRITE page as well as the read page (``set_port_enabled``), so
+    it is rendered with the real XUI scaffolding: two forms, ``<TR p=...>`` rows
+    each carrying their own ``gecb`` checkbox, the redirection block and the
+    CANCEL/APPLY buttons -- see ``web_fastpath_xui``.
+    """
     body = _header(
         {
             "1_2_1": "Port",
@@ -87,16 +112,36 @@ def render_ports(state: VirtualSwitchState) -> str:
         }
     )
     ports = _physical_ports(state)
-    for row, port in enumerate(ports):
+    for index, port in enumerate(ports):
         sim = state.ports[port]
-        inst = f"1.{row}.{len(ports)}"
-        body += _cell(inst, "1_2_1", _iface(port))
-        body += _cell(inst, "1_2_6", "Enable" if sim.admin else "Disable")
+        inst = xui.instance(index, len(ports))
+        cells = _cell(inst, "1_2_1", iface(port))
+        cells += _cell(inst, "1_2_6", "Enable" if sim.admin else "Disable")
         # A down port's Physical Status reads "Unknown" on real hardware.
-        body += _cell(inst, "1_2_9", _speed_text(sim.speed) if sim.link else "Unknown")
-        body += _cell(inst, "1_2_10", "Link Up" if sim.link else "Link Down")
-        body += _cell(inst, "1_2_13", str(port))
-    return _page(body)
+        cells += _cell(inst, "1_2_9", _speed_text(sim.speed) if sim.link else "Unknown")
+        cells += _cell(inst, "1_2_10", "Link Up" if sim.link else "Link Down")
+        cells += _cell(inst, "1_2_13", str(port))
+        body += xui.row(inst, cells, checkbox=checkbox)
+    return xui.page(
+        path,
+        f"<table>\n{body}</table>\n",
+        buttons={"2_1_1": "CANCEL", "2_1_2": "APPLY"},
+        err_msg=err_msg,
+        title="NetGear - Port Configuration",
+    )
+
+
+def apply_ports(
+    state: VirtualSwitchState,
+    form: dict[str, str],
+    *,
+    checkbox: str = _PORTS_CHECKBOX,
+) -> str:
+    """Apply a portsConfiguration POST; returns the firmware ``err_msg``."""
+    ports = _physical_ports(state)
+    return xui.apply_port_admin(
+        state, form, checkbox=checkbox, ports=ports, count=len(ports)
+    )
 
 
 def render_port_statistics(state: VirtualSwitchState) -> str:
@@ -221,14 +266,30 @@ def render_mac_table(state: VirtualSwitchState) -> str:
 _DETECT_TEXT = {1: "Disabled", 2: "Searching", 3: "Delivering power"}
 
 
-def render_poe(state: VirtualSwitchState, *, watts: bool = False) -> str:
+def render_poe(
+    state: VirtualSwitchState,
+    *,
+    watts: bool = False,
+    err_msg: str = "",
+    iface: Callable[[int], str] = _iface,
+    checkbox: str = _POE_CHECKBOX,
+    reset_label: str = "RESET",
+    path: str = "/poeInterfaceConfiguration.html",
+) -> str:
     """``/poeInterfaceConfiguration.html`` -- per-port PoE admin/status/power.
 
     ``watts`` selects the "Output Power" cell format to MATCH the emulated
     firmware: the gsm7252ps renders integer milliwatts (``watts=False``, e.g.
     "3500"); the M4300-16X renders watts with two decimals (``watts=True``,
     e.g. "4.60"). Both decode back to the same milliwatts via
-    ``parse._poe_power_to_mw`` -- see the parity note there."""
+    ``parse._poe_power_to_mw`` -- see the parity note there.
+
+    Also the WRITE page (``set_poe``/``cycle_poe``/``clear_poe_fault``), so it
+    carries the real scaffolding INCLUDING the hidden write-only "Port Reset"
+    column ``v_1_2_20`` (``xp_1_2_20 = "write-only"``, enum ``["None","Reset"]``)
+    that every row renders as ``Reset`` on real hardware, and the extra RESET
+    button ``v_2_1_3`` its APPLY-sibling page does not have.
+    """
     body = _header(
         {
             "1_2_1": "Port",
@@ -238,15 +299,75 @@ def render_poe(state: VirtualSwitchState, *, watts: bool = False) -> str:
         }
     )
     poe = sorted(state.poe.items())
-    for row, (port, sim) in enumerate(poe):
-        inst = f"1.{row}.{len(poe)}"
-        body += _cell(inst, "1_2_1", _iface(port))
-        body += _cell(inst, "1_2_2", "Enable" if sim.admin else "Disable")
+    for index, (port, sim) in enumerate(poe):
+        inst = xui.instance(index, len(poe))
+        cells = _cell(inst, "1_2_1", iface(port))
+        cells += _cell(inst, "1_2_2", "Enable" if sim.admin else "Disable")
         power = sim.power_mw or 0
         cell = f"{power / 1000:.2f}" if watts else str(power)
-        body += _cell(inst, "1_2_15", cell)
-        body += _cell(inst, "1_2_17", _DETECT_TEXT.get(sim.detect, "Other Fault"))
-    return _page(body)
+        cells += _cell(inst, "1_2_15", cell)
+        cells += _cell(inst, "1_2_17", _DETECT_TEXT.get(sim.detect, "Other Fault"))
+        cells += _cell(inst, "1_2_20", "Reset")
+        body += xui.row(inst, cells, checkbox=checkbox)
+    return xui.page(
+        path,
+        f"<table>\n{body}</table>\n",
+        buttons={
+            # LIVE: the M4300s label this button "Power Cycle Port(s)" while the
+            # gsm72xx pages label it "RESET" -- so the label is a parameter, and
+            # a writer that hard-coded either would fail against the other.
+            "2_1_3": reset_label,
+            "2_1_1": "CANCEL",
+            "2_1_2": "APPLY",
+        },
+        err_msg=err_msg,
+        title="NetGear - PoE Port Configuration",
+    )
+
+
+def apply_poe(
+    state: VirtualSwitchState,
+    form: dict[str, str],
+    *,
+    checkbox: str = _POE_CHECKBOX,
+) -> str:
+    """Apply a poeInterfaceConfiguration POST; returns the firmware ``err_msg``.
+
+    Two distinct operations share the page, exactly as on hardware: APPLY
+    (``v_2_1_2``) writes the Admin Mode column, RESET (``v_2_1_3``) consumes the
+    write-only ``v_1_2_20`` column and re-runs detection -- which on a port with
+    no PD attached lands back in ``Searching`` and on one that had faulted
+    clears the fault. Only CHECKED rows are touched.
+    """
+    if not xui.is_apply(form):
+        return ""
+    ports = [p for p, _ in sorted(state.poe.items())]
+    button = xui.pressed(form, ("v_2_1_3", "v_2_1_2"))
+    for prefix in xui.checked_rows(form, checkbox):
+        row0 = int(prefix.split(".")[1])
+        if row0 >= len(ports):
+            continue
+        sim = state.poe[ports[row0]]
+        if button == "v_2_1_3":
+            value = form.get(prefix + "v_1_2_20")
+            if value not in ("Reset", "None", None):
+                return f"Error! Failed to Set 'Port Reset' with '{value}'"
+            if value == "Reset":
+                # Re-arm detection: a faulted port leaves FAULT, an idle one
+                # stays Searching, a powered one comes back up.
+                sim.detect = 3 if sim.power_mw else 2
+            continue
+        admin = form.get(prefix + "v_1_2_2")
+        if admin is None:
+            continue
+        if admin not in ("Enable", "Disable"):
+            return f"Error! Failed to Set 'Admin <br/> Mode' with '{admin}'"
+        sim.admin = admin == "Enable"
+        if not sim.admin:
+            sim.detect = 1
+        elif sim.detect == 1:
+            sim.detect = 2
+    return ""
 
 
 def render_lldp(state: VirtualSwitchState) -> str:

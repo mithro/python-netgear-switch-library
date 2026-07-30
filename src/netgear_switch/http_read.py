@@ -407,33 +407,70 @@ def _mgmt_ip_from_sysinfo(info: HttpSysInfo) -> MgmtIpConfig:
 def _mgmt_ip_path(spec: HttpModelSpec) -> str | None:
     """The page whose HTML ``get_mgmt_ip`` reads for this model.
 
-    The GoAhead dialect's ``sysinfo_path`` wcd query serves device identity +
-    sensors, NOT the IPv4 config, so mgmt-IP comes from the dedicated
-    ``mgmt_ip_path`` there; every other model reads it from ``sysinfo_path``.
-    ``None`` means this model exposes no mgmt-IP page at all."""
-    if _is_goahead_dialect(spec):
-        return spec.mgmt_ip_path
-    return spec.sysinfo_path
+    A model that names a ``mgmt_ip_path`` uses it -- the managed FASTPATH models
+    (whose ``ipConfiguration.html`` / ``mgmtVlanIpv4Configuration.html`` carry
+    the address, mask, gateway AND the DHCP/static method, none of which their
+    sysInfo page has) and the GoAhead GS728TPP (whose ``sysinfo_path`` wcd query
+    serves identity + sensors only). Everything else reads it from
+    ``sysinfo_path``; ``None`` in both means this model exposes no mgmt-IP page
+    at all."""
+    return spec.mgmt_ip_path or spec.sysinfo_path
 
 
 def _mgmt_ip(spec: HttpModelSpec, page: str) -> MgmtIpConfig:
-    """Dispatch ``sysinfo_path``'s HTML to the dialect's mgmt-IP reader.
+    """Dispatch the mgmt-IP page's HTML to the dialect's reader.
 
-    The two FASTPATH dialects have their own page shapes (both reporting
-    address/netmask + base MAC and NO DHCP indicator, hence IpMode.UNKNOWN);
-    the GoAhead dialect reads a dedicated IPConf wcd query (address/netmask/
-    gateway, no base MAC); the Plus models go through ``HttpSysInfo``."""
+    The managed FASTPATH models read their dedicated XUI management-IP page
+    (per-model field names -- see ``endpoints.XuiMgmtIpFields``); the GoAhead
+    dialect reads its IPConf wcd query; the Plus models go through
+    ``HttpSysInfo``. The two older FASTPATH sysInfo readers
+    (``parse_xe_mgmt_ip``/``parse_s3300_mgmt``/``parse_m4300_sysinfo``) are
+    still used, but only for the BASE MAC these pages do not carry -- see
+    ``_with_fastpath_base_mac``."""
     if _is_goahead_dialect(spec):
         return parse.parse_goahead_mgmt_ip(page)
+    if spec.mgmt_ip_fields is not None:
+        f = spec.mgmt_ip_fields
+        return parse.parse_xui_mgmt_ip(
+            page,
+            address_field=f.address,
+            netmask_field=f.netmask,
+            gateway_field=f.gateway,
+            mode_field=f.mode,
+            page=spec.mgmt_ip_path or "XUI management-IP page",
+        )
     if _is_s3300_dialect(spec):
-        # S3300 sysInfo exposes only the base MAC (no IPv4 address); SNMP is
-        # authoritative for the mgmt address -- see parse_s3300_mgmt.
         return parse.parse_s3300_mgmt(page)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_mgmt_ip(page)
     if _is_m4300_dialect(spec):
         return parse.parse_m4300_sysinfo(page)
     return _mgmt_ip_from_sysinfo(_parse_sysinfo(spec, page))
+
+
+def _fastpath_base_mac(spec: HttpModelSpec, sysinfo_html: str) -> str | None:
+    """The switch's BASE MAC from a managed model's sysInfo page.
+
+    Read separately from the management address because no FASTPATH mgmt-IP page
+    carries it, and because it must be the BASE MAC to stay field-for-field
+    equal to SNMP's ``dot1dBaseBridgeAddress`` -- the M4300's mgmt page does
+    show a MAC (``v_4_4_1``), but that is the management INTERFACE's, one off
+    from the base MAC.
+    """
+    if _is_s3300_dialect(spec):
+        return parse.parse_s3300_mgmt(sysinfo_html).base_mac
+    if _is_xe_fastpath_dialect(spec):
+        return parse.parse_xe_mgmt_ip(sysinfo_html).base_mac
+    return parse.parse_m4300_sysinfo(sysinfo_html).base_mac
+
+
+def _needs_fastpath_base_mac(spec: HttpModelSpec, cfg: MgmtIpConfig) -> bool:
+    """Whether a second GET of ``sysinfo_path`` is needed to fill ``base_mac``."""
+    return (
+        spec.mgmt_ip_fields is not None
+        and cfg.base_mac is None
+        and spec.sysinfo_path is not None
+    )
 
 
 def _with_base_mac(cfg: MgmtIpConfig, sysinfo_page: str) -> MgmtIpConfig:
@@ -601,6 +638,14 @@ class HttpReader:
         # the SystemInfo page to reach SNMP parity on base_mac.
         if _is_goahead_dialect(self._spec) and self._spec.sysinfo_path is not None:
             cfg = _with_base_mac(cfg, self.session.get_page(self._spec.sysinfo_path))
+        elif _needs_fastpath_base_mac(self._spec, cfg):
+            assert self._spec.sysinfo_path is not None  # guarded above (for mypy)
+            cfg = dataclasses.replace(
+                cfg,
+                base_mac=_fastpath_base_mac(
+                    self._spec, self.session.get_page(self._spec.sysinfo_path)
+                ),
+            )
         return cfg
 
 
@@ -732,5 +777,13 @@ class AsyncHttpReader:
         if _is_goahead_dialect(self._spec) and self._spec.sysinfo_path is not None:
             cfg = _with_base_mac(
                 cfg, await self.session.get_page(self._spec.sysinfo_path)
+            )
+        elif _needs_fastpath_base_mac(self._spec, cfg):
+            assert self._spec.sysinfo_path is not None  # guarded above (for mypy)
+            cfg = dataclasses.replace(
+                cfg,
+                base_mac=_fastpath_base_mac(
+                    self._spec, await self.session.get_page(self._spec.sysinfo_path)
+                ),
             )
         return cfg

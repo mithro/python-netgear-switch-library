@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from . import web_fastpath_xui as xui
+
 if TYPE_CHECKING:
     from .state import VirtualSwitchState
 
@@ -60,30 +62,90 @@ def _physical_ports(state: VirtualSwitchState) -> list[int]:
     return [p for p in sorted(state.ports) if p <= port_count]
 
 
-def render_ports(state: VirtualSwitchState) -> str:
-    """``/v1/portsConfiguration.html`` -- per-port admin/link/speed."""
+# The M4300 ports page's per-row selection checkbox, from the LIVE pages on
+# BOTH SKUs (10.1.5.13 and 10.1.5.20:49152): ``1.<row>.<count>.gecb_1_2`` -- a
+# third spelling, different again from gsm7252ps's gecb5 and gsm7228ps's gecb10.
+_PORTS_CHECKBOX = "gecb_1_2"
+_POE_CHECKBOX = "gecb_1_2"
+
+
+def render_ports(state: VirtualSwitchState, *, err_msg: str = "") -> str:
+    """``/v1/portsConfiguration.html`` -- per-port admin/link/speed.
+
+    COLUMN COORDINATES CORRECTED against the real page (10.1.5.13, 2026-07-30):
+    Admin Mode is ``v_1_2_6`` and ifIndex is ``v_1_2_13`` (a ``display:none``
+    column), and the row prefix is ``1.<0-based row>.<row count>``. The mock
+    used to emit ``v_1_2_3``/``v_1_2_2`` and ``1.<port>.24``, which the
+    comment-keyed read parsers tolerated but which does not exist on any switch
+    -- so a writer addressing the real Admin Mode column would have found
+    nothing here while working on hardware.
+    """
     body = ""
-    for port in _physical_ports(state):
+    ports = _physical_ports(state)
+    for index, port in enumerate(ports):
         sim = state.ports[port]
-        inst = f"1.{port}.24"
-        body += _cell(inst, "1_2_1", _iface(port), "baseinterfaceListing_Interfaces")
-        body += _cell(inst, "1_2_2", str(port), "baseport_ifIndex")
-        body += _cell(
-            inst, "1_2_3", "Enable" if sim.admin else "Disable", "baseport_AdminMode"
+        inst = xui.instance(index, len(ports))
+        cells = _cell(inst, "1_2_1", _iface(port), "baseinterfaceListing_Interfaces")
+        cells += _cell(
+            inst, "1_2_6", "Enable" if sim.admin else "Disable", "baseport_AdminMode"
         )
-        body += _cell(
+        cells += _cell(
             inst,
             "1_2_10",
             "Link Up" if sim.link else "Link Down",
             "baseport_LinkStatus2",
         )
-        body += _cell(
+        cells += _cell(
             inst,
             "1_2_9",
             _speed_text(sim.speed) if sim.link else "",
             "baseport_PhysicalStatus",
         )
-    return _page(body)
+        cells += _cell(inst, "1_2_13", str(port), "baseport_ifIndex")
+        body += xui.row(inst, cells, checkbox=_PORTS_CHECKBOX)
+    return xui.page(
+        "/v1/portsConfiguration.html",
+        f"<table>\n{body}</table>\n",
+        buttons={"2_1_1": "Cancel", "2_1_2": "Apply"},
+        err_msg=err_msg,
+        title="NETGEAR -  Port Configuration",
+    )
+
+
+def apply_ports(state: VirtualSwitchState, form: dict[str, str]) -> str:
+    """Apply a /v1/portsConfiguration POST; returns the firmware ``err_msg``."""
+    ports = _physical_ports(state)
+    return xui.apply_port_admin(
+        state, form, checkbox=_PORTS_CHECKBOX, ports=ports, count=len(ports)
+    )
+
+
+def render_poe(state: VirtualSwitchState, *, err_msg: str = "") -> str:
+    """``/v1/poeInterfaceConfiguration.html`` (M4300-16X only; the 24X has no
+    PoE and its spec leaves the path None).
+
+    The cell grid is byte-identical to the gsm7252ps XE page, so that renderer
+    is reused -- but with THREE M4300-specific differences, each live-measured:
+    the power column is decimal watts, the row checkbox is ``gecb_1_2``, and the
+    reset button reads ``Power Cycle Port(s)`` rather than ``RESET``.
+    """
+    from . import web_gsm7252ps as _xe
+
+    return _xe.render_poe(
+        state,
+        watts=True,
+        err_msg=err_msg,
+        iface=_iface,
+        checkbox=_POE_CHECKBOX,
+        reset_label="Power Cycle Port(s)",
+        path="/v1/poeInterfaceConfiguration.html",
+    )
+
+
+def apply_poe(state: VirtualSwitchState, form: dict[str, str]) -> str:
+    from . import web_gsm7252ps as _xe
+
+    return _xe.apply_poe(state, form, checkbox=_POE_CHECKBOX)
 
 
 def render_port_statistics(state: VirtualSwitchState) -> str:

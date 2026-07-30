@@ -15,7 +15,7 @@ from ...models import VlanMode
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .types import FastpathMembership
+    from .types import FastpathMembership, XuiFormPage, XuiListPage, XuiRow
 
 _WIRE = {VlanMode.UNTAGGED: "1", VlanMode.TAGGED: "2", VlanMode.EXCLUDED: "3"}
 
@@ -101,6 +101,130 @@ def fastpath_membership_form(
     if hidden_mem is not None:
         body["hiddenMem"] = hidden_mem
     return body
+
+
+# FASTPATH XUI apply flag. The firmware publishes it itself, in
+# ``/scripts/_xeobj_jsvars.js``:
+#     var xui_operation_submit = 8;
+#     var xui_operation_reload = 1;
+#     var xui_operation_redirect = 2;
+# and every page's per-button metadata names it (``xeData.xt_2_1_2 = "8"`` for
+# APPLY on portsConfiguration, ``xt_2_1_3 = "8"`` for RESET on
+# poeInterfaceConfiguration, ``xt_3_1_1 = "8"`` for APPLY on ipConfiguration and
+# mgmtVlanIpv4Configuration). ``onclickSubmit`` writes it into the form's
+# ``submit_flag`` before submitting. Fetched live from 10.1.5.22 on 2026-07-30 --
+# NOT the same flag as the VLAN-membership page's separate ``submt`` field.
+XUI_OPERATION_SUBMIT = "8"
+XUI_OPERATION_RELOAD = "1"
+
+
+def xui_row_apply_form(
+    page: XuiListPage,
+    row: XuiRow,
+    changes: Mapping[str, str],
+    *,
+    button: str,
+) -> dict[str, str]:
+    """The POST body that applies ``changes`` to exactly ONE row of an XUI list.
+
+    Only that row's fields are sent (plus its ``gecb`` checkbox, the page's
+    ``tokens``, the form's redirection block and the clicked button). That is
+    deliberately NARROWER than a browser, which submits every row's hidden
+    inputs and lets the firmware apply only the checked ones -- and it is
+    narrower for a safety reason, not a convenience one: a body that never
+    mentions the other 51 ports cannot change them even if a firmware ignored
+    the checkboxes. LIVE-PROVEN on all four managed switches 2026-07-30: after
+    this exact body, re-reading the whole table showed the target row's cell
+    changed and EVERY other cell of every other row byte-identical.
+
+    ``changes`` is keyed by bare column (``"v_1_2_6"``); the row's own
+    ``<unit>.<row0>.<count>.`` prefix is prepended here so a caller can never
+    address the wrong row. A column the row does not render raises rather than
+    being silently added -- that would be writing a field the device never
+    offered.
+    """
+    body = dict(page.tokens)
+    body.update(row.fields)
+    for column, value in changes.items():
+        name = row.prefix + column
+        if name not in row.fields:
+            raise KeyError(
+                f"row {row.prefix!r} does not render column {column!r} "
+                f"(it has {sorted(k[len(row.prefix):] for k in row.fields)})"
+            )
+        body[name] = value
+    if row.checkbox is not None:
+        body[row.checkbox] = "on"
+    body.update(page.hidden)
+    body["submit_flag"] = XUI_OPERATION_SUBMIT
+    body["err_flag"] = "0"
+    body["err_msg"] = ""
+    body[button] = page.buttons[button]
+    return body
+
+
+def xui_form_apply_form(
+    page: XuiFormPage, changes: Mapping[str, str], *, button: str
+) -> dict[str, str]:
+    """The POST body that applies ``changes`` to an XUI *detail* page.
+
+    Starts from every field the device rendered -- so the M4300-16X's per-page
+    ``CSRFToken`` (whose absence it answers with ``403 Forbidden``) rides along
+    without this builder having to know about it -- and overrides only the named
+    fields. An unknown field raises rather than being invented.
+    """
+    body = dict(page.fields)
+    for name, value in changes.items():
+        if name not in page.fields:
+            raise KeyError(
+                f"page {page.action!r} does not render field {name!r} "
+                f"(it has {sorted(page.fields)})"
+            )
+        body[name] = value
+    body.update(page.hidden)
+    body["submit_flag"] = XUI_OPERATION_SUBMIT
+    body["err_flag"] = "0"
+    body["err_msg"] = ""
+    body[button] = page.buttons[button]
+    return body
+
+
+# GS110EMX ``port_settings.html`` admin mode. The page has no separate
+# enable/disable control: its "Physical Mode" select is
+# ``0=(blank) 1=Auto 6=Disable``, and its own ``sendPortStatusForm()`` translates
+# that selection into the triple actually POSTed --
+#     PHYSICAL_MODE 1 -> PORT_CTRL_MODE=1, PORT_CTRL_DUPLEX=0, PORT_CTRL_SPEED=0
+#     PHYSICAL_MODE 6 -> PORT_CTRL_MODE=3, PORT_CTRL_DUPLEX=0, PORT_CTRL_SPEED=0
+# -- so "disabled" is PORT_CTRL_MODE 3 and "enabled (auto)" is 1. Harvested from
+# the firmware's own /function.js on a live GS110EMX (10.1.5.25, 2026-07-31).
+_EMX_CTRL_MODE_AUTO = "1"
+_EMX_CTRL_MODE_DISABLE = "3"
+
+
+def gs110emx_port_admin_form(
+    *, port: int, enabled: bool, flow_control_mode: str
+) -> dict[str, str]:
+    """The GS110EMX port-admin POST body (the ``Gambit`` token is added by the
+    transport, exactly as it is for every other request on this model).
+
+    ``flow_control_mode`` is echoed from the port's OWN row rather than defaulted
+    -- the page always sends it, so omitting it (or guessing) would rewrite the
+    port's flow control as a side effect of an admin-mode change.
+    """
+    return {
+        # SEMICOLON-TERMINATED, not a bare number: the page's own
+        # ``saveSelectedPorts()`` builds ``selectedPorts`` as
+        # ``"<n>;"`` per checked row and POSTs that string as PORT_NO. A bare
+        # "3" is accepted with HTTP 200 and applies NOTHING -- caught live on
+        # 10.1.5.25 by the verify-after-write, which is exactly what that check
+        # is for.
+        "PORT_NO": f"{port};",
+        "PORT_CTRL_MODE": _EMX_CTRL_MODE_AUTO if enabled else _EMX_CTRL_MODE_DISABLE,
+        "PORT_CTRL_DUPLEX": "0",
+        "PORT_CTRL_SPEED": "0",
+        "FLOW_CONTROL_MODE": flow_control_mode,
+        "ACTION": "apply",
+    }
 
 
 def vlan_add_form(*, vlan: int, csrf_hash: str) -> dict[str, str]:

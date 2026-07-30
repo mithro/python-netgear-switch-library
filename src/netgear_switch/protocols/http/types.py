@@ -7,6 +7,7 @@ in ``models.py``, until/unless a second backend needs the same shape).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -70,6 +71,86 @@ class FastpathMembership:
     # ``vlan_membership_post_path`` rather than that path being an unchecked
     # constant.
     action: str
+
+
+@dataclass(frozen=True)
+class XuiRow:
+    """One repeating row of a FASTPATH "XE"/Cheetah XUI list page.
+
+    These pages (``portsConfiguration.html``, ``poeInterfaceConfiguration.html``,
+    ``basicAddressTable.html`` ...) render every cell as a hidden input whose
+    NAME is ``<unit>.<row0>.<count>.v_1_2_<column>`` -- e.g. ``1.35.52.v_1_2_6``
+    is column 6 of the 36th row of a 52-row table on unit 1. ``prefix`` is that
+    ``<unit>.<row0>.<count>.`` string, taken verbatim from the device (never
+    computed from the port number: the row order is the device's, and the count
+    is the rendered row count, not the model's port count -- the PoE page of a
+    52-port switch has 48 rows).
+
+    ``checkbox`` is the row's own ``gecb*`` selector, whose NAME differs per
+    firmware (``1.0.52.gecb5`` on gsm7252ps, ``1.0.52.gecb10`` on gsm7228ps,
+    ``1.0.24.gecb_1_2`` on the M4300s) -- so it is scraped, not constructed.
+    LIVE-CONFIRMED 2026-07-30 on all four managed switches: an apply POST
+    changes ONLY the rows whose checkbox is present in the body.
+    """
+
+    prefix: str
+    checkbox: str | None
+    fields: Mapping[str, str]
+
+    def field(self, column: str) -> str | None:
+        """This row's value for ``column`` (e.g. ``"v_1_2_6"``), or ``None``."""
+        return self.fields.get(self.prefix + column)
+
+
+@dataclass(frozen=True)
+class XuiListPage:
+    """One render of a FASTPATH XUI *list* page (a table of ``XuiRow``).
+
+    ``action`` is the ``<FORM ACTION=...>`` of the page's SECOND form -- the
+    write form (``<page>.html/a1``); the first (``/a0``) is the applet/redirect
+    form and carries no data. ``hidden`` is that form's trailing "redirection
+    elements" block (``submit_flag``/``submit_target``/``err_flag``/``err_msg``/
+    ``clazz_information``), echoed back on every POST. ``buttons`` maps the
+    page's button fields to their rendered labels (``v_2_1_2`` -> ``APPLY``,
+    ``v_2_1_3`` -> ``RESET`` / ``Power Cycle Port(s)``); the firmware's own
+    ``xuiProcessButtonActions`` ENABLES the clicked button's hidden input before
+    submitting, so the POST carries it.
+
+    ``tokens`` is the form's page-level NON-DATA fields -- in practice the
+    per-page ``CSRFToken`` the AV-era M4300-16X firmware issues. It is carried
+    into every apply because that firmware answers ``403 Forbidden`` to a POST
+    that drops it (live 2026-07-30 on 10.1.5.20:49152: the identical body with
+    the token returned 200 and applied). Data cells (``v_*``) are deliberately
+    NOT included -- an apply must mention only the row it is changing.
+    """
+
+    action: str
+    hidden: Mapping[str, str]
+    buttons: Mapping[str, str]
+    rows: tuple[XuiRow, ...]
+    tokens: Mapping[str, str] = MappingProxyType({})
+
+    def row_for(self, column: str, value: str) -> XuiRow | None:
+        """The row whose ``column`` renders ``value`` (e.g. the ifName cell)."""
+        return next((r for r in self.rows if r.field(column) == value), None)
+
+
+@dataclass(frozen=True)
+class XuiFormPage:
+    """One render of a FASTPATH XUI *detail* page (flat ``v_<a>_<b>_<c>`` fields).
+
+    Same second-form/``hidden``/``buttons`` shape as ``XuiListPage``, but the
+    values are not in repeating rows -- ``ipConfiguration.html`` and the M4300's
+    ``mgmtVlanIpv4Configuration.html`` are of this kind. ``fields`` is every
+    named input the form rendered, verbatim, so a re-POST can echo the device's
+    own body (the M4300-16X refuses a POST that drops its per-page
+    ``CSRFToken``, which lives in exactly this map).
+    """
+
+    action: str
+    hidden: Mapping[str, str]
+    buttons: Mapping[str, str]
+    fields: Mapping[str, str]
 
 
 @dataclass(frozen=True)
