@@ -60,6 +60,12 @@ _RULER_RE = re.compile(r"^[ \t]*-{2,}[- \t]*$")
 # slot) maps to a library port number. "lag N", "vlan N" and
 # "CPU Interface: ..." are deliberately NOT physical ports.
 _PHYS_IFACE_RE = re.compile(r"^(\d+)/0/(\d+)$")
+# The Smart-firmware S3300-52X (gsm7228ps) instead names physical ports "1/gN"
+# (1-48) and 10G uplinks "1/xgN" (49-52) -- same FASTPATH CLI, different ifName
+# text. The trailing integer IS the port number (verified against SNMP on
+# 10.1.5.11). Mirrors ``protocols.http.parse._XE_SMART_IFACE_RE``. "1/0/N" is
+# unaffected: it is matched first by ``_PHYS_IFACE_RE`` above.
+_SMART_IFACE_RE = re.compile(r"^\d+/x?g(\d+)$")
 _MAC_TEXT_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
 
@@ -184,9 +190,18 @@ def _int(text: str) -> int | None:
 
 
 def _phys_port(iface: str) -> int | None:
-    """``"1/0/7"`` -> ``7``; ``"lag 1"``/``"CPU Interface: ..."`` -> ``None``."""
-    m = _PHYS_IFACE_RE.match(iface.strip())
-    return int(m.group(2)) if m else None
+    """Physical port number from a FASTPATH ifName, else ``None``.
+
+    ``"1/0/7"`` -> ``7`` (Fully Managed line); ``"1/g7"`` -> ``7`` and
+    ``"1/xg49"`` -> ``49`` (Smart-firmware S3300-52X). ``"lag 1"``/``"vlan 5"``/
+    ``"CPU Interface: ..."`` -> ``None``.
+    """
+    s = iface.strip()
+    m = _PHYS_IFACE_RE.match(s)
+    if m:
+        return int(m.group(2))
+    m = _SMART_IFACE_RE.match(s)
+    return int(m.group(1)) if m else None
 
 
 # ---------------------------------------------------------------------------
