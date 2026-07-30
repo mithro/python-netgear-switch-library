@@ -33,6 +33,7 @@ from .. import (
     web_gs105pe,
     web_gs110emx,
     web_gs728tpp,
+    web_gsm7228ps,
     web_gsm7252ps,
     web_m4300,
 )
@@ -283,6 +284,8 @@ class VirtualHttpFace:
                         page = gs105
                     elif (m43 := face._render_m4300_page(path)) is not None:
                         page = m43
+                    elif (s33 := face._render_s3300_page(path)) is not None:
+                        page = s33
                     elif (xe := face._render_xe_page(path)) is not None:
                         page = xe
                     else:
@@ -331,6 +334,8 @@ class VirtualHttpFace:
                         page = gs105
                     elif (m43 := face._render_m4300_page(path)) is not None:
                         page = m43
+                    elif (s33 := face._render_s3300_page(path)) is not None:
+                        page = s33
                     elif (xe := face._render_xe_page(path)) is not None:
                         page = xe
                     else:
@@ -403,6 +408,39 @@ class VirtualHttpFace:
             # integer mW. The 24X has poe_status_path=None and never reaches
             # here (it genuinely has no PoE).
             return web_gsm7252ps.render_poe(self.state, watts=True)
+        return None
+
+    def _render_s3300_page(self, path: str) -> str | None:
+        """Render an S3300-52X (gsm7228ps) read page from state, or ``None`` if
+        this model is not the S3300 dialect (so the caller falls through).
+
+        Ports/stats/PVIDs/VLANs/PoE/LLDP reuse the gsm7252ps XE renderers (same
+        cell grid); only the MAC table (shifted columns, escaped 1/gN ports)
+        and sysInfo (base MAC only) are S3300-specific -- see web_gsm7228ps and
+        HtmlDialect.S3300. As with _render_xe_page, every advertised path is
+        rendered here rather than falling through to web.render_page's
+        permissive catch-all, which would fabricate a 200 for a page the mock
+        cannot actually build."""
+        from ...protocols.http.endpoints import HtmlDialect
+
+        if self.spec.html_dialect is not HtmlDialect.S3300:
+            return None
+        if path == self.spec.dashboard_path:
+            return web_gsm7228ps.render_ports(self.state)
+        if path == self.spec.stats_path:
+            return web_gsm7228ps.render_port_statistics(self.state)
+        if path == self.spec.pvid_path:
+            return web_gsm7228ps.render_pvids(self.state)
+        if path == self.spec.vlan_config_path:
+            return web_gsm7228ps.render_vlans(self.state)
+        if path == self.spec.mac_table_path:
+            return web_gsm7228ps.render_mac_table(self.state)
+        if path == self.spec.poe_status_path:
+            return web_gsm7228ps.render_poe(self.state)
+        if path == self.spec.lldp_path:
+            return web_gsm7228ps.render_lldp(self.state)
+        if path == self.spec.sysinfo_path:
+            return web_gsm7228ps.render_sysinfo(self.state)
         return None
 
     def _render_xe_page(self, path: str) -> str | None:

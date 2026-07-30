@@ -502,3 +502,132 @@ def test_goahead_async_reader_end_to_end(goahead_face) -> None:
                 await client.aclose()
 
     asyncio.run(run())
+
+
+# --- gsm7228ps: the S3300-52X XE FASTPATH face -----------------------------
+# The S3300 shares the gsm7252ps XE cell grid for ports/stats/PVIDs/PoE/LLDP,
+# but its MAC table (shifted columns, escaped 1/gN names), VLAN membership
+# (1/gN/1/xgN egress names) and sysInfo (base MAC only, no live sensors) get
+# S3300-specific handling. Expected values are the same switch's real SNMP
+# capture (tests/fixtures/captures/gsm7228ps.json).
+import json as _json  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+_GSM7228PS_SPEC = http_spec(get_model("gsm7228ps"))
+_S3300_CAPTURE = _json.loads(
+    (
+        _Path(__file__).parent.parent / "fixtures" / "captures" / "gsm7228ps.json"
+    ).read_text()
+)["snapshot"]
+
+
+@pytest.fixture
+def s3300_face():
+    from netgear_switch.virtual.seed import seed_gsm7228ps
+
+    state = seed_gsm7228ps()
+    f = VirtualHttpFace(state, _GSM7228PS_SPEC, password="password")
+    port = f.start()
+    try:
+        yield f, port, state
+    finally:
+        f.stop()
+
+
+def test_s3300_face_serves_grounded_reads_matching_snmp_capture(s3300_face) -> None:
+    """Full stack, no hardware: VirtualSwitch("gsm7228ps") HTTP face -> cheetah
+    login -> HttpReader reproduces the seven grounded reads, cross-checked
+    against the real SNMP capture. get_sensors raises Unsupported (the S3300
+    sysInfo has no live fan/temp table -- SNMP only)."""
+    from netgear_switch.errors import UnsupportedCapabilityError
+
+    _f, port, _state = s3300_face
+    cap = _S3300_CAPTURE
+    client = HttpClient(f"127.0.0.1:{port}", "password", _GSM7228PS_SPEC)
+    try:
+        client.login()
+        reader = HttpReader(client, get_model("gsm7228ps"))
+
+        # (1) ports -- port set + admin/link/speed match SNMP
+        ports = {p.port: p for p in reader.get_ports()}
+        assert set(ports) == set(range(1, 53))
+        for cp in cap["ports"]:
+            assert ports[cp["port"]].link_up is cp["link_up"]
+            assert ports[cp["port"]].speed_mbps == cp["speed_mbps"]
+
+        # (2) stats -- port set (counters are volatile, not parity-pinned)
+        assert {s.port for s in reader.get_stats()} == set(range(1, 53))
+
+        # (3) pvids -- exact
+        assert dict(reader.get_pvids()) == {p[0]: p[1] for p in cap["pvids"]}
+
+        # (4) vlans -- IDs + physical membership match SNMP (lag ifIndexes the
+        # SNMP capture lists on VLAN 1 are rendered "lag N" and omitted by both)
+        vlans = {v.vlan_id: v for v in reader.get_vlans()}
+        cv = {v["vlan_id"]: v for v in cap["vlans"]}
+        assert set(vlans) == set(cv) == {1, 5, 21, 121, 4089}
+        for vid, v in vlans.items():
+            assert set(v.member_ports) == {
+                p for p in cv[vid]["member_ports"] if p <= 52
+            }
+        assert vlans[5].name == "net"
+
+        # (5) poe -- port set + admin + power_mw match; delivering ports stable
+        poe = {p.port: p for p in reader.get_poe()}
+        cpoe = {p["port"]: p for p in cap["poe"]}
+        assert set(poe) == set(cpoe)
+        for port_no, cp in cpoe.items():
+            assert poe[port_no].admin_enabled is cp["admin_enabled"]
+            assert poe[port_no].power_mw == cp["power_mw"]
+            if cp["power_mw"] > 0:
+                assert poe[port_no].detect is PoEDetect.DELIVERING
+
+        # (6) lldp -- both neighbours, chassis/sysname match
+        lldp = {n.local_port: n for n in reader.get_lldp()}
+        assert set(lldp) == {n["local_port"] for n in cap["lldp"]}
+        for cn in cap["lldp"]:
+            assert lldp[cn["local_port"]].remote_chassis_id == cn["remote_chassis_id"]
+            assert lldp[cn["local_port"]].remote_sys_name == cn["remote_sys_name"]
+
+        # (7) macs -- the 17 PHYSICAL entries (SNMP's 18th is the switch's own
+        # base MAC on the CPU ifIndex, which the FDB parser omits)
+        macs = {(m.mac, m.port, m.vlan_id) for m in reader.get_macs()}
+        assert macs == {
+            (m["mac"], m["port"], m["vlan_id"]) for m in cap["macs"] if m["port"] <= 52
+        }
+        assert "08:BD:43:6B:B8:D8" not in {m for m, _p, _v in macs}
+
+        # mgmt-IP over HTTP is base-MAC only (SNMP is authoritative for address)
+        mgmt = reader.get_mgmt_ip()
+        assert mgmt.mode is IpMode.UNKNOWN
+        assert mgmt.address is None
+        assert mgmt.base_mac == cap["mgmt_ip"]["base_mac"] == "08:BD:43:6B:B8:D8"
+
+        # sensors -- unsupported over HTTP (no live fan/temp table); SNMP only
+        with pytest.raises(UnsupportedCapabilityError):
+            reader.get_sensors()
+    finally:
+        client.close()
+
+
+def test_s3300_face_login_requires_username_and_password(s3300_face) -> None:
+    """The S3300 cheetah form posts uname=admin + pwd, and the mock validates
+    both -- a transport that dropped the username would fail on hardware."""
+    _f, port, _state = s3300_face
+    client = HttpClient(f"127.0.0.1:{port}", "password", _GSM7228PS_SPEC)
+    try:
+        client.login()  # uname=admin + pwd=password
+    finally:
+        client.close()
+    bad = httpx.post(
+        f"http://127.0.0.1:{port}/base/cheetah_login.html",
+        data={"pwd": "password"},  # no uname
+    )
+    assert "Set-Cookie" not in bad.headers
+
+
+def test_s3300_face_404s_a_path_the_spec_does_not_serve(s3300_face) -> None:
+    """The S3300 spec has no reboot/logout/PoE-config page; the face must 404
+    rather than fabricate a 200."""
+    _f, port, _state = s3300_face
+    assert httpx.get(f"http://127.0.0.1:{port}/device_reboot.cgi").status_code == 404
