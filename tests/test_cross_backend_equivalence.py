@@ -369,6 +369,10 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
       are compared on the intersection;
     - VLAN membership is compared on physical ports only (the egress page
       renders aggregations as "lag N", which are not ports);
+    - HTTP reports CURRENT egress while SNMP's dot1qVlanStaticEgressPorts is the
+      CONFIGURED table, and on this switch they genuinely differ (1/0/50 and
+      1/0/51 are Exclude/Include in `show vlan 1`), so that exact divergence is
+      asserted in both directions;
     - portStatistics.html has no octet column, so counters are compared as
       PACKETS;
     - the PoE page's fault TEXT is richer than RFC3621's detect enum (the real
@@ -425,9 +429,36 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                 http_vlans = {v.vlan_id: v for v in http.get_vlans()}
                 snmp_vlans = {v.vlan_id: v for v in snmp.get_vlans()}
                 assert set(http_vlans) == set(snmp_vlans)
+                # The two faces report DIFFERENT axes of VLAN membership and the
+                # real switch really does disagree with itself here, so the
+                # difference is pinned rather than flattened:
+                #   * HTTP's VLAN Membership page reports CURRENT egress;
+                #   * SNMP's dot1qVlanStaticEgressPorts is the STATIC (configured)
+                #     table, which includes ports the switch does not currently
+                #     egress.
+                # Measured 2026-07-30 on the real GSM7252PS (10.1.5.22),
+                # ``show vlan 1``:
+                #     1/0/49  Include  Include  Untagged
+                #     1/0/50  Exclude  Include  Untagged   <-- configured only
+                #     1/0/51  Exclude  Include  Untagged   <-- configured only
+                #     1/0/52  Include  Include  Untagged
+                # Only VLAN 1's full output was captured, so only VLAN 1 carries a
+                # claim; every other VLAN must still agree exactly.
+                configured_only = {1: {50, 51}}
                 for vid, v in http_vlans.items():
                     physical = {p for p in snmp_vlans[vid].member_ports if p <= 52}
-                    assert v.member_ports == physical, f"VLAN {vid} members differ"
+                    extra = configured_only.get(vid, set())
+                    assert v.member_ports == physical - extra, (
+                        f"VLAN {vid} members differ"
+                    )
+                    # Assert the divergence ITSELF: a mock that quietly made the
+                    # two faces agree (as it used to) would satisfy the line above
+                    # for VLAN 1 only by also dropping 50/51 from SNMP, which would
+                    # no longer match the captured static bitmap. This pins the
+                    # direction of the difference too -- HTTP is the SUBSET.
+                    assert physical - set(v.member_ports) == extra, (
+                        f"VLAN {vid} current-vs-configured divergence changed"
+                    )
 
                 http_stats = {s.port: s for s in http.get_stats()}
                 snmp_stats = {s.port: s for s in snmp.get_stats()}
