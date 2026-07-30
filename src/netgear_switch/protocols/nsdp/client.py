@@ -12,8 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ...errors import NetgearSwitchError
-from .auth import AUTH_V2_UNSUPPORTED
-from .write import RESULT_BAD_PASSWORD, RESULT_SUCCESS
+from .write import RESULT_SUCCESS
 
 if TYPE_CHECKING:
     from .protocol import NSDPPacket, Tag, TLVEntry
@@ -21,6 +20,14 @@ if TYPE_CHECKING:
 
 class NsdpError(NetgearSwitchError):
     """An NSDP transport operation failed (timeout, malformed, bad password)."""
+
+
+def first_tlv_value(packet: NSDPPacket, tag: Tag) -> bytes | None:
+    """Return the value of the first TLV with ``tag``, or ``None`` if absent."""
+    for entry in packet.tlvs:
+        if entry.tag == tag:
+            return entry.value
+    return None
 
 
 def read_interface_mac(interface: str) -> bytes:
@@ -45,34 +52,54 @@ def _attr_name(tag: int) -> str:
 def check_result(packet: NSDPPacket) -> None:
     """Raise ``NsdpError`` unless the response reports success (result 0x0000).
 
-    The message names the offending TLV tag (header bytes 4-5), because the
-    switch tells us and a caller cannot debug "the request failed" otherwise
-    (principle 1). The auth-version codes are called out by name: they are what
-    a real GS110EMX answers when it wants the v2 salted auth this library does
-    not implement, and they are NOT the classic 0x0700 bad-password result -- an
-    operator otherwise reads them as "wrong password" and rotates a credential
-    that was never wrong.
+    The 2-byte ``result`` is (error-byte << 8 | unk1); the error CODE alone is
+    ``result >> 8`` (``NSDPPacket.error_code``). Codes seen on real rejections:
+    3 = read-only, 4 = write-only, 7 = v1 denial, 13 = write auth refused,
+    14 = write lockout.
+
+    Every message NAMES the TLV tag the switch blamed (header bytes 4-5),
+    because the switch tells us and a caller cannot debug "the request failed"
+    otherwise (principle 1). That blamed tag is also what separates the two
+    causes of error 13: attr 0x000A (ATTR_PASSWORD) means a v1 XOR password was
+    offered to a firmware that only accepts the v2 salted challenge-response --
+    a WIRING problem, not a credential one, and an operator told "bad password"
+    there rotates a credential that was never wrong. Error 13 on any other attr
+    really is a bad password: this library IMPLEMENTS v2 auth
+    (``auth.auth_v2_password``, live-verified on a GS110EMX), so a rejected
+    token means the password is wrong or the salt it was folded against
+    went stale.
     """
     if packet.result == RESULT_SUCCESS:
         return
     from .protocol import (
-        ERROR_AUTH_VERSION,
-        ERROR_AUTH_VERSION_ALT,
+        ERROR_AUTH_REJECTED,
+        ERROR_DENIED,
+        ERROR_LOCKED,
         ERROR_NAMES,
         Tag,
     )
 
     code = packet.error_code
-    blamed = _attr_name(packet.error_attr) if packet.error_attr else "no attribute"
+    attr = packet.error_attr
+    blamed = _attr_name(attr) if attr else "no attribute"
     detail = ERROR_NAMES.get(code, f"unknown error code {code}")
-    if code in (ERROR_AUTH_VERSION, ERROR_AUTH_VERSION_ALT):
+    if code == ERROR_AUTH_REJECTED and attr == Tag.PASSWORD:
         raise NsdpError(
-            f"NSDP write rejected by {blamed}: error {code} ({detail}). "
-            f"{AUTH_V2_UNSUPPORTED}"
+            f"NSDP write rejected at {blamed}: error {code} ({detail}) -- this "
+            "firmware refuses the v1 XOR password and requires the v2 salted "
+            "challenge-response, which this library implements; let the client "
+            "auto-detect the scheme (auth_scheme='auto') or force 'v2' rather "
+            "than 'v1'"
         )
-    if packet.result == RESULT_BAD_PASSWORD and packet.error_attr in (0, Tag.PASSWORD):
+    if code in (ERROR_DENIED, ERROR_AUTH_REJECTED):
         raise NsdpError(
-            f"NSDP write rejected: bad password (result 0x0700). {AUTH_V2_UNSUPPORTED}"
+            f"NSDP write rejected: bad password (error 0x{code:02x}) at {blamed}"
+        )
+    if code == ERROR_LOCKED:
+        raise NsdpError(
+            f"NSDP write locked out after repeated auth failures (error "
+            f"0x{code:02x}) at {blamed}; the switch goes silent for a cooldown "
+            "-- pace writes and retry"
         )
     raise NsdpError(
         f"NSDP request failed with result 0x{packet.result:04x} "

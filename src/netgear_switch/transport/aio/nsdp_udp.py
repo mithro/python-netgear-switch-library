@@ -15,12 +15,22 @@ import socket
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-from ...protocols.nsdp.client import NsdpError, check_result, read_interface_mac
-from ...protocols.nsdp.protocol import NSDPPacket, Op
-from ...protocols.nsdp.write import build_read_request, build_write_request
+from ...protocols.nsdp.auth import auth_v2_password, encpass_is_v2
+from ...protocols.nsdp.client import (
+    NsdpError,
+    check_result,
+    first_tlv_value,
+    read_interface_mac,
+)
+from ...protocols.nsdp.protocol import NSDPPacket, Op, Tag
+from ...protocols.nsdp.write import (
+    build_read_request,
+    build_write_request,
+    build_write_request_v2,
+)
 
 if TYPE_CHECKING:
-    from ...protocols.nsdp.protocol import Tag, TLVEntry
+    from ...protocols.nsdp.protocol import TLVEntry
 
 Transceive = Callable[..., Awaitable[bytes]]
 
@@ -100,6 +110,7 @@ class AsyncUdpNsdpClient:
         client_port: int = 63321,
         server_port: int = 63322,
         timeout: float = 2.0,
+        auth_scheme: str = "auto",
         transceive: Transceive = _udp_transceive,
     ) -> None:
         self.host = host
@@ -107,6 +118,8 @@ class AsyncUdpNsdpClient:
         self._client_port = client_port
         self._server_port = server_port
         self._timeout = timeout
+        # "auto" (detect via AUTH_V2_ENCPASS on first write), "v1", or "v2".
+        self._auth_scheme = auth_scheme
         self._transceive = transceive
         self._sequence = 0
         if client_mac is not None:
@@ -145,11 +158,39 @@ class AsyncUdpNsdpClient:
             raise NsdpError(f"expected READ_RESPONSE from {self.host}, got {resp.op}")
         return resp
 
-    async def write(self, tlvs: list[TLVEntry], *, password: str) -> NSDPPacket:
-        req = build_write_request(
+    async def _resolve_scheme(self) -> str:
+        """Determine (and cache) the write-auth scheme via AUTH_V2_ENCPASS."""
+        if self._auth_scheme in ("v1", "v2"):
+            return self._auth_scheme
+        resp = await self.read([Tag.AUTH_V2_ENCPASS])
+        enc = first_tlv_value(resp, Tag.AUTH_V2_ENCPASS)
+        self._auth_scheme = "v2" if encpass_is_v2(enc or b"") else "v1"
+        return self._auth_scheme
+
+    async def _build_write(
+        self, tlvs: list[TLVEntry], password: str
+    ) -> NSDPPacket:
+        if await self._resolve_scheme() == "v2":
+            # Fresh challenge: read the rotating salt (its response header also
+            # carries the switch MAC the token folds in), then LEAD the packet
+            # with the 8-byte AUTH_V2_PASSWORD token, config TLVs after it.
+            salt_resp = await self.read([Tag.AUTH_V2_SALT])
+            salt = first_tlv_value(salt_resp, Tag.AUTH_V2_SALT)
+            if salt is None:
+                raise NsdpError(
+                    f"{self.host} advertised v2 auth but returned no "
+                    "AUTH_V2_SALT (0x0017)"
+                )
+            token = auth_v2_password(password, salt_resp.server_mac, salt)
+            return build_write_request_v2(
+                self._client_mac, _BROADCAST_MAC, self._next_seq(), tlvs, token
+            )
+        return build_write_request(
             self._client_mac, _BROADCAST_MAC, self._next_seq(), password, tlvs
         )
-        resp = await self._exchange(req)
+
+    async def write(self, tlvs: list[TLVEntry], *, password: str) -> NSDPPacket:
+        resp = await self._exchange(await self._build_write(tlvs, password))
         # Guard the op-code before trusting result (symmetric with read()): a
         # misrouted/duplicate UDP datagram (e.g. a stray READ_RESPONSE with
         # result=0) must not silently pass check_result as a successful write.

@@ -1834,15 +1834,12 @@ def seed_gs110emx() -> VirtualSwitchState:
     nsdp_device() has something non-vacuous to decode on every parsed tag.
 
     FIRMWARE CAVEAT. This state is transcribed from captures taken while
-    10.1.5.25 ran firmware 1.0.1.4, and it keeps ``nsdp_auth_v2_only`` at its
-    default False, so NSDP writes succeed against it. That unit has since been
-    upgraded to 1.0.2.8, and on 1.0.2.8 NSDP writes are REFUSED outright (error
-    13/14 blaming ATTR_PASSWORD -- see ``seed_gs110emx_fw1028``, which models
-    exactly that, and ``VirtualSwitchState.nsdp_auth_v2_only`` for the capture).
-    Whether 1.0.1.4 accepted v1 auth was never measured, so this seed does not
-    claim it did -- it simply keeps the pre-existing, unverified write path
-    exercisable. Anything asserting real GS110EMX NSDP-write behaviour today
-    must use ``seed_gs110emx_fw1028``.
+    10.1.5.25 ran firmware 1.0.1.4; that unit has since been upgraded to
+    1.0.2.8, which is what ``seed_gs110emx_fw1028`` transcribes. Whether 1.0.1.4
+    advertised the v2 write auth was never measured -- this seed carries the
+    SKU's measured ``nsdp_auth_version=0x10`` so the v2 write path is
+    exercisable, but anything asserting real GS110EMX behaviour AT A GIVEN
+    FIRMWARE must use ``seed_gs110emx_fw1028``.
     """
     real_speed = {6: 100, 8: 1000, 9: 10000, 10: 10000}
     # Counters transcribed from gs110emx_interface_stats.html: traffic is on
@@ -1895,6 +1892,14 @@ def seed_gs110emx() -> VirtualSwitchState:
         hostname="sw-netgear-gs110emx1",
         nsdp_mac=b"\xbc\xa5\x11\xb8\xec\xf1",
         nsdp_password="password",
+        # LIVE-VERIFIED on this SKU: a GS110EMX advertises AUTH_V2_ENCPASS 0x10
+        # and REQUIRES the v2 salted challenge-response for writes -- the v1 XOR
+        # PASSWORD is rejected with error 13. 0x10 == auth.ENCPASS_V2. The
+        # measurement was taken at firmware 1.0.2.8; whether the 1.0.1.4 this
+        # seed transcribes also advertised 0x10 was never captured, so this is
+        # the SKU's known behaviour applied to an unmeasured firmware rather
+        # than a transcription (see seed_gs110emx_fw1028 for the measured one).
+        nsdp_auth_version=0x10,
         # QoS/mirroring/IGMP/broadcast-filtering/loop-detection test fixtures
         # (Slice 9b): illustrative, non-vacuous values so nsdp_device() has
         # something real to decode on every one of the 5 newly-parsed tags.
@@ -1915,10 +1920,14 @@ def seed_gs110emx_fw1028() -> VirtualSwitchState:
     committed HTML fixtures ``seed_gs110emx`` transcribes, and each is here
     because a claim in this library turned out to be wrong about it:
 
-    * ``nsdp_auth_v2_only=True`` -- an NSDP WRITE_REQUEST bearing the v1
-      repeating-XOR PASSWORD TLV is answered error=13 (then 14 on the next try)
-      with the header error-attribute set to 0x000A/ATTR_PASSWORD; a plaintext
-      password fares identically. So no NSDP write works on this firmware.
+    * ``nsdp_auth_version=0x10`` -- AUTH_V2_ENCPASS (0x0014) answers
+      0x00000010 and this firmware accepts ONLY the v2 salted
+      challenge-response. An NSDP WRITE_REQUEST bearing the v1 repeating-XOR
+      PASSWORD TLV is answered error=13 (then 14 on the next try) with the
+      header error-attribute set to 0x000A/ATTR_PASSWORD; a plaintext password
+      fares identically. v2 writes DO work here -- the token is an 8-byte XOR
+      fold of password+salt+MAC sent in a leading 0x001A TLV, cracked and
+      live-verified on this very unit (see ``protocols/nsdp/auth.py``).
     * ports 9 and 10 at 10000 Mbps -- their PORT_STATUS speed byte is 0x06
       (``09 06 01`` / ``0a 06 01``), which the decoder used to treat as an
       unknown code and report as LINK DOWN.
@@ -1966,7 +1975,7 @@ def seed_gs110emx_fw1028() -> VirtualSwitchState:
         hostname="sw-netgear-gs110emx1",
         nsdp_mac=b"\xbc\xa5\x11\xb8\xec\xf1",
         nsdp_password="password",
-        nsdp_auth_v2_only=True,
+        nsdp_auth_version=0x10,
         nsdp_qos_engine=2,
         nsdp_port_mirroring_dest=0,
         nsdp_port_mirroring_sources=frozenset(),

@@ -61,7 +61,9 @@ def _response_packet(result: int = 0, op: Op = Op.READ_RESPONSE) -> bytes:
     return pkt.encode()
 
 
-def _client(response: bytes | None) -> tuple[UdpNsdpClient, list[_FakeSocket]]:
+def _client(
+    response: bytes | None, auth_scheme: str = "auto"
+) -> tuple[UdpNsdpClient, list[_FakeSocket]]:
     made: list[_FakeSocket] = []
 
     def factory(*_a, **_k):
@@ -74,6 +76,7 @@ def _client(response: bytes | None) -> tuple[UdpNsdpClient, list[_FakeSocket]]:
         client_port=0,
         server_port=63322,
         client_mac=_MAC,
+        auth_scheme=auth_scheme,
         sock_factory=factory,
     ), made
 
@@ -196,7 +199,11 @@ def test_malformed_response_raises_nsdperror():
 
 
 def test_write_sends_write_request_with_password_and_checks_result():
-    client, made = _client(_response_packet(op=Op.WRITE_RESPONSE, result=0))
+    # auth_scheme="v1" pins the legacy path (no AUTH_V2_ENCPASS probe) so this
+    # single-canned-response fake exercises exactly the v1 write.
+    client, made = _client(
+        _response_packet(op=Op.WRITE_RESPONSE, result=0), auth_scheme="v1"
+    )
     client.write([write.pvid_tlv(1, 90)], password="admin")
     sent_data, _ = made[0].sent[0]
     req = NSDPPacket.decode(sent_data)
@@ -205,14 +212,18 @@ def test_write_sends_write_request_with_password_and_checks_result():
 
 
 def test_write_bad_password_raises_nsdperror():
-    client, _ = _client(_response_packet(op=Op.WRITE_RESPONSE, result=0x0700))
+    client, _ = _client(
+        _response_packet(op=Op.WRITE_RESPONSE, result=0x0700), auth_scheme="v1"
+    )
     with pytest.raises(NsdpError, match="bad password"):
         client.write([write.pvid_tlv(1, 90)], password="wrong")
 
 
 def test_write_wrong_op_response_raises_nsdperror():
     # A stray READ_RESPONSE (result=0) must NOT pass as a successful write.
-    client, _ = _client(_response_packet(op=Op.READ_RESPONSE, result=0))
+    client, _ = _client(
+        _response_packet(op=Op.READ_RESPONSE, result=0), auth_scheme="v1"
+    )
     with pytest.raises(NsdpError, match="expected WRITE_RESPONSE"):
         client.write([write.pvid_tlv(1, 90)], password="admin")
 
@@ -258,6 +269,7 @@ def test_async_write_bad_password_raises_nsdperror():
         "127.0.0.1",
         client_port=0,
         client_mac=_MAC,
+        auth_scheme="v1",
         transceive=_fake_transceive(
             _response_packet(op=Op.WRITE_RESPONSE, result=0x0700)
         ),
@@ -272,6 +284,7 @@ def test_async_write_wrong_op_response_raises_nsdperror():
         "127.0.0.1",
         client_port=0,
         client_mac=_MAC,
+        auth_scheme="v1",
         transceive=_fake_transceive(_response_packet(op=Op.READ_RESPONSE, result=0)),
     )
     with pytest.raises(NsdpError, match="expected WRITE_RESPONSE"):

@@ -375,6 +375,31 @@ class VirtualSwitchState:
     firmware: str = ""
     hostname: str = ""
     nsdp_password: str = "password"
+    # Write-auth scheme this mock advertises via AUTH_V2_ENCPASS (0x0014), and
+    # the ONLY scheme it accepts on a WRITE_REQUEST:
+    # 1 = legacy v1 XOR (PASSWORD 0x000A), 0x10 = v2 salted challenge-response
+    # (AUTH_V2_SALT 0x0017 -> AUTH_V2_PASSWORD 0x001A).
+    #
+    # MEASURED on the real GS110EMX units at 10.1.5.25/.26/.27 (firmware
+    # 1.0.2.8, 2026-07-29/30): AUTH_V2_ENCPASS answers 0x00000010, and a
+    # WRITE_REQUEST whose PASSWORD (0x000A) TLV carries the v1 repeating-XOR
+    # encoding -- or a PLAINTEXT password -- is answered error=13 with the
+    # header's error-attribute set to 0x000A, escalating to error=14 and then
+    # silence on repeats. Setting this to 0x10 reproduces exactly that: the v2
+    # handler in faces/nsdp.py finds no 0x001A token in a v1 packet and refuses
+    # it 13/ATTR_PASSWORD. Older Plus units advertise 1, so the default 1 keeps
+    # every other seeded model on the v1 path (see auth.ENCPASS_V1/ENCPASS_V2).
+    nsdp_auth_version: int = 1
+    # The last 4-byte salt this mock handed out on an AUTH_V2_SALT read. A real
+    # switch rotates it on EVERY 0x0017 read and validates the next v2 write
+    # against exactly this value; None = none issued yet (a v2 write with no
+    # preceding salt read is rejected). Populated by nsdp_tlvs() below.
+    nsdp_last_salt: bytes | None = None
+    # Consecutive v2 auth failures, for the observed lockout: a GS110EMX escalates
+    # error 13 -> 14 after a few rapid wrong tokens and then goes SILENT for a
+    # cooldown. A successful write resets this to 0. (See faces/nsdp.py; the exact
+    # real thresholds are firmware rate-based, approximated here.)
+    nsdp_auth_failures: int = 0
     # QoS engine mode (NSDP tag 0x3400): None = unseeded (tag omitted from
     # nsdp_tlvs(), exactly like a real switch that doesn't answer it).
     nsdp_qos_engine: int | None = None
@@ -388,23 +413,6 @@ class VirtualSwitchState:
     nsdp_broadcast_filtering: bool | None = None
     # Loop detection (NSDP tag 0x9000): None = unseeded.
     nsdp_loop_detection: bool | None = None
-    # Which NSDP auth versions this firmware accepts on a WRITE_REQUEST.
-    #
-    # MEASURED on the real GS110EMX at 10.1.5.25 (firmware 1.0.2.8, 2026-07-30):
-    # a WRITE_REQUEST whose PASSWORD (0x000A) TLV carries the v1 repeating-XOR
-    # encoding is answered error=13, and the next attempt error=14, with the
-    # header's error-attribute field set to 0x000A both times; a PLAINTEXT
-    # password gets the same treatment; and after those two the switch stops
-    # answering WRITE_REQUESTs entirely for a while. That firmware advertises
-    # the v2 salted-auth tags instead (AUTH_V2_SALT 0x0017 is readable and
-    # returns a DIFFERENT 4-byte salt on every read; AUTH_V2_PASSWORD 0x001A is
-    # write-only, answering error=3 on a read), and the v2 algorithm is not
-    # documented anywhere this repo can cite.
-    #
-    # False (the default) keeps the v1-accepting behaviour every other seed
-    # models. seed_gs110emx() sets it True so the mock refuses NSDP writes
-    # exactly as the device it is transcribed from does.
-    nsdp_auth_v2_only: bool = False
     # Fixed seed MAC for device identity: the NSDP identity TLV (Tag.MAC /
     # server_mac) AND the SNMP dot1dBaseBridgeAddress scalar (see oid_map())
     # both project this same value -- on real hardware they're the same
@@ -1188,6 +1196,20 @@ class VirtualSwitchState:
             out.append(TLVEntry(Tag.HOSTNAME, self.hostname.encode("ascii")))
         if Tag.FIRMWARE_VER_1 in tags and self.firmware:
             out.append(TLVEntry(Tag.FIRMWARE_VER_1, self.firmware.encode("ascii")))
+        if Tag.AUTH_V2_ENCPASS in tags:
+            # 4-byte scheme advertisement (real GS110EMX returns 0x00000010).
+            out.append(
+                TLVEntry(Tag.AUTH_V2_ENCPASS, struct.pack(">I", self.nsdp_auth_version))
+            )
+        if Tag.AUTH_V2_SALT in tags:
+            # A read of the salt ROTATES it (real hardware does this on every
+            # 0x0017 read), and the mock remembers exactly what it handed out so
+            # the next v2 write is validated against it. This is a deliberate
+            # side effect of the read, matching the device's challenge-response.
+            import os
+
+            self.nsdp_last_salt = os.urandom(4)
+            out.append(TLVEntry(Tag.AUTH_V2_SALT, self.nsdp_last_salt))
         if Tag.PORT_STATUS in tags:
             for port, sim in sorted(self.ports.items()):
                 speed_byte = _mbps_to_speed_byte(sim.speed) if sim.link else 0x00

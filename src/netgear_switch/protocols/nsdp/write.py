@@ -1,25 +1,23 @@
 """NSDP request framing + value-TLV encoders for the read and write paths.
 
-Pure: builds ``NSDPPacket`` objects, no I/O. The write path (absent from the
-lifted ``gdoc2netcfg`` package, which was read-only) prepends a v1 ``PASSWORD``
-TLV — a real switch rejects an unauthenticated or wrongly-authenticated write
-with result 0x0700, which the transport turns into an ``NsdpError`` (Task 4).
+Pure: builds ``NSDPPacket`` objects, no I/O. Two authenticated WRITE builders
+exist, one per scheme the transport auto-selects from AUTH_V2_ENCPASS:
 
-UNVERIFIED write path (mirrors ``snmp_write.py``'s house style for its
-mgmt_write_* OIDs). This entire NSDP write path — the WRITE_REQUEST value-TLV
-encodings here plus the v1 XOR auth in ``auth.py`` — is a from-scratch addition
-with ZERO verification against real hardware: the lifted ``gdoc2netcfg/src/nsdp``
-prior art is READ-ONLY, so nothing in it exercises writes. It stays UNVERIFIED
-pending a real capture (Slice 7 capture utility / a real-hardware run);
-verify-after-write in ``nsdp_write.py`` is the runtime guard against a silently
-wrong encoding. Critically, the reference spec
-(``gdoc2netcfg/docs/nsdp-protocol.md``) marks ``PORT_PVID`` (0x3000) and
-``VLAN_MEMBERS`` (0x2800) as READ-ONLY (R), unlike hostname/ip/netmask/gateway/
-dhcp_mode/vlan_engine (R/W). Writing PVID/VLAN membership via NSDP may therefore
-be REJECTED by real hardware — the switch may only accept those changes via the
-``vlan_engine`` (or other R/W) tags or via HTTP. Do NOT read the ``pvid_tlv`` /
-``vlan_members_tlv`` encoders here as confirmation that those tags are writable;
-their writability is unconfirmed and must be settled by a hardware capture.
+* ``build_write_request`` — v1: prepend the XOR ``PASSWORD`` (0x000A) TLV.
+* ``build_write_request_v2`` — v2: the 8-byte ``AUTH_V2_PASSWORD`` (0x001A)
+  token FIRST, then the config TLVs (see ``auth.auth_v2_password``). The
+  ordering is load-bearing: trailing the token is rejected error 13.
+
+The v2 auth is LIVE-VERIFIED on a GS110EMX (fw 1.0.2.8): a correctly-authed
+write returns header error 0 and reads back; a wrong token returns error 13.
+``check_result`` maps the rejection codes; verify-after-write in
+``nsdp_write.py`` remains the guard against a silently wrong value encoding.
+
+Note on tag writability: the ``gdoc2netcfg`` reference spec marks ``PORT_PVID``
+(0x3000) and ``VLAN_MEMBERS`` (0x2800) as READ-ONLY. The ProSafe utility does
+configure both over NSDP, and ``nsdp_write.py``'s set_pvid / set_vlan_membership
+drive them with verify-after-write; see those methods for the live-verified
+status of each on the GS110EMX.
 """
 
 from __future__ import annotations
@@ -35,8 +33,24 @@ from .protocol import NSDPPacket, Op, Tag, TLVEntry
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+# The header's 2-byte ``result`` field is (error-byte << 8 | unk1); unk1 is
+# always 0, so the error CODE is ``result >> 8``. These constants are the whole
+# 2-byte value for convenience.
 RESULT_SUCCESS = 0x0000
+# v1 / older-firmware denial (ngadmin ERROR_DENIED == 7).
 RESULT_BAD_PASSWORD = 0x0700
+# v2 salted-auth rejection (error byte 13) -- LIVE on a GS110EMX (fw 1.0.2.8):
+# a WRITE whose AUTH_V2_PASSWORD token is wrong comes back error 13.
+RESULT_BAD_PASSWORD_V2 = 0x0D00
+# v2 write lockout (error byte 14): after repeated rapid auth failures the same
+# GS110EMX escalates 13 -> 14 and then goes SILENT (no write reply) for a
+# cooldown. READ requests keep working throughout.
+RESULT_LOCKED_V2 = 0x0E00
+# Structural rejections (ngadmin ERROR_READONLY == 3 / ERROR_WRITEONLY == 4).
+# A GS110EMX returns error 3 for a READ that names a write-only tag (e.g.
+# AUTH_V2_PASSWORD 0x001A) and error 4 for a WRITE that LEADS with 0x001A.
+RESULT_READONLY = 0x0300
+RESULT_WRITEONLY = 0x0400
 
 
 def build_read_request(
@@ -60,6 +74,7 @@ def build_write_request(
     password: str,
     tlvs: list[TLVEntry],
 ) -> NSDPPacket:
+    """Build a v1-authenticated WRITE: the XOR ``PASSWORD`` TLV, then config."""
     pkt = NSDPPacket(
         op=Op.WRITE_REQUEST,
         client_mac=client_mac,
@@ -67,6 +82,34 @@ def build_write_request(
         sequence=sequence,
     )
     pkt.tlvs.append(TLVEntry(Tag.PASSWORD, encode_password_v1(password)))
+    pkt.tlvs.extend(tlvs)
+    return pkt
+
+
+def build_write_request_v2(
+    client_mac: bytes,
+    server_mac: bytes,
+    sequence: int,
+    tlvs: list[TLVEntry],
+    auth_token: bytes,
+) -> NSDPPacket:
+    """Build a v2-authenticated WRITE: the 8-byte ``AUTH_V2_PASSWORD`` token
+    FIRST, then the config TLVs.
+
+    Ordering is load-bearing and LIVE-VERIFIED on a GS110EMX: leading with the
+    0x001A token authenticates and applies the write (header error 0);
+    trailing it after the config change is rejected error 13. This matches
+    yaamai/go-nsdp's ``WriteWithAuth`` (auth TLV prepended). The caller must
+    have just read a fresh AUTH_V2_SALT so the token matches the switch's
+    stored challenge.
+    """
+    pkt = NSDPPacket(
+        op=Op.WRITE_REQUEST,
+        client_mac=client_mac,
+        server_mac=server_mac,
+        sequence=sequence,
+    )
+    pkt.tlvs.append(TLVEntry(Tag.AUTH_V2_PASSWORD, auth_token))
     pkt.tlvs.extend(tlvs)
     return pkt
 
@@ -94,13 +137,12 @@ def vlan_destroy_tlv(vlan: int) -> TLVEntry:
     ``lib/src/vlan.c::ngadmin_VLANDestroy`` builds exactly
     ``newShortAttr(ATTR_VLAN_DESTROY, vlan)`` and sends it as a write request.
     That is the evidence that replaced this library's previous unproven claim
-    that "NSDP has no VLAN create/destroy tag". It is NOT confirmed against
-    hardware here: the only NSDP switch reachable from this repo (GS110EMX,
-    fw 1.0.2.8) rejects every WRITE_REQUEST at the PASSWORD attribute because
-    it wants the undocumented v2 salted auth (see protocol.ERROR_AUTH_VERSION),
-    so no NSDP write of any kind -- not this one, not the pre-existing PVID /
-    membership / mgmt-IP writes -- could be exercised on it. Verify-after-write
-    in ``nsdp_write.py`` is the runtime guard.
+    that "NSDP has no VLAN create/destroy tag". It is still NOT confirmed
+    against hardware: authenticated NSDP writes DO work on the reachable
+    GS110EMX (fw 1.0.2.8) now that v2 auth is implemented -- PORT_PVID and
+    VLAN_MEMBERS were written and read back live -- but destroying a VLAN on a
+    production switch was out of scope for that session, so this tag stayed
+    un-exercised. Verify-after-write in ``nsdp_write.py`` is the runtime guard.
     """
     return TLVEntry(Tag.VLAN_DESTROY, struct.pack(">H", vlan))
 
@@ -109,8 +151,8 @@ def port_name_tlv(port: int, name: str) -> TLVEntry:
     """Per-port description write TLV (tag 0xB000), mirroring the read shape.
 
     The READ encoding is measured (port byte + description bytes, see
-    ``Tag.PORT_NAME``); the write is the same shape, unexercised for the same
-    auth reason as ``vlan_destroy_tlv``.
+    ``Tag.PORT_NAME``); the write is the same shape and, like
+    ``vlan_destroy_tlv``, was never exercised against hardware.
     """
     return TLVEntry(Tag.PORT_NAME, bytes([port]) + name.encode("utf-8"))
 

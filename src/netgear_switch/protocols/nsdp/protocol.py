@@ -1,11 +1,12 @@
 """NSDP wire codec: 32-byte header, TLV entries, and packet encode/decode.
 
-Lifted verbatim (field-for-field) from ``gdoc2netcfg/src/nsdp/protocol.py``.
-The header is ``struct`` layout ``>BB H 4s 6s 6s I 4s 4s`` (32 bytes): version
-(always 0x01), operation, result, reserved(4), client MAC(6), server MAC(6),
-sequence(4), signature ``b"NSDP"`` at offset 0x18, reserved(4). Each
-TLV is ``>HH`` (tag, length) followed by ``length`` value bytes; a packet ends
-with the ``0xFFFF 0x0000`` end-of-marker.
+Lifted (field-for-field) from ``gdoc2netcfg/src/nsdp/protocol.py``, with the
+header's old opaque 4-byte reserved blob split once hardware showed what is in
+it. The header is ``struct`` layout ``>BB H H 2s 6s 6s I 4s 4s`` (32 bytes):
+version (always 0x01), operation, result, error-attr(2), reserved(2), client
+MAC(6), server MAC(6), sequence(4), signature ``b"NSDP"`` at offset 0x18,
+reserved(4). Each TLV is ``>HH`` (tag, length) followed by ``length`` value
+bytes; a packet ends with the ``0xFFFF 0x0000`` end-of-marker.
 
 This module is a pure, zero-dependency codec: no sockets, no I/O. The write
 path (``Op.WRITE_REQUEST``/``Op.WRITE_RESPONSE`` and ``NSDPPacket.add_tlv``
@@ -30,13 +31,16 @@ HEADER_SIZE = 32
 # but a seqnum > 0xFFFF would have been silently truncated on decode and
 # mis-echoed by the mock.
 # Header bytes 4-5 are NOT reserved: they carry the TLV TAG that caused the
-# error reported in bytes 2-3. ngadmin's `struct nsdp_header` names them
-# (`unsigned short attr; /* attribute code which caused error */`), and a real
-# GS110EMX (10.1.5.25, fw 1.0.2.8, 2026-07-30) fills them in: a read of an
-# unanswerable tag comes back error=3 with this field set to that very tag, and
-# a rejected write comes back with 0x000A (ATTR_PASSWORD). Splitting the old
-# opaque ``4s`` reserved field into ``H 2s`` is what lets ``NsdpError`` name the
-# thing that failed instead of just "the request failed" (principle 1).
+# error reported in bytes 2-3. Two independent investigations of this repo's
+# GS110EMX fleet landed on the same field (one from an exhaustive tag sweep, one
+# from cracking the v2 write auth), and ngadmin's `struct nsdp_header` names it
+# (`unsigned short attr; /* attribute code which caused error */`). Real
+# hardware (10.1.5.25, fw 1.0.2.8, 2026-07-29/30) fills it in: a read of an
+# unanswerable tag comes back error=3 with this field set to that very tag; a
+# write rejected for sending v1 auth comes back with 0x000A (ATTR_PASSWORD);
+# a write rejected for a bad v2 token blames the packet's leading TLV. Splitting
+# the old opaque ``4s`` reserved field into ``H 2s`` is what lets ``NsdpError``
+# name the thing that failed instead of just "the request failed" (principle 1).
 HEADER_FORMAT = ">BB H H 2s 6s 6s I 4s 4s"
 END_MARKER = struct.pack(">HH", 0xFFFF, 0x0000)  # b"\xff\xff\x00\x00"
 
@@ -47,17 +51,24 @@ ERROR_NONE = 0
 ERROR_READONLY = 3  # "this attribute cannot be read" on a read request
 ERROR_WRITEONLY = 4
 ERROR_INVALID_VALUE = 5
-ERROR_DENIED = 7  # wrong password when the error attribute is 0x000A
-# LIVE-MEASURED on a real GS110EMX (10.1.5.25, firmware 1.0.2.8, 2026-07-30):
-# a WRITE_REQUEST carrying a v1-XOR (or plaintext) PASSWORD TLV is answered
-# error=13, then error=14 on the next attempt, always with the error attribute
-# set to 0x000A (ATTR_PASSWORD) -- and after those the switch stops answering
-# WRITE_REQUESTs altogether for a while. Neither code appears in ngadmin (which
-# only ever spoke to the older v1 firmware). This firmware advertises the v2
-# salted-auth tags instead (AUTH_V2_SALT 0x0017 is readable and rotates every
-# read; AUTH_V2_PASSWORD 0x001A is write-only), whose algorithm is undocumented.
-ERROR_AUTH_VERSION = 13
-ERROR_AUTH_VERSION_ALT = 14
+ERROR_DENIED = 7  # v1 (older-firmware) password denial
+# LIVE-MEASURED on real GS110EMX units (10.1.5.25/.26/.27, fw 1.0.2.8,
+# 2026-07-29/30). Neither code appears in ngadmin, which only ever spoke to the
+# older v1 firmware. This firmware wants the v2 salted challenge-response
+# (AUTH_V2_ENCPASS 0x0014 answers 0x10; AUTH_V2_SALT 0x0017 is readable and
+# rotates on every read; AUTH_V2_PASSWORD 0x001A is write-only) -- an algorithm
+# this library now IMPLEMENTS and has verified end to end against that hardware
+# (see ``auth.auth_v2_password``), so neither code means "scheme unsupported":
+#
+#   13 -- the write's authentication was refused. Two causes share the code and
+#         the error-attr field tells them apart: attr 0x000A (ATTR_PASSWORD)
+#         means a v1-XOR/plaintext PASSWORD TLV was offered to a v2-only
+#         firmware; any other attr means the v2 token itself was wrong (wrong
+#         admin password, or a token folded against a stale salt).
+#   14 -- write LOCKOUT after repeated rapid failures. The switch then stops
+#         answering WRITE_REQUESTs at all for a cooldown; READs keep working.
+ERROR_AUTH_REJECTED = 13
+ERROR_LOCKED = 14
 
 ERROR_NAMES = {
     ERROR_NONE: "none",
@@ -65,8 +76,8 @@ ERROR_NAMES = {
     ERROR_WRITEONLY: "attribute not writable",
     ERROR_INVALID_VALUE: "invalid value",
     ERROR_DENIED: "denied",
-    ERROR_AUTH_VERSION: "password rejected (v2 salted auth required)",
-    ERROR_AUTH_VERSION_ALT: "password rejected (v2 salted auth required)",
+    ERROR_AUTH_REJECTED: "write authentication rejected",
+    ERROR_LOCKED: "write locked out after repeated auth failures",
 }
 
 
@@ -113,6 +124,12 @@ class Tag(IntEnum):
 
     # Authentication
     PASSWORD = 0x000A
+    # Encryption-type probe (ngadmin's ATTR_ENCPASS): a switch answers this
+    # 4-byte value to advertise which write-auth scheme it wants. Value 1 =
+    # legacy v1 XOR (Tag.PASSWORD); value 0x10 = v2 salted challenge-response
+    # (AUTH_V2_SALT / AUTH_V2_PASSWORD). Observed 0x00000010 on a GS110EMX
+    # (fw 1.0.2.8).
+    AUTH_V2_ENCPASS = 0x0014
     AUTH_V2_SALT = 0x0017
     AUTH_V2_PASSWORD = 0x001A
 
@@ -212,7 +229,9 @@ class NSDPPacket:
     result: int = 0
     tlvs: list[TLVEntry] = field(default_factory=list)
     # The TLV tag the switch blamed for ``result`` (header bytes 4-5); 0 when
-    # there is no error. Requests always send 0.
+    # there is no error. Requests always send 0. ``result`` itself conflates the
+    # error code with a trailing unk1 byte (always 0), so the code alone is
+    # ``result >> 8`` -- see ``error_code`` below and ``client.check_result``.
     error_attr: int = 0
 
     @property
