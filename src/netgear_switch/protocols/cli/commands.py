@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from ...errors import UnsupportedCapabilityError
 from ...registry import Backend
@@ -91,13 +91,22 @@ class CliModelSpec:
         return self.interface_stats_cmd.format(iface=f"1/0/{port}")
 
 
+class _CliCmdOverrides(TypedDict, total=False):
+    """The subset of ``CliModelSpec`` string command fields a model may override
+    (typed so ``**`` splatting into ``CliModelSpec`` cannot touch ``telnet_port``
+    or any int field)."""
+
+    vlan_brief_cmd: str
+    network_cmd: str
+
+
 # M4300 FASTPATH 12.0.13.8 renamed two read commands vs the older gsm7252ps
 # image (live-confirmed on 10.1.5.13):
 #   "show vlan brief" -> "show vlan"          ("show vlan brief" is Invalid input)
 #   "show network"    -> "show ip management" ("show network" deprecated)
 # The output formats are otherwise the same fixed-width tables/dotted-leader
 # scalars, so the existing parse_vlan_brief/parse_mgmt_ip parsers apply unchanged.
-_M4300_OVERRIDES = {
+_M4300_OVERRIDES: _CliCmdOverrides = {
     "vlan_brief_cmd": "show vlan",
     "network_cmd": "show ip management",
 }

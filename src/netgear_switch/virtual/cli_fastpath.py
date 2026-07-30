@@ -204,7 +204,16 @@ def render_pvids(state: VirtualSwitchState) -> str:
     for p in _phys_ports(state):
         pvid = state.pvids.get(p, 1)
         rows.append(
-            [_iface(state, p), pvid, pvid, "Admit All", "Disable", "Disable", "Enable", 0]
+            [
+                _iface(state, p),
+                pvid,
+                pvid,
+                "Admit All",
+                "Disable",
+                "Disable",
+                "Enable",
+                0,
+            ]
         )
     return _table(headers, widths, rows)
 
