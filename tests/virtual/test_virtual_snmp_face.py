@@ -241,9 +241,13 @@ def test_type_token_round_trips_through_pysnmp_client():
         rows = asyncio.run(client.get([oid]))
         assert rows == [SnmpRow(oid, sw.state.mgmt.address, "IpAddress")]
 
-        # OCTETSTR-as-bytes bitmap: dot1qVlanStaticEgressPorts.90
+        # OCTETSTR-as-bytes bitmap: dot1qVlanStaticEgressPorts.90 -- the mock
+        # emits the device's REAL fixed PortList width (79 B, live-measured), so
+        # derive the expected at that seeded width, still straight from the seed.
         oid = f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90"
-        expected_bitmap = encode_port_bitmap(vlan90.member).encode("latin-1")
+        expected_bitmap = encode_port_bitmap(
+            vlan90.member, width_bytes=sw.state.vlan_portlist_width
+        ).encode("latin-1")
         rows = asyncio.run(client.get([oid]))
         assert rows == [SnmpRow(oid, expected_bitmap, "Hex-STRING")]
 
@@ -401,7 +405,12 @@ def test_ip_address_and_bitmap_round_trip_through_netsnmp_cli_client():
         assert rows == [SnmpRow(oid, sw.state.mgmt.address, "IpAddress")]
 
         oid = f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90"
-        expected_bitmap = encode_port_bitmap(vlan90.member).encode("latin-1")
+        # The mock emits the device's REAL fixed PortList width (79 B on the
+        # gsm7252ps, live-measured), so derive the expected bitmap at that same
+        # seeded width -- still straight from the seed, never hardcoded.
+        expected_bitmap = encode_port_bitmap(
+            vlan90.member, width_bytes=sw.state.vlan_portlist_width
+        ).encode("latin-1")
         rows = client.get([oid])
         assert rows == [SnmpRow(oid, expected_bitmap, "Hex-STRING")]
     finally:

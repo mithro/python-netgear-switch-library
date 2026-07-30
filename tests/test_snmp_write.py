@@ -295,6 +295,100 @@ def test_set_vlan_membership_catches_dropped_untagged_write():
     assert "untagged" in str(exc.value)
 
 
+def test_set_vlan_membership_preserves_device_bitmap_width():
+    """A SET must be as wide as the PortList the device actually reports.
+
+    Netgear switches report a PortList far wider than the model's physical
+    port count -- it covers LAG and CPU pseudo-ports too. Measured live:
+    131 bytes on an M4300-24X (port_count 28) and on an M4300-16X, 79 bytes
+    on a GSM7252PS. Re-deriving the width from the decoded port set instead of
+    the device's own bitmap makes the SET a different wire length than the
+    device uses.
+    """
+    wide = bytes(131)  # the device's PortList width, no ports set yet
+    tables = _vlan_tables()
+    tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
+        SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90", wide, "Hex-STRING")
+    ]
+    tables[oids.DOT1Q_VLAN_STATIC_UNTAGGED] = [
+        SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.90", wide, "Hex-STRING")
+    ]
+    client = ApplyingVlanClient(tables)
+    w = SnmpWriter(client, get_model("m4300-24x"))
+    w.set_vlan_membership(90, 7, VlanMode.UNTAGGED, force=True)
+
+    egress_set = next(
+        vb for vb in client.sets
+        if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS)
+    )
+    untagged_set = next(
+        vb for vb in client.sets
+        if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_UNTAGGED)
+    )
+    assert len(egress_set.value) == len(wide)
+    assert len(untagged_set.value) == len(wide)
+    assert 7 in decode_port_bitmap(egress_set.value)
+    assert 7 in decode_port_bitmap(untagged_set.value)
+
+
+def _bitmap_bytes(value: object) -> bytes:
+    """Coerce an oid_map() PortList value (bytes or latin-1 wire str) to bytes."""
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    return str(value).encode("latin-1")
+
+
+def test_set_vlan_membership_preserves_mock_emitted_portlist_width():
+    """End-to-end with the VIRTUAL MOCK as the device -- the regression that
+    ties the mock's independent width to the writer preserving it (issue #3).
+
+    The seeded gsm7252ps mock now emits the device's REAL fixed PortList width
+    (79 bytes, live-measured @10.1.5.22), not the physical-port-only
+    vlan_bitmap_width() the writer historically re-derived. A SET must go out at
+    that full 79-byte width. The OLD writer -- which re-encoded the decoded
+    member set at max(8, port_count/8), growing only to cover the highest
+    member -- would emit at most ceil(highest_member/8) bytes (<= 61 here),
+    NEVER 79, so this test fails against it. It is green now precisely because
+    _raw_bitmap() preserves the device's own bitmap width.
+    """
+    from netgear_switch.virtual.seed import seed_gsm7252ps
+
+    state = seed_gsm7252ps()
+    m = state.oid_map()
+    vid = min(state.vlans)  # a real seeded VLAN (VLAN 1)
+    egress = _bitmap_bytes(m[f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"][1])
+    untagged = _bitmap_bytes(m[f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}"][1])
+    # The mock is faithful to the live measurement: a fixed 79-byte PortList.
+    assert len(egress) == 79
+
+    members = set(decode_port_bitmap(egress))
+    unused = next(p for p in range(1, 49) if p not in members)  # a free phys port
+
+    tables = {
+        oids.DOT1Q_VLAN_STATIC_NAME: [
+            SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}", "seeded", "STRING")
+        ],
+        oids.DOT1Q_VLAN_STATIC_EGRESS: [
+            SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}", egress, "Hex-STRING")
+        ],
+        oids.DOT1Q_VLAN_STATIC_UNTAGGED: [
+            SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}", untagged, "Hex-STRING")
+        ],
+    }
+    client = ApplyingVlanClient(tables)
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.set_vlan_membership(vid, unused, VlanMode.TAGGED, force=True)
+
+    egress_set = next(
+        vb for vb in client.sets if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS)
+    )
+    # Width preserved end-to-end, and no member lost while adding the new port.
+    assert len(egress_set.value) == 79
+    got = set(decode_port_bitmap(egress_set.value))
+    assert unused in got
+    assert members <= got
+
+
 def test_set_vlan_membership_missing_vlan_is_precondition_not_verify_error():
     client = ApplyingVlanClient({})  # no VLAN 90 present
     w = SnmpWriter(client, get_model("gsm7252ps"))

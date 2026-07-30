@@ -109,6 +109,22 @@ class SnmpWriter:
     def _vlan(self, vlan: int) -> VLANInfo | None:
         return next((v for v in self._reader.get_vlans() if v.vlan_id == vlan), None)
 
+    def _raw_bitmap(self, base_oid: str, vlan: int) -> bytes | None:
+        """The device's own PortList octets for ``vlan``, width intact.
+
+        VLANInfo carries decoded port sets, so re-encoding from it would size
+        the bitmap to the highest port in use rather than to the width the
+        device actually uses. Netgear switches report a PortList covering LAG
+        and CPU pseudo-ports: measured live, 131 bytes on a 28-port M4300-24X
+        and 79 bytes on a GSM7252PS. Returns None if the device did not report
+        this VLAN as octets, so callers can fall back.
+        """
+        suffix = f".{vlan}"
+        for row in self.client.walk(base_oid):
+            if row.oid.endswith(suffix) and isinstance(row.value, bytes):
+                return row.value
+        return None
+
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
             self._guard(port, force)  # turning PoE off is disruptive
@@ -253,11 +269,17 @@ class SnmpWriter:
             # Precondition failure: no SET has been attempted, so this is NOT a
             # verification divergence (review item 9).
             raise SnmpError(f"VLAN {vlan} does not exist")
+        # Feed set_port_bit the device's OWN bitmaps so it preserves their exact
+        # wire width (that is what it is for); fall back to a re-encode of the
+        # decoded sets only if the device did not report octets.
+        raw_egress = self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_EGRESS, vlan)
+        raw_untagged = self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_UNTAGGED, vlan)
         new_egress, new_untagged = membership_bitmaps(
-            mode=mode,
-            port=port,
-            egress=encode_port_bitmap(before.member_ports),
-            untagged=encode_port_bitmap(before.untagged_ports),
+            mode=mode, port=port,
+            egress=(raw_egress if raw_egress is not None
+                    else encode_port_bitmap(before.member_ports)),
+            untagged=(raw_untagged if raw_untagged is not None
+                      else encode_port_bitmap(before.untagged_ports)),
             width_bytes=vlan_bitmap_width(self.model),
         )
         self.client.set_many(
@@ -426,6 +448,14 @@ class AsyncSnmpWriter:
         vlans = await self._reader.get_vlans()
         return next((v for v in vlans if v.vlan_id == vlan), None)
 
+    async def _raw_bitmap(self, base_oid: str, vlan: int) -> bytes | None:
+        """Async twin of ``SnmpWriter._raw_bitmap`` -- see it for why."""
+        suffix = f".{vlan}"
+        for row in await self.client.walk(base_oid):
+            if row.oid.endswith(suffix) and isinstance(row.value, bytes):
+                return row.value
+        return None
+
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
             self._guard(port, force)
@@ -564,11 +594,15 @@ class AsyncSnmpWriter:
         if before is None:
             # Precondition failure (review item 9): no SET attempted.
             raise SnmpError(f"VLAN {vlan} does not exist")
+        # Preserve the device's own bitmap width -- see SnmpWriter._raw_bitmap.
+        raw_egress = await self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_EGRESS, vlan)
+        raw_untagged = await self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_UNTAGGED, vlan)
         new_egress, new_untagged = membership_bitmaps(
-            mode=mode,
-            port=port,
-            egress=encode_port_bitmap(before.member_ports),
-            untagged=encode_port_bitmap(before.untagged_ports),
+            mode=mode, port=port,
+            egress=(raw_egress if raw_egress is not None
+                    else encode_port_bitmap(before.member_ports)),
+            untagged=(raw_untagged if raw_untagged is not None
+                      else encode_port_bitmap(before.untagged_ports)),
             width_bytes=vlan_bitmap_width(self.model),
         )
         await self.client.set_many(

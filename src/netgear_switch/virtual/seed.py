@@ -1187,6 +1187,9 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         vlans=vlans,
         pvids=pvids,
         poe=poe,
+        # Real fixed Q-BRIDGE PortList width, measured LIVE (read-only) on this
+        # switch @10.1.5.22: dot1qVlanStaticEgressPorts is 79 bytes wide.
+        vlan_portlist_width=79,
         sensors=sensors,
         http_sensors=http_sensors,
         macs=macs,
@@ -2170,6 +2173,9 @@ def seed_m4300_24x() -> VirtualSwitchState:
         ports=ports,
         vlans=vlans,
         pvids=pvids,
+        # Real fixed Q-BRIDGE PortList width, measured LIVE (read-only) on the
+        # M4300 @10.1.5.13: dot1qVlanStaticEgressPorts is 131 bytes wide.
+        vlan_portlist_width=131,
         poe={},  # VERIFIED: real capture's poe=[] -- this model has NO PoE.
         sensors=sensors,
         macs=macs,
@@ -2339,6 +2345,9 @@ def seed_m4300_16x() -> VirtualSwitchState:
         ports=ports,
         vlans=vlans,
         pvids=pvids,
+        # Real fixed Q-BRIDGE PortList width, measured LIVE (read-only) on this
+        # switch @10.1.5.20: dot1qVlanStaticEgressPorts is 131 bytes wide.
+        vlan_portlist_width=131,
         poe=poe,  # VERIFIED: real capture -- all 16 ports PoE-capable.
         sensors=sensors,
         macs=macs,

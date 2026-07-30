@@ -230,3 +230,46 @@ def test_seed_gsm7252ps_iot_vlan_90_matches_capture():
         assert port in state.vlans[90].untagged
     assert dict(capture["pvids"])[1] == state.pvids[1] == 90
     assert dict(capture["pvids"])[2] == state.pvids[2] == 90
+
+
+def test_seed_emits_real_fixed_vlan_portlist_width():
+    """Every VLAN's egress/untagged PortList is the device's REAL fixed byte
+    width, LIVE-measured read-only on each switch, NOT the physical-port-only
+    vlan_bitmap_width(). This is what makes the mock an independent source of
+    truth for the wire width (github issue #3): the historical writer bug --
+    re-encoding the decoded member set at max(8, port_count/8) -- sent a SET
+    narrower than this, which the mock now models faithfully so a round-trip
+    test can catch it.
+
+    Widths: gsm7252ps=79B @10.1.5.22, m4300-24x=131B @10.1.5.13,
+    m4300-16x=131B @10.1.5.20 (dot1qVlanStaticEgressPorts, community public).
+    """
+    from netgear_switch.virtual.seed import (
+        seed_gsm7252ps,
+        seed_m4300_16x,
+        seed_m4300_24x,
+    )
+
+    for seed, expected in (
+        (seed_gsm7252ps, 79),
+        (seed_m4300_24x, 131),
+        (seed_m4300_16x, 131),
+    ):
+        state = seed()
+        m = state.oid_map()
+        egress = [
+            v for k, v in m.items() if k.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS + ".")
+        ]
+        untagged = [
+            v
+            for k, v in m.items()
+            if k.startswith(oids.DOT1Q_VLAN_STATIC_UNTAGGED + ".")
+        ]
+        assert egress, f"{seed.__name__}: no VLAN egress rows emitted"
+        for _typ, value in egress + untagged:
+            raw = value if isinstance(value, (bytes, bytearray)) else value.encode(
+                "latin-1"
+            )
+            assert len(raw) == expected, (
+                f"{seed.__name__}: PortList {len(raw)}B, expected fixed {expected}B"
+            )
