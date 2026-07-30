@@ -1,7 +1,28 @@
 """Python Netgear Switch Interface Library.
 
-Query and control Netgear switches over SNMP, NSDP and the HTTP web UI
+Query and control Netgear switches over SNMP, NSDP, the HTTP web UI and the CLI
 behind one model-driven API.
+
+Design principles (non-negotiable -- see ``CLAUDE.md`` at the repository root for
+the rationale and the real-world violation behind each one):
+
+1. **Fail fast and loud.** An operation that cannot be performed as asked raises,
+   with the detail needed to debug it. Nothing is papered over, and a request for
+   one backend is NEVER silently served by another -- switching protocol
+   mid-operation is forbidden.
+2. **Backends have parity.** Every backend a model supports offers the same
+   functionality, so the CALLER can choose one (e.g. when SNMP writes are locked
+   down). A missing operation is a missing implementation, not a device
+   limitation, unless captured device output proves otherwise.
+3. **Models have parity.** A feature is done when it works on every registered
+   model, verified per model. Firmware differs between SKUs of the same family --
+   never extrapolate from one to another.
+4. **A failure is a bug here first.** Not flaky hardware, not a timeout. Check
+   credentials, prerequisite settings, value types and operation ordering before
+   even considering a device limitation.
+5. **The virtual switch must behave like the real hardware,** including its
+   refusals, quirks and ordering requirements. Where the fake differs from a real
+   device, the fake is what gets fixed.
 """
 
 from importlib.metadata import PackageNotFoundError
