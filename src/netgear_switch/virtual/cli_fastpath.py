@@ -30,6 +30,18 @@ def _phys_ports(state: VirtualSwitchState) -> list[int]:
     return sorted(p for p in state.ports if 1 <= p <= port_count)
 
 
+def _iface(state: VirtualSwitchState, port: int) -> str:
+    """The ifName the CLI prints for a physical ``port``.
+
+    Uses the seeded ``PortSim.name`` when present -- so the Smart-firmware
+    S3300-52X (gsm7228ps) renders "1/gN"/"1/xgN" exactly as the real switch does,
+    while the Fully Managed line keeps "1/0/N". Falls back to the "1/0/N" form for
+    a port with no seeded name (e.g. an LLDP local port absent from ``ports``).
+    """
+    sim = state.ports.get(port)
+    return sim.name if sim is not None and sim.name else f"1/0/{port}"
+
+
 def _is_m4300(state: VirtualSwitchState) -> bool:
     """True for the M4300 FASTPATH image, whose ``show poe``/``show environment``
     column shapes differ from the gsm7252ps image (no PoE ``Temperature`` column;
@@ -122,7 +134,7 @@ def render_ports(state: VirtualSwitchState) -> str:
         phys_status = _speed_text(sim.speed) if (sim.link and sim.speed) else ""
         rows.append(
             [
-                f"1/0/{p}",
+                _iface(state, p),
                 "",
                 "Enable" if sim.admin else "Disable",
                 "Auto",
@@ -169,7 +181,7 @@ def render_vlan_detail(state: VirtualSwitchState, vid: int) -> str:
             tagging = "Untagged" if p in untagged else "Tagged"
         else:
             current, configured, tagging = "Exclude", "Autodetect", "Untagged"
-        rows.append([f"1/0/{p}", current, configured, tagging])
+        rows.append([_iface(state, p), current, configured, tagging])
     return "\n".join(header) + "\n" + _table(headers, widths, rows)
 
 
@@ -192,7 +204,7 @@ def render_pvids(state: VirtualSwitchState) -> str:
     for p in _phys_ports(state):
         pvid = state.pvids.get(p, 1)
         rows.append(
-            [f"1/0/{p}", pvid, pvid, "Admit All", "Disable", "Disable", "Enable", 0]
+            [_iface(state, p), pvid, pvid, "Admit All", "Disable", "Disable", "Enable", 0]
         )
     return _table(headers, widths, rows)
 
@@ -222,7 +234,7 @@ def render_lldp(state: VirtualSwitchState) -> str:
     for nb in state.lldp:
         rows.append(
             [
-                f"1/0/{nb.local_port}",
+                _iface(state, nb.local_port),
                 nb.rem_idx,
                 _mac_text(nb.chassis) if nb.chassis else "",
                 nb.port_id,
@@ -266,7 +278,7 @@ def render_poe(state: VirtualSwitchState) -> str:
         status = "Delivering Power" if psim.detect == 3 else "Searching"
         rows.append(
             [
-                f"1/0/{p}",
+                _iface(state, p),
                 "Yes" if p <= 8 else "No",
                 32000 if p <= 8 else 18000,
                 4 if psim.power_mw else "Unknown",
