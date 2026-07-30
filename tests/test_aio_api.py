@@ -391,13 +391,12 @@ def test_async_switch_write_methods_delegate_to_writer() -> None:
 
 
 def test_plus_model_write_raises_unsupported_capability() -> None:
-    # NSDP has no per-port admin-enable tag, so the AsyncNsdpWriter refuses
-    # (without ever touching the client -- DummyAsyncNsdp asserts it is never
-    # called); per-op routing then falls through to HTTP, whose writer ALSO
-    # has no grounded port-enable endpoint and refuses too (without ever
-    # resolving an HTTP password -- construction never even reaches the
-    # wire). The last UnsupportedCapabilityError raised (HTTP's) is what the
-    # caller sees.
+    # gs305ep's DEFAULT backend is NSDP, and NSDP cannot serve a per-port
+    # admin-enable, so the AsyncNsdpWriter refuses -- without ever touching the
+    # client (DummyAsyncNsdp asserts it is never called). There is no
+    # cross-backend fallback any more, so that refusal is what the caller sees,
+    # and it must carry the measurement rather than a bare claim (see the sync
+    # twin in test_sync_api.py).
     class DummyAsyncNsdp:
         async def read(self, tags: object) -> None:
             raise AssertionError("must not be called")
@@ -413,7 +412,10 @@ def test_plus_model_write_raises_unsupported_capability() -> None:
     )
     with pytest.raises(UnsupportedCapabilityError) as exc:
         asyncio.run(sw.set_port_enabled(1, enabled=False, force=True))
-    assert "port-enable" in str(exc.value)
+    message = str(exc.value)
+    assert "admin-enable over NSDP is UNPROVEN" in message
+    assert "GS110EMX fw 1.0.2.8" in message  # names what was measured, and where
+    assert "Use the HTTP backend" in message  # and where the capability does live
 
 
 def test_from_config_write_community_resolves_lazily_not_at_construction(

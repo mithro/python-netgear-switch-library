@@ -279,6 +279,16 @@ _M4300_VLAN_MEMBERSHIP_RW = f"/v1{_FASTPATH_VLAN_MEMBERSHIP_RW}"
 # rcfiles/bin/netgear-smp-vlan (identical merge-hash login observed on
 # GS105PE; 8021qCf.cgi/8021qMembe.cgi/portPVID.cgi field shapes and the
 # 1=Untagged/2=Tagged/3=Excluded membership wire codes). Fully grounded.
+#
+# sysinfo_path is STILL None, deliberately. The obvious move is to copy
+# gs105pe's ``/switch_info.cgi`` -- gs305ep and gs105pe do share the login
+# scheme -- but copying gs305ep's read paths ONTO gs105pe is exactly what went
+# wrong before (``dashboard.cgi`` and ``getPoePortStatus.cgi`` both 404'd on the
+# real GS105PE), so the inference is known-unreliable in this very pair. It
+# could not be settled here: all three gs305ep/gs105pe units in this fleet
+# (poe-micro1/2/3 @ 10.1.5.28/.29/.30) were POWERED OFF on 2026-07-30 -- no
+# ICMP, no NSDP unicast, and no answer to an NSDP discovery broadcast on the
+# 10.1.5.0/24 segment. Discover it live rather than guessing.
 _GS305EP = HttpModelSpec(
     model_key="gs305ep",
     scheme=LoginScheme.MERGE_HASH_CGI,
@@ -320,6 +330,38 @@ _GS305EP = HttpModelSpec(
 # sysInfo.html, only the STATIC-IP case was directly observed; parse_sysinfo's
 # DHCP branch is inferred from the same <select>'s option ordering, never
 # captured from a real DHCP-configured device -- see HttpSysInfo's docstring.
+#
+# mac_table_path / lldp_path / poe_status_path stay None, and that is now
+# ENUMERATED rather than assumed. This firmware builds its whole menu from
+# ``GET /frame.js``, whose string literals name every page the UI can reach --
+# all 37 of them, fetched live from 10.1.5.25 (fw 1.0.2.8, 2026-07-30):
+#   Basic8021q, Cf8021q, GPL, cable_diagnostics, cos_configuration,
+#   default_settings, getstatus, httpdownload, igs_conf, interface_stats,
+#   lacp_cfg, lacp_port_cfg, lag_membership, lag_settings, lbdt_configuration,
+#   password, plusconf, portBasedAdvanced, portBasedBasic, port_monitorconfig,
+#   port_ratectrl, port_settings, powerSaving, registration, restore, save,
+#   stormControl_interface, support, sysInfo, sys_reload, userGuide,
+#   vlanMembership, vlan_pvidsetting, voice_vlan_cfg, voice_vlan_oui,
+#   voice_vlan_port_cfg (+ /help.html)
+# There is no MAC address table page, no LLDP page, no sensor page and no PoE
+# page in that list -- so get_macs/get_lldp/get_sensors/get_poe have nothing to
+# scrape here, matching the NSDP tag sweep, which found no such tag either.
+#
+# PORT ADMIN over HTTP, for whoever wires ``HttpWriter.set_port_enabled``: this
+# model has no "Admin Status" column at all -- disabling a port is done by
+# setting its SPEED to "Disable". ``dashboard_path`` (port_settings.html) is
+# both the read page and the write target. Its own JS
+# (``function.js::sendPortStatusForm``) POSTs form-encoded:
+#     Gambit=<token>&PORT_NO=<n>;&PORT_DESCRIPTION=<urlencoded>
+#     &PORT_CTRL_MODE=<m>&PORT_CTRL_DUPLEX=<d>&PORT_CTRL_SPEED=<s>
+#     &FLOW_CONTROL_MODE=<f>&ACTION=apply
+# where PORT_NO is a SEMICOLON-terminated list ("5;", "5;7;"), the visible
+# PHYSICAL_MODE select maps 1=Auto ->(1,0,0), 6=Disable ->(3,0,0), 2..5 = fixed
+# 10/100 speeds, FLOW_CONTROL_MODE is 1=Disable / 4=Enable, and the response
+# body is the literal string "SUCCESS". VERIFIED live on 10.1.5.25 (2026-07-30):
+# the POST is accepted and answers SUCCESS. (A first attempt sent PORT_NO=5
+# without the semicolon; the switch still answered SUCCESS but applied nothing --
+# so a caller MUST check the page afterwards, not the response body.)
 _GS110EMX = HttpModelSpec(
     model_key="gs110emx",
     scheme=LoginScheme.GAMBIT,
@@ -339,6 +381,11 @@ _GS110EMX = HttpModelSpec(
     pvid_path="/iss/specific/vlan_pvidsetting.html",
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,  # never captured -- not guessed
+    # ENUMERATED ABSENT, not merely uncaptured: /frame.js lists every page this
+    # UI can reach and none of them is a MAC table, an LLDP table or a sensor
+    # page (see the note above). Leaving these None is the measured answer.
+    mac_table_path=None,
+    lldp_path=None,
     is_epx_poe=False,
     reads_verified=True,
     session_token_field="Gambit",

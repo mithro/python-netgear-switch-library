@@ -87,6 +87,34 @@ def vlan_members_tlv(
     return TLVEntry(Tag.VLAN_MEMBERS, value)
 
 
+def vlan_destroy_tlv(vlan: int) -> TLVEntry:
+    """The write-only VLAN-destroy action TLV (tag 0x2C00, 2-byte VLAN id).
+
+    GROUNDED in ngadmin's independent C implementation --
+    ``lib/src/vlan.c::ngadmin_VLANDestroy`` builds exactly
+    ``newShortAttr(ATTR_VLAN_DESTROY, vlan)`` and sends it as a write request.
+    That is the evidence that replaced this library's previous unproven claim
+    that "NSDP has no VLAN create/destroy tag". It is NOT confirmed against
+    hardware here: the only NSDP switch reachable from this repo (GS110EMX,
+    fw 1.0.2.8) rejects every WRITE_REQUEST at the PASSWORD attribute because
+    it wants the undocumented v2 salted auth (see protocol.ERROR_AUTH_VERSION),
+    so no NSDP write of any kind -- not this one, not the pre-existing PVID /
+    membership / mgmt-IP writes -- could be exercised on it. Verify-after-write
+    in ``nsdp_write.py`` is the runtime guard.
+    """
+    return TLVEntry(Tag.VLAN_DESTROY, struct.pack(">H", vlan))
+
+
+def port_name_tlv(port: int, name: str) -> TLVEntry:
+    """Per-port description write TLV (tag 0xB000), mirroring the read shape.
+
+    The READ encoding is measured (port byte + description bytes, see
+    ``Tag.PORT_NAME``); the write is the same shape, unexercised for the same
+    auth reason as ``vlan_destroy_tlv``.
+    """
+    return TLVEntry(Tag.PORT_NAME, bytes([port]) + name.encode("utf-8"))
+
+
 def ipv4_tlv(tag: Tag, dotted: str) -> TLVEntry:
     return TLVEntry(tag, socket.inet_aton(dotted))
 
