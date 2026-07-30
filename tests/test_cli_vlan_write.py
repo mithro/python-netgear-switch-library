@@ -374,7 +374,7 @@ def test_membership_is_inert_without_general_mode() -> None:
 def test_switchport_mode_is_rejected_on_the_gsm7252ps_image() -> None:
     # The mock must REJECT what the device rejects (CLAUDE.md principle 5).
     # Probed live on 10.1.5.22: "switchport mode ?" -> "% Unrecognized command".
-    _writer_obj, sw, session = _writer("gsm7252ps")
+    _writer_obj, _sw, session = _writer("gsm7252ps")
     assert session.run("configure") == ""
     assert session.run("interface 1/0/3") == ""
     assert session.run("switchport mode general") != ""  # rejected, like the device
@@ -385,7 +385,6 @@ def test_switchport_mode_is_rejected_on_the_gsm7252ps_image() -> None:
     assert s2.run("interface 1/g3") == ""
     assert s2.run("switchport mode general") == ""
     assert sw2.state.ports[3].switchport_mode == "general"
-    del sw
 
 
 def test_membership_verification_catches_a_dropped_command() -> None:
@@ -669,7 +668,7 @@ def test_poe_ops_refused_on_a_model_with_no_pse_ports() -> None:
     # The M4300-24X has no PoE hardware and its firmware has no "poe" command at
     # all -- probed live on 10.1.5.13: `poe ?` -> "% Unrecognized command". That
     # is a hardware fact quoted from the device, not a CLI-backend gap.
-    writer, sw, session = _writer("m4300-24x")
+    writer, _sw, session = _writer("m4300-24x")
     with pytest.raises(UnsupportedCapabilityError) as exc:
         writer.set_poe(1, False, force=True)
     assert "no PSE ports" in str(exc.value)
@@ -678,7 +677,6 @@ def test_poe_ops_refused_on_a_model_with_no_pse_ports() -> None:
     assert session.run("configure") == ""
     assert session.run("interface 1/0/1") == ""
     assert session.run("poe") != ""
-    del sw
 
 
 def test_cycle_poe_resets_and_polls_until_delivering() -> None:
