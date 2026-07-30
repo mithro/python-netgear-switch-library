@@ -263,6 +263,20 @@ class VirtualSwitchState:
     # 6-byte encoding; only a seed with hardware evidence of this quirk
     # should set it True.
     dot1d_base_mac_ascii: bool = False
+    # Fixed Q-BRIDGE PortList byte-width the SNMP agent reports for
+    # dot1qVlanStaticEgressPorts / dot1qVlanStaticUntaggedPorts. A real switch
+    # emits a CONSTANT-width bitmap covering every port it knows -- physical
+    # ports PLUS the LAG/CPU pseudo-ports far above the physical count -- so the
+    # width does NOT track the highest member. Measured LIVE (read-only,
+    # community "public"): GSM7252PS @10.1.5.22 = 79 bytes (highest set byte 60
+    # => LAG ~port 481); M4300 @10.1.5.13 = 131 bytes (highest set byte 112 =>
+    # ~port 897). None = unmeasured: oid_map() falls back to
+    # vlan_bitmap_width(model), the physical-port-only width. Seeding the REAL
+    # width is what lets the mock catch the historical writer bug (issue #3):
+    # the buggy writer re-encoded the decoded member set at max(8, port_count/8)
+    # rather than preserving the device width, so it sent a SET narrower than
+    # this -- which a stricter Q-BRIDGE agent rejects outright.
+    vlan_portlist_width: int | None = None
 
     @property
     def sysinfo_sensors(self) -> list[SensorSim]:
@@ -290,7 +304,13 @@ class VirtualSwitchState:
         # vendor-column projections below are skipped, matching a real agent
         # that answers noSuchObject for the whole 4526 tree.
         v = oids.vendor_oids(model) if oids.has_vendor_oids(model) else None
-        vlan_width = vlan_bitmap_width(model)
+        # Prefer the device's REAL fixed PortList width (live-measured, seeded on
+        # vlan_portlist_width) so the mock is an INDEPENDENT source of truth for
+        # the wire width -- not a re-derivation of the same vlan_bitmap_width()
+        # formula the writer uses (that shared assumption is exactly why the mock
+        # never caught issue #3). Falls back to the physical-port-only width when
+        # a model's real width hasn't been measured.
+        vlan_width = self.vlan_portlist_width or vlan_bitmap_width(model)
         m: dict[str, tuple[str, str]] = {}
 
         # dot1dBaseBridgeAddress (BRIDGE-MIB scalar): the switch's own base
@@ -514,7 +534,15 @@ class VirtualSwitchState:
             self.pvids[port] = int(value)
             return
 
-        # dot1qVlanStaticEgressPorts.<vid>
+        # dot1qVlanStaticEgressPorts.<vid> -- decode the incoming PortList and
+        # REPLACE the member set, exactly as a real Q-BRIDGE agent does. A
+        # too-narrow PortList (the historical writer bug) is faithfully
+        # truncating here: every member beyond the incoming byte width is
+        # silently dropped -- the exact silent VLAN corruption the GSM7252PS
+        # exhibits on hardware for an 8-byte SET against its 79-byte PortList.
+        # tests/virtual/test_snmp_write_face.py proves both the corruption (a
+        # narrow SET drops the LAG/CPU members) and that the width-preserving
+        # writer keeps them.
         vid = _tail(oids.DOT1Q_VLAN_STATIC_EGRESS)
         if vid is not None and vid in self.vlans:
             from ..protocols.snmp.parse import decode_port_bitmap
@@ -522,7 +550,7 @@ class VirtualSwitchState:
             self.vlans[vid].member = set(decode_port_bitmap(_as_bytes(value)))
             return
 
-        # dot1qVlanStaticUntaggedPorts.<vid>
+        # dot1qVlanStaticUntaggedPorts.<vid>  (same truncation semantics)
         vid = _tail(oids.DOT1Q_VLAN_STATIC_UNTAGGED)
         if vid is not None and vid in self.vlans:
             from ..protocols.snmp.parse import decode_port_bitmap
