@@ -81,7 +81,13 @@ def render_poe(state: VirtualSwitchState, *, err_msg: str = "") -> str:
 
 
 def apply_poe(state: VirtualSwitchState, form: dict[str, str]) -> str:
-    return _xe.apply_poe(state, form, checkbox=_POE_CHECKBOX)
+    # unit_required=False: this firmware's PoE rows carry their own hidden
+    # ``v_1_2_21`` "Unit" key (``xk_1_2_21 = 1`` in its
+    # _xe_poeInterfaceConfiguration.js), so the row is self-identifying and the
+    # apply lands with no page-level unit field -- live-proven on 10.1.5.11
+    # 2026-07-30, which is exactly why the sibling gsm7252ps's refusal looked
+    # like a device fault instead of the missing field it was.
+    return _xe.apply_poe(state, form, checkbox=_POE_CHECKBOX, unit_required=False)
 
 
 def render_vlans(state: VirtualSwitchState) -> str:

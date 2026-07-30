@@ -16,7 +16,7 @@ implementations, not device limitations, and are now built:
   m4300-16x), and the GS110EMX's differently-shaped ``port_settings.html``
   Physical Mode POST (LIVE-VERIFIED on 10.1.5.26).
 * ``clear_poe_fault`` — the managed PoE page's hidden write-only "Port Reset"
-  column driven by its RESET button (LIVE-VERIFIED on gsm7228ps and
+  column driven by its RESET button (LIVE-VERIFIED on gsm7252ps, gsm7228ps and
   m4300-16x), and the Plus UI's ``PoEPortConfig.cgi`` reset.
 * ``set_mgmt_ip`` — each managed model's own management-IP form. The APPLY is
   deliberately NOT live-verified: doing so would move a real switch's
@@ -24,9 +24,12 @@ implementations, not device limitations, and are now built:
   for exactly what is and is not proven.
 
 Where an op still raises for a model, the refusal names captured device output:
-gsm7252ps's PoE form answers ``err_flag=1`` to every write (see
-``endpoints.py``), the M4300-24X's PoE page has zero rows because the SKU has no
-PSE, and the GS110EMX has no PoE page at all.
+the M4300-24X's PoE page has zero rows because the SKU has no PSE, and the
+GS110EMX has no PoE page at all. gsm7252ps used to be on that list -- its PoE
+form was recorded as answering ``err_flag=1`` to every write -- and it did not
+belong there: the body was missing the page's own list-unit field, and once it
+rides along the write lands (see ``endpoints.py`` and
+``forms.xui_row_apply_form``).
 
 VLAN membership on the MANAGED (FASTPATH/Cheetah) models — gsm7252ps,
 gsm7228ps/S3300 and both M4300 SKUs — goes through
@@ -365,6 +368,29 @@ _XUI_POE_IFNAME = "v_1_2_1"
 _XUI_POE_ADMIN = "v_1_2_2"
 _XUI_POE_RESET = "v_1_2_20"
 _XUI_POE_RESET_VALUE = "Reset"
+# The two buttons' own shed lists, read off the firmware's
+# ``/scripts/_xe_poeInterfaceConfiguration.js`` (fetched live 2026-07-31 from
+# gsm7252ps 10.1.5.22 and gsm7228ps 10.1.5.11). Index 14 of a button's action
+# array is its DISABLE set and index 15 its ENABLE set -- ``xuiShed(2, ...)``
+# sets ``disabled=true``, so a browser does not submit those inputs for that
+# button:
+#
+#   xeData.xa_2_1_2 (APPLY) disable = "1_2_20|g_1_2_20"
+#   xeData.xa_2_1_3 (RESET) disable = "1_2_2|1_2_3|...|1_2_18|g_1_2_2|...|g_1_2_18"
+#
+# So APPLY submits the config columns without the write-only Port Reset action,
+# and RESET submits the Port Reset action without the config columns. Sending
+# both at once is what the gsm7252ps error message called out by name -- its
+# refusal listed 'Admin <br/> Mode' AND 'Port Reset' together, and dropping
+# ``v_1_2_20`` from the apply removed exactly the 'Port Reset' line (live
+# 2026-07-31, 10.1.5.22 port 1/0/35).
+#
+# The RESET set is the UNION of the two firmwares' lists: gsm7252ps stops at
+# ``1_2_18`` (its Timer Schedule column 19 and Temperature column 22 stay
+# enabled) while gsm7228ps/m4300 also disable ``1_2_19``. A column a row does not
+# render is ignored by the builder, so one tuple serves every model.
+_XUI_POE_APPLY_OMITS = (_XUI_POE_RESET,)
+_XUI_POE_RESET_OMITS = tuple(f"v_1_2_{n}" for n in range(2, 20))
 # ``Enable``/``Disable`` are the wire values of both admin-mode columns
 # (rendered verbatim in the cells on every model).
 _XUI_ENABLE = "Enable"
@@ -511,12 +537,15 @@ class HttpWriter:
     def _xui_poe_admin(self, path: str, port: int, on: bool) -> None:
         """FASTPATH PoE admin mode through ``poeInterfaceConfiguration.html``.
 
-        LIVE-PROVEN on gsm7228ps 10.1.5.11 (port ``1/g12``) and m4300-16x
-        10.1.5.20:49152 (port 1/0/15) 2026-07-30, by driving this exact form
-        builder through a real change and reading it back. See the gsm7252ps
-        note in ``endpoints.py`` for the one managed model whose PoE form
-        refuses writes (it therefore has no ``poe_config_path`` and never
-        reaches here).
+        LIVE-PROVEN on gsm7228ps 10.1.5.11 (port ``1/g12``), m4300-16x
+        10.1.5.20:49152 (port 1/0/15) 2026-07-30 and gsm7252ps 10.1.5.22 (port
+        1/0/35) 2026-07-31, by driving this exact form builder through a real
+        change and reading it back.
+
+        The gsm7252ps needed two corrections the other two firmwares tolerated,
+        both of them the page's own doing rather than the device's: its list
+        ``nav`` block must ride along (see ``forms.xui_row_apply_form``), and the
+        write-only Port Reset column must NOT (see ``_XUI_POE_APPLY_OMITS``).
         """
         page = parse.parse_xui_list_page(self.session.get_page(path), page=path)
         row = _find_xui_row(page, port, _XUI_POE_IFNAME, f"{self.model.key!r} PoE")
@@ -524,7 +553,11 @@ class HttpWriter:
         applied = self.session.post_form(
             page.action,
             forms.xui_row_apply_form(
-                page, row, {_XUI_POE_ADMIN: _xui_enabled(on)}, button="v_2_1_2"
+                page,
+                row,
+                {_XUI_POE_ADMIN: _xui_enabled(on)},
+                button="v_2_1_2",
+                omit=_XUI_POE_APPLY_OMITS,
             ),
         )
         _raise_on_fastpath_err_flag(applied, f"PoE port {port} admin -> {on}")
@@ -596,6 +629,10 @@ class HttpWriter:
         detection -- it has no persistent state to read back, exactly like
         ``cycle_poe`` on every other backend. What IS checked is the page's own
         ``err_flag``/``err_msg``, so a refusal is raised rather than swallowed.
+
+        The body carries the Port Reset action WITHOUT the config columns, which
+        is what the RESET button's own shed list says (``_XUI_POE_RESET_OMITS``):
+        a reset must not double as a rewrite of Admin Mode / priority / limits.
         """
         page = parse.parse_xui_list_page(self.session.get_page(path), page=path)
         row = _find_xui_row(page, port, _XUI_POE_IFNAME, f"{self.model.key!r} PoE")
@@ -606,6 +643,7 @@ class HttpWriter:
                 row,
                 {_XUI_POE_RESET: _XUI_POE_RESET_VALUE},
                 button=_poe_reset_button(page, self.model.key),
+                omit=_XUI_POE_RESET_OMITS,
             ),
         )
         _raise_on_fastpath_err_flag(applied, f"PoE reset of port {port}")
@@ -1005,7 +1043,11 @@ class AsyncHttpWriter:
         applied = await self.session.post_form(
             page.action,
             forms.xui_row_apply_form(
-                page, row, {_XUI_POE_ADMIN: _xui_enabled(on)}, button="v_2_1_2"
+                page,
+                row,
+                {_XUI_POE_ADMIN: _xui_enabled(on)},
+                button="v_2_1_2",
+                omit=_XUI_POE_APPLY_OMITS,
             ),
         )
         _raise_on_fastpath_err_flag(applied, f"PoE port {port} admin -> {on}")
@@ -1069,6 +1111,7 @@ class AsyncHttpWriter:
                 row,
                 {_XUI_POE_RESET: _XUI_POE_RESET_VALUE},
                 button=_poe_reset_button(page, self.model.key),
+                omit=_XUI_POE_RESET_OMITS,
             ),
         )
         _raise_on_fastpath_err_flag(applied, f"PoE reset of port {port}")

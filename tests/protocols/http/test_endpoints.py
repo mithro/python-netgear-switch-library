@@ -124,6 +124,11 @@ def test_gsm7252ps_spec_xe_fastpath() -> None:
     assert spec.vlan_membership_post_path == "/switching/dot1q/vlan_port_cfg_rw.html"
     assert spec.mac_table_path == "/basicAddressTable.html"
     assert spec.poe_status_path == "/poeInterfaceConfiguration.html"
+    # LIVE-VERIFIED 2026-07-31 on 10.1.5.22 port 1/0/35 (link-down, undescribed):
+    # set_poe Enable->Disable->Enable over HTTP, each apply err_flag=0. This used
+    # to be ``is None`` on the belief the form "refuses every write"; the refusal
+    # was our own body omitting the page's list-unit field (see endpoints.py).
+    assert spec.poe_config_path == "/poeInterfaceConfiguration.html"
     assert spec.lldp_path == "/lldpRemoteInventory.html"
     assert spec.sysinfo_path == "/base/system/management/sysInfo.html"
     assert spec.html_dialect is HtmlDialect.XE_FASTPATH

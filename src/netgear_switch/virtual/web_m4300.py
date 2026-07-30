@@ -105,7 +105,7 @@ def render_ports(state: VirtualSwitchState, *, err_msg: str = "") -> str:
         body += xui.row(inst, cells, checkbox=_PORTS_CHECKBOX)
     return xui.page(
         "/v1/portsConfiguration.html",
-        f"<table>\n{body}</table>\n",
+        f"{xui.nav_rows()}<table>\n{body}</table>\n",
         buttons={"2_1_1": "Cancel", "2_1_2": "Apply"},
         err_msg=err_msg,
         title="NETGEAR -  Port Configuration",
@@ -145,7 +145,11 @@ def render_poe(state: VirtualSwitchState, *, err_msg: str = "") -> str:
 def apply_poe(state: VirtualSwitchState, form: dict[str, str]) -> str:
     from . import web_gsm7252ps as _xe
 
-    return _xe.apply_poe(state, form, checkbox=_POE_CHECKBOX)
+    # unit_required=False: like the gsm7228ps and unlike the gsm7252ps, this
+    # firmware's PoE rows carry their own hidden ``v_1_2_21`` "Unit" key, so the
+    # apply lands with no page-level unit field -- live-proven on 10.1.5.20:49152
+    # 2026-07-30. See web_gsm7252ps.apply_poe's ``unit_required``.
+    return _xe.apply_poe(state, form, checkbox=_POE_CHECKBOX, unit_required=False)
 
 
 def render_port_statistics(state: VirtualSwitchState) -> str:
