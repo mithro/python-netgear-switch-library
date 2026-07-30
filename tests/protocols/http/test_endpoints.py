@@ -115,7 +115,13 @@ def test_gsm7252ps_spec_xe_fastpath() -> None:
     assert spec.stats_path == "/portStatistics.html"
     assert spec.pvid_path == "/portPvidConfiguration.html"
     assert spec.vlan_config_path == "/vlanStatus.html"
-    assert spec.vlan_membership_path is None  # egress list is inline
+    # LIVE-DISCOVERED 2026-07-30: the managed FASTPATH UI DOES have a VLAN
+    # Membership page -- a JS-nav leaf at switching/dot1q/vlan_port_cfg.html whose
+    # form POSTs to the _rw.html twin. This assertion used to be
+    # ``is None  # egress list is inline``, which is exactly why HTTP could report
+    # no tagged/untagged membership and could not write membership at all.
+    assert spec.vlan_membership_path == "/switching/dot1q/vlan_port_cfg.html"
+    assert spec.vlan_membership_post_path == "/switching/dot1q/vlan_port_cfg_rw.html"
     assert spec.mac_table_path == "/basicAddressTable.html"
     assert spec.poe_status_path == "/poeInterfaceConfiguration.html"
     assert spec.lldp_path == "/lldpRemoteInventory.html"

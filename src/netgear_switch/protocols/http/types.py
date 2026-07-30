@@ -10,7 +10,66 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ...models import IpMode
+    from collections.abc import Mapping
+
+    from ...models import IpMode, VlanMode
+
+
+@dataclass(frozen=True)
+class FastpathMembership:
+    """One render of the FASTPATH "VLAN Membership" page
+    (``switching/dot1q/vlan_port_cfg.html`` -> ``..._rw.html``).
+
+    LIVE-DISCOVERED 2026-07-30 on all four managed switches (gsm7252ps
+    10.1.5.22, gsm7228ps/S3300-52X 10.1.5.11, m4300-24x 10.1.5.13,
+    m4300-16x 10.1.5.20:49152) -- see ``parse.parse_fastpath_membership`` and
+    the fixtures ``tests/fixtures/http/{gsm7252ps,gsm7228ps,m4300,m4300_16x}_
+    vlanPortCfg_*.html``. The page carries TWO different views of the same VLAN,
+    and the difference is real, not noise:
+
+    ``tagged_ports``/``untagged_ports`` come from the page's own
+    ``hiddenTagged``/``hiddenUnTagged`` ifName lists, which are the **CURRENT**
+    (operational) egress lists -- byte-for-byte what ``show vlan <id>`` reports
+    under ``Current: Include`` and what ``vlanStatus.html``'s Member Ports cell
+    lists. Their union therefore equals ``member_ports`` exactly.
+
+    ``configured`` comes from ``hidden_mem``, the tri-state code the page
+    SUBMITS, and is the **CONFIGURED** participation -- what ``show vlan``
+    reports under ``Configured`` and what SNMP's
+    ``dot1qVlanStaticEgressPorts`` returns. These two views genuinely disagree
+    on real hardware: on gsm7252ps VLAN 1, ports ``1/0/50`` and ``1/0/51`` are
+    ``Current: Exclude / Configured: Include``, so they appear in
+    ``configured`` (and in SNMP's static egress) but NOT in
+    ``untagged_ports`` (nor in the CLI's current list). Reads therefore report
+    the current view (consistent with ``member_ports``), while
+    ``HttpWriter.set_vlan_membership`` writes and verifies the configured view
+    -- the only one the form can actually set.
+
+    ``fields`` is every form field the page rendered, verbatim, so a re-POST
+    can be byte-faithful to what the browser sends instead of a guessed
+    subset (the M4300-16X, for one, refuses a POST that drops its per-page
+    ``CSRFToken``).
+    """
+
+    vlan_id: int | None
+    vlan_ids: tuple[int, ...]
+    name: str | None
+    vlan_type: str | None
+    tagged_ports: frozenset[int]
+    untagged_ports: frozenset[int]
+    hidden_mem: str
+    # Physical port number -> its 0-based slot in ``hidden_mem``'s comma-separated
+    # code list. Read off the page's own port grid, never computed as ``port - 1``:
+    # the grid interleaves LAG pseudo-interfaces after the physical ports, and the
+    # two firmware generations index the grid differently (see the parser).
+    port_slots: Mapping[int, int]
+    configured: Mapping[int, VlanMode]
+    fields: Mapping[str, str]
+    # The ``<form ACTION=...>`` target the page itself declares (the ``_rw.html``
+    # twin). Exposed so a test can pin it against the model spec's
+    # ``vlan_membership_post_path`` rather than that path being an unchecked
+    # constant.
+    action: str
 
 
 @dataclass(frozen=True)

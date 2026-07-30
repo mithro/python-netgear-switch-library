@@ -109,11 +109,17 @@ def _assert_vlans_match(seed: VirtualSwitchState, capture: dict[str, Any]) -> No
         real = real_by_id.get(vid)
         assert real is not None, f"seed VLAN {vid} absent from capture"
         assert vsim.name == real["name"], f"VLAN {vid} name"
-        assert vsim.member == set(real["member_ports"]), f"VLAN {vid} member_ports"
+        # The capture is an SNMP walk, so its member_ports came from
+        # dot1qVlanStaticEgressPorts -- the STATIC (configured) table. Compare it
+        # against the seed's CONFIGURED set, not its current ``member`` set: on
+        # the real GSM7252PS, VLAN 1's static bitmap includes 1/0/50 and 1/0/51
+        # while ``show vlan 1`` reports them Current: Exclude, so the two views
+        # differ by exactly those ports (see VlanSim.configured_only).
+        assert vsim.configured == set(real["member_ports"]), f"VLAN {vid} member_ports"
         assert vsim.untagged == set(real["untagged_ports"]), (
             f"VLAN {vid} untagged_ports"
         )
-        assert (vsim.member - vsim.untagged) == set(real["tagged_ports"]), (
+        assert (vsim.configured - vsim.untagged) == set(real["tagged_ports"]), (
             f"VLAN {vid} tagged_ports"
         )
 

@@ -1,0 +1,791 @@
+
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<HTML>
+<HEAD>
+   <LINK REL=stylesheet HREF="/base/style.css" TYPE="text/css">
+<META http-equiv="Pragma" content="no-cache">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso-8859-1"> <!-- Style Sheet link and Meta data     -->
+   <TITLE>VLAN Configuration</TITLE>
+
+<script src="/base/js/rollover.js" type="text/javascript"></script>
+<script>mT()</script>
+<script type='text/javascript' language='JavaScript'>
+
+function DisplayErrorMsg()
+//******************************************************************************
+//* Purpose: Display an input error message.
+//* Return:  none
+//******************************************************************************
+{
+    alert(document.forms[0].err_msg.value);
+}
+
+function check_error()
+{
+   if (document.forms[0].err_flag.value == 1) {
+      DisplayErrorMsg();
+   }
+}
+ 
+function screen_refresh()
+{
+   document.forms[0].hiddenTagged.value = "";
+   document.forms[0].hiddenUnTagged.value = "";
+   document.forms[0].submit();
+}
+
+function submit_lagId(portId)
+{
+  document.forms[0].port_id.value = portId;
+  document.forms[0].click_id.value = 0x10;
+  document.forms[0].submit();
+}
+
+function windowPop(a)
+{
+  var printPorts="", currUnit="-1", i=0;
+  var temp=new Array();
+  var stackPortValue=0;
+  if ( a == 2 )
+  {
+     title = "Untagged Ports";
+     Datavalue = docById("hiddenUnTagged").value;
+  }
+  else
+  {
+     title = "Tagged Ports";
+     Datavalue = docById("hiddenTagged").value;
+  }
+  
+  if(Datavalue.length > 0)
+  {
+     temp=Datavalue.split(",");
+     if ( temp.length > 0 )
+     {
+        if ( temp[0].length > 4 )
+        {
+          stackPortValue=4;
+        }
+        else
+        {
+          stackPortValue=2;
+        }
+     }
+     while(i < temp.length)
+     {
+       if (temp[i].charAt(0) != currUnit)
+       {
+         if (printPorts.length >0)
+         {
+           printPorts=printPorts.substring(0,(printPorts.length-1))
+         }
+         if ( ((temp[i].charAt(0) == '0') && (stackPortValue == 2)) || ((temp[i].charAt(0) != '0') && (stackPortValue == 4)) )
+         {
+           if(stackPortValue == 2)
+           {
+              printPorts = printPorts+"<tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >&nbsp;</td></tr><tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >Unit 1</td></tr><tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >";
+           }
+           else
+           {
+             printPorts = printPorts+"<tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >&nbsp;</td></tr><tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >Unit "+ temp[i].charAt(0)+"</td></tr><tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >";
+           } 
+         }
+         else
+         {
+           printPorts = printPorts+"<tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >&nbsp;</td></tr><tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >LAG</td></tr><tr><td class='spacer10Percent' >&nbsp;</td><td class='spacer90Percent' >";
+         }
+         currUnit=temp[i].charAt(0)
+      }
+      printPorts=printPorts + temp[i].substring(stackPortValue)+",";
+      i++;
+     }
+  }
+  if (printPorts.length >0)
+  {
+    printPorts=printPorts.substring(0,(printPorts.length-1))
+  }
+
+  OpenWindow=window.open("", "newwin", "height=175, width=375,toolbar=no,scrollbars=yes,menubar=no");
+  OpenWindow.document.write("<HTML><HEAD><META http-equiv='Pragma' content='no-cache'><META HTTP-EQUIV='Content-Type' CONTENT='text/html; charset=iso-8859-1'><LINK REL=stylesheet HREF='/base/style.css' TYPE='text/css'><TITLE>"+title+"</TITLE></HEAD>")
+  OpenWindow.document.write("<BODY> <FORM> <table class='tableStyle' height='100%'>")
+  OpenWindow.document.write("<tr class='topAlign  background-blue'>")
+  OpenWindow.document.write("<td width='9' height='30' class='leftEdge'>&nbsp;</td>")
+  OpenWindow.document.write("<td width='100%' valign='top'><table class='tableStyle'>")
+  OpenWindow.document.write("<tr class='background-blue'>")
+  OpenWindow.document.write("<td width='90%' height='26' class='padding0Top spacer100Percent'><div class='white11Bold' id='primaryNav'>VLAN "+document.forms[0].vlanId.value+"</div></td><td width='8%' class='topHeader' valign='middle'><a href='javascript:window.close()'><img src='/base/images/close_button.gif' height='20' width='20'></a></td></tr></table></td><td width='302' class='rightEdge'>&nbsp;</td></tr>")
+  OpenWindow.document.write("<tr class='topAlign'><td valign='top' class='leftBodyNotch topAlign'>&nbsp;</td><td><table class='tableStyle'><tr class='topAlign'><td class='leftNextBodyNotch'><img src='/base/images/clear.gif' width='11' height='16'/></td><td class='middleBodyNotch spacer100Percent'>&nbsp;</td><td class='rightNextBodyNotch'><img src='/base/images/clear.gif' width='11'/></td></tr></table></td><td class='rightBodyNotch'>&nbsp;</td></tr>")
+  OpenWindow.document.write("<tr height=100%>")
+  OpenWindow.document.write("<td rowspan='2' class='leftEdge'>&nbsp;</td>")
+  OpenWindow.document.write("<td  valign='top'><table class='tableStyle' height='100%'>")
+  OpenWindow.document.write("<tr><td class='spacer190Percent' >&nbsp;</td>")
+  OpenWindow.document.write("<td class='spacer90Percent' >"+title+"</td></tr>")
+  OpenWindow.document.write(printPorts)
+  OpenWindow.document.write("</td></tr></table></td><td rowspan='2' class='rightEdge'>&nbsp;</td></tr>")
+  OpenWindow.document.write("<tr><td><table class='tableStyle'><tr><td>&nbsp;</td></tr></table></td></tr>")
+  OpenWindow.document.write("<tr><td class='leftEdgeFooter'><img src='/base/images/clear.gif' width='11' height='9'/></td><td><table class='tableStyle'><tr><td class='leftBottomDivider'><img src='/base/images/clear.gif' width='11' height='9'/></td><td class='middleBottomDivider spacer100Percent'><img src='/base/images/clear.gif' height='9'/></td><td class='rightBottomDivider spacer1Percent'><img src='/base/images/clear.gif' height='9'/></td></tr></table></td><td class='rightEdgeFooter'><img src='/base/images/clear.gif' width='11' height='9'/></td></tr>")
+  OpenWindow.document.write("<tr><td class='leftCopyrightFooter'><img src='/base/images/clear.gif' width='11' height='9'/></td><td class='middleCopyrightDivider'><table class='blue10 tableStyle'><tr class='topAlign'><td>Copyright &copy; 1996-2011 Netgear &reg;</td></tr></table></td><td class='rightCopyrightFooter'><img src='/base/images/clear.gif' width='11' height='9'/></td></tr>")
+  OpenWindow.document.write("</table></FORM></body></html>")
+  OpenWindow.document.close()
+  self.name="main"
+}
+
+function mouseDownWork(event)
+{
+  // process only left clicks
+  var processedClick = document.getElementsByName("processedClick")[0]
+  processedClick.value = 0
+  if (event.button > 1)
+    return true;
+  var ignoreMouseUp = document.getElementsByName("ignoreMouseUp")[0]
+  var mouseX = document.getElementsByName("mouseX")[0]
+  var mouseY = document.getElementsByName("mouseY")[0]
+  if (ignoreMouseUp.value == 1)
+  {
+    ignoreMouseUp.value = 0
+  }
+  if (event.ctrlKey && !event.altKey && !event.shiftKey)
+  {
+    ignoreMouseUp.value = 1
+  }
+  mouseX.value = event.clientX;
+  mouseY.value = event.clientY;
+}
+
+
+function changeImagesColor()
+{
+  var images = document.getElementsByName("imx")
+  var selectedPorts = document.getElementsByName("selectedPorts")[0]
+  var multipleSelection = (selectedPorts.value.indexOf(';') != selectedPorts.value.lastIndexOf(';'))
+  for (i=0;i<images.length;i++)
+  {
+    if (images[i].id)
+    {
+      str1 = 'g' + images[i].id + ';'
+      if (selectedPorts.value.search(str1) != -1)
+      {
+        if (multipleSelection)
+          images[i].src = images[i].src.replace('grey', 'blue')
+        else
+          images[i].src = images[i].src.replace('blue', 'grey')
+      }
+      else
+      {
+        images[i].src = images[i].src.replace('blue', 'grey')
+      }
+    }
+  }
+}
+
+function toggleImageFirst(obj, index, indexLength, prntid, intfNumb)
+{
+  var processedClick = document.getElementsByName("processedClick")[0]
+  var ignoreMouseUp = document.getElementsByName("ignoreMouseUp")[0]
+  var selectedPorts = document.getElementsByName("selectedPorts")[0]
+  str = 'g' + intfNumb + ';'
+  if (ignoreMouseUp.value == 1)
+  {
+    if (selectedPorts.value.search(str) != -1)
+    {
+      selectedPorts.value = selectedPorts.value.replace(str, '')
+    }
+    else
+    {
+      selectedPorts.value += str
+    }
+    changeImagesColor()
+  }
+  else
+  {
+    if (selectedPorts.value.search(str) != -1)
+    {
+      ignoreMouseUp.value = 1;
+      // toggle current image
+      toggleImage(obj, index, indexLength, prntid)
+      // toggle other images
+      srcOb1 = obj.childNodes[0].src
+      var imagesList = document.getElementsByName("imx")
+      for (i=0;i <imagesList.length; i++)
+      {
+        str1 = 'g' + imagesList[i].id + ';'
+        if (selectedPorts.value.search(str1) != -1)
+        {
+          if (str != str1)
+          {
+            var unitStr = imagesList[i].parentNode.parentNode.innerHTML
+            var indexStr = unitStr
+            indexStr = indexStr.slice(indexStr.search('this,')+5)
+            indexStr = indexStr.substr(0, indexStr.search(","))
+            unitStr = unitStr.slice(unitStr.search('img_unit'))
+            unitStr = unitStr.substr(0, unitStr.search("'"))
+            while (imagesList[i].src != srcOb1)
+            {
+              toggleImage(imagesList[i].parentNode, indexStr, indexLength, unitStr)
+            }
+          }
+        }
+      }
+      enablebtn(1)
+    }
+    else
+    {
+      selectedPorts.value = 'g' + intfNumb + ';'
+      toggleImage(obj, index, indexLength, prntid)
+      enablebtn(1)
+      changeImagesColor()
+    }
+  }
+  processedClick.value = 1
+}
+
+function mouseUpWork(event)
+{
+  // process only left clicks
+  if (event.button > 1)
+      return true;
+  var userSelection
+  var iexplorer
+  var ignoreMouseUp = document.getElementsByName("ignoreMouseUp")[0]
+  var selectedPorts = document.getElementsByName("selectedPorts")[0]
+  var mouseX = document.getElementsByName("mouseX")[0]
+  var mouseY = document.getElementsByName("mouseY")[0]
+  var processedClick = document.getElementsByName("processedClick")[0]
+  if (ignoreMouseUp.value == 1)
+  {
+    return
+  }
+  if(mouseX.value == event.clientX && mouseY.value == event.clientY)
+  {
+    return
+  }
+  if (window.getSelection) {
+    userSelection = window.getSelection()
+    iexplorer = 0
+  }
+  else
+    if (document.selection) { // should come last: IE, Opera
+      userSelection = document.selection.createRange()
+      iexplorer = 1
+  }
+  if (iexplorer == 0)
+  {
+      var range = document.createRange()
+      if (!userSelection.anchorNode)
+      {
+        return
+      }
+      range = userSelection.getRangeAt(0);
+      if (!range.collapsed)
+      {
+        selectedPorts.value = ''
+        var innerRange = document.createRange();
+        var imageNodes = document.getElementsByName("imx")
+        for (j=0; j<imageNodes.length; j++)
+        {
+          if (imageNodes[j].id)
+          {
+            if (imageNodes[j].id.search('img_unit') == -1)
+            {
+              innerRange.selectNode(imageNodes[j])
+              if ((range.compareBoundaryPoints(Range.START_TO_START, innerRange) <= 0) &&
+                  (range.compareBoundaryPoints(Range.END_TO_END, innerRange) >= 0))
+              {
+                selectedPorts.value += 'g' + imageNodes[j].id + ';'
+              }
+            }
+          }
+        }
+        innerRange.detach()
+        window.getSelection().collapseToEnd()
+      }
+      range.detach()
+  }
+  else
+  {
+     if(userSelection.htmlText)
+     {
+       selectedPorts.value = ""
+       var imageNodes = document.getElementsByName("imx")
+       var innerRange = document.body.createTextRange()
+       for (j=0; j<imageNodes.length; j++)
+       {
+         if(imageNodes[j].id)
+         {
+           if (imageNodes[j].id.search('img_unit') == -1)
+           {
+             innerRange.moveToElementText(imageNodes[j])
+             if (userSelection.inRange(innerRange))
+             {
+               selectedPorts.value += 'g' + imageNodes[j].id + ';'
+             }
+           }
+         }
+       }
+       document.selection.empty()
+     }
+  }
+  if (selectedPorts.value != "")
+  {
+    changeImagesColor()
+  }
+  processedClick.value = 1
+}
+
+function checkIfClickProcessed()
+{
+  var processedClick = document.getElementsByName("processedClick")[0]
+  var selectedPorts = document.getElementsByName("selectedPorts")[0]
+  if (processedClick.value != 1)
+  {
+    selectedPorts.value = ""
+    changeImagesColor()
+  }
+}
+</script>
+
+</HEAD>
+
+<body onLoad='check_error()' onMouseDown='mouseDownWork(event)' onMouseUp='mouseUpWork(event)'  onClick='checkIfClickProcessed()'>
+
+<FORM method="post" ACTION="/switching/dot1q/vlan_port_cfg_rw.html">
+
+  <div class="mainBody mainContainer">
+    <table class="detailsAreaContainer">
+      <tr>
+        <td class="font15Bold">VLAN Membership</td>
+      </tr>
+      <tr>
+        <td class="spacerHeight9"></td>
+      </tr>
+      <tr>
+        <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('VLAN Membership','vlanMembership')</script></td>
+            </tr>
+            <tr>
+              <td class="subSectionBodyDot">&nbsp;</td>
+              <td class="paddingsubSectionBodyWide"><table class="tableStyle" id="tbl1">
+                  <tr>
+                    <td class="cosTableHeaderText spacer25Percent white10Bold messageTableHeaderVerticalBorder">VLAN ID</td>
+                    <td class="cosTableHeaderBorderText messageTableHeaderVerticalBorder spacer25Percent">
+                     <SELECT name="vlanId" class="select" onChange="screen_refresh()">
+<OPTION class="selectfield" value="1">1
+<OPTION class="selectfield" value="4">4
+<OPTION class="selectfield" value="5">5
+<OPTION class="selectfield" value="6">6
+<OPTION class="selectfield" value="7">7
+<OPTION class="selectfield" value="10">10
+<OPTION class="selectfield" value="20">20
+<OPTION class="selectfield" value="21">21
+<OPTION class="selectfield" value="41">41
+<OPTION class="selectfield" value="89">89
+<OPTION class="selectfield" value="90">90
+<OPTION class="selectfield" value="99">99
+<OPTION class="selectfield" value="121">121
+<OPTION class="selectfield" value="141" SELECTED>141</SELECT></td>
+                    <td class="cosTableHeaderBorderText spacer25Percent white10Bold messageTableHeaderVerticalBorder">Group Operation</td>
+                    <td class="cosTableHeaderBorderText spacer25Percent messageTableHeaderVerticalBorder"><SELECT name="select" class="select" id="groupOpera" onChange="imgtag('groupOpera');enableImage()">
+                        <OPTION value="UntagAll" selected="selected" >Untag All</option>
+                        <OPTION value="TagAll" >Tag All</option>
+                        <OPTION value="RemoveAll" >Remove All</option>
+                        </SELECT></td>
+                  </tr>
+                  <tr>
+                    <td id="a" class="cosTableHeaderText white10Bold messageTableHeaderVerticalBorder">VLAN Name</td>
+                    <td class="cosTableHeaderBorderText messageTableHeaderVerticalBorder"><INPUT name="vlan_name" type="text" class="inputDisabled" READONLY TABINDEX="-1" SIZE="33" MAXLENGTH="32" VALUE="t-sm"> </td>
+                    <td colspan="2" class="cosTableHeaderBorderText messageTableHeaderVerticalBorder"><a href="javascript:void(0)" onClick=windowPop(2)><img src="/base/images/untaggedportmembers_on.gif" title="Untagged Port Members"/></a></td>
+                  </tr>
+                  <tr>
+                    <td id="b" class="cosTableHeaderText white10Bold">VLAN Type</td>
+                    <td class="cosTableHeaderBorderText"><INPUT name="vlan_type" type="text" class="inputDisabled" READONLY TABINDEX="-1" SIZE="30" VALUE="Static">                    </td>
+                    <td colspan="2" class="cosTableHeaderBorderText white10Bold"><a href="javascript:void(0)" onClick=windowPop(1)><img src="/base/images/taggedportmembers_on.gif" title="Tagged Port Members"/></a></td>
+                  </tr>
+
+
+
+<tr>
+ <td colspan="4" class="orangeBg messageTableHeaderVerticalTopBorder pointer"><table class="tableStyle">
+ <tr id="blueLink10">
+ <td class="pointer" onClick="toggleLyr('unit1');chngeImg(this,'unit1');"><img src="/base/images/arrow_blue_up.gif"/></td>
+ <td><img src="/base/images/clear.gif" width="2" height="2"/></td><td class="pointer blue10"><a href="javascript:void(0)" onClick="tagImage(this,'unit1tb');toggleImage(this,0,51);enablebtn(1)" ><img src="/base/images/orange_b.gif" name="imx"  width="17" height="17" id="img_unit1"/></a></td>
+ <td><img src="/base/images/clear.gif" width="4" height="2"/></td><td class="blue10Bold whiteSpace"><a href="javascript:void(0)" onClick="toggleLyr('unit1');chngeImg(this,'unit1');">Unit 1</a></td>
+ <td class="pointer spacer100Percent" onClick="toggleLyr('unit1');chngeImg(this,'unit1');">&nbsp;</td>
+ </tr></table></td></tr><tr id="unit1"style="display:none">
+ <td colspan="4" ><table class="tableStyle" id="unit1tb">
+ <tr class="font10Bold messageTableWhite">
+ <td >Port</td>
+<td>1</td>
+<td>2</td>
+<td>3</td>
+<td>4</td>
+<td>5</td>
+<td>6</td>
+<td>7</td>
+<td>8</td>
+<td>9</td>
+<td>10</td>
+<td>11</td>
+<td>12</td>
+<td>13</td>
+<td>14</td>
+<td>15</td>
+<td>16</td>
+<td>17</td>
+<td>18</td>
+<td>19</td>
+<td>20</td>
+<td>21</td>
+<td>22</td>
+<td>23</td>
+<td>24</td>
+</tr>
+ <tr class="messageTableGrey">
+ <td>&nbsp;</td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,0,0,'img_unit1',1);return false" ><img src="/base/images/grey_b.gif" name="imx" id="1"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,1,0,'img_unit1',2);return false" ><img src="/base/images/grey_b.gif" name="imx" id="2"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,2,0,'img_unit1',3);return false" ><img src="/base/images/grey_b.gif" name="imx" id="3"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,3,0,'img_unit1',4);return false" ><img src="/base/images/grey_b.gif" name="imx" id="4"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,4,0,'img_unit1',5);return false" ><img src="/base/images/grey_b.gif" name="imx" id="5"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,5,0,'img_unit1',6);return false" ><img src="/base/images/grey_b.gif" name="imx" id="6"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,6,0,'img_unit1',7);return false" ><img src="/base/images/grey_b.gif" name="imx" id="7"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,7,0,'img_unit1',8);return false" ><img src="/base/images/grey_b.gif" name="imx" id="8"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,8,0,'img_unit1',9);return false" ><img src="/base/images/grey_b.gif" name="imx" id="9"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,9,0,'img_unit1',10);return false" ><img src="/base/images/grey_b.gif" name="imx" id="10"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,10,0,'img_unit1',11);return false" ><img src="/base/images/grey_b.gif" name="imx" id="11"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,11,0,'img_unit1',12);return false" ><img src="/base/images/grey_b.gif" name="imx" id="12"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,12,0,'img_unit1',13);return false" ><img src="/base/images/grey_b.gif" name="imx" id="13"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,13,0,'img_unit1',14);return false" ><img src="/base/images/grey_b.gif" name="imx" id="14"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,14,0,'img_unit1',15);return false" ><img src="/base/images/grey_b.gif" name="imx" id="15"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,15,0,'img_unit1',16);return false" ><img src="/base/images/grey_b.gif" name="imx" id="16"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,16,0,'img_unit1',17);return false" ><img src="/base/images/grey_b.gif" name="imx" id="17"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,17,0,'img_unit1',18);return false" ><img src="/base/images/grey_b.gif" name="imx" id="18"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,18,0,'img_unit1',19);return false" ><img src="/base/images/grey_b.gif" name="imx" id="19"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,19,0,'img_unit1',20);return false" ><img src="/base/images/grey_b.gif" name="imx" id="20"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,20,0,'img_unit1',21);return false" ><img src="/base/images/grey_b.gif" name="imx" id="21"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,21,0,'img_unit1',22);return false" ><img src="/base/images/grey_b.gif" name="imx" id="22"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,22,0,'img_unit1',23);return false" ><img src="/base/images/grey_b.gif" name="imx" id="23"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,23,0,'img_unit1',24);return false" ><img src="/base/images/grey_b.gif" name="imx" id="24"></a></td>
+</tr>
+ <tr class="font10Bold messageTableWhite">
+ <td>&nbsp;</td>
+<td>25</td>
+<td>26</td>
+<td>27</td>
+<td>28</td>
+<td>29</td>
+<td>30</td>
+<td>31</td>
+<td>32</td>
+<td>33</td>
+<td>34</td>
+<td>35</td>
+<td>36</td>
+<td>37</td>
+<td>38</td>
+<td>39</td>
+<td>40</td>
+<td>41</td>
+<td>42</td>
+<td>43</td>
+<td>44</td>
+<td>45</td>
+<td>46</td>
+<td>47</td>
+<td>48</td>
+</tr>
+ <tr class="messageTableGrey">
+ <td>&nbsp;</td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,24,0,'img_unit1',25);return false" ><img src="/base/images/grey_b.gif" name="imx" id="25"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,25,0,'img_unit1',26);return false" ><img src="/base/images/grey_b.gif" name="imx" id="26"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,26,0,'img_unit1',27);return false" ><img src="/base/images/grey_b.gif" name="imx" id="27"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,27,0,'img_unit1',28);return false" ><img src="/base/images/grey_b.gif" name="imx" id="28"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,28,0,'img_unit1',29);return false" ><img src="/base/images/grey_b.gif" name="imx" id="29"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,29,0,'img_unit1',30);return false" ><img src="/base/images/grey_b.gif" name="imx" id="30"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,30,0,'img_unit1',31);return false" ><img src="/base/images/grey_b.gif" name="imx" id="31"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,31,0,'img_unit1',32);return false" ><img src="/base/images/grey_b.gif" name="imx" id="32"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,32,0,'img_unit1',33);return false" ><img src="/base/images/grey_b.gif" name="imx" id="33"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,33,0,'img_unit1',34);return false" ><img src="/base/images/grey_b.gif" name="imx" id="34"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,34,0,'img_unit1',35);return false" ><img src="/base/images/grey_b.gif" name="imx" id="35"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,35,0,'img_unit1',36);return false" ><img src="/base/images/grey_b.gif" name="imx" id="36"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,36,0,'img_unit1',37);return false" ><img src="/base/images/grey_b.gif" name="imx" id="37"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,37,0,'img_unit1',38);return false" ><img src="/base/images/grey_b.gif" name="imx" id="38"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,38,0,'img_unit1',39);return false" ><img src="/base/images/grey_b.gif" name="imx" id="39"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,39,0,'img_unit1',40);return false" ><img src="/base/images/grey_b.gif" name="imx" id="40"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,40,0,'img_unit1',41);return false" ><img src="/base/images/grey_b.gif" name="imx" id="41"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,41,0,'img_unit1',42);return false" ><img src="/base/images/grey_b.gif" name="imx" id="42"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,42,0,'img_unit1',43);return false" ><img src="/base/images/grey_b.gif" name="imx" id="43"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,43,0,'img_unit1',44);return false" ><img src="/base/images/grey_b.gif" name="imx" id="44"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,44,0,'img_unit1',45);return false" ><img src="/base/images/grey_b.gif" name="imx" id="45"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,45,0,'img_unit1',46);return false" ><img src="/base/images/grey_t.gif" name="imx" id="46"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,46,0,'img_unit1',47);return false" ><img src="/base/images/grey_t.gif" name="imx" id="47"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,47,0,'img_unit1',48);return false" ><img src="/base/images/grey_b.gif" name="imx" id="48"></a></td>
+</tr>
+ <tr class="font10Bold messageTableWhite">
+ <td>&nbsp;</td>
+<td>49</td>
+<td>50</td>
+<td>51</td>
+<td>52</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+ <tr class="messageTableGrey">
+ <td>&nbsp;</td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,48,0,'img_unit1',49);return false" ><img src="/base/images/grey_t.gif" name="imx" id="49"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,49,0,'img_unit1',50);return false" ><img src="/base/images/grey_u.gif" name="imx" id="50"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,50,0,'img_unit1',51);return false" ><img src="/base/images/grey_u.gif" name="imx" id="51"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,51,0,'img_unit1',52);return false" ><img src="/base/images/grey_b.gif" name="imx" id="52"></a></td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+ </table></td>
+ </tr>
+
+
+
+
+
+<tr>
+ <td colspan="4" class="orangeBg messageTableHeaderVerticalTopBorder pointer"><table class="tableStyle">
+ <tr id="blueLink10">
+ <td class="pointer" onClick="toggleLyr('unit25');chngeImg(this,'unit25');"><img src="/base/images/arrow_blue_up.gif"/></td>
+ <td><img src="/base/images/clear.gif" width="2" height="2"/></td>
+ <td class="pointer blue10"><a href="javascript:void(0)" onClick="tagImage(this,'unit25tb');toggleImage(this,52,63);enablebtn(1)" ><img src="/base/images/orange_b.gif" name="imx"  width="17" height="17" id="img_unit25"/></a></td>
+ <td><img src="/base/images/clear.gif" width="4" height="2"/></td>
+ <td class="blue10Bold whiteSpace"><a href="javascript:void(0)" onClick="toggleLyr('unit25');chngeImg(this,'unit25');">LAG</a></td>
+ <td class="pointer spacer100Percent" onClick="toggleLyr('unit25');chngeImg(this,'unit25');">&nbsp;</td>
+ </tr>
+ </table></td>
+ </tr>
+ <tr id="unit25" style="display:none">
+ <td colspan="4" ><table class="tableStyle" id="unit25tb">
+ <tr class="font10Bold messageTableWhite">
+ <td >LAG</td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('1')">1</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('2')">2</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('3')">3</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('4')">4</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('5')">5</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('6')">6</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('7')">7</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('8')">8</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('9')">9</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('10')">10</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('11')">11</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('12')">12</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('13')">13</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('14')">14</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('15')">15</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('16')">16</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('17')">17</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('18')">18</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('19')">19</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('20')">20</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('21')">21</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('22')">22</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('23')">23</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('24')">24</a></td>
+</tr>
+ <tr class="messageTableGrey">
+ <td>&nbsp;</td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,52,0,'img_unit25',418);return false" ><img src="/base/images/grey_t.gif" name="imx" id="418"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,53,0,'img_unit25',419);return false" ><img src="/base/images/grey_t.gif" name="imx" id="419"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,54,0,'img_unit25',420);return false" ><img src="/base/images/grey_b.gif" name="imx" id="420"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,55,0,'img_unit25',421);return false" ><img src="/base/images/grey_b.gif" name="imx" id="421"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,56,0,'img_unit25',422);return false" ><img src="/base/images/grey_b.gif" name="imx" id="422"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,57,0,'img_unit25',423);return false" ><img src="/base/images/grey_b.gif" name="imx" id="423"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,58,0,'img_unit25',424);return false" ><img src="/base/images/grey_b.gif" name="imx" id="424"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,59,0,'img_unit25',425);return false" ><img src="/base/images/grey_b.gif" name="imx" id="425"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,60,0,'img_unit25',426);return false" ><img src="/base/images/grey_b.gif" name="imx" id="426"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,61,0,'img_unit25',427);return false" ><img src="/base/images/grey_b.gif" name="imx" id="427"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,62,0,'img_unit25',428);return false" ><img src="/base/images/grey_b.gif" name="imx" id="428"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,63,0,'img_unit25',429);return false" ><img src="/base/images/grey_b.gif" name="imx" id="429"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,64,0,'img_unit25',430);return false" ><img src="/base/images/grey_b.gif" name="imx" id="430"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,65,0,'img_unit25',431);return false" ><img src="/base/images/grey_b.gif" name="imx" id="431"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,66,0,'img_unit25',432);return false" ><img src="/base/images/grey_b.gif" name="imx" id="432"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,67,0,'img_unit25',433);return false" ><img src="/base/images/grey_b.gif" name="imx" id="433"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,68,0,'img_unit25',434);return false" ><img src="/base/images/grey_b.gif" name="imx" id="434"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,69,0,'img_unit25',435);return false" ><img src="/base/images/grey_b.gif" name="imx" id="435"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,70,0,'img_unit25',436);return false" ><img src="/base/images/grey_b.gif" name="imx" id="436"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,71,0,'img_unit25',437);return false" ><img src="/base/images/grey_b.gif" name="imx" id="437"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,72,0,'img_unit25',438);return false" ><img src="/base/images/grey_b.gif" name="imx" id="438"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,73,0,'img_unit25',439);return false" ><img src="/base/images/grey_b.gif" name="imx" id="439"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,74,0,'img_unit25',440);return false" ><img src="/base/images/grey_b.gif" name="imx" id="440"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,75,0,'img_unit25',441);return false" ><img src="/base/images/grey_b.gif" name="imx" id="441"></a></td>
+</tr>
+ <tr class="font10Bold messageTableWhite">
+ <td>&nbsp;</td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('25')">25</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('26')">26</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('27')">27</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('28')">28</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('29')">29</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('30')">30</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('31')">31</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('32')">32</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('33')">33</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('34')">34</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('35')">35</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('36')">36</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('37')">37</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('38')">38</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('39')">39</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('40')">40</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('41')">41</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('42')">42</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('43')">43</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('44')">44</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('45')">45</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('46')">46</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('47')">47</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('48')">48</a></td>
+</tr>
+ <tr class="messageTableGrey">
+ <td>&nbsp;</td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,76,0,'img_unit25',442);return false" ><img src="/base/images/grey_b.gif" name="imx" id="442"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,77,0,'img_unit25',443);return false" ><img src="/base/images/grey_b.gif" name="imx" id="443"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,78,0,'img_unit25',444);return false" ><img src="/base/images/grey_b.gif" name="imx" id="444"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,79,0,'img_unit25',445);return false" ><img src="/base/images/grey_b.gif" name="imx" id="445"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,80,0,'img_unit25',446);return false" ><img src="/base/images/grey_b.gif" name="imx" id="446"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,81,0,'img_unit25',447);return false" ><img src="/base/images/grey_b.gif" name="imx" id="447"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,82,0,'img_unit25',448);return false" ><img src="/base/images/grey_b.gif" name="imx" id="448"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,83,0,'img_unit25',449);return false" ><img src="/base/images/grey_b.gif" name="imx" id="449"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,84,0,'img_unit25',450);return false" ><img src="/base/images/grey_b.gif" name="imx" id="450"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,85,0,'img_unit25',451);return false" ><img src="/base/images/grey_b.gif" name="imx" id="451"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,86,0,'img_unit25',452);return false" ><img src="/base/images/grey_b.gif" name="imx" id="452"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,87,0,'img_unit25',453);return false" ><img src="/base/images/grey_b.gif" name="imx" id="453"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,88,0,'img_unit25',454);return false" ><img src="/base/images/grey_b.gif" name="imx" id="454"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,89,0,'img_unit25',455);return false" ><img src="/base/images/grey_b.gif" name="imx" id="455"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,90,0,'img_unit25',456);return false" ><img src="/base/images/grey_b.gif" name="imx" id="456"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,91,0,'img_unit25',457);return false" ><img src="/base/images/grey_b.gif" name="imx" id="457"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,92,0,'img_unit25',458);return false" ><img src="/base/images/grey_b.gif" name="imx" id="458"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,93,0,'img_unit25',459);return false" ><img src="/base/images/grey_b.gif" name="imx" id="459"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,94,0,'img_unit25',460);return false" ><img src="/base/images/grey_b.gif" name="imx" id="460"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,95,0,'img_unit25',461);return false" ><img src="/base/images/grey_b.gif" name="imx" id="461"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,96,0,'img_unit25',462);return false" ><img src="/base/images/grey_b.gif" name="imx" id="462"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,97,0,'img_unit25',463);return false" ><img src="/base/images/grey_b.gif" name="imx" id="463"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,98,0,'img_unit25',464);return false" ><img src="/base/images/grey_b.gif" name="imx" id="464"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,99,0,'img_unit25',465);return false" ><img src="/base/images/grey_b.gif" name="imx" id="465"></a></td>
+</tr>
+ <tr class="font10Bold messageTableWhite">
+ <td>&nbsp;</td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('49')">49</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('50')">50</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('51')">51</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('52')">52</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('53')">53</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('54')">54</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('55')">55</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('56')">56</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('57')">57</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('58')">58</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('59')">59</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('60')">60</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('61')">61</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('62')">62</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('63')">63</a></td>
+<td id="blueLinkBold10"><a href="#" onclick="submit_lagId('64')">64</a></td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+ <tr class="messageTableGrey">
+ <td>&nbsp;</td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,100,0,'img_unit25',466);return false" ><img src="/base/images/grey_b.gif" name="imx" id="466"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,101,0,'img_unit25',467);return false" ><img src="/base/images/grey_b.gif" name="imx" id="467"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,102,0,'img_unit25',468);return false" ><img src="/base/images/grey_b.gif" name="imx" id="468"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,103,0,'img_unit25',469);return false" ><img src="/base/images/grey_b.gif" name="imx" id="469"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,104,0,'img_unit25',470);return false" ><img src="/base/images/grey_b.gif" name="imx" id="470"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,105,0,'img_unit25',471);return false" ><img src="/base/images/grey_b.gif" name="imx" id="471"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,106,0,'img_unit25',472);return false" ><img src="/base/images/grey_b.gif" name="imx" id="472"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,107,0,'img_unit25',473);return false" ><img src="/base/images/grey_b.gif" name="imx" id="473"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,108,0,'img_unit25',474);return false" ><img src="/base/images/grey_b.gif" name="imx" id="474"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,109,0,'img_unit25',475);return false" ><img src="/base/images/grey_b.gif" name="imx" id="475"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,110,0,'img_unit25',476);return false" ><img src="/base/images/grey_b.gif" name="imx" id="476"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,111,0,'img_unit25',477);return false" ><img src="/base/images/grey_b.gif" name="imx" id="477"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,112,0,'img_unit25',478);return false" ><img src="/base/images/grey_b.gif" name="imx" id="478"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,113,0,'img_unit25',479);return false" ><img src="/base/images/grey_b.gif" name="imx" id="479"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,114,0,'img_unit25',480);return false" ><img src="/base/images/grey_b.gif" name="imx" id="480"></a></td>
+<td><a style="cursor: pointer" onClick="toggleImageFirst(this,115,0,'img_unit25',481);return false" ><img src="/base/images/grey_b.gif" name="imx" id="481"></a></td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+ </table></td>
+ </tr>
+
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+      </tr>
+    </table>
+  </div>
+<script>
+var str=CreateEditblBtns('Cancel','resethidden();refresh()','btn_Cancel');
+str+=CreateEditblBtns('Apply','resethidden();submitform()','btn_Apply')
+PaintButtons(str);
+</script>
+<INPUT TYPE="hidden" NAME="err_flag" SIZE="16" MAXLENGTH="15" VALUE="0">
+<INPUT TYPE="hidden" NAME="err_msg" SIZE="81" MAXLENGTH="80" VALUE="">
+<INPUT TYPE="hidden" NAME="hiddenTagged" id="hiddenTagged" SIZE="10241" MAXLENGTH="10240" VALUE="1/0/46,1/0/47,1/0/49,0/3/1,0/3/2">
+<INPUT TYPE="hidden" NAME="hiddenUnTagged" id="hiddenUnTagged" SIZE="10241" MAXLENGTH="10240" VALUE="">
+<INPUT TYPE="hidden" NAME="hiddenMem" id="hiddenMem" SIZE="2700" MAXLENGTH="2699" VALUE="3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,1,3,1,2,2,3,1,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3">
+<INPUT TYPE="hidden" id="submt" NAME="submt" SIZE="16" MAXLENGTH="15" VALUE="0">
+<INPUT TYPE="hidden" id="cncel" NAME="cncel" SIZE="16" MAXLENGTH="15" VALUE="">
+<INPUT TYPE="hidden" id="port_id" NAME="port_id" SIZE="16" MAXLENGTH="15" VALUE="0">
+<INPUT TYPE="hidden" id="click_id" NAME="click_id" SIZE="16" MAXLENGTH="15" VALUE="0">
+<INPUT TYPE="hidden" NAME="selectedPorts" id="selectedPorts" SIZE="10241" MAXLENGTH="10240" VALUE="">
+<INPUT TYPE="hidden" NAME="ignoreMouseUp" id="ignoreMouseUp" SIZE="16" VALUE="">
+<INPUT TYPE="hidden" NAME="mouseX" id="mouseX" SIZE="16" VALUE="">
+<INPUT TYPE="hidden" NAME="mouseY" id="mouseY" SIZE="16" VALUE="">
+<INPUT TYPE="hidden" NAME="processedClick" id="processedClick" SIZE="16" VALUE="">
+</FORM></body></html>

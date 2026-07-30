@@ -16,20 +16,31 @@ _FIX = Path(__file__).parent / "fixtures" / "http"
 
 
 class _FakeSession:
-    """In-memory session returning captured fixtures per path."""
+    """In-memory session returning captured fixtures per path.
 
-    def __init__(self, pages: dict[str, str]) -> None:
+    A page value may be a plain string OR a callable taking the POSTed form and
+    returning the body. The callable form exists for the FASTPATH VLAN-Membership
+    endpoint, which serves a DIFFERENT page per ``vlanId`` -- a fake that ignored
+    the form would hand every VLAN the captured VLAN's membership, which is
+    exactly the mislabelling the reader's wrong-VLAN guard exists to catch.
+    """
+
+    def __init__(self, pages: dict) -> None:
         self._pages = pages
         self.logged_in = False
 
     def login(self) -> None:
         self.logged_in = True
 
+    def _resolve(self, path: str, data: dict[str, str] | None = None) -> str:
+        page = self._pages[path]
+        return page(data or {}) if callable(page) else page
+
     def get_page(self, path: str) -> str:
-        return self._pages[path]
+        return self._resolve(path)
 
     def post_form(self, path: str, data: dict[str, str]) -> str:
-        return self._pages[path]
+        return self._resolve(path, data)
 
 
 class _AsyncFakeSession(_FakeSession):
@@ -37,10 +48,33 @@ class _AsyncFakeSession(_FakeSession):
         self.logged_in = True
 
     async def get_page(self, path: str) -> str:  # type: ignore[override]
-        return self._pages[path]
+        return self._resolve(path)
 
     async def post_form(self, path: str, data: dict[str, str]) -> str:  # type: ignore[override]
-        return self._pages[path]
+        return self._resolve(path, data)
+
+
+def _membership(*names: str):
+    """A VLAN-Membership responder over the captured pages in ``names``.
+
+    Keys the fixtures by the VLAN each capture actually shows, and serves the GET
+    (no ``vlanId``) as the FIRST one -- which is what real firmware does: the GET
+    renders whichever VLAN the session last selected. A VLAN with no capture
+    raises ``KeyError`` rather than being faked, because inventing "VLAN N has no
+    members" would let a membership regression pass.
+    """
+    from netgear_switch.protocols.http import parse
+
+    bodies = [(_FIX / n).read_text() for n in names]
+    by_vid = {parse.parse_fastpath_membership(b).vlan_id: b for b in bodies}
+
+    def respond(data: dict[str, str]) -> str:
+        requested = data.get("vlanId")
+        if requested is None:
+            return bodies[0]
+        return by_vid[int(requested)]
+
+    return respond
 
 
 def _pages() -> dict[str, str]:
@@ -121,6 +155,16 @@ def _gsm7228ps_pages() -> dict[str, str]:
         "/base/system/management/sysInfo.html": (
             _FIX / "gsm7228ps_sysInfo.html"
         ).read_text(),
+        # The VLAN-Membership page, captured 2026-07-30 -- only VLAN 5 was
+        # captured on this switch, so get_vlans() (which needs all five VLANs)
+        # is exercised against the MOCK instead; see
+        # tests/test_http_vlan_membership.py.
+        "/switching/dot1q/vlan_port_cfg.html": _membership(
+            "gsm7228ps_vlanPortCfg_vlan5.html"
+        ),
+        "/switching/dot1q/vlan_port_cfg_rw.html": _membership(
+            "gsm7228ps_vlanPortCfg_vlan5.html"
+        ),
     }
 
 
@@ -133,7 +177,25 @@ def test_gsm7228ps_reads_are_grounded_not_refused() -> None:
     reader = HttpReader(_FakeSession(_gsm7228ps_pages()), get_model("gsm7228ps"))
     assert {p.port for p in reader.get_ports()} == set(range(1, 53))
     assert len(reader.get_poe()) == 48
-    assert {v.vlan_id for v in reader.get_vlans()} == {1, 5, 21, 121, 4089}
+    # The VLAN LIST comes from vlanStatus.html; the per-VLAN tagged/untagged
+    # split comes from the separate VLAN-Membership page, of which only VLAN 5
+    # was captured on this switch -- so get_vlans() (which reads a membership
+    # page per VLAN) is asserted against the mock in
+    # tests/test_http_vlan_membership.py, and here we pin the two halves the
+    # fixtures DO cover.
+    from netgear_switch.protocols.http import parse as _parse
+
+    vlan_status = (_FIX / "gsm7228ps_vlanStatus.html").read_text()
+    assert {v.vlan_id for v in _parse.parse_s3300_vlans(vlan_status)} == {
+        1,
+        5,
+        21,
+        121,
+        4089,
+    }
+    member5 = reader.read_fastpath_membership(5)
+    assert member5.tagged_ports == frozenset({49, 50, 51, 52})
+    assert member5.untagged_ports == frozenset({41})
     assert len(reader.get_macs()) == 17  # base MAC on CPU "c1" is skipped
     mgmt = reader.get_mgmt_ip()
     assert mgmt.address is None
@@ -308,6 +370,13 @@ def _m4300_pages() -> dict[str, str]:
         "/v1/base/system/management/sysInfo.html": (
             _FIX / "m4300_sysinfo.html"
         ).read_text(),
+        # VLAN-Membership, captured 2026-07-30 (VLAN 1 only on this switch).
+        "/v1/switching/dot1q/vlan_port_cfg.html": _membership(
+            "m4300_vlanportcfg_vlan1.html"
+        ),
+        "/v1/switching/dot1q/vlan_port_cfg_rw.html": _membership(
+            "m4300_vlanportcfg_vlan1.html"
+        ),
     }
 
 
@@ -339,14 +408,24 @@ def test_m4300_http_vlans_expand_physical_ports_only() -> None:
     """vlanStatus.html egress lists look like "1/0/1 - 1/0/2, lag 1 - lag 128";
     only physical unit/slot/port interfaces are ports -- expanding the LAG
     range would invent 128 ports on a 24-port switch."""
-    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
-    vlans = {v.vlan_id: v for v in reader.get_vlans()}
+    from netgear_switch.protocols.http import parse as _parse
+
+    vlans = {
+        v.vlan_id: v
+        for v in _parse.parse_m4300_vlans((_FIX / "m4300_vlanstatus.html").read_text())
+    }
     assert len(vlans) == 14
     assert vlans[1].name == "default"
     assert vlans[1].member_ports == frozenset({1, 2, 5, 7, 8})
     assert max(max(v.member_ports) for v in vlans.values() if v.member_ports) <= 24
-    # this page cannot distinguish tagged from untagged -- left empty, not guessed
-    assert vlans[1].tagged_ports == frozenset()
+    # This page alone cannot split tagged from untagged -- that comes from the
+    # VLAN-Membership page, and for VLAN 1 the live switch reports 1/0/5 tagged
+    # and 1/0/1,2,7,8 untagged, whose union is exactly the member set above.
+    reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
+    member1 = reader.read_fastpath_membership(1)
+    assert member1.tagged_ports == frozenset({5})
+    assert member1.untagged_ports == frozenset({1, 2, 7, 8})
+    assert member1.tagged_ports | member1.untagged_ports == vlans[1].member_ports
 
 
 def test_m4300_http_pvids_and_macs() -> None:
@@ -465,9 +544,9 @@ def test_m4300_async_reader_matches_sync() -> None:
         pages = _m4300_pages()
         sync = HttpReader(_FakeSession(pages), get_model("m4300-24x"))
         aio = AsyncHttpReader(_AsyncFakeSession(pages), get_model("m4300-24x"))
-        assert [(v.vlan_id, sorted(v.member_ports)) for v in await aio.get_vlans()] == [
-            (v.vlan_id, sorted(v.member_ports)) for v in sync.get_vlans()
-        ]
+        assert await aio.read_fastpath_membership(1) == (
+            sync.read_fastpath_membership(1)
+        )
         assert [(p.port, p.link_up, p.speed_mbps) for p in await aio.get_ports()] == [
             (p.port, p.link_up, p.speed_mbps) for p in sync.get_ports()
         ]
@@ -526,6 +605,15 @@ def _gsm7252ps_pages() -> dict[str, str]:
         "/base/system/management/sysInfo.html": (
             _FIX / "gsm7252ps_sysInfo.html"
         ).read_text(),
+        # VLAN-Membership, captured 2026-07-30 (VLANs 1 and 141 on this switch).
+        "/switching/dot1q/vlan_port_cfg.html": _membership(
+            "gsm7252ps_vlanPortCfg_vlan1.html",
+            "gsm7252ps_vlanPortCfg_vlan141.html",
+        ),
+        "/switching/dot1q/vlan_port_cfg_rw.html": _membership(
+            "gsm7252ps_vlanPortCfg_vlan1.html",
+            "gsm7252ps_vlanPortCfg_vlan141.html",
+        ),
     }
 
 
@@ -571,9 +659,23 @@ def test_gsm7252ps_every_read_op_is_served_over_http() -> None:
 
         assert dict(reader.get_pvids())[1] == 90
 
-        vlans = {v.vlan_id: v for v in reader.get_vlans()}
+        # VLAN list from vlanStatus.html (all 14), tagged/untagged from the
+        # VLAN-Membership page -- only VLANs 1 and 141 were captured here, so
+        # get_vlans() end-to-end is covered by the mock (see
+        # tests/test_http_vlan_membership.py).
+        from netgear_switch.protocols.http import parse as _parse
+
+        vlans = {
+            v.vlan_id: v
+            for v in _parse.parse_xe_vlans(
+                (_FIX / "gsm7252ps_vlanStatus.html").read_text()
+            )
+        }
         assert set(vlans) == {1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141}
         assert vlans[4].member_ports == frozenset({11, 12, 46, 49})
+        member1 = reader.read_fastpath_membership(1)
+        assert member1.tagged_ports == frozenset({6})
+        assert member1.tagged_ports | member1.untagged_ports == vlans[1].member_ports
 
         macs = reader.get_macs()
         assert len(macs) == 231
@@ -615,7 +717,9 @@ def test_gsm7252ps_async_reader_matches_sync() -> None:
             assert await aio.get_ports() == sync.get_ports()
             assert await aio.get_stats() == sync.get_stats()
             assert await aio.get_pvids() == sync.get_pvids()
-            assert await aio.get_vlans() == sync.get_vlans()
+            assert await aio.read_fastpath_membership(
+                141
+            ) == sync.read_fastpath_membership(141)
             assert await aio.get_macs() == sync.get_macs()
             assert await aio.get_poe() == sync.get_poe()
             assert await aio.get_lldp() == sync.get_lldp()

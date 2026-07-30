@@ -50,7 +50,7 @@ from ...models import (
     VLANInfo,
     VlanMode,
 )
-from .types import HttpSysInfo
+from .types import FastpathMembership, HttpSysInfo
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1695,6 +1695,342 @@ def parse_membership(html: str, port_count: int) -> dict[int, VlanMode]:
             )
         result[i + 1] = mode
     return result
+
+
+# ---------------------------------------------------------------------------
+# FASTPATH "VLAN Membership" page (switching/dot1q/vlan_port_cfg{,_rw}.html)
+#
+# LIVE-DISCOVERED 2026-07-30. The page URL is not statically guessable -- fifteen
+# FASTPATH-style names (vlanMembership.html, vlanMemberConfiguration.html,
+# vlanPortConfiguration.html, ...) all returned HTTP 404 on 10.1.5.22. The real
+# URL is a menu leaf in the JS nav tree, /base/js/ng_sideNav.js:
+#     str+=FrthLvl("lvl2","VLAN Membership",
+#                        "switching/dot1q/vlan_port_cfg.html","none");
+# and the same relative path exists on all four managed switches (under /v1/ on
+# the M4300s).
+#
+# Wire codes in hiddenMem are 1=Tagged, 2=Untagged, 3=Excluded -- the INVERSE of
+# the Plus-class 8021qMembe.cgi map above (1=Untagged, 2=Tagged), so the two must
+# never share an encoder. Grounded in the firmware's own JS: rollover.js's
+# toggleImage() writes "1" when the cell image becomes ``*_t.gif`` (tagged), "2"
+# for ``*_u.gif`` (untagged) and "3" for ``*_b.gif`` (blank/exclude); the newer
+# togImg() does the same for switch_tagged/untagged/blank_*.png.
+_FASTPATH_MEM_TO_MODE = {
+    "1": VlanMode.TAGGED,
+    "2": VlanMode.UNTAGGED,
+    "3": VlanMode.EXCLUDED,
+}
+_MODE_TO_FASTPATH_MEM = {mode: code for code, mode in _FASTPATH_MEM_TO_MODE.items()}
+
+# The real form's own POST target, used to locate the field block (the pages also
+# carry document.write()-ed HTML inside <script> blocks, which must NOT be
+# scraped as form fields).
+_FASTPATH_MEM_ACTION_RE = re.compile(
+    r'<form\s+method="?post"?\s+ACTION="([^"]*vlan_port_cfg_rw\.html)"', re.IGNORECASE
+)
+_INPUT_RE = re.compile(r"<input\b([^>]*)>", re.IGNORECASE)
+# Each attribute, with or without a value: group 2 is None for a bare flag
+# (``SELECTED``, ``READONLY``), otherwise groups 3/4/5 hold the double-quoted,
+# single-quoted or unquoted value.
+_BARE_ATTR_RE = re.compile(
+    r"""([\w.-]+)(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?"""
+)
+_SELECT_RE = re.compile(r"<select\b([^>]*)>(.*?)</select>", re.IGNORECASE | re.DOTALL)
+_OPTION_RE = re.compile(r"<option\b([^>]*)>", re.IGNORECASE)
+_VLANID_SELECT_RE = re.compile(
+    r'<select[^>]*name="vlanId"[^>]*>(.*?)</select>', re.IGNORECASE | re.DOTALL
+)
+
+# Grid style A -- gsm7252ps (older XE firmware): a per-cell
+# ``toggleImageFirst(this,<0-based slot>,0,'img_unit<N>',<interface number>)``
+# handler followed by the cell image whose ``*_[btu].gif`` suffix carries the
+# state. The LAG pseudo-unit uses the SAME shape (image ids 418..481), so the
+# enclosing grid table's own row label ("Port" vs "LAG") is what separates
+# physical ports from LAGs -- see _FASTPATH_GRID_TABLE_RE.
+_FASTPATH_GRID_A_RE = re.compile(
+    r"toggleImageFirst\(this,(\d+),\d+,'img_unit\d+',(\d+)\)"
+    r'.*?<img src="/base/images/(?:grey|blue)_([btu])\.gif" name="imx"',
+    re.DOTALL,
+)
+_FASTPATH_GRID_TABLE_RE = re.compile(
+    r'<table[^>]*id="unit\d+tb"[^>]*>(.*?)</table>', re.DOTALL | re.IGNORECASE
+)
+_FASTPATH_GRID_LABEL_RE = re.compile(r"<td[^>]*>\s*([A-Za-z]+)\s*</td>")
+
+# Grid style B -- gsm7228ps/S3300 + both M4300s (newer jQuery firmware): the cell
+# carries the interface's ifName in ``aid`` and a
+# ``togImg(this,<1-BASED slot>,0,"hiddenMem")`` handler; the state is in the
+# image filename (switch_<state>[_bottom]_inactive.png). LAG cells have
+# aid='lag N', which is not a port ifName and so drops out naturally.
+_FASTPATH_GRID_B_RE = re.compile(
+    r"aid='port-([^']+)'[^>]*?src='[^']*/switch_([a-z]+?)(?:_bottom)?_[a-z]+\.png'"
+    r"[^>]*?name='imx'[^>]*?togImg\(this,(\d+),\d+,\"hiddenMem\"\)"
+)
+_FASTPATH_IMG_TO_MODE = {
+    "t": VlanMode.TAGGED,
+    "u": VlanMode.UNTAGGED,
+    "b": VlanMode.EXCLUDED,
+    "tagged": VlanMode.TAGGED,
+    "untagged": VlanMode.UNTAGGED,
+    "blank": VlanMode.EXCLUDED,
+}
+
+
+def _tag_attrs(raw: str) -> dict[str, str]:
+    """Attribute map of one tag's inner text, lower-cased keys.
+
+    Valueless (boolean) attributes are recorded with an empty value, because on
+    these pages the one that matters is exactly that shape: real firmware writes
+    ``<OPTION class="selectfield" value="4" SELECTED>``, so a key=value-only
+    scrape reads the page as having NO selected VLAN.
+    """
+    out: dict[str, str] = {}
+    for m in _BARE_ATTR_RE.finditer(raw):
+        key = m.group(1).lower()
+        value = m.group(2)
+        if value is None:
+            out.setdefault(key, "")
+            continue
+        out[key] = m.group(3) or m.group(4) or m.group(5) or ""
+    return out
+
+
+def _fastpath_physical_port(ifname: str) -> int | None:
+    """The physical port number in a FASTPATH ifName, or ``None`` if it is not a
+    physical port.
+
+    Three real spellings appear on these pages (all captured):
+    ``1/0/49`` (unit/slot/port -- every model's hiddenTagged/hiddenUnTagged list
+    and the M4300 grid), ``1/g41``/``1/xg49`` (the S3300 grid's Smart-firmware
+    names) and ``0/3/1``/``0/13/1`` -- the LAG pseudo-interfaces, which are NOT
+    physical ports. Unit 0 is what marks a non-physical interface: LAGs are
+    ``0/<slot>/<n>`` (slot 3 on the gsm72xx, 13 on the M4300), so a bare
+    ``\\d+/\\d+/\\d+`` match would wrongly turn ``0/3/64`` into "port 64". That
+    exact mistake once expanded ``lag 1 - lag 128`` into 128 phantom ports (see
+    ``_expand_port_list``); the guard is kept explicit here for the same reason.
+    """
+    text = unescape(ifname).strip()
+    m = re.fullmatch(r"(\d+)/(\d+)/(\d+)", text)
+    if m:
+        unit, slot, port = (int(g) for g in m.groups())
+        return port if unit != 0 and slot == 0 else None
+    m = re.fullmatch(r"(\d+)/x?g(\d+)", text)
+    return int(m.group(2)) if m else None
+
+
+def _fastpath_iface_list(raw: str) -> frozenset[int]:
+    """A ``hiddenTagged``/``hiddenUnTagged`` value -> physical port numbers.
+
+    The value is a comma-separated ifName list, HTML-entity-escaped on the newer
+    firmwares (``1&#x2F;0&#x2F;49``) and sometimes with a TRAILING comma
+    (M4300: ``"1/0/5,"``). LAG entries (``0/3/1``) are skipped.
+    """
+    ports: set[int] = set()
+    for part in unescape(raw).split(","):
+        if not part.strip():
+            continue
+        port = _fastpath_physical_port(part)
+        if port is not None:
+            ports.add(port)
+    return frozenset(ports)
+
+
+def _fastpath_form_fields(block: str) -> dict[str, str]:
+    """Every named ``<input>``/``<select>`` in the membership form, verbatim.
+
+    Text/hidden inputs give their ``value``; a ``<select>`` gives the ``value``
+    of its ``selected`` ``<option>`` (falling back to the first option, which is
+    what a browser submits when the firmware marks none) -- so re-POSTing this
+    map reproduces exactly what the browser would send.
+    """
+    fields: dict[str, str] = {}
+    for m in _INPUT_RE.finditer(block):
+        attrs = _tag_attrs(m.group(1))
+        name = attrs.get("name")
+        if name:
+            fields[name] = attrs.get("value", "")
+    for m in _SELECT_RE.finditer(block):
+        name = _tag_attrs(m.group(1)).get("name")
+        if not name:
+            continue
+        options = [_tag_attrs(o.group(1)) for o in _OPTION_RE.finditer(m.group(2))]
+        chosen = next((o for o in options if "selected" in o), None)
+        if chosen is None and options:
+            chosen = options[0]
+        fields[name] = chosen.get("value", "") if chosen else ""
+    return fields
+
+
+def _fastpath_grid(block: str) -> dict[int, tuple[int, VlanMode]]:
+    """Port grid -> ``{physical port: (0-based hiddenMem slot, rendered mode)}``.
+
+    Handles both firmware generations (see ``_FASTPATH_GRID_A_RE`` /
+    ``_FASTPATH_GRID_B_RE``). Raises if neither shape is present: the page always
+    renders a grid on real hardware, so finding none means the wrong page came
+    back, not "no ports".
+    """
+    grid: dict[int, tuple[int, VlanMode]] = {}
+    for name, state, slot1 in _FASTPATH_GRID_B_RE.findall(block):
+        port = _fastpath_physical_port(name)
+        mode = _FASTPATH_IMG_TO_MODE.get(state)
+        if port is None or mode is None:
+            continue
+        # 1-BASED on this firmware: rollover.js's togImg() computes
+        # ``j = (index - 1) * 2`` into the comma-separated hiddenMem string.
+        grid[port] = (int(slot1) - 1, mode)
+    if grid:
+        return grid
+    for table in _FASTPATH_GRID_TABLE_RE.findall(block):
+        label = _FASTPATH_GRID_LABEL_RE.search(table)
+        if label is None or label.group(1).lower() != "port":
+            continue  # the LAG pseudo-unit table, or a table with no row label
+        for slot0, intf, state in _FASTPATH_GRID_A_RE.findall(table):
+            mode = _FASTPATH_IMG_TO_MODE.get(state)
+            if mode is not None:
+                # 0-BASED on this firmware: toggleImage() computes ``j = 2*index``.
+                grid[int(intf)] = (int(slot0), mode)
+    if not grid:
+        raise HttpUnexpectedPageError(
+            "vlan_port_cfg.html: no port-membership grid could be parsed (neither "
+            "the toggleImageFirst/grey_*.gif nor the togImg/switch_*.png shape)"
+        )
+    return grid
+
+
+def _fastpath_vlan_select(block: str) -> tuple[int | None, tuple[int, ...]]:
+    """The ``vlanId`` ``<select>`` -> (currently-shown VLAN, every VLAN offered).
+
+    Scoped to that ONE select on purpose: the page carries a second
+    ``<select name="select">`` (the Group Operation menu, values ``UntagAll``/
+    ``TagAll``/``RemoveAll``) and, inside ``<script>`` blocks, ``document.write``-d
+    markup. Real firmware writes the tag uppercase and the attribute bare
+    (``<OPTION class="selectfield" value="4" SELECTED>``), so the match is
+    case-insensitive -- the existing ``parse_selected_vlan`` (lower-case-only,
+    used by the Plus-class pages) reads ``None`` here.
+    """
+    m = _VLANID_SELECT_RE.search(block)
+    if m is None:
+        raise HttpUnexpectedPageError(
+            'vlan_port_cfg.html: no <select name="vlanId"> -- cannot tell which '
+            "VLAN this page is showing"
+        )
+    selected: int | None = None
+    ids: set[int] = set()
+    for opt in _OPTION_RE.finditer(m.group(1)):
+        attrs = _tag_attrs(opt.group(1))
+        value = attrs.get("value", "")
+        if not value.isdigit():
+            continue
+        ids.add(int(value))
+        if "selected" in attrs:
+            selected = int(value)
+    return selected, tuple(sorted(ids))
+
+
+def parse_fastpath_err(html: str) -> str | None:
+    """The FASTPATH page's own error banner, or ``None`` when it reports success.
+
+    Every one of these pages carries a hidden ``err_flag``/``err_msg`` pair, and
+    its ``check_error()`` handler alerts the ``err_msg`` when ``err_flag == 1``.
+    The page still returns HTTP 200, so this is the ONLY signal that the switch
+    refused the write. Returns the message (falling back to a generic string when
+    the firmware sets the flag but leaves the text empty) so the caller can
+    surface exactly what the device said.
+    """
+    flag = re.search(r'name="err_flag"[^>]*value="([^"]*)"', html, re.IGNORECASE)
+    if flag is None or flag.group(1).strip() in ("", "0"):
+        return None
+    msg = re.search(r'name="err_msg"[^>]*value="([^"]*)"', html, re.IGNORECASE)
+    text = unescape(msg.group(1)).strip() if msg else ""
+    return text or f"err_flag={flag.group(1)} with no err_msg"
+
+
+def parse_fastpath_membership(html: str) -> FastpathMembership:
+    """FASTPATH ``switching/dot1q/vlan_port_cfg.html`` -> one VLAN's membership.
+
+    See ``types.FastpathMembership`` for what the two views mean and why they can
+    legitimately differ. Raises ``HttpUnexpectedPageError`` if the page is not
+    this page (no ``_rw.html`` form, no ``hiddenMem``, no port grid) or if it
+    carries a wire code / grid state this parser does not know -- never a
+    silently partial result.
+    """
+    action = _FASTPATH_MEM_ACTION_RE.search(html)
+    if action is None:
+        raise HttpUnexpectedPageError(
+            "vlan_port_cfg.html: no <form ACTION=...vlan_port_cfg_rw.html> -- "
+            "this is not the FASTPATH VLAN Membership page"
+        )
+    block = html[action.end() :]
+    fields = _fastpath_form_fields(block)
+    if "hiddenMem" not in fields:
+        raise HttpUnexpectedPageError(
+            "vlan_port_cfg.html: form carries no hiddenMem field"
+        )
+    hidden_mem = fields["hiddenMem"]
+    codes = hidden_mem.split(",")
+    grid = _fastpath_grid(block)
+    port_slots: dict[int, int] = {}
+    configured: dict[int, VlanMode] = {}
+    for port, (slot, rendered) in sorted(grid.items()):
+        if slot >= len(codes):
+            raise HttpUnexpectedPageError(
+                f"vlan_port_cfg.html: port {port}'s grid slot {slot} is past the "
+                f"end of hiddenMem ({len(codes)} codes)"
+            )
+        mode = _FASTPATH_MEM_TO_MODE.get(codes[slot])
+        if mode is None:
+            raise HttpUnexpectedPageError(
+                f"vlan_port_cfg.html: unknown hiddenMem code {codes[slot]!r} at "
+                f"slot {slot} (port {port})"
+            )
+        if mode is not rendered:
+            # The grid image and hiddenMem are two renderings of the SAME
+            # (configured) view and always agreed on every live read; a
+            # disagreement means the slot mapping is wrong, so refuse rather
+            # than write to the wrong port later.
+            raise HttpUnexpectedPageError(
+                f"vlan_port_cfg.html: port {port} renders as {rendered.value} but "
+                f"hiddenMem slot {slot} says {mode.value} -- grid/hiddenMem "
+                "mismatch, refusing to trust the slot mapping"
+            )
+        port_slots[port] = slot
+        configured[port] = mode
+    selected, vlan_ids = _fastpath_vlan_select(block)
+    return FastpathMembership(
+        vlan_id=selected,
+        vlan_ids=vlan_ids,
+        name=unescape(fields.get("vlan_name", "")) or None,
+        vlan_type=unescape(fields.get("vlan_type", "")) or None,
+        tagged_ports=_fastpath_iface_list(fields.get("hiddenTagged", "")),
+        untagged_ports=_fastpath_iface_list(fields.get("hiddenUnTagged", "")),
+        hidden_mem=hidden_mem,
+        port_slots=port_slots,
+        configured=configured,
+        fields=fields,
+        action=unescape(action.group(1)),
+    )
+
+
+def fastpath_hidden_mem_with(
+    page: FastpathMembership, port: int, mode: VlanMode
+) -> str:
+    """``page.hidden_mem`` with just ``port``'s code replaced by ``mode``.
+
+    Every other slot -- including the LAG pseudo-interfaces the library does not
+    model -- is preserved VERBATIM from what the device rendered, so an apply
+    cannot silently rewrite an interface the caller never mentioned. (The same
+    reasoning as the SNMP writer preserving the device's own PortList width.)
+    Raises ``HttpUnexpectedPageError`` if the page never rendered ``port``.
+    """
+    slot = page.port_slots.get(port)
+    if slot is None:
+        raise HttpUnexpectedPageError(
+            f"vlan_port_cfg.html: port {port} is not on this switch's membership "
+            f"grid (it renders ports {sorted(page.port_slots)!r})"
+        )
+    codes = page.hidden_mem.split(",")
+    codes[slot] = _MODE_TO_FASTPATH_MEM[mode]
+    return ",".join(codes)
 
 
 def parse_reboot_ok(html: str) -> bool:
