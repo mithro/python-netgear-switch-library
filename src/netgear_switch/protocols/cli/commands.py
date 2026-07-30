@@ -105,11 +105,13 @@ _M4300_24X = CliModelSpec(
 _M4300_16X = CliModelSpec(
     model_key="m4300-16x", captured=True, reads_verified=True, **_M4300_OVERRIDES
 )
-# gsm7228ps: INHERITED-not-captured, older-image default commands.
-_GSM7228PS = CliModelSpec(model_key="gsm7228ps", captured=False, reads_verified=False)
-
+# NB: gsm7228ps (the S3300-52X) has NO CLI spec. Live-verified 2026-07-30 that
+# the switch exposes no functional CLI: SSH is absent (no config page, port 22
+# unopenable) and Telnet, though enabled in config and surviving a reboot with
+# no access-profile active, never listens on port 23. Its registry entry
+# therefore declares no CLI backend, so this spec would be unreachable anyway.
 _SPECS: dict[str, CliModelSpec] = {
-    s.model_key: s for s in (_GSM7252PS, _M4300_24X, _M4300_16X, _GSM7228PS)
+    s.model_key: s for s in (_GSM7252PS, _M4300_24X, _M4300_16X)
 }
 
 CLI_SPECS: Mapping[str, CliModelSpec] = MappingProxyType(_SPECS)

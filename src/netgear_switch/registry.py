@@ -134,7 +134,16 @@ _MODELS: dict[str, SwitchModel] = {
             SwitchClass.SMART_MANAGED_PRO,
             52,
             48,
-            {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
+            # NO CLI backend: the S3300-52X exposes NO functional CLI. SSH has
+            # no config page at all (port 22 unopenable); Telnet was live-tested
+            # exhaustively 2026-07-30 -- both "Telnet Server Admin Mode" and
+            # "Allow new telnet sessions" set Enable (persisted across a full
+            # reboot) with NO management access-profile active, yet port 23
+            # never listens. The telnet config option is vestigial on this SKU.
+            # So the real management methods are SNMP + HTTP only; the CLI
+            # pathway raises UnsupportedCapabilityError consistently (matching
+            # hardware), rather than the library falsely claiming SSH/TELNET.
+            {Backend.SNMP, Backend.HTTP},
             _SMP,
             # VERIFIED 2026-07-30 against real hardware: the S3300-52X-PoE+
             # (sw-netgear-s3300-1 @ 10.1.5.11, sysObjectID 4526.100.10.19). The

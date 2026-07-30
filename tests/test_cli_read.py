@@ -113,7 +113,10 @@ def test_cli_reader_poe_unsupported_on_non_poe_model() -> None:
 
 
 def test_cli_reader_works_for_every_fastpath_model() -> None:
-    for key in ("gsm7252ps", "m4300-24x", "m4300-16x", "gsm7228ps"):
+    # gsm7228ps (S3300-52X) is NOT here: it has no functional CLI (SSH absent,
+    # telnet enabled-but-never-listens -- live-verified 2026-07-30), so no CLI
+    # backend and no CLI spec.
+    for key in ("gsm7252ps", "m4300-24x", "m4300-16x"):
         assert _reader(key).get_ports()  # command dispatch + parse round trip
 
 
@@ -129,15 +132,13 @@ def test_cli_reads_verified_only_for_live_checked_models() -> None:
     assert CLI_SPECS  # non-empty
     # gsm7252ps (10.1.5.22, CLI<->SNMP), m4300-24x (10.1.5.13) and m4300-16x
     # (10.1.5.20) were all cross-verified against real hardware, so their reads
-    # are verified. Only gsm7228ps CLI is inherited-not-live-checked: it shares
-    # the same grounded FASTPATH parsers but stays gated until someone cross-
-    # verifies it against that hardware.
+    # are verified. These are the ONLY CLI models: gsm7228ps (S3300-52X) has no
+    # functional CLI (live-verified 2026-07-30) and so has no CLI spec at all.
     verified = {"gsm7252ps", "m4300-24x", "m4300-16x"}
+    assert set(CLI_SPECS) == verified
     assert {k for k, s in CLI_SPECS.items() if s.reads_verified} == verified
-    # The live-captured models carry real transcripts; the inherited SKU does not.
+    # The live-captured models carry real transcripts.
     assert {k for k, s in CLI_SPECS.items() if s.captured} == verified
-    assert CLI_SPECS["gsm7228ps"].reads_verified is False
-    assert CLI_SPECS["gsm7228ps"].captured is False
 
 
 def test_m4300_cli_command_overrides() -> None:
@@ -146,9 +147,9 @@ def test_m4300_cli_command_overrides() -> None:
     for key in ("m4300-24x", "m4300-16x"):
         assert CLI_SPECS[key].vlan_brief_cmd == "show vlan"
         assert CLI_SPECS[key].network_cmd == "show ip management"
-    for key in ("gsm7252ps", "gsm7228ps"):
-        assert CLI_SPECS[key].vlan_brief_cmd == "show vlan brief"
-        assert CLI_SPECS[key].network_cmd == "show network"
+    # gsm7252ps keeps the older-image defaults (gsm7228ps has no CLI spec).
+    assert CLI_SPECS["gsm7252ps"].vlan_brief_cmd == "show vlan brief"
+    assert CLI_SPECS["gsm7252ps"].network_cmd == "show network"
 
 
 def test_cli_spec_raises_for_non_cli_model() -> None:
@@ -156,11 +157,21 @@ def test_cli_spec_raises_for_non_cli_model() -> None:
         cli_spec(get_model("gs110emx"))  # Plus switch: no CLI backend
 
 
-@pytest.mark.parametrize("key", ["gsm7252ps", "m4300-24x", "m4300-16x", "gsm7228ps"])
+@pytest.mark.parametrize("key", ["gsm7252ps", "m4300-24x", "m4300-16x"])
 def test_fastpath_models_register_ssh_and_telnet(key: str) -> None:
     backends = get_model(key).backends
     assert Backend.SSH in backends
     assert Backend.TELNET in backends
+
+
+def test_s3300_gsm7228ps_has_no_cli_backend() -> None:
+    # The S3300-52X exposes no functional CLI (SSH absent; telnet enabled but
+    # never listens -- live-verified 2026-07-30 incl. a reboot), so unlike the
+    # FASTPATH SKUs above it declares NEITHER SSH nor TELNET; its CLI pathway is
+    # consistently UnsupportedCapabilityError across the library and the mock.
+    backends = get_model("gsm7228ps").backends
+    assert Backend.SSH not in backends
+    assert Backend.TELNET not in backends
 
 
 def test_plus_models_have_no_cli_backend() -> None:
@@ -176,8 +187,8 @@ def test_plus_models_have_no_cli_backend() -> None:
 def test_sync_facade_refuses_cli_backend() -> None:
     from netgear_switch.sync_api import SyncSwitch
 
-    # gsm7228ps CLI is reads_verified=False (grounded parsers, not live-checked),
-    # so the facade must refuse to dispatch a live CLI read to it.
+    # gsm7228ps (S3300-52X) has NO CLI backend (no functional CLI on the real
+    # switch), so the facade must refuse any CLI read/write dispatch to it.
     sw = SyncSwitch(get_model("gsm7228ps"), "10.0.0.1")
     with pytest.raises(UnsupportedCapabilityError):
         sw._reader_for(Backend.SSH)

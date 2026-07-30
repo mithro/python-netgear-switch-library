@@ -43,7 +43,8 @@ def test_scp_cert_profile_rejects_non_fastpath() -> None:
 
 
 def test_scp_cert_profile_rejects_fastpath_without_scp() -> None:
-    # gsm7228ps has an SSH backend but its cert upload is HTTP multipart, not SCP.
+    # gsm7228ps (S3300-52X) has no CLI/SCP backend at all (its cert upload is
+    # HTTP multipart), so scp_cert_profile must reject it.
     with pytest.raises(UnsupportedCapabilityError):
         scp_cert_profile(get_model("gsm7228ps"))
 
