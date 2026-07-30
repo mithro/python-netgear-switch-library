@@ -29,7 +29,16 @@ HEADER_SIZE = 32
 # small sequence numbers real clients/switches use (the high 2 bytes are 0),
 # but a seqnum > 0xFFFF would have been silently truncated on decode and
 # mis-echoed by the mock.
-HEADER_FORMAT = ">BB H 4s 6s 6s I 4s 4s"
+#
+# The two header bytes AFTER ``result`` are the ERROR-ATTR field (``H``): on a
+# rejected request real hardware echoes the tag that caused the failure here
+# (ngadmin's ``struct nsdp_header.attr``). Previously lumped into a 4-byte
+# reserved blob and discarded; a GS110EMX (fw 1.0.2.8) rejecting a v2-auth
+# write returns error byte 13 with this field set to the offending tag, and
+# check_result now reports it (e.g. ``attr=0x0003``). Splitting the old ``4s``
+# into ``H`` (errattr) + ``H`` (still-reserved) is wire-identical -- a
+# client-sent packet has both zero, exactly the old ``b"\x00\x00\x00\x00"``.
+HEADER_FORMAT = ">BB H H H 6s 6s I 4s 4s"
 END_MARKER = struct.pack(">HH", 0xFFFF, 0x0000)  # b"\xff\xff\x00\x00"
 
 
@@ -76,6 +85,12 @@ class Tag(IntEnum):
 
     # Authentication
     PASSWORD = 0x000A
+    # Encryption-type probe (ngadmin's ATTR_ENCPASS): a switch answers this
+    # 4-byte value to advertise which write-auth scheme it wants. Value 1 =
+    # legacy v1 XOR (Tag.PASSWORD); value 0x10 = v2 salted challenge-response
+    # (AUTH_V2_SALT / AUTH_V2_PASSWORD). Observed 0x00000010 on a GS110EMX
+    # (fw 1.0.2.8).
+    AUTH_V2_ENCPASS = 0x0014
     AUTH_V2_SALT = 0x0017
     AUTH_V2_PASSWORD = 0x001A
 
@@ -152,6 +167,10 @@ class NSDPPacket:
     server_mac: bytes = b"\x00" * 6
     sequence: int = 0
     result: int = 0
+    # The header's error-attr field (0 unless a rejection names an offending
+    # tag). ``result`` conflates the 1-byte error code with a following unk1
+    # byte (always 0), so the error code is ``result >> 8`` -- see check_result.
+    errattr: int = 0
     tlvs: list[TLVEntry] = field(default_factory=list)
 
     def add_tlv(self, tag: Tag | int, value: bytes = b"") -> None:
@@ -163,7 +182,8 @@ class NSDPPacket:
             0x01,
             int(self.op),
             self.result,
-            b"\x00" * 4,
+            self.errattr,
+            0,  # still-reserved 2 bytes (always 0)
             self.client_mac,
             self.server_mac,
             self.sequence,
@@ -181,7 +201,8 @@ class NSDPPacket:
             _version,
             op_raw,
             result,
-            _reserved1,
+            errattr,
+            _reserved2,
             client_mac,
             server_mac,
             sequence,
@@ -204,5 +225,6 @@ class NSDPPacket:
             server_mac=server_mac,
             sequence=sequence,
             result=result,
+            errattr=errattr,
             tlvs=tlvs,
         )

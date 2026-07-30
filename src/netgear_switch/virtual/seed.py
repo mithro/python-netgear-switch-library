@@ -1835,6 +1835,10 @@ def seed_gs110emx() -> VirtualSwitchState:
         hostname="sw-netgear-gs110emx1",
         nsdp_mac=b"\xbc\xa5\x11\xb8\xec\xf1",
         nsdp_password="password",
+        # LIVE-VERIFIED: this SKU/firmware (1.0.2.8) advertises AUTH_V2_ENCPASS
+        # 0x10 and REQUIRES the v2 salted challenge-response for writes -- the v1
+        # XOR PASSWORD is rejected with error 13. 0x10 == auth.ENCPASS_V2.
+        nsdp_auth_version=0x10,
         # QoS/mirroring/IGMP/broadcast-filtering/loop-detection test fixtures
         # (Slice 9b): illustrative, non-vacuous values so nsdp_device() has
         # something real to decode on every one of the 5 newly-parsed tags.
