@@ -251,7 +251,24 @@ class NetsnmpCliClient:
         argv = [*self._base_args("snmpset"), self.host, *triples]
         # _invoke raises SnmpError on non-zero exit or any stderr (commitFailed,
         # noSuchName, wrong type). The echoed varbinds it parses are discarded.
-        self._invoke(argv)
+        try:
+            self._invoke(argv)
+        except SnmpError as exc:
+            # A timeout on a SET is ambiguous in a way that cost real debugging
+            # time: an agent SILENTLY DROPS a request whose community lacks write
+            # access (RFC-mandated -- no error is returned), so an unauthorized
+            # write community is indistinguishable from an unreachable host. Say
+            # so, since reads can be succeeding on the same host at the same time.
+            # (Observed on an S3300-52X whose communities are "pib"/"public", both
+            # Read/Write, while the fleet default write community is "private".)
+            if "Timeout" in str(exc):
+                raise SnmpError(
+                    f"{exc} -- a SET that times out often means the write "
+                    "community is not authorized for writes on this device "
+                    "(agents drop unauthorized requests without replying); "
+                    "check the device's community list and its access mode"
+                ) from exc
+            raise
 
     def _invoke(
         self, argv: Sequence[str], *, empty_subtree_ok: bool = False

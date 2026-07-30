@@ -22,6 +22,54 @@ if TYPE_CHECKING:
     from ..protocols.nsdp.protocol import Tag, TLVEntry
 
 
+class CommitFailedError(Exception):
+    """The agent accepted the varbind's type but refused to apply it.
+
+    Models a real SNMP ``commitFailed``. VERIFIED on an M4300-24X (FASTPATH
+    12.0.13.8): a SET of dot1qVlanStaticEgressPorts commitFails even when
+    writing back byte-identical octets, because per-port switchport mode -- not
+    the Q-BRIDGE PortList -- owns VLAN membership on that firmware.
+    """
+
+
+class NotWritableError(Exception):
+    """The object exists but is read-only (real agents answer notWritable)."""
+
+
+def _all_vlans_bitmap() -> bytes:
+    """A switchport allowed-VLAN bitmap with VLANs 1..4093 set.
+
+    Matches the real M4300 default: a live read of the allowed-VLAN column
+    returned 4093 VLANs set in a 512-byte map.
+    """
+    from ..protocols.snmp.oids import SWITCHPORT_VLAN_BITMAP_BYTES
+
+    data = bytearray(SWITCHPORT_VLAN_BITMAP_BYTES)
+    for vlan in range(1, 4094):
+        data[(vlan - 1) // 8] |= 0x80 >> ((vlan - 1) % 8)
+    return bytes(data)
+
+
+def _vlan_bitmap_bytes(vlans: set[int]) -> bytes:
+    """Encode VLAN ids into a 512-byte switchport bitmap (inverse of below)."""
+    from ..protocols.snmp.oids import SWITCHPORT_VLAN_BITMAP_BYTES
+
+    data = bytearray(SWITCHPORT_VLAN_BITMAP_BYTES)
+    for vlan in vlans:
+        data[(vlan - 1) // 8] |= 0x80 >> ((vlan - 1) % 8)
+    return bytes(data)
+
+
+def _vlans_in_bitmap(bitmap: bytes) -> set[int]:
+    """Decode a switchport VLAN bitmap (MSB-first, VLAN 1 = bit 7 of byte 0)."""
+    return {
+        i * 8 + off + 1
+        for i, byte in enumerate(bitmap)
+        for off in range(8)
+        if byte & (0x80 >> off)
+    }
+
+
 def encode_port_bitmap(ports: set[int], width_bytes: int = 8) -> str:
     """Inverse of ``parse.decode_port_bitmap``: a port set -> a latin-1 bitmap.
 
@@ -277,6 +325,88 @@ class VirtualSwitchState:
     # rather than preserving the device width, so it sent a SET narrower than
     # this -- which a stricter Q-BRIDGE agent rejects outright.
     vlan_portlist_width: int | None = None
+    # FASTPATH vendor switchport state, for a model whose registry entry says
+    # snmp_vlan_write == "fastpath_switchport" (the M4300s). Per-port mode
+    # (access=1/trunk=2/general=3), access VLAN, and the writable allowed-VLAN
+    # bitmap. Empty dicts mean "unseeded": _switchport_defaults() fills a port in
+    # on first use so the mock answers these columns for every port, exactly like
+    # the real agent (which has a row per interface).
+    switchport_mode: dict[int, int] = field(default_factory=dict)
+    switchport_access_vlan: dict[int, int] = field(default_factory=dict)
+    switchport_allowed_vlans: dict[int, bytes] = field(default_factory=dict)
+    # TRANSIENT (per-SET-PDU, not device state): VLAN ids whose egress PortList
+    # was written by the PDU currently being applied. Only used by a model with
+    # snmp_vlan_split_membership_writes, to reproduce the S3300's ordering quirk:
+    # its egress write auto-untags the port, and that side effect beats an
+    # untagged varbind carried in the SAME PDU. Reset by snapshot(), which
+    # faces/snmp.py calls exactly once per PDU.
+    pdu_egress_writes: set[int] = field(default_factory=set)
+
+    @property
+    def _switchport_model(self) -> bool:
+        """True when this model's VLAN membership is owned by switchport mode."""
+        return get_model(self.model_key).snmp_vlan_write == "fastpath_switchport"
+
+    def _reject_if_readonly_qbridge(self, column: str, vid: int) -> None:
+        """Refuse a Q-BRIDGE PortList write on a switchport-dialect model.
+
+        This is the mock emulating an INVALID write: on FASTPATH 12.x these
+        columns are read-only mirrors and the agent answers commitFailed. Without
+        this the mock would happily accept a write real hardware rejects -- the
+        very class of mock/hardware divergence that hid this behaviour.
+        """
+        if self._switchport_model:
+            raise CommitFailedError(
+                f"{column}.{vid} is a read-only mirror on this model: VLAN "
+                "membership is owned by the per-port switchport mode "
+                "(a real FASTPATH 12.x agent answers commitFailed, even for a "
+                "byte-identical value). Write the switchport mode / access VLAN."
+            )
+
+    def _switchport_defaults(self, port: int) -> None:
+        """Seed a port's switchport row on first touch (mode access, VLAN 1)."""
+        from ..protocols.snmp.oids import SWITCHPORT_MODE_ACCESS
+
+        self.switchport_mode.setdefault(port, SWITCHPORT_MODE_ACCESS)
+        self.switchport_access_vlan.setdefault(port, 1)
+        if port not in self.switchport_allowed_vlans:
+            # Real hardware ships every VLAN allowed (4093 of them on the M4300).
+            self.switchport_allowed_vlans[port] = _all_vlans_bitmap()
+
+    def _apply_switchport(self, port: int) -> None:
+        """Recompute VLAN membership from ``port``'s switchport config.
+
+        Mirrors what the real switch does: the Q-BRIDGE egress/untagged sets and
+        the PVID are DERIVED from switchport mode + access VLAN (verified live --
+        setting mode=access + accessVlan=V put the port into
+        dot1qVlanStaticEgressPorts.V AND ...UntaggedPorts.V and set dot1qPvid).
+        """
+        from ..protocols.snmp import oids as _oids
+
+        self._switchport_defaults(port)
+        mode = self.switchport_mode[port]
+        access_vlan = self.switchport_access_vlan[port]
+        if mode == _oids.SWITCHPORT_MODE_ACCESS:
+            # Exactly one VLAN, untagged, and it drives the PVID.
+            for vsim in self.vlans.values():
+                vsim.member.discard(port)
+                vsim.untagged.discard(port)
+            if access_vlan in self.vlans:
+                self.vlans[access_vlan].member.add(port)
+                self.vlans[access_vlan].untagged.add(port)
+            self.pvids[port] = access_vlan
+        elif mode == _oids.SWITCHPORT_MODE_TRUNK:
+            # Tagged member of every allowed VLAN; untagged nowhere.
+            allowed = _vlans_in_bitmap(self.switchport_allowed_vlans[port])
+            for vid, vsim in self.vlans.items():
+                vsim.untagged.discard(port)
+                if vid in allowed:
+                    vsim.member.add(port)
+                else:
+                    vsim.member.discard(port)
+        # SWITCHPORT_MODE_GENERAL leaves membership under explicit per-VLAN
+        # control, which this control plane cannot express over SNMP (the
+        # participation bitmaps are notWritable), so nothing is derived here.
 
     @property
     def sysinfo_sensors(self) -> list[SensorSim]:
@@ -364,6 +494,44 @@ class VirtualSwitchState:
             for base, typ, val in stat_cols:
                 if val is not None:
                     m[f"{base}.{port}"] = (typ, str(val))
+
+        # FASTPATH vendor switchport table, for a model whose VLAN membership is
+        # owned by switchport mode. Emitted for every physical port so the table
+        # has a row per interface exactly like the real agent, and so the writer's
+        # read-modify-write of the allowed-VLAN column finds octets to modify.
+        if self._switchport_model:
+            for port in self.ports:
+                self._switchport_defaults(port)
+                m[f"{oids.FASTPATH_SWITCHPORT_MODE}.{port}"] = (
+                    "INTEGER",
+                    str(self.switchport_mode[port]),
+                )
+                m[f"{oids.FASTPATH_SWITCHPORT_ACCESS_VLAN}.{port}"] = (
+                    "Gauge32",
+                    str(self.switchport_access_vlan[port]),
+                )
+                m[f"{oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS}.{port}"] = (
+                    "OCTETSTR",
+                    self.switchport_allowed_vlans[port].decode("latin-1"),
+                )
+                # The read-only mirrors the real agent also exposes: which VLANs
+                # this port is tagged/untagged in, derived from live membership.
+                tagged = {
+                    vid
+                    for vid, vsim in self.vlans.items()
+                    if port in vsim.member and port not in vsim.untagged
+                }
+                untagged = {
+                    vid for vid, vsim in self.vlans.items() if port in vsim.untagged
+                }
+                for base, vids in (
+                    (oids.FASTPATH_SWITCHPORT_TAGGED_VLANS, tagged),
+                    (oids.FASTPATH_SWITCHPORT_UNTAGGED_VLANS, untagged),
+                ):
+                    m[f"{base}.{port}"] = (
+                        "OCTETSTR",
+                        _vlan_bitmap_bytes(vids).decode("latin-1"),
+                    )
 
         for vid, vsim in self.vlans.items():
             m[f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"] = ("OCTETSTR", vsim.name)
@@ -462,7 +630,12 @@ class VirtualSwitchState:
         snapshots the state before applying a PDU's varbinds and calls
         ``restore`` on this snapshot if any of them fails, so a partial
         mutation is never observable. See ``restore``.
+
+        Also marks a PDU boundary: ``pdu_egress_writes`` (which tracks
+        same-PDU egress writes for the S3300's auto-untag ordering quirk) is
+        cleared here, because ``faces/snmp.py`` snapshots exactly once per PDU.
         """
+        self.pdu_egress_writes = set()
         return copy.deepcopy(self)
 
     def restore(self, snapshot: VirtualSwitchState) -> None:
@@ -547,7 +720,18 @@ class VirtualSwitchState:
         if vid is not None and vid in self.vlans:
             from ..protocols.snmp.parse import decode_port_bitmap
 
-            self.vlans[vid].member = set(decode_port_bitmap(_as_bytes(value)))
+            self._reject_if_readonly_qbridge("dot1qVlanStaticEgressPorts", vid)
+            incoming = set(decode_port_bitmap(_as_bytes(value)))
+            if get_model(self.model_key).snmp_vlan_split_membership_writes:
+                # S3300 Smart-firmware side effect (VERIFIED live): a port added
+                # to the egress list becomes an UNTAGGED member. Recorded for this
+                # PDU so a same-PDU untagged varbind loses to it, exactly as the
+                # real switch behaves -- which is why the writer must split the
+                # two columns into separate PDUs, egress first.
+                added = incoming - self.vlans[vid].member
+                self.vlans[vid].untagged |= added
+                self.pdu_egress_writes.add(vid)
+            self.vlans[vid].member = incoming
             return
 
         # dot1qVlanStaticUntaggedPorts.<vid>  (same truncation semantics)
@@ -555,8 +739,49 @@ class VirtualSwitchState:
         if vid is not None and vid in self.vlans:
             from ..protocols.snmp.parse import decode_port_bitmap
 
+            self._reject_if_readonly_qbridge("dot1qVlanStaticUntaggedPorts", vid)
+            if vid in self.pdu_egress_writes:
+                # Same PDU already wrote this VLAN's egress list, whose auto-untag
+                # side effect wins on this firmware: the write is ACKed but has no
+                # effect (verified live -- one PDU left the port untagged, two PDUs
+                # tagged it correctly).
+                return
             self.vlans[vid].untagged = set(decode_port_bitmap(_as_bytes(value)))
             return
+
+        # --- FASTPATH vendor switchport table (the writable VLAN-membership
+        # control plane on a model whose Q-BRIDGE PortLists are read-only) ---
+        port = _tail(oids.FASTPATH_SWITCHPORT_MODE)
+        if port is not None and self._switchport_model:
+            self.switchport_mode[port] = int(value)
+            self._apply_switchport(port)
+            return
+
+        port = _tail(oids.FASTPATH_SWITCHPORT_ACCESS_VLAN)
+        if port is not None and self._switchport_model:
+            self.switchport_access_vlan[port] = int(value)
+            self._apply_switchport(port)
+            return
+
+        port = _tail(oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS)
+        if port is not None and self._switchport_model:
+            self.switchport_allowed_vlans[port] = _as_bytes(value)
+            self._apply_switchport(port)
+            return
+
+        # The per-port tagged/untagged VLAN bitmaps are the READ-ONLY mirrors of
+        # the switchport config on real hardware: a SET answers notWritable.
+        for base, name in (
+            (oids.FASTPATH_SWITCHPORT_TAGGED_VLANS, "tagged"),
+            (oids.FASTPATH_SWITCHPORT_UNTAGGED_VLANS, "untagged"),
+        ):
+            port = _tail(base)
+            if port is not None and self._switchport_model:
+                raise NotWritableError(
+                    f"switchport per-port {name} VLAN bitmap for port {port} is "
+                    "read-only (a real FASTPATH agent answers notWritable); set "
+                    "the switchport mode / access VLAN instead"
+                )
 
         # dot1qVlanStaticRowStatus.<vid>  (createAndGo=4 / destroy=6)
         vid = _tail(oids.DOT1Q_VLAN_STATIC_ROW_STATUS)
@@ -797,6 +1022,18 @@ class VirtualSwitchState:
         if _is_col(oids.DOT1Q_VLAN_STATIC_ROW_STATUS):
             return True
         if _is_col(oids.DOT1Q_VLAN_STATIC_NAME):
+            return True
+        # FASTPATH vendor switchport columns. The tagged/untagged VLAN bitmaps
+        # are deliberately NOT listed: they are read-only mirrors on real
+        # hardware, so a SET must come back notWritable -- apply_write raises
+        # NotWritableError for them, which the face maps to that error-status.
+        if self._switchport_model and (
+            _is_col(oids.FASTPATH_SWITCHPORT_MODE)
+            or _is_col(oids.FASTPATH_SWITCHPORT_ACCESS_VLAN)
+            or _is_col(oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS)
+            or _is_col(oids.FASTPATH_SWITCHPORT_TAGGED_VLANS)
+            or _is_col(oids.FASTPATH_SWITCHPORT_UNTAGGED_VLANS)
+        ):
             return True
         # The vendor-subtree mgmt-IP/dhcp-mode write OIDs exist only for a
         # model with a vendor subtree; a no-vendor model has none of them.

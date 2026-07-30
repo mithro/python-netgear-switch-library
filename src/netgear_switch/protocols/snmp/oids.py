@@ -43,6 +43,36 @@ DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"
 DOT1Q_VLAN_STATIC_ROW_STATUS = "1.3.6.1.2.1.17.7.1.4.3.1.5"  # dot1qVlanStaticRowStatus
 ROW_STATUS_CREATE_AND_GO = 4  # RowStatus createAndGo
 ROW_STATUS_DESTROY = 6  # RowStatus destroy
+ROW_STATUS_ACTIVE = 1  # RowStatus active
+ROW_STATUS_NOT_IN_SERVICE = 2  # RowStatus notInService
+
+# --- Netgear FASTPATH vendor switchport table -----------------------------
+#
+# 1.3.6.1.4.1.4526.10.1.2.8.37.1.<column>.<ifIndex>. On FASTPATH 12.x the
+# standard Q-BRIDGE dot1qVlanStaticEgress/UntaggedPorts PortLists above are
+# READ-ONLY MIRRORS -- writing them returns commitFailed even for byte-identical
+# values -- because per-port SWITCHPORT MODE owns VLAN membership. These columns
+# are the writable control plane.
+#
+# Column meanings and writability were established EMPIRICALLY on a real
+# M4300-24X (10.1.5.13, firmware 12.0.13.8): a full snmpwalk was captured, the
+# VLAN membership was changed through the switch's own CLI, the tree was walked
+# again, and the two walks were diffed -- so every column below is grounded in
+# an observed change, not in a MIB guess (no Netgear MIB file was available).
+FASTPATH_SWITCHPORT_MODE = "1.3.6.1.4.1.4526.10.1.2.8.37.1.2"  # writable
+FASTPATH_SWITCHPORT_ACCESS_VLAN = "1.3.6.1.4.1.4526.10.1.2.8.37.1.3"  # writable
+FASTPATH_SWITCHPORT_NATIVE_VLAN = "1.3.6.1.4.1.4526.10.1.2.8.37.1.4"
+# 512-byte VLAN bitmaps (4096 VLANs, MSB-first, VLAN 1 = bit 7 of byte 0).
+FASTPATH_SWITCHPORT_ALLOWED_VLANS = "1.3.6.1.4.1.4526.10.1.2.8.37.1.6"  # writable
+FASTPATH_SWITCHPORT_UNTAGGED_VLANS = "1.3.6.1.4.1.4526.10.1.2.8.37.1.7"  # notWritable
+FASTPATH_SWITCHPORT_TAGGED_VLANS = "1.3.6.1.4.1.4526.10.1.2.8.37.1.8"  # notWritable
+# agentSwitchportMode enum, confirmed by CLI<->SNMP correlation: `switchport
+# mode access` reads 1 and `switchport mode general` reads 3.
+SWITCHPORT_MODE_ACCESS = 1
+SWITCHPORT_MODE_TRUNK = 2
+SWITCHPORT_MODE_GENERAL = 3
+# VLAN bitmap width for the switchport VLAN-list columns: 4096 VLANs / 8.
+SWITCHPORT_VLAN_BITMAP_BYTES = 512
 # ENTITY-MIB entPhysicalTable columns (RFC 4133/2737). Some Netgear agents
 # (verified: the GS728TPP, whose SNMP agent implements ZERO 4526 vendor OIDs)
 # expose their fan/PSU sensor components ONLY as this standard physical

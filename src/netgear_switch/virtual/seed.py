@@ -1743,6 +1743,11 @@ def seed_gsm7228ps() -> VirtualSwitchState:
         ports=ports,
         vlans=vlans,
         pvids=pvids,
+        # Real fixed Q-BRIDGE PortList width, measured LIVE (read-only) on this
+        # switch @10.1.5.11: dot1qVlanStaticEgressPorts is 45 bytes wide -- a
+        # third distinct width alongside the GSM7252PS's 79 and the M4300s' 131,
+        # and still wider than its 52 physical ports need (LAG pseudo-ports).
+        vlan_portlist_width=45,
         poe=poe,
         sensors=sensors,
         macs=macs,

@@ -242,9 +242,13 @@ def test_seed_emits_real_fixed_vlan_portlist_width():
     test can catch it.
 
     Widths: gsm7252ps=79B @10.1.5.22, m4300-24x=131B @10.1.5.13,
-    m4300-16x=131B @10.1.5.20 (dot1qVlanStaticEgressPorts, community public).
+    m4300-16x=131B @10.1.5.20, gsm7228ps/S3300=45B @10.1.5.11
+    (dot1qVlanStaticEgressPorts, community public). THREE different widths across
+    the fleet, none derivable from the physical port count -- which is exactly why
+    the mock must carry the measured value instead of computing one.
     """
     from netgear_switch.virtual.seed import (
+        seed_gsm7228ps,
         seed_gsm7252ps,
         seed_m4300_16x,
         seed_m4300_24x,
@@ -254,6 +258,7 @@ def test_seed_emits_real_fixed_vlan_portlist_width():
         (seed_gsm7252ps, 79),
         (seed_m4300_24x, 131),
         (seed_m4300_16x, 131),
+        (seed_gsm7228ps, 45),
     ):
         state = seed()
         m = state.oid_map()

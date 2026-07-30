@@ -77,6 +77,8 @@ import socket
 import threading
 from typing import TYPE_CHECKING, Any
 
+from .. import state as state_errors
+
 if TYPE_CHECKING:
     from .mibview import StateMibView
 
@@ -178,6 +180,13 @@ class _StateInstrum:
         smi_error = _pysnmp_smi_error()
         self._write_error = smi_error.WrongValueError
         self._not_writable_error = smi_error.NotWritableError
+        # A device that recognizes the object and the value's type but refuses to
+        # APPLY it answers commitFailed, not wrongValue. The mock raises
+        # state.CommitFailedError for the M4300's read-only Q-BRIDGE PortList
+        # mirrors, so the library sees the same error-status real hardware sends.
+        self._commit_failed_error = getattr(
+            smi_error, "CommitFailedError", smi_error.WrongValueError
+        )
 
     def read_variables(
         self, *var_binds: tuple[Any, Any], **_context: Any
@@ -287,6 +296,12 @@ class _StateInstrum:
                     raise self._not_writable_error(name=name, idx=idx)
                 try:
                     self._view.apply_write_uncommitted(oid, _from_smi_value(val))
+                except state_errors.CommitFailedError as exc:
+                    # Recognized object, valid value, device refuses to apply it.
+                    raise self._commit_failed_error(name=name, idx=idx) from exc
+                except state_errors.NotWritableError as exc:
+                    # Read-only column (a real agent's notWritable).
+                    raise self._not_writable_error(name=name, idx=idx) from exc
                 except Exception as exc:  # map to a clean SMI error, never leak
                     raise self._write_error(name=name, idx=idx) from exc
                 out.append((name, val))

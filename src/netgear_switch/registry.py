@@ -56,6 +56,34 @@ class SwitchModel:
     # one of these until a real SNMP capture resolved its OID family -- see its
     # entry.)
     verified: bool = True
+    # How this model's SNMP agent accepts a VLAN port-membership WRITE.
+    #
+    # "qbridge" (the default): the standard Q-BRIDGE
+    # dot1qVlanStaticEgressPorts/UntaggedPorts PortLists are read-WRITE, so a
+    # membership change is a read-modify-write of those bitmaps. VERIFIED live on
+    # the GSM7252PS (10.1.5.22).
+    #
+    # "fastpath_switchport": on FASTPATH 12.x (VERIFIED live on the M4300-24X
+    # @10.1.5.13, firmware 12.0.13.8) those same PortLists are READ-ONLY MIRRORS
+    # -- a SET returns commitFailed even when writing back byte-identical bytes,
+    # and dot1qVlanStaticRowStatus := notInService also commitFails (so there is
+    # no RFC-2674 suspend/modify/activate route either). Membership is instead
+    # owned by the per-port SWITCHPORT MODE: writes go to the vendor switchport
+    # table (see oids.FASTPATH_SWITCHPORT_*). Discovered by full-walk -> CLI
+    # change -> re-walk diff; see snmp_write.SnmpWriter._set_vlan_switchport.
+    snmp_vlan_write: str = "qbridge"
+    # Write the egress and untagged PortLists in SEPARATE PDUs, egress first,
+    # instead of one atomic multi-varbind SET.
+    #
+    # VERIFIED live on the S3300-52X-PoE+ (10.1.5.11, Smart firmware): setting a
+    # port's egress bit has a side effect -- the firmware makes that port an
+    # UNTAGGED member -- and when both columns travel in ONE PDU that side effect
+    # wins, so a TAGGED request silently comes back untagged:
+    #     one PDU  : egress=[1] untagged=[1]  <- untagged intent lost
+    #     two PDUs : egress=[1] untagged=[]   <- correct, CLI confirms "Tagged"
+    # The GSM7252PS applies a single combined PDU correctly, so this stays opt-in
+    # per model rather than changing that verified path.
+    snmp_vlan_split_membership_writes: bool = False
 
     @property
     def has_mac_table(self) -> bool:
@@ -73,6 +101,8 @@ def _model(
     snmp_vendor_base: str | None,
     *,
     verified: bool = True,
+    snmp_vlan_write: str = "qbridge",
+    snmp_vlan_split_membership_writes: bool = False,
 ) -> SwitchModel:
     return SwitchModel(
         key=key,
@@ -83,6 +113,8 @@ def _model(
         backends=frozenset(backends),
         snmp_vendor_base=snmp_vendor_base,
         verified=verified,
+        snmp_vlan_write=snmp_vlan_write,
+        snmp_vlan_split_membership_writes=snmp_vlan_split_membership_writes,
     )
 
 
@@ -103,6 +135,10 @@ _MODELS: dict[str, SwitchModel] = {
             0,
             {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _FM,
+            # VERIFIED live @10.1.5.13 (FASTPATH 12.0.13.8): the Q-BRIDGE static
+            # PortLists are read-only mirrors here; membership writes must go
+            # through the vendor switchport table. See SwitchModel.snmp_vlan_write.
+            snmp_vlan_write="fastpath_switchport",
         ),
         _model(
             "m4300-16x",
@@ -112,6 +148,9 @@ _MODELS: dict[str, SwitchModel] = {
             16,
             {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _FM,
+            # Same FASTPATH 12.x firmware family as the -24X (whose read-only
+            # Q-BRIDGE PortLists were verified live) -- same write dialect.
+            snmp_vlan_write="fastpath_switchport",
         ),
         # HTTP added 2026-07-23: the XE FASTPATH web UI (login live-validated
         # on 10.1.5.22; read pages grounded in tests/fixtures/http/
@@ -156,6 +195,13 @@ _MODELS: dict[str, SwitchModel] = {
             # S3300-28X). Registered key is gsm7228ps; "s3300" is an alias
             # (see MODEL_ALIASES). NOTE 4526.100.10.19 is the product-ID OID,
             # distinct from the 4526.11 vendor DATA subtree.
+            #
+            # VERIFIED live 2026-07-30: this Smart firmware auto-untags a port
+            # when its egress bit is set, and that side effect beats an untagged
+            # varbind carried in the SAME PDU -- so the two columns must be
+            # written in separate PDUs, egress first, or every TAGGED request
+            # silently lands as UNTAGGED.
+            snmp_vlan_split_membership_writes=True,
         ),
         _model(
             "gs110emx",

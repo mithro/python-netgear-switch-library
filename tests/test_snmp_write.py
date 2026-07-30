@@ -300,12 +300,17 @@ def test_set_vlan_membership_preserves_device_bitmap_width():
 
     Netgear switches report a PortList far wider than the model's physical
     port count -- it covers LAG and CPU pseudo-ports too. Measured live:
-    131 bytes on an M4300-24X (port_count 28) and on an M4300-16X, 79 bytes
-    on a GSM7252PS. Re-deriving the width from the decoded port set instead of
-    the device's own bitmap makes the SET a different wire length than the
-    device uses.
+    79 bytes on a GSM7252PS (port_count 52) and 131 bytes on both M4300s.
+    Re-deriving the width from the decoded port set instead of the device's own
+    bitmap makes the SET a different wire length than the device uses.
+
+    Uses the GSM7252PS because this is the "qbridge"-dialect path. The M4300 can
+    no longer stand in here: its Q-BRIDGE PortLists are read-only mirrors, so its
+    membership writes take the switchport path instead -- see
+    registry.SwitchModel.snmp_vlan_write and
+    tests/virtual/test_switchport_vlan_write.py.
     """
-    wide = bytes(131)  # the device's PortList width, no ports set yet
+    wide = bytes(79)  # the device's PortList width, no ports set yet
     tables = _vlan_tables()
     tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
         SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.90", wide, "Hex-STRING")
@@ -314,7 +319,7 @@ def test_set_vlan_membership_preserves_device_bitmap_width():
         SnmpRow(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.90", wide, "Hex-STRING")
     ]
     client = ApplyingVlanClient(tables)
-    w = SnmpWriter(client, get_model("m4300-24x"))
+    w = SnmpWriter(client, get_model("gsm7252ps"))
     w.set_vlan_membership(90, 7, VlanMode.UNTAGGED, force=True)
 
     egress_set = next(

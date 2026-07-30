@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from netgear_switch.protocols.snmp.client import SnmpError, SnmpRow
+from netgear_switch.protocols.snmp.write import SetVarbind
 from netgear_switch.transport.sync.snmp_netsnmp_cli import (
     NetsnmpCliClient,
     parse_netsnmp_lines,
@@ -224,3 +225,37 @@ def test_which_guard_raises_when_binary_missing(monkeypatch):
 def test_import_does_not_require_binaries():
     # Importing the module must not shell out or need net-snmp on PATH.
     import netgear_switch.transport.sync.snmp_netsnmp_cli  # noqa: F401
+
+
+def test_set_timeout_names_the_write_community_as_a_likely_cause(monkeypatch):
+    """A SET that times out gets an explanatory SnmpError, not a bare timeout.
+
+    An SNMP agent silently DROPS a request whose community lacks write access, so
+    an unauthorized write community looks exactly like an unreachable host. This
+    cost real debugging time on an S3300-52X (10.1.5.11) whose communities are
+    "pib"/"public" -- both Read/Write -- while the fleet default write community is
+    "private": every read succeeded and every write "timed out".
+    """
+    def fake_runner(argv, **_kw):
+        return _FakeProc(1, "", "Timeout: No Response from 10.1.5.11")
+
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.1.5.11", "private", runner=fake_runner)
+    with pytest.raises(SnmpError) as exc:
+        c.set(SetVarbind("1.3.6.1.2.1.1.5.0", "x", "s"))
+    msg = str(exc.value)
+    assert "Timeout" in msg  # the original cause is preserved
+    assert "write community" in msg  # and the likely explanation is named
+
+
+def test_non_timeout_set_error_is_passed_through_unchanged(monkeypatch):
+    """commitFailed and friends must NOT get the write-community hint bolted on."""
+    def fake_runner(argv, **_kw):
+        return _FakeProc(2, "", "Error in packet.\nReason: commitFailed")
+
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.1.5.13", "private", runner=fake_runner)
+    with pytest.raises(SnmpError) as exc:
+        c.set(SetVarbind("1.3.6.1.2.1.17.7.1.4.3.1.2.90", b"\x00", "x"))
+    assert "commitFailed" in str(exc.value)
+    assert "write community" not in str(exc.value)
