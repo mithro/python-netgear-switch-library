@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from ..registry import get_model
 
 if TYPE_CHECKING:
-    from .state import VirtualSwitchState
+    from .state import PoeSim, VirtualSwitchState
 
 
 def _phys_ports(state: VirtualSwitchState) -> list[int]:
@@ -40,6 +40,21 @@ def _iface(state: VirtualSwitchState, port: int) -> str:
     """
     sim = state.ports.get(port)
     return sim.name if sim is not None and sim.name else f"1/0/{port}"
+
+
+def port_for_iface(state: VirtualSwitchState, iface: str) -> int | None:
+    """Inverse of ``_iface``: the physical port an ifName addresses, else None.
+
+    The mock's CLI face needs to resolve the interface name a COMMAND carries
+    ("show interface ethernet 1/xg49", "interface 1/g5") back to a port number,
+    and it must accept exactly the names this renderer prints -- otherwise the
+    mock would answer for names the real switch does not use (or, as it used to
+    with a hardcoded ``\\d+/0/(\\d+)`` regex, reject the ``1/g<n>``/``1/xg<n>``
+    names the Smart-firmware S3300-52X really prints). Resolving through
+    ``_iface`` keeps the two directions in one place.
+    """
+    wanted = iface.strip()
+    return next((p for p in state.ports if _iface(state, p) == wanted), None)
 
 
 def _is_m4300(state: VirtualSwitchState) -> bool:
@@ -257,6 +272,34 @@ def render_lldp(state: VirtualSwitchState) -> str:
 # --- show poe port info all -------------------------------------------------
 
 
+def _poe_status_text(psim: PoeSim) -> str:
+    """The ``Status`` column text a real switch prints for one PSE port.
+
+    ``show poe port info all`` has NO admin column -- the reader infers admin
+    state from this text (see ``protocols.cli.parse.parse_poe``: anything other
+    than "Disabled" means admin-enabled), so an admin-OFF port MUST render as
+    "Disabled" or the mock would report a PoE-disabled port as still enabled and
+    hide a broken ``set_poe``. Fault detect codes (RFC3621 4=fault,
+    6=otherFault) render as "Fault", which is what lets the CLI and SNMP faces
+    agree about a faulted port instead of the CLI calling it "Searching".
+
+    A just-re-enabled port still reports ``Disabled`` for one read, because that
+    is what the hardware does (see ``PoeSim.cli_status_lag_reads``): this column
+    is a detection state and lags the admin write. Rendering it consumes the lag,
+    exactly as re-reading the table on the device eventually shows the new state.
+    """
+    if psim.cli_status_lag_reads > 0:
+        psim.cli_status_lag_reads -= 1
+        return "Disabled"
+    if not psim.admin:
+        return "Disabled"
+    if psim.detect == 3:
+        return "Delivering Power"
+    if psim.detect in (4, 6):
+        return "Fault"
+    return "Searching"
+
+
 def render_poe(state: VirtualSwitchState) -> str:
     # Full FASTPATH column names (the real switch wraps them over several header
     # lines; a single-line header of the same names parses identically). The
@@ -284,7 +327,7 @@ def render_poe(state: VirtualSwitchState) -> str:
     rows: list[list[object]] = []
     for p in sorted(state.poe):
         psim = state.poe[p]
-        status = "Delivering Power" if psim.detect == 3 else "Searching"
+        status = _poe_status_text(psim)
         rows.append(
             [
                 _iface(state, p),

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from netgear_switch.errors import NetgearSwitchError
 from netgear_switch.models import VlanMode
-from netgear_switch.registry import MODELS
+from netgear_switch.registry import MODELS, Backend
 
 from . import capture, safety
 from . import format as fmt
@@ -83,6 +83,16 @@ def _global_parser(*, suppress_defaults: bool = False) -> argparse.ArgumentParse
         help="web-UI/NSDP admin password for a Plus switch (HTTP + NSDP v1 "
         "auth share this one secret); overrides the inventory's http.password "
         "when both are set",
+        default=default,
+    )
+    gp.add_argument(
+        "--backend",
+        metavar="NAME",
+        choices=[b.name.lower() for b in Backend],
+        help="run the operation over EXACTLY this backend (snmp/nsdp/http/ssh/"
+        "telnet/console) instead of the model's default; the operation fails if "
+        "that backend cannot serve it -- it is never re-routed to another "
+        "protocol",
         default=default,
     )
     gp.add_argument(

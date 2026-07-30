@@ -527,8 +527,11 @@ def assert_http_facades_equivalent(
     vlans = sync.get_vlans()
     pvids = sync.get_pvids()
     mgmt = sync.get_mgmt_ip()
-    # HTTP-served read: NSDP raises for get_poe, so per-op routing falls to HTTP.
-    poe = sync.get_poe()
+    # HTTP-served read, EXPLICITLY: NSDP (this model's default backend) has no
+    # PoE at all, and the facade no longer substitutes another protocol behind
+    # the caller's back, so PoE must be asked of HTTP by name. That also makes
+    # this a genuine HTTP test: the answer below cannot have come from NSDP.
+    poe = sync.get_poe(backend=Backend.HTTP)
 
     assert ports, "ports must be non-empty (NSDP)"
     assert [s for s in stats if s.rx_bytes is not None], "stats non-empty (NSDP)"
@@ -554,14 +557,16 @@ def assert_http_facades_equivalent(
     assert vlans == asyncio.run(aio.get_vlans())
     assert pvids == asyncio.run(aio.get_pvids())
     assert mgmt == asyncio.run(aio.get_mgmt_ip())
-    assert poe == asyncio.run(aio.get_poe())
+    assert poe == asyncio.run(aio.get_poe(backend=Backend.HTTP))
 
-    # snapshot() blends NSDP (ports/stats/vlans/pvids/mgmt) + HTTP (poe) per field
-    # and is equal across facades; NSDP-served fields are NEVER nulled.
+    # snapshot() describes ONE backend and is equal across facades. Over NSDP
+    # (the default here) the NSDP-served fields are never nulled, and poe -- an
+    # op NSDP genuinely lacks -- is EMPTY rather than quietly filled from HTTP:
+    # a snapshot must not present a blend of protocols as one protocol's answer.
     sync_snap = sync.snapshot()
     assert sync_snap == asyncio.run(aio.snapshot())
     assert sync_snap.ports, "snapshot ports (NSDP) must stay populated"
-    assert sync_snap.poe, "snapshot poe (HTTP) must stay populated"
+    assert sync_snap.poe == (), "NSDP snapshot must not borrow HTTP's PoE"
     assert sync_snap.macs == ()  # neither backend serves a MAC table on Plus
 
     gc.collect()
@@ -583,8 +588,10 @@ def assert_http_write_equivalent(
         _, async_facade = http_facades_for(sw_async)
         perform_sync(sync_facade)
         asyncio.run(perform_async(async_facade))
-        poe_sync = http_facades_for(sw_sync)[0].get_poe()
-        poe_async = http_facades_for(sw_async)[0].get_poe()
+        # Read back over HTTP BY NAME (the write went over HTTP by name too):
+        # NSDP has no PoE, and nothing is substituted silently any more.
+        poe_sync = http_facades_for(sw_sync)[0].get_poe(backend=Backend.HTTP)
+        poe_async = http_facades_for(sw_async)[0].get_poe(backend=Backend.HTTP)
         assert poe_sync == poe_async, "sync and async writes diverged"
         assert expect(poe_sync), "write did not take effect"
     finally:

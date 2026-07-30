@@ -57,6 +57,18 @@ def _write_community_override(
     return env.get("NGSW_WRITE_COMMUNITY")
 
 
+def _backend(args: argparse.Namespace) -> Backend | None:
+    """``--backend snmp|nsdp|http|ssh|telnet|console`` -> the Backend, else None.
+
+    Pins EVERY op of this invocation to one protocol. None leaves the model's
+    default resolution in place (see ``SyncSwitch.resolve_backend``). A backend
+    the model does not have, or one that cannot serve the requested op, is an
+    error -- ngsw never quietly runs the op over a different protocol.
+    """
+    name = getattr(args, "backend", None)
+    return None if name is None else Backend[name.upper()]
+
+
 def _nsdp_interface(args: argparse.Namespace, config_value: str | None) -> str | None:
     """``--nsdp-interface`` wins when given; otherwise the inventory's
     ``nsdp.interface`` (``None`` on the ``--host``/``--model`` path, which
@@ -127,6 +139,7 @@ def _from_inventory(
         nsdp_password_resolver=password_resolver,
         http_password_resolver=password_resolver,
         protected_ports=cfg.protected_ports,
+        backend=_backend(args),
     )
 
 
@@ -170,6 +183,7 @@ def resolve_switch(
             nsdp_interface=_nsdp_interface(args, None),
             nsdp_password_resolver=password_resolver,
             http_password_resolver=password_resolver,
+            backend=_backend(args),
         )
     raise ConfigError(
         "specify --switch <name> (with --config) or both --host and --model"

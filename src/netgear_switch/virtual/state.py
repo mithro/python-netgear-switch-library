@@ -116,6 +116,22 @@ class PortSim:
     tx_ucast: int | None = None
     rx_errors: int | None = None
     tx_errors: int | None = None
+    # FASTPATH switchport mode ("access" | "general" | "trunk"), the CLI-only
+    # attribute that decides whether a ``vlan participation``/``vlan tagging``/
+    # ``vlan pvid`` command actually TAKES EFFECT on this port. Proven live on an
+    # M4300-24X: in access mode those commands are accepted into running-config
+    # yet ``show vlan <id>`` keeps reporting Exclude/Autodetect -- see
+    # ``faces/cli.py``, which reproduces exactly that inertness, and
+    # ``cli_write.CliWriter``, which therefore always sends
+    # ``switchport mode general`` first.
+    # Defaults to "general" because that is what the SEEDS describe: every seed
+    # is transcribed from a real switch whose ports genuinely ARE members of
+    # (often several, often tagged) VLANs, which on real hardware requires
+    # general/trunk mode. A test that wants the access-mode behaviour sets this
+    # to "access" explicitly. NOT part of any SNMP/NSDP/HTTP projection: no
+    # captured MIB/TLV/web page exposes it (it is a CLI running-config notion),
+    # so oid_map()/nsdp_tlvs() deliberately ignore it.
+    switchport_mode: str = "general"
     # ifAlias (operator-set port description). None = this port's ifAlias
     # column instance is entirely absent (never configured), mirroring real
     # hardware where an unset alias may not answer at all -- not a fabricated
@@ -139,6 +155,19 @@ class PoeSim:
     admin: bool
     detect: int
     power_mw: int = 0
+    # How many more CLI ``show poe port info all`` reads still report the
+    # pre-enable "Disabled" status after PoE was administratively re-enabled.
+    #
+    # MEASURED ON HARDWARE (M4300-16X, 10.1.5.20, FASTPATH 12.0.19.15,
+    # 2026-07-30): right after ``poe`` re-enabled port 1/0/1 the table still said
+    # ``Disabled``; the same port read ``Searching`` moments later. That column is
+    # a DETECTION state, and it lags the admin write -- which made a single
+    # immediate read-back report a perfectly good ``set_poe`` as a verification
+    # failure. The mock reproduces the lag (one stale read) so
+    # ``cli_write.CliWriter.set_poe``'s polling is actually exercised instead of
+    # passing by accident; SNMP's pethPsePortAdminEnable has no such lag and is
+    # deliberately unaffected.
+    cli_status_lag_reads: int = 0
 
 
 @dataclass
@@ -303,6 +332,12 @@ class VirtualSwitchState:
     # Record of a FASTPATH copy-scp SSL-cert deploy the mock CLI face received
     # (see ScpCertDeploy above). None = no deploy driven yet.
     scp_cert_deploy: ScpCertDeploy | None = None
+    # Number of reboots requested through a protocol face (the CLI's "reload").
+    # A real reboot is unobservable through the same session -- the switch stops
+    # answering -- so the mock records the REQUEST instead of pretending to
+    # restart, letting a test prove the right command was issued. Not part of any
+    # SNMP/NSDP/HTTP projection.
+    reboots: int = 0
     # dot1dBaseBridgeAddress wire quirk: VERIFIED on the real M4300-24X (see
     # protocols/snmp/parse.py::_mac_from_ascii_text) -- that firmware answers
     # this scalar as a 17-character ASCII colon-hex STRING ("XX:XX:..:XX")
@@ -751,6 +786,47 @@ class VirtualSwitchState:
         for f in dataclasses.fields(self):
             setattr(self, f.name, getattr(snapshot, f.name))
 
+    def apply_poe_admin(self, port: int, *, on: bool) -> None:
+        """Switch a PSE port's admin state, with the coherence a real PoE switch
+        shows: admin off -> detect=1 (unused) and the data link drops; admin on
+        -> detect=3 (delivering).
+
+        ONE rule shared by every protocol face -- the SNMP SET path
+        (``apply_write``) and the CLI ``poe``/``no poe`` commands both come
+        through here, so the mock cannot behave differently depending on which
+        backend a test drove (which would make cross-backend write parity
+        meaningless). Unknown port: deliberate no-op, exactly as before.
+        """
+        psim = self.poe.get(port)
+        if psim is None:
+            return
+        was_on = psim.admin
+        psim.admin = on
+        psim.detect = 3 if on else 1  # delivering / unused
+        if on and not was_on:
+            # The CLI status column lags a re-enable by at least one read on real
+            # hardware -- see PoeSim.cli_status_lag_reads.
+            psim.cli_status_lag_reads = 1
+        if not on and port in self.ports:
+            self.ports[port].link = False
+
+    def apply_poe_reset(self, port: int) -> None:
+        """Re-arm PSE detection on a port (the CLI's ``poe reset``).
+
+        Models what the hardware does: the port is powered down and detection
+        starts again, so it ends up DELIVERING only if a powered device is
+        actually drawing power (``power_mw``), else back to SEARCHING (2) -- a
+        reset does NOT conjure a PD onto an empty port. This is what makes
+        ``cycle_poe`` legitimately time out on an empty port, exactly as it
+        would on real hardware, while ``clear_poe_fault`` (which only needs the
+        port to LEAVE the fault state) succeeds.
+        """
+        psim = self.poe.get(port)
+        if psim is None:
+            return
+        psim.admin = True
+        psim.detect = 3 if psim.power_mw else 2
+
     def apply_write(self, oid: str, value: int | bytes | str) -> None:
         """Mutate this state from one SNMP SET varbind, with device coherence.
 
@@ -794,13 +870,7 @@ class VirtualSwitchState:
         # pethPsePortAdminEnable = <table>.3.1.<port>
         poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
         if oid.startswith(poe_prefix) and oid[len(poe_prefix) :].isdigit():
-            p = int(oid[len(poe_prefix) :])
-            if p in self.poe:
-                on = int(value) == 1
-                self.poe[p].admin = on
-                self.poe[p].detect = 3 if on else 1  # delivering / unused
-                if not on and p in self.ports:
-                    self.ports[p].link = False
+            self.apply_poe_admin(int(oid[len(poe_prefix) :]), on=int(value) == 1)
             return
 
         # dot1qPvid.<port>

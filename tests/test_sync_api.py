@@ -154,11 +154,16 @@ def test_from_config_builds_facade_without_touching_network() -> None:
 
 
 def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> None:
-    # snapshot() is backend-tolerant: macs/lldp/sensors are ops NEITHER NSDP
-    # NOR HTTP can serve on gs305ep, so they aggregate as empty instead of
-    # raising. poe is an NSDP gap that HTTP DOES serve (Task 9 per-op
-    # routing), so with an HTTP client available it populates too, instead of
-    # skipping as it did before HTTP was wired.
+    # snapshot() describes ONE backend, and is tolerant of that backend's gaps:
+    # every field NSDP cannot serve on gs305ep (macs/lldp/sensors -- and, since
+    # the silent backend fallback was removed, poe too) aggregates as empty
+    # rather than raising.
+    #
+    # POE IS THE POINT HERE: it used to be filled in from HTTP behind the
+    # caller's back, so a "NSDP snapshot" was really a blend of two protocols.
+    # Now a snapshot says what NSDP alone reports; a caller who wants the web
+    # UI's PoE data asks for it explicitly (backend=Backend.HTTP, see
+    # test_gs305ep_poe_needs_an_explicit_http_backend below).
     from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
 
     class FakeNsdp:
@@ -192,8 +197,13 @@ def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> No
     assert data.macs == ()
     assert data.lldp == ()
     assert data.sensors == ()
-    assert len(data.poe) == 1
-    assert data.poe[0].power_mw == 12800
+    # NSDP has no PoE status at all -> empty, NOT quietly filled from HTTP.
+    # (A caller who wants the web UI's PoE asks for it: see
+    # test_gs305ep_poe_needs_an_explicit_http_backend, which uses this same
+    # FakeHttp. A whole snapshot(backend=HTTP) is NOT asserted here because this
+    # fake only serves the PoE page, and snapshot deliberately tolerates only
+    # UnsupportedCapabilityError -- a malformed page still fails loudly.)
+    assert data.poe == ()
 
 
 def test_reader_builds_default_client_when_not_injected(
@@ -677,13 +687,16 @@ def test_sync_switch_plus_set_pvid_over_nsdp() -> None:
     assert client.writes == ["admin"]
 
 
-# --- Task 9: per-op three-way backend routing (SNMP > NSDP > HTTP) ---------
+# --- explicit backend selection: NO silent protocol substitution ------------
 
 
-def test_gs305ep_poe_routes_to_http_ports_stay_nsdp() -> None:
-    # Per-op routing: PoE is an NSDP gap → served by HTTP; the facade must fall
-    # through NSDP (which raises UnsupportedCapabilityError for get_poe) to HTTP.
-    from netgear_switch.registry import get_model
+def test_gs305ep_poe_needs_an_explicit_http_backend() -> None:
+    # THE CONTRACT (CLAUDE.md principle 1): PoE is a genuine NSDP gap on this
+    # Plus switch, and NSDP is gs305ep's default backend. The facade must NOT
+    # quietly answer from HTTP -- it must raise, naming the backend that could
+    # not serve the op, and let the caller ASK for HTTP.
+    from netgear_switch.errors import UnsupportedCapabilityError
+    from netgear_switch.registry import Backend, get_model
     from netgear_switch.sync_api import SyncSwitch
 
     class _HttpSess:
@@ -708,9 +721,82 @@ def test_gs305ep_poe_routes_to_http_ports_stay_nsdp() -> None:
         nsdp_password="x",
         http_client=_HttpSess(),
     )
-    poe = sw.get_poe()
+    with pytest.raises(UnsupportedCapabilityError) as exc:
+        sw.get_poe()
+    text = str(exc.value)
+    assert "NSDP" in text  # names the backend that failed...
+    assert "HTTP" in text  # ...and the one the caller could ask for instead
+    # Explicitly requesting HTTP really does run HTTP.
+    poe = sw.get_poe(backend=Backend.HTTP)
     assert poe[0].port == 1
-    assert poe[0].power_mw == 12800  # came from HTTP, proving NSDP→HTTP fallback
+    assert poe[0].power_mw == 12800
+
+
+def test_requested_backend_is_never_substituted() -> None:
+    # Asking for a backend the model does not have must raise, not silently use
+    # the one it does have. gs305ep is NSDP+HTTP: there is no SNMP agent to fall
+    # back to, and equally no NSDP answer may be passed off as an SNMP one.
+    from netgear_switch.errors import UnsupportedCapabilityError
+    from netgear_switch.registry import Backend, get_model
+    from netgear_switch.sync_api import SyncSwitch
+
+    sw = SyncSwitch(get_model("gs305ep"), "sw.example", nsdp_client=object())
+    with pytest.raises(UnsupportedCapabilityError) as exc:
+        sw.get_ports(backend=Backend.SNMP)
+    assert "no SNMP backend" in str(exc.value)
+
+
+def test_facade_default_backend_pins_every_op() -> None:
+    # A whole session can be pinned to one protocol at construction
+    # (backend=...), which is what ngsw's --backend flag threads through. A
+    # per-call backend still wins over it.
+    from netgear_switch.registry import Backend, get_model
+    from netgear_switch.sync_api import SyncSwitch
+
+    sw = SyncSwitch(get_model("gsm7252ps"), "h", backend=Backend.HTTP)
+    assert sw.resolve_backend() is Backend.HTTP  # not SNMP, this model's default
+    assert sw.resolve_backend(Backend.SSH) is Backend.SSH  # per-call wins
+
+
+def test_ngsw_backend_flag_pins_the_facade() -> None:
+    # The CLI surface for the same choice: `ngsw --backend http ...`.
+    import argparse
+
+    from netgear_switch.cli.main import build_parser
+    from netgear_switch.cli.resolve import resolve_switch
+    from netgear_switch.registry import Backend
+
+    args = build_parser().parse_args(
+        ["--host", "h", "--model", "gsm7252ps", "--backend", "http", "vlans"]
+    )
+    assert isinstance(args, argparse.Namespace)
+    switch = resolve_switch(args, env={"NGSW_COMMUNITY": "public"})
+    assert switch.backend is Backend.HTTP
+    # ...and an unknown backend name is rejected by the parser itself.
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--backend", "carrier-pigeon", "vlans"])
+
+
+def test_default_backend_resolution_is_deterministic() -> None:
+    # No-backend-specified resolves to the model's highest-preference declared
+    # backend (SNMP > NSDP > HTTP > SSH > TELNET > CONSOLE) -- one backend, chosen
+    # without probing any of them.
+    from netgear_switch.registry import Backend, get_model
+    from netgear_switch.sync_api import SyncSwitch
+
+    assert (
+        SyncSwitch(get_model("gs305ep"), "h").resolve_backend() is Backend.NSDP
+    )  # NSDP+HTTP
+    assert (
+        SyncSwitch(get_model("gsm7252ps"), "h").resolve_backend() is Backend.SNMP
+    )  # SNMP+HTTP+SSH
+    assert (
+        SyncSwitch(get_model("gs110emx"), "h").resolve_backend() is Backend.NSDP
+    )  # NSDP+HTTP
+    # A named backend resolves to itself when the model has it.
+    sw = SyncSwitch(get_model("gsm7252ps"), "h")
+    assert sw.resolve_backend(Backend.HTTP) is Backend.HTTP
+    assert sw.resolve_backend(Backend.SSH) is Backend.SSH
 
 
 def test_gsm7228ps_http_reads_grounded_and_join_dispatch() -> None:
@@ -789,7 +875,11 @@ def test_http_client_closed_after_http_routed_op(
         nsdp_password="x",
         http_password="secret",
     ) as sw:
-        poe = sw.get_poe()
+        from netgear_switch.registry import Backend
+
+        # Explicit HTTP backend: PoE over the web UI is a deliberate request now,
+        # never a silent reroute from NSDP.
+        poe = sw.get_poe(backend=Backend.HTTP)
         assert poe[0].port == 1
         assert spy.closed is False  # still in use inside the `with` block
 
@@ -826,7 +916,9 @@ def test_injected_http_client_is_never_closed_by_facade() -> None:
         nsdp_password="x",
         http_client=_HttpSess(),
     ) as sw:
-        sw.get_poe()
+        from netgear_switch.registry import Backend
+
+        sw.get_poe(backend=Backend.HTTP)
     # __exit__ ran close() above; no AssertionError means the injected
     # session's close() was correctly never invoked.
 

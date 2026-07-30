@@ -2,17 +2,37 @@
 
 Unlike the HTTP face (which binds a real ``ThreadingHTTPServer`` so httpx clients
 hit a socket), the CLI face is an IN-PROCESS transport: it implements the same
-``CliSession`` seam ``CliReader`` depends on and dispatches each ``show`` command
-string straight to the ``cli_fastpath`` renderer over device state -- no SSH
-server, no socket, no host keys. This is deliberate and honest: live SSH cannot
-be exercised from CI (no network) and the real byte transports are documented as
-transport-only, so the mock proves the command-dispatch + parser round trip (the
-part that CAN be tested) rather than standing up a paramiko server whose value
-would be untestable here anyway.
+``CliSession`` seam ``CliReader``/``CliWriter`` depend on and dispatches each
+command string straight to the ``cli_fastpath`` renderer (reads) or to a state
+mutation (writes) -- no SSH server, no socket, no host keys. This is deliberate
+and honest: live SSH cannot be exercised from CI (no network) and the real byte
+transports are documented as transport-only, so the mock proves the
+command-dispatch + parser round trip (the part that CAN be tested) rather than
+standing up a paramiko server whose value would be untestable here anyway.
 
 A ``VirtualSwitch`` exposes one via ``cli_session()``; the session setup commands
 (``enable`` / ``terminal length 0``) are accepted as no-op success, matching a
 real shell.
+
+CONFIGURATION commands (the ``vlan database`` / ``configure`` trees that
+``cli_write.CliWriter`` drives) mutate ``VirtualSwitchState`` itself, so the
+change is immediately visible through EVERY face of the same virtual switch --
+this CLI face's own ``show`` output, the SNMP ``oid_map()`` projection, the NSDP
+TLVs and the web pages -- exactly as a write on real hardware is visible over
+every protocol.
+
+Two behaviours are modelled on purpose because the library's correctness depends
+on them:
+
+* An accepted configuration command returns EMPTY output; anything the switch
+  would reject returns text. (The empty/non-empty CONTRACT is live-proven on an
+  M4300-24X; the exact wording of the rejection strings below is NOT a
+  transcription of any capture, and nothing in the library parses them.)
+* ``vlan participation`` / ``vlan tagging`` / ``vlan pvid`` are accepted but
+  completely INERT while the port is in ``switchport mode access`` -- the live
+  finding (see ``cli_write.CliWriter``) that makes ``switchport mode general`` a
+  mandatory step of every per-port CLI VLAN write. A mock that silently applied
+  them in access mode would hide exactly the bug that finding exists to prevent.
 """
 
 from __future__ import annotations
@@ -20,17 +40,57 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from ...registry import get_model
 from .. import cli_fastpath
-from ..state import ScpCertDeploy
+from ..state import ScpCertDeploy, VlanSim
 
 if TYPE_CHECKING:
     from ...protocols.cli.commands import CliModelSpec
     from ..state import VirtualSwitchState
 
 _SHOW_VLAN_ID_RE = re.compile(r"^show vlan (\d+)$")
-_SHOW_IFACE_RE = re.compile(r"^show interface ethernet \d+/0/(\d+)$")
-_SETUP_RE = re.compile(r"^(enable|terminal length \d+|disable|end|exit)$")
+# Accept ANY interface-name shape the model prints ("1/0/7", "1/g7", "1/xg49")
+# and resolve it through the renderer's own naming (cli_fastpath.port_for_iface),
+# instead of the old hardcoded r"\d+/0/(\d+)" which could never match the
+# Smart-firmware S3300-52X's real names.
+_SHOW_IFACE_RE = re.compile(r"^show interface ethernet (\S+)$")
+_SETUP_RE = re.compile(r"^(enable|terminal length \d+|disable)$")
 _COPY_RE = re.compile(r"^copy\s+(\S+)\s+(\S+)$")
+
+# --- configuration-mode commands -------------------------------------------
+_CONFIGURE_RE = re.compile(r"^config(?:ure)?(?: terminal)?$")
+_VLAN_DATABASE_RE = re.compile(r"^vlan database$")
+_VLAN_CREATE_RE = re.compile(r"^vlan (\d+)$")
+_VLAN_NAME_RE = re.compile(r"^vlan name (\d+) (\S+)$")
+_VLAN_DELETE_RE = re.compile(r"^no vlan (\d+)$")
+_INTERFACE_RE = re.compile(r"^interface (\S+)$")
+_SWITCHPORT_MODE_RE = re.compile(r"^switchport mode (access|general|trunk)$")
+_PARTICIPATION_RE = re.compile(r"^vlan participation (include|exclude) (\d+)$")
+_TAGGING_RE = re.compile(r"^(no )?vlan tagging (\d+)$")
+_PVID_RE = re.compile(r"^vlan pvid (\d+)$")
+_POE_RE = re.compile(r"^(no )?poe$")
+_POE_RESET_RE = re.compile(r"^poe reset$")
+_SHUTDOWN_RE = re.compile(r"^(no )?shutdown$")
+_IP = r"(\d+\.\d+\.\d+\.\d+)"
+# Older images (gsm7252ps, gsm7228ps): ONE privileged-EXEC command.
+_NETWORK_PARMS_RE = re.compile(rf"^network parms {_IP} {_IP}(?: {_IP})?$")
+# M4300 12.0.x: two global-config commands instead.
+_IP_MGMT_ADDR_RE = re.compile(rf"^ip management address {_IP} {_IP}$")
+_IP_GATEWAY_RE = re.compile(rf"^ip default-gateway {_IP}$")
+
+# Mode names for the mode stack (see VirtualCliFace._modes).
+_VLAN_DB, _CONFIG, _INTERFACE = "vlan-db", "config", "interface"
+
+# Rejection texts. Their exact wording is NOT ground truth (no capture of a
+# rejected FASTPATH config command exists here); what IS proven, and what the
+# library relies on, is only that a rejected command answers with SOMETHING and
+# an accepted one answers with NOTHING.
+_INVALID = "% Invalid input detected at '^' marker."
+_ACCEPTED = ""
+
+
+def _no_such_vlan(vlan: int) -> str:
+    return f"ERROR: VLAN {vlan} does not exist"
 
 
 class VirtualCliFace:
@@ -39,6 +99,12 @@ class VirtualCliFace:
     def __init__(self, state: VirtualSwitchState, spec: CliModelSpec) -> None:
         self.state = state
         self.spec = spec
+        # The command-mode stack, innermost last: [] is EXEC mode, ["vlan-db"] is
+        # the VLAN database, ["config", "interface"] is interface config mode.
+        # ``exit`` pops one level and ``end`` returns to EXEC, like a real shell.
+        self._modes: list[str] = []
+        # The port ``interface <iface>`` selected, while in interface mode.
+        self._iface_port: int | None = None
 
     def _deploy(self) -> ScpCertDeploy:
         """Lazily create + return the cert-deploy record for this switch."""
@@ -66,11 +132,241 @@ class VirtualCliFace:
         return f"Data transfer complete. bytes transferred to {dest}"
 
     def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
-        """In-process stand-in for the ``write memory`` save-config confirm."""
+        """In-process stand-in for a command with a ``(y/n)`` confirm.
+
+        Two commands use this transport path: ``write memory`` (save config) and
+        ``reload`` (reboot). They are NOT interchangeable, so the mock keeps them
+        apart -- a ``reload`` must never look like a config save. A real reload
+        also tears the session down; the mock cannot restart itself, so it records
+        the request (``state.reboots``) and returns, which is what lets a test
+        prove the right command was issued.
+        """
+        c = command.strip()
+        if c == "reload":
+            self.state.reboots += 1
+            return ""
         deploy = self._deploy()
-        deploy.commands.append(command.strip())
+        deploy.commands.append(c)
         deploy.saved = True
         return ""
+
+    # --- write helpers ------------------------------------------------------
+
+    @property
+    def _mode(self) -> str:
+        return self._modes[-1] if self._modes else "exec"
+
+    def _general(self, port: int) -> bool:
+        """True when ``port`` is in a switchport mode that HONOURS the per-port
+        VLAN commands. Access mode accepts them and ignores them (live finding);
+        trunk mode honours them like general mode does."""
+        sim = self.state.ports.get(port)
+        return sim is not None and sim.switchport_mode in ("general", "trunk")
+
+    def _vlan_db_command(self, c: str) -> str | None:
+        """Handle one command inside ``vlan database``, else None."""
+        m = _VLAN_CREATE_RE.match(c)
+        if m:
+            vid = int(m.group(1))
+            # Selecting an existing VLAN is accepted too (idempotent), matching
+            # a real switch: "vlan 5" on an existing VLAN 5 is not an error.
+            if vid not in self.state.vlans:
+                self.state.vlans[vid] = VlanSim(name="")
+            return _ACCEPTED
+        m = _VLAN_NAME_RE.match(c)
+        if m:
+            vid, name = int(m.group(1)), m.group(2)
+            if vid not in self.state.vlans:
+                return _no_such_vlan(vid)
+            self.state.vlans[vid].name = name
+            return _ACCEPTED
+        m = _VLAN_DELETE_RE.match(c)
+        if m:
+            vid = int(m.group(1))
+            if vid == 1:
+                return "ERROR: The default VLAN cannot be deleted"
+            if vid not in self.state.vlans:
+                return _no_such_vlan(vid)
+            del self.state.vlans[vid]
+            # Device coherence (a deliberate model of real behaviour, not a
+            # transcription): no port can be left with its PVID pointing at a
+            # VLAN that no longer exists, so those ports fall back to VLAN 1.
+            for port, pvid in self.state.pvids.items():
+                if pvid == vid:
+                    self.state.pvids[port] = 1
+            return _ACCEPTED
+        return None
+
+    def _has_switchport_modes(self) -> bool:
+        """True unless this model's image has NO ``switchport mode`` command.
+
+        Probed live 2026-07-30: the gsm7252ps (XE image) answers
+        "% Unrecognized command" to ``switchport mode ?`` and offers only
+        private-group/protected under ``switchport ?``, while the M4300 12.0.x
+        images and the S3300 Smart image all offer access|general|trunk.
+        Keyed on the MODEL rather than read out of ``CliModelSpec`` on purpose:
+        the mock has to be an independent statement of what the device does, so
+        that a wrong spec is caught here instead of being mirrored.
+        """
+        return self.state.model_key != "gsm7252ps"
+
+    def _uses_ip_management_dialect(self) -> bool:
+        """True for the images whose mgmt-IP write is global-config
+        ``ip management address`` + ``ip default-gateway`` (M4300 12.0.x, which
+        reject ``network parms`` outright); False for the older images that take
+        privileged-EXEC ``network parms``. Live-probed 2026-07-30 on all four."""
+        return self.state.model_key.startswith("m4300")
+
+    def _poe_capable(self) -> bool:
+        """True when this SKU has PSE hardware at all.
+
+        The M4300-24X has none, and its firmware consequently has no ``poe``
+        command whatsoever ("poe ?" -> "% Unrecognized command", probed live on
+        10.1.5.13) -- so the mock must reject PoE commands there, not silently
+        accept them.
+        """
+        return get_model(self.state.model_key).poe_port_count > 0
+
+    def _interface_command(self, c: str, port: int) -> str | None:
+        """Handle one command inside ``interface <iface>``, else None."""
+        m = _SWITCHPORT_MODE_RE.match(c)
+        if m:
+            if not self._has_switchport_modes():
+                return _INVALID  # this image has no switchport-mode concept
+            self.state.ports[port].switchport_mode = m.group(1)
+            return _ACCEPTED
+        if _POE_RESET_RE.match(c):
+            if not self._poe_capable():
+                return _INVALID
+            self.state.apply_poe_reset(port)
+            return _ACCEPTED
+        m = _POE_RE.match(c)
+        if m:
+            if not self._poe_capable():
+                return _INVALID
+            self.state.apply_poe_admin(port, on=m.group(1) is None)
+            return _ACCEPTED
+        m = _SHUTDOWN_RE.match(c)
+        if m:
+            enabled = m.group(1) is not None  # "no shutdown" enables
+            sim = self.state.ports.get(port)
+            if sim is None:
+                return _INVALID
+            sim.admin = enabled
+            if not enabled:
+                # A shut port cannot stay linked -- same coherence the SNMP
+                # ifAdminStatus write applies (see VirtualSwitchState.apply_write).
+                sim.link = False
+            return _ACCEPTED
+        m = _PARTICIPATION_RE.match(c)
+        if m:
+            include, vid = m.group(1) == "include", int(m.group(2))
+            vsim = self.state.vlans.get(vid)
+            if vsim is None:
+                return _no_such_vlan(vid)
+            # ACCEPTED-BUT-INERT in access mode -- the live-proven behaviour.
+            if not self._general(port):
+                return _ACCEPTED
+            if include:
+                vsim.member.add(port)
+                # A newly included port is UNTAGGED until "vlan tagging" says
+                # otherwise (that is why the writer always sends one of the two).
+                vsim.untagged.add(port)
+            else:
+                vsim.member.discard(port)
+                vsim.untagged.discard(port)
+            return _ACCEPTED
+        m = _TAGGING_RE.match(c)
+        if m:
+            tagged, vid = m.group(1) is None, int(m.group(2))
+            vsim = self.state.vlans.get(vid)
+            if vsim is None:
+                return _no_such_vlan(vid)
+            if not self._general(port):
+                return _ACCEPTED  # accepted-but-inert, as above
+            if tagged:
+                vsim.untagged.discard(port)
+            else:
+                vsim.untagged.add(port)
+            return _ACCEPTED
+        m = _PVID_RE.match(c)
+        if m:
+            vid = int(m.group(1))
+            if vid not in self.state.vlans:
+                return _no_such_vlan(vid)
+            if not self._general(port):
+                return _ACCEPTED  # accepted-but-inert, as above
+            self.state.pvids[port] = vid
+            return _ACCEPTED
+        return None
+
+    def _config_command(self, c: str) -> str | None:
+        """Handle mode entry/exit and every configuration command, else None
+        (meaning: not a config command, try the ``show`` dispatch)."""
+        if c == "exit":
+            if self._modes:
+                self._modes.pop()
+                if self._mode != _INTERFACE:
+                    self._iface_port = None
+            return _ACCEPTED
+        if c == "end":
+            self._modes.clear()
+            self._iface_port = None
+            return _ACCEPTED
+        if _VLAN_DATABASE_RE.match(c):
+            # Reachable from EXEC and from global config mode on real FASTPATH.
+            if self._mode in ("exec", _CONFIG):
+                self._modes.append(_VLAN_DB)
+                return _ACCEPTED
+            return _INVALID
+        if _CONFIGURE_RE.match(c):
+            if self._mode == "exec":
+                self._modes.append(_CONFIG)
+                return _ACCEPTED
+            return _INVALID
+        m = _NETWORK_PARMS_RE.match(c)
+        if m:
+            # Privileged EXEC only, and only on the images that HAVE it: the
+            # M4300 12.0.x rejects "network parms" in every mode (probed live).
+            if self._mode != "exec" or self._uses_ip_management_dialect():
+                return _INVALID
+            self.state.mgmt.address = m.group(1)
+            self.state.mgmt.netmask = m.group(2)
+            if m.group(3):
+                self.state.mgmt.gateway = m.group(3)
+            self.state.mgmt.mode = "static"
+            return _ACCEPTED
+        if self._mode == _VLAN_DB:
+            return self._vlan_db_command(c)
+        if self._mode == _CONFIG:
+            m = _INTERFACE_RE.match(c)
+            if m:
+                port = cli_fastpath.port_for_iface(self.state, m.group(1))
+                if port is None:
+                    return _INVALID  # no such interface on this switch
+                self._iface_port = port
+                self._modes.append(_INTERFACE)
+                return _ACCEPTED
+            m = _IP_MGMT_ADDR_RE.match(c)
+            if m:
+                if not self._uses_ip_management_dialect():
+                    return _INVALID  # older images have no "ip management"
+                self.state.mgmt.address = m.group(1)
+                self.state.mgmt.netmask = m.group(2)
+                self.state.mgmt.mode = "static"
+                return _ACCEPTED
+            m = _IP_GATEWAY_RE.match(c)
+            if m:
+                if not self._uses_ip_management_dialect():
+                    return _INVALID
+                self.state.mgmt.gateway = m.group(1)
+                return _ACCEPTED
+            return None
+        if self._mode == _INTERFACE and self._iface_port is not None:
+            return self._interface_command(c, self._iface_port)
+        return None
+
+    # --- dispatch -----------------------------------------------------------
 
     def run(self, command: str) -> str:
         c = command.strip()
@@ -84,6 +380,14 @@ class VirtualCliFace:
             self._deploy().https_enabled = True
             self._deploy().commands.append(c)
             return ""
+        # Configuration commands (and mode changes) first: a config command is
+        # never also a "show" command, and a mis-moded one must be REJECTED
+        # rather than silently applied -- that is what proves the writer really
+        # entered "vlan database"/"configure" before issuing it.
+        handled = self._config_command(c)
+        if handled is not None:
+            return handled
+        # ``show`` commands answer in any mode, exactly as on real hardware.
         if c == self.spec.version_cmd:
             return cli_fastpath.render_version(self.state)
         if c == self.spec.port_status_cmd:
@@ -107,7 +411,10 @@ class VirtualCliFace:
             return cli_fastpath.render_vlan_detail(self.state, int(m.group(1)))
         m = _SHOW_IFACE_RE.match(c)
         if m:
-            return cli_fastpath.render_interface_counters(self.state, int(m.group(1)))
+            port = cli_fastpath.port_for_iface(self.state, m.group(1))
+            if port is None:
+                return _INVALID
+            return cli_fastpath.render_interface_counters(self.state, port)
         return "Command not found / Incomplete command. Use ? to list commands."
 
     def close(self) -> None:

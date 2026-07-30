@@ -36,6 +36,7 @@ from .config import (
     resolve_secret,
 )
 from .errors import (
+    CliCommandError,
     ConfigError,
     CredentialError,
     HttpAuthError,
@@ -106,6 +107,7 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "UnsupportedCapabilityError",
     "WriteVerificationError",
     "ProtectedPortError",
+    "CliCommandError",
     "HttpError",
     "HttpAuthError",
     "HttpUnexpectedPageError",

@@ -21,11 +21,16 @@ def test_http_read_equivalence(virtual_gs305ep: VirtualSwitch) -> None:
 
 
 def test_http_poe_write_equivalence() -> None:
+    # backend=HTTP is now REQUIRED, not incidental: gs305ep's default backend is
+    # NSDP, which has no PoE write, and the facade no longer re-routes a write to
+    # another protocol on its own -- an operator's protocol choice is honoured.
+    from netgear_switch.registry import Backend
+
     def sync_write(sw) -> None:  # type: ignore[no-untyped-def]
-        sw.set_poe(2, False, force=True)
+        sw.set_poe(2, False, force=True, backend=Backend.HTTP)
 
     async def async_write(sw) -> None:  # type: ignore[no-untyped-def]
-        await sw.set_poe(2, False, force=True)
+        await sw.set_poe(2, False, force=True, backend=Backend.HTTP)
 
     def poe2_off(poe: list[PoEStatus]) -> bool:
         return not next(p for p in poe if p.port == 2).admin_enabled

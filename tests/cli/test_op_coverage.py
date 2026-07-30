@@ -20,6 +20,10 @@ _NOT_CLI_EXPOSED = {
     "post_form",
     "close",
     "from_config",
+    # Introspection, not an operation. Backend CHOICE is exposed on ngsw as the
+    # global ``--backend`` flag (see cli/resolve._backend), which every command
+    # honours through the facade's default backend.
+    "resolve_backend",
 }
 
 # SyncSwitch operation -> the ``ngsw`` subcommand that reaches it. Ops served by
