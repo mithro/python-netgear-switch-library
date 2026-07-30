@@ -75,7 +75,10 @@ def test_gsm7228ps_cheetah_form_snmp_preferred() -> None:
     assert spec.scheme is LoginScheme.CHEETAH_FORM
     assert spec.login_path == "/base/cheetah_login.html"
     assert spec.password_field == "pwd"
-    assert spec.reads_verified is False
+    # HTTP reads GROUNDED 2026-07-30 against the real S3300-52X (10.1.5.11):
+    # reads_verified flipped True, so HTTP now joins read dispatch behind SNMP
+    # (like gsm7252ps/m4300). SNMP remains the preferred backend.
+    assert spec.reads_verified is True
 
 
 def test_http_spec_rejects_model_without_http_backend() -> None:

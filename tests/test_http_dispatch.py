@@ -29,7 +29,7 @@ def test_http_reads_supported() -> None:
     # sync_api.py/aio_api.py's per-op backend preference), so this flag only
     # ever matters for the ops NSDP genuinely can't serve.
     assert http_reads_supported(get_model("gs305ep")) is True  # NSDP+HTTP, grounded
-    assert http_reads_supported(get_model("gsm7228ps")) is False  # SNMP-authoritative
+    assert http_reads_supported(get_model("gsm7228ps")) is True  # S3300, grounded
     assert http_reads_supported(get_model("gs110emx")) is True  # Gambit, grounded
     # gsm7252ps HTTP reads are fixture-grounded AND live HTTP<->SNMP
     # cross-verified on 10.1.5.22 (reads_verified=True), so HTTP is a valid

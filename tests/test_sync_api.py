@@ -713,19 +713,18 @@ def test_gs305ep_poe_routes_to_http_ports_stay_nsdp() -> None:
     assert poe[0].power_mw == 12800  # came from HTTP, proving NSDP→HTTP fallback
 
 
-def test_gsm7228ps_http_gated_off_for_read_and_write() -> None:
-    # Guard the intent: gsm7228ps is SNMP-authoritative; its HTTP backend must
-    # never participate in read/write dispatch (HTTP is reserved for firmware/
-    # reboot). Proven by _reader_for/_writer_for(Backend.HTTP) refusing.
-    from netgear_switch.errors import UnsupportedCapabilityError
+def test_gsm7228ps_http_reads_grounded_and_join_dispatch() -> None:
+    # gsm7228ps (the S3300-52X) HTTP reads were GROUNDED 2026-07-30 against real
+    # hardware (10.1.5.11, live HTTP<->SNMP cross-verified), so its HTTP backend
+    # now participates in read dispatch behind SNMP (like gsm7252ps/m4300):
+    # _reader_for/_writer_for(Backend.HTTP) yield working objects rather than
+    # refusing. SNMP remains the preferred backend (per _BACKEND_PREFERENCE).
     from netgear_switch.registry import Backend, get_model
     from netgear_switch.sync_api import SyncSwitch
 
-    sw = SyncSwitch(get_model("gsm7228ps"), "h")
-    with pytest.raises(UnsupportedCapabilityError):
-        sw._reader_for(Backend.HTTP)
-    with pytest.raises(UnsupportedCapabilityError):
-        sw._writer_for(Backend.HTTP)
+    sw = SyncSwitch(get_model("gsm7228ps"), "h", http_password="x")
+    assert sw._reader_for(Backend.HTTP) is not None
+    assert sw._writer_for(Backend.HTTP) is not None
 
 
 def test_http_password_resolved_lazily(monkeypatch: pytest.MonkeyPatch) -> None:

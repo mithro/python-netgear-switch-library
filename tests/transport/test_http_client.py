@@ -299,7 +299,10 @@ def test_async_post_form_posts_cookie_and_returns_body() -> None:
 
 def test_login_body_cheetah_form_posts_plaintext_password() -> None:
     body = _login_body(_CHEETAH_SPEC, _PASSWORD, login_page_html="<html></html>")
-    assert body == {"pwd": _PASSWORD}
+    # gsm7228ps (the _CHEETAH_SPEC model) now carries username_field="uname"
+    # after its S3300 HTTP grounding, so the CHEETAH_FORM body posts the
+    # plaintext password AND uname=admin (live-confirmed; same as gsm7252ps).
+    assert body == {"pwd": _PASSWORD, "uname": "admin"}
 
 
 def test_login_body_needs_rand_but_missing_raises_unexpected_page() -> None:
