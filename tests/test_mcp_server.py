@@ -15,7 +15,7 @@ from netgear_switch.protocols.nsdp.protocol import (
     Op,
     Tag,
 )
-from netgear_switch.registry import get_model
+from netgear_switch.registry import Backend, get_model
 from netgear_switch.sync_api import SyncSwitch
 
 _READ_TOOLS = {
@@ -229,8 +229,12 @@ def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
     calls: list[tuple] = []
 
     class _RecordingSwitch:
-        def set_pvid(self, port, vlan, *, force):
-            calls.append((port, vlan, force))
+        # `backend` is RECORDED, not merely tolerated: the tool must thread the
+        # caller's protocol choice through to the library. Dropping it would
+        # silently run the op over the model's default backend, which is exactly
+        # the quiet protocol substitution CLAUDE.md principle 1 forbids.
+        def set_pvid(self, port, vlan, *, force, backend=None):
+            calls.append((port, vlan, force, backend))
 
     monkeypatch.setattr(
         mod, "resolve_switch", lambda _ns, *, env=None, prompt=None: _RecordingSwitch()
@@ -248,7 +252,45 @@ def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
         },
     )[0]
     assert res == {"ok": True, "op": "set_pvid"}
-    assert calls == [(3, 90, True)]
+    # No backend named -> None, i.e. "use the model's documented default".
+    assert calls == [(3, 90, True, None)]
+
+    # An explicitly named backend must arrive as the Backend enum member.
+    calls.clear()
+    res = _call(
+        srv,
+        "set_pvid",
+        {
+            "host": "10.1.5.25",
+            "model": "gs110emx",
+            "port": 3,
+            "vlan": 90,
+            "force": True,
+            "backend": "http",
+        },
+    )[0]
+    assert res == {"ok": True, "op": "set_pvid"}
+    assert calls == [(3, 90, True, Backend.HTTP)]
+
+    # An unknown backend fails LOUDLY -- it propagates as a tool error naming the
+    # bad value and the valid ones, rather than being ignored and quietly running
+    # the op over the default backend.
+    calls.clear()
+    with pytest.raises(Exception, match="carrier-pigeon") as exc:
+        _call(
+            srv,
+            "set_pvid",
+            {
+                "host": "10.1.5.25",
+                "model": "gs110emx",
+                "port": 3,
+                "vlan": 90,
+                "force": True,
+                "backend": "carrier-pigeon",
+            },
+        )
+    assert "snmp" in str(exc.value)  # lists what IS valid
+    assert calls == []  # and the write never reached the switch
 
 
 # Public SyncSwitch methods that deliberately get NO MCP tool: connection
@@ -292,13 +334,16 @@ def test_new_write_tools_reach_the_switch(monkeypatch) -> None:
     calls: list[tuple] = []
 
     class _Recording:
-        def cycle_poe(self, port, *, force):
+        # Each accepts `backend` because every write tool now threads the
+        # caller's protocol choice through (see the set_pvid test for the
+        # assertions on its value).
+        def cycle_poe(self, port, *, force, backend=None):
             calls.append(("cycle_poe", port, force))
 
-        def clear_poe_fault(self, port, *, force):
+        def clear_poe_fault(self, port, *, force, backend=None):
             calls.append(("clear_poe_fault", port, force))
 
-        def set_mgmt_ip(self, address, netmask, gateway, *, force):
+        def set_mgmt_ip(self, address, netmask, gateway, *, force, backend=None):
             calls.append(("set_mgmt_ip", address, netmask, gateway, force))
 
     monkeypatch.setattr(

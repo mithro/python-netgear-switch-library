@@ -34,12 +34,38 @@ from ..errors import (
     UnsupportedCapabilityError,
 )
 from ..models import VlanMode
+from ..registry import Backend
 
 if TYPE_CHECKING:
     from ..sync_api import SyncSwitch
 
 _WRITE_ENV = "NGSW_MCP_ALLOW_WRITES"
 _INVENTORY_ENV = "NGSW_INVENTORY"
+
+# Appended to every tool description so a caller can see the choice exists.
+_BACKEND_DOC = (
+    " Optional 'backend' pins the protocol used: snmp|nsdp|http|ssh|telnet|"
+    "console. Omit it to use the model's default backend. The chosen backend "
+    "either serves the operation or the call fails -- it is NEVER quietly run "
+    "over a different protocol."
+)
+
+
+def _as_backend(name: str | None) -> Backend | None:
+    """A tool's ``backend`` string -> ``Backend``, or None for the default.
+
+    Rejects an unknown name loudly rather than silently ignoring it and running
+    the op over whatever the default happens to be (principle 1: never let a
+    caller believe they pinned a protocol when they did not).
+    """
+    if name is None:
+        return None
+    try:
+        return Backend[name.upper()]
+    except KeyError:
+        valid = ", ".join(b.value for b in Backend)
+        msg = f"unknown backend {name!r}; expected one of: {valid}"
+        raise ConfigError(msg) from None
 
 
 def writes_enabled(env: dict[str, str] | None = None) -> bool:
@@ -188,7 +214,7 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
 
     # --- read tools: one per op --------------------------------------------
     def _register_read(name: str, method: str, doc: str) -> None:
-        @mcp.tool(name=name, description=doc)
+        @mcp.tool(name=name, description=doc + _BACKEND_DOC)
         def _tool(  # type: ignore[no-untyped-def]
             switch: str | None = None,
             host: str | None = None,
@@ -197,6 +223,7 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
             community: str | None = None,
             http_password: str | None = None,
             nsdp_interface: str | None = None,
+            backend: str | None = None,
         ):
             sw = resolver(
                 switch,
@@ -207,7 +234,8 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
                 http_password,
                 nsdp_interface,
             )
-            return _read(name, lambda: getattr(sw, method)())
+            chosen = _as_backend(backend)
+            return _read(name, lambda: getattr(sw, method)(backend=chosen))
 
     _register_read("get_ports", "get_ports", "Per-port link status and speed.")
     _register_read("get_stats", "get_stats", "Per-port byte/packet counters.")
@@ -274,12 +302,17 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Set a port's PVID (native VLAN). Disruptive: needs force=true."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
-        return _write("set_pvid", lambda: sw.set_pvid(port, vlan, force=force))
+        chosen = _as_backend(backend)
+        return _write(
+            "set_pvid",
+            lambda: sw.set_pvid(port, vlan, force=force, backend=chosen),
+        )
 
     @mcp.tool()
     def set_port_enabled(
@@ -293,13 +326,18 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Administratively enable/disable a port. Disruptive: needs force=true."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
+        chosen = _as_backend(backend)
         return _write(
-            "set_port_enabled", lambda: sw.set_port_enabled(port, enabled, force=force)
+            "set_port_enabled",
+            lambda: sw.set_port_enabled(
+                port, enabled, force=force, backend=chosen
+            ),
         )
 
     @mcp.tool()
@@ -314,12 +352,17 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Turn a port's PoE on/off. Disruptive: needs force=true."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
-        return _write("set_poe", lambda: sw.set_poe(port, on, force=force))
+        chosen = _as_backend(backend)
+        return _write(
+            "set_poe",
+            lambda: sw.set_poe(port, on, force=force, backend=chosen),
+        )
 
     @mcp.tool()
     def set_vlan_membership(
@@ -334,6 +377,7 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Set a port's membership in a VLAN (mode: tagged|untagged|excluded).
         Disruptive: needs force=true."""
@@ -347,9 +391,12 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
+        chosen = _as_backend(backend)
         return _write(
             "set_vlan_membership",
-            lambda: sw.set_vlan_membership(vlan, port, vlan_mode, force=force),
+            lambda: sw.set_vlan_membership(
+                vlan, port, vlan_mode, force=force, backend=chosen
+            ),
         )
 
     @mcp.tool()
@@ -364,12 +411,17 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Create a VLAN. Disruptive: needs force=true."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
-        return _write("create_vlan", lambda: sw.create_vlan(vlan, name, force=force))
+        chosen = _as_backend(backend)
+        return _write(
+            "create_vlan",
+            lambda: sw.create_vlan(vlan, name, force=force, backend=chosen),
+        )
 
     @mcp.tool()
     def delete_vlan(
@@ -382,12 +434,17 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Delete a VLAN. Disruptive: needs force=true."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
-        return _write("delete_vlan", lambda: sw.delete_vlan(vlan, force=force))
+        chosen = _as_backend(backend)
+        return _write(
+            "delete_vlan",
+            lambda: sw.delete_vlan(vlan, force=force, backend=chosen),
+        )
 
     @mcp.tool()
     def cycle_poe(
@@ -400,13 +457,18 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Power-cycle a port's PoE (off, wait, on) -- reboots the attached
         powered device. Disruptive: needs force=true."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
-        return _write("cycle_poe", lambda: sw.cycle_poe(port, force=force))
+        chosen = _as_backend(backend)
+        return _write(
+            "cycle_poe",
+            lambda: sw.cycle_poe(port, force=force, backend=chosen),
+        )
 
     @mcp.tool()
     def clear_poe_fault(
@@ -419,13 +481,18 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Clear a port's latched PoE fault by cycling its power.
         Disruptive: needs force=true."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
-        return _write("clear_poe_fault", lambda: sw.clear_poe_fault(port, force=force))
+        chosen = _as_backend(backend)
+        return _write(
+            "clear_poe_fault",
+            lambda: sw.clear_poe_fault(port, force=force, backend=chosen),
+        )
 
     @mcp.tool()
     def set_mgmt_ip(
@@ -440,6 +507,7 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         community: str | None = None,
         http_password: str | None = None,
         nsdp_interface: str | None = None,
+        backend: str | None = None,
     ) -> dict[str, Any]:
         """Set the switch's static management IP, netmask and gateway.
         HIGHLY disruptive -- changing this can make the switch unreachable at
@@ -447,9 +515,12 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
+        chosen = _as_backend(backend)
         return _write(
             "set_mgmt_ip",
-            lambda: sw.set_mgmt_ip(address, netmask, gateway, force=force),
+            lambda: sw.set_mgmt_ip(
+                address, netmask, gateway, force=force, backend=chosen
+            ),
         )
 
     @mcp.tool()
@@ -468,7 +539,13 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         """Upload an HTTPS SSL server certificate + private key (both PEM text)
         to the switch. Implemented for gsm7228ps/S3300; a model whose mechanism
         is known but not yet implemented reports that honestly. HIGHLY
-        disruptive -- replaces the running certificate. Needs force=true."""
+        disruptive -- replaces the running certificate. Needs force=true.
+
+        Deliberately takes NO 'backend' parameter: this op is the web UI's
+        certificate upload specifically, and upload_certificate_scp is the
+        separate CLI/SCP mechanism. Offering a backend knob here would be a knob
+        that does nothing, which is exactly the kind of quiet lie principle 1
+        forbids -- the two mechanisms are two named tools instead."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
@@ -495,7 +572,10 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         (M4300/GSM7252PS): the switch pulls the PEM the CALLER has already staged
         on ``scp_source`` (``user@host[:port]``) under ``remote_dir``. Only these
         FASTPATH models; every other model reports unsupported. HIGHLY disruptive
-        -- replaces the running certificate (toggles the secure web server)."""
+        -- replaces the running certificate (toggles the secure web server).
+
+        Takes NO 'backend' parameter: this IS the CLI/SCP mechanism, the sibling
+        of the web UI's upload_certificate. See that tool's note."""
         sw = resolver(
             switch, host, model, config, community, http_password, nsdp_interface
         )
