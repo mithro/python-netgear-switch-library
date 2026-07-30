@@ -121,20 +121,23 @@ class MgmtIpConfig:
 
 @dataclass(frozen=True)
 class DetectedModel:
-    """Result of identifying a switch's model over SNMP (sysDescr matching).
+    """Result of identifying a switch's model over SNMP (sysObjectID + sysDescr).
 
-    ``key`` is a registry key (see ``registry.get_model``) if the switch's
-    sysDescr confidently matched exactly one registered model's name, or
-    ``None`` if it did not -- e.g. an unregistered Netgear model, a
-    non-Netgear device, or an unreadable/absent sysDescr. ``None`` is NEVER a
-    fabricated guess; see ``protocols.snmp.parse.detect_model_from_sysdescr``.
+    ``key`` is a registry key (see ``registry.get_model``) if the switch was
+    confidently identified -- either by a real-capture-confirmed sysObjectID
+    (``parse.detect_model_from_sysobjectid``, tried first) or, failing that, by
+    its sysDescr matching exactly one registered model's name
+    (``parse.detect_model_from_sysdescr``) -- or ``None`` if neither did (an
+    unregistered Netgear model, a non-Netgear device, or an unreadable/absent
+    reply). ``None`` is NEVER a fabricated guess.
 
     ``sys_descr``/``sys_object_id`` are the raw SNMP-reported strings, kept
-    for the caller/logging even when unmatched. ``sys_object_id`` is READ but
-    NOT used for matching -- there is no known sysObjectID -> model table
-    (no MIBs/captures/prior-art exist for one), so it is carried purely as a
-    raw signal and a future exact-match hook, never as fabricated tie-break
-    data.
+    for the caller/logging even when unmatched. ``sys_object_id`` IS the
+    PREFERRED matching signal: an unambiguous manufacturer product identifier,
+    so it can distinguish SKUs whose sysDescr text is indistinguishable (the
+    S3300-52X vs the unregistered S3300-28X). Its map (``SYSOBJECTID_MODELS``)
+    holds ONLY OIDs proven by a live capture, never a spec-sheet guess, so a
+    model with no committed capture is still identified purely by sysDescr.
     """
 
     key: str | None

@@ -997,6 +997,9 @@ wheels = [
 [[package]]
 name = "python-netgear-switch-library"
 source = { editable = "." }
+dependencies = [
+    { name = "cryptography" },
+]
 
 [package.optional-dependencies]
 async = [
@@ -1027,6 +1030,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=41" },
     { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.2" },
     { name = "mcp", marker = "extra == 'testing'", specifier = ">=1.2" },

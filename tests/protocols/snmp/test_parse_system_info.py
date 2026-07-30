@@ -205,6 +205,53 @@ def test_detect_model_from_sysdescr_rejects_unregistered_s3300_skus():
     ) is None
 
 
+# --- detect_model_from_sysobjectid: authoritative sysObjectID matching ------
+
+
+def test_detect_model_from_sysobjectid_matches_real_s3300_52x():
+    # Ground truth: the real S3300-52X-PoE+ (registered as gsm7228ps) reports
+    # sysObjectID 1.3.6.1.4.1.4526.100.10.19 (live capture 2026-07-30, host
+    # 10.1.5.11 = sw-netgear-s3300-1). sysDescr matching CANNOT identify it --
+    # its "S3300-52X-PoE+" text is the same shape as the unregistered
+    # S3300-28X and is deliberately rejected (see
+    # test_detect_model_from_sysdescr_rejects_unregistered_s3300_skus) -- so
+    # the sysObjectID map is the ONLY safe, authoritative detector.
+    assert (
+        parse.detect_model_from_sysobjectid("1.3.6.1.4.1.4526.100.10.19", MODELS)
+        == "gsm7228ps"
+    )
+
+
+def test_detect_model_from_sysdescr_still_cannot_identify_real_s3300_52x():
+    # The whole reason the sysObjectID map exists: the real firmware sysDescr
+    # is UNmatchable by text (same shape as the unregistered S3300-28X SKU).
+    assert (
+        parse.detect_model_from_sysdescr(
+            "S3300-52X-PoE+ ProSAFE 48-Port Gigabit Stackable Smart Switch "
+            "with PoE+ and 4 10G uplinks",
+            MODELS,
+        )
+        is None
+    )
+
+
+def test_detect_model_from_sysobjectid_unmapped_or_absent_is_none():
+    # An OID with no real-capture-confirmed mapping is honestly None, never a
+    # guess -- and so are absent/empty inputs.
+    assert parse.detect_model_from_sysobjectid("1.3.6.1.4.1.9.1.1", MODELS) is None
+    assert parse.detect_model_from_sysobjectid("1.3.6.1.4.1.4526.10.100.14", MODELS) is None
+    assert parse.detect_model_from_sysobjectid(None, MODELS) is None
+    assert parse.detect_model_from_sysobjectid("", MODELS) is None
+
+
+def test_detect_model_from_sysobjectid_only_returns_models_actually_present():
+    # Honesty: even a mapped OID resolves ONLY when the target key is present
+    # in the passed `models` mapping (never conjures a model out of the map).
+    assert (
+        parse.detect_model_from_sysobjectid("1.3.6.1.4.1.4526.100.10.19", {}) is None
+    )
+
+
 def test_detect_model_from_sysdescr_ambiguous_match_is_none():
     # Defence-in-depth: if a sysDescr text happened to contain TWO different
     # registered models' tokens, this must return None (never pick one

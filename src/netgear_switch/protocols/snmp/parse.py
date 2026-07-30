@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import string
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ...models import (
@@ -887,6 +888,49 @@ def _candidate_tokens(sys_descr: str) -> frozenset[str]:
     return frozenset(
         word.strip(_WORD_STRIP_CHARS).upper() for word in sys_descr.split()
     )
+
+
+# Authoritative sysObjectID -> registry-key map. HONESTY CONSTRAINT: every
+# entry is confirmed from a REAL hardware capture. sysObjectID is the
+# manufacturer's stable product identifier -- unlike free-form sysDescr text
+# it is unambiguous, so it is the PREFERRED detector when present. Entries are
+# added only when a live capture proves the mapping, NEVER guessed from a spec
+# sheet (that is why this map is small: most registered models have no
+# committed sysObjectID capture yet).
+#
+#   * 1.3.6.1.4.1.4526.100.10.19 -> gsm7228ps: the S3300-52X-PoE+
+#     (sw-netgear-s3300-1 @ 10.1.5.11, captured 2026-07-30 --
+#     tests/fixtures/captures/gsm7228ps.json). Its sysDescr "S3300-52X-PoE+
+#     ..." is DELIBERATELY unmatchable by ``detect_model_from_sysdescr`` (same
+#     textual shape as the unregistered S3300-28X SKU -- see that function's
+#     docstring), so this OID map is the ONLY safe way to auto-detect it.
+SYSOBJECTID_MODELS: Mapping[str, str] = MappingProxyType(
+    {
+        "1.3.6.1.4.1.4526.100.10.19": "gsm7228ps",
+    }
+)
+
+
+def detect_model_from_sysobjectid(
+    sys_object_id: str | None, models: Mapping[str, SwitchModel]
+) -> str | None:
+    """Identify a model from its sysObjectID via ``SYSOBJECTID_MODELS``.
+
+    Returns the registry key ONLY when the OID is in the real-capture-confirmed
+    map AND that key is present in ``models``; otherwise ``None`` (never a
+    guess). This is the AUTHORITATIVE detector -- sysObjectID is a stable
+    manufacturer product identifier, so unlike ``detect_model_from_sysdescr``'s
+    text heuristic it can safely distinguish SKUs whose sysDescr strings are
+    textually indistinguishable (the S3300-52X vs the unregistered S3300-28X).
+    ``read_system_info`` tries this first and only falls back to sysDescr
+    matching when it returns ``None``.
+    """
+    if not sys_object_id:
+        return None
+    key = SYSOBJECTID_MODELS.get(sys_object_id)
+    if key is not None and key in models:
+        return key
+    return None
 
 
 def detect_model_from_sysdescr(

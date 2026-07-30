@@ -34,20 +34,23 @@ def _require_snmp(model: SwitchModel) -> None:
 
 
 def read_system_info(client: SnmpClient) -> DetectedModel:
-    """Identify a switch's model via SNMP sysDescr matching.
+    """Identify a switch's model via SNMP: sysObjectID first, then sysDescr.
 
     Deliberately NOT a method on ``SnmpReader``: every other read in this
     module requires a already-known ``SwitchModel`` (``_require_snmp`` gates
     the reader's construction), but model identification exists precisely
     for the case where the caller does NOT yet know/trust the model -- so
-    this takes a bare, unbound ``SnmpClient`` instead. See
-    ``protocols.snmp.parse.detect_model_from_sysdescr`` for the honesty-
-    constrained matching rules (never guesses; ``key=None`` means genuinely
-    unidentified -- an unregistered model or a non-Netgear device).
+    this takes a bare, unbound ``SnmpClient`` instead. A real-capture-confirmed
+    sysObjectID (``parse.detect_model_from_sysobjectid``) wins when present;
+    otherwise the sysDescr text heuristic (``parse.detect_model_from_sysdescr``)
+    is tried. Both are honesty-constrained (never guess; ``key=None`` means
+    genuinely unidentified -- an unregistered model or a non-Netgear device).
     """
     rows = client.get([oids.SYS_DESCR, oids.SYS_OBJECT_ID])
     sys_descr, sys_object_id = parse.parse_system_info(rows)
-    key = parse.detect_model_from_sysdescr(sys_descr, MODELS)
+    key = parse.detect_model_from_sysobjectid(
+        sys_object_id, MODELS
+    ) or parse.detect_model_from_sysdescr(sys_descr, MODELS)
     return DetectedModel(key=key, sys_descr=sys_descr, sys_object_id=sys_object_id)
 
 
@@ -55,7 +58,9 @@ async def async_read_system_info(client: AsyncSnmpClient) -> DetectedModel:
     """Async twin of ``read_system_info`` -- see there."""
     rows = await client.get([oids.SYS_DESCR, oids.SYS_OBJECT_ID])
     sys_descr, sys_object_id = parse.parse_system_info(rows)
-    key = parse.detect_model_from_sysdescr(sys_descr, MODELS)
+    key = parse.detect_model_from_sysobjectid(
+        sys_object_id, MODELS
+    ) or parse.detect_model_from_sysdescr(sys_descr, MODELS)
     return DetectedModel(key=key, sys_descr=sys_descr, sys_object_id=sys_object_id)
 
 
