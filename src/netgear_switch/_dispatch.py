@@ -184,17 +184,29 @@ def build_sync_cli_client(
     password: str | None,
     model: SwitchModel,
 ) -> CliSession:
-    """Default sync CLI session: the SSH transport (paramiko). Imported lazily.
+    """Build the sync CLI session for ``model``.
 
-    The other two transports (telnet/console) exist for direct construction but
-    SSH is the facade's default network CLI transport.
+    SSH (paramiko) is the default network CLI transport. A model that exposes
+    TELNET but NOT SSH (the S3300-52X / gsm7228ps, whose FASTPATH CLI listens on
+    telnet port 60000 with no ssh listener anywhere) instead gets the telnet
+    transport dialled at ``cli_spec(model).telnet_port``. Both transports are
+    imported lazily. The console transport is never auto-selected here (it needs
+    a serial device path, not a host).
     """
     from .protocols.cli.commands import cli_spec
-    from .transport.cli.ssh import SshCliTransport
 
     if not password:
         raise CredentialError(f"no CLI password configured for {host!r}")
-    return SshCliTransport(host, username, password, cli_spec(model))
+    spec = cli_spec(model)
+    if Backend.TELNET in model.backends and Backend.SSH not in model.backends:
+        from .transport.cli.telnet import TelnetCliTransport
+
+        return TelnetCliTransport(
+            host, username, password, spec, port=spec.telnet_port
+        )
+    from .transport.cli.ssh import SshCliTransport
+
+    return SshCliTransport(host, username, password, spec)
 
 
 def _require_http_password(host: str, password: str | None) -> str:
