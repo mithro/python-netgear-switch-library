@@ -61,16 +61,24 @@ class SwitchModel:
     # "qbridge" (the default): the standard Q-BRIDGE
     # dot1qVlanStaticEgressPorts/UntaggedPorts PortLists are read-WRITE, so a
     # membership change is a read-modify-write of those bitmaps. VERIFIED live on
-    # the GSM7252PS (10.1.5.22).
+    # the GSM7252PS (10.1.5.22) and the S3300-52X (10.1.5.11) -- and it is the
+    # ONLY membership mechanism either of them publishes: a walk of the vendor
+    # switchport table 1.3.6.1.4.1.4526.10.1.2.8.37 returned ZERO rows on both
+    # (2026-07-30, community "public"), versus 1520 rows on the m4300-24x and 1440
+    # on the m4300-16x. So this is measured per-model reality on all four SNMP
+    # switches, not "qbridge worked so we stopped looking" (principle 3).
     #
-    # "fastpath_switchport": on FASTPATH 12.x (VERIFIED live on the M4300-24X
-    # @10.1.5.13, firmware 12.0.13.8) those same PortLists are READ-ONLY MIRRORS
-    # -- a SET returns commitFailed even when writing back byte-identical bytes,
-    # and dot1qVlanStaticRowStatus := notInService also commitFails (so there is
-    # no RFC-2674 suspend/modify/activate route either). Membership is instead
-    # owned by the per-port SWITCHPORT MODE: writes go to the vendor switchport
-    # table (see oids.FASTPATH_SWITCHPORT_*). Discovered by full-walk -> CLI
-    # change -> re-walk diff; see snmp_write.SnmpWriter._set_vlan_switchport.
+    # "fastpath_switchport": on FASTPATH 12.x (VERIFIED live on BOTH M4300 SKUs)
+    # membership is owned by the per-port SWITCHPORT MODE, so writes go to the
+    # vendor switchport table (see oids.FASTPATH_SWITCHPORT_* and
+    # snmp_write._plan_switchport_membership, which documents the full derivation
+    # and the live evidence). dot1qVlanStaticEgressPorts is writable ONLY while no
+    # interface on the switch is in access mode -- and since an UNTAGGED write is
+    # expressed as access mode, the qbridge dialect cannot be used here at all.
+    # dot1qVlanStaticUntaggedPorts is worse than read-only: a SET returns noError
+    # and is then silently discarded (proved on the -24X). dot1qVlanStaticRowStatus
+    # := notInService also commitFails, so there is no RFC-2674
+    # suspend/modify/activate route either.
     snmp_vlan_write: str = "qbridge"
     # Write the egress and untagged PortLists in SEPARATE PDUs, egress first,
     # instead of one atomic multi-varbind SET.
@@ -148,8 +156,23 @@ _MODELS: dict[str, SwitchModel] = {
             16,
             {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _FM,
-            # Same FASTPATH 12.x firmware family as the -24X (whose read-only
-            # Q-BRIDGE PortLists were verified live) -- same write dialect.
+            # VERIFIED live @10.1.5.20 (FASTPATH 12.0.19.15) on 2026-07-30 -- this
+            # was previously only INFERRED from the -24X, and the inference needed
+            # checking because this firmware DOES accept some Q-BRIDGE egress
+            # writes. A deterministic A/B/A on port 1/0/1, issuing byte-identical
+            # writes to a throwaway VLAN while flipping only that port's mode,
+            # settled it:
+            #     general -> noError    access -> commitFailed
+            #     general -> noError    trunk  -> noError
+            #     access  -> commitFailed              general -> noError
+            # i.e. dot1qVlanStaticEgressPorts is writable only while NO interface
+            # on the switch is in access mode (switch-wide, not per-VLAN). Since
+            # an UNTAGGED membership write is expressed AS access mode, the qbridge
+            # dialect would disable itself on first use -- so this SKU really does
+            # belong on the switchport dialect. The same one rule also explains why
+            # the -24X (21 of 24 ports access-mode) rejects the write in every
+            # port mode. The switchport columns, by contrast, applied cleanly on
+            # BOTH SKUs in every mode.
             snmp_vlan_write="fastpath_switchport",
         ),
         # HTTP added 2026-07-23: the XE FASTPATH web UI (login live-validated

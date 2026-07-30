@@ -327,13 +327,24 @@ class VirtualSwitchState:
     vlan_portlist_width: int | None = None
     # FASTPATH vendor switchport state, for a model whose registry entry says
     # snmp_vlan_write == "fastpath_switchport" (the M4300s). Per-port mode
-    # (access=1/trunk=2/general=3), access VLAN, and the writable allowed-VLAN
-    # bitmap. Empty dicts mean "unseeded": _switchport_defaults() fills a port in
-    # on first use so the mock answers these columns for every port, exactly like
-    # the real agent (which has a row per interface).
+    # (access=1/trunk=2/general=3), access VLAN, native (trunk untagged) VLAN,
+    # and the writable allowed-VLAN bitmap. Empty dicts mean "unseeded":
+    # _switchport_defaults() fills a port in on first use so the mock answers
+    # these columns for every port, exactly like the real agent (which has a row
+    # per interface). Defaults are the LIVE-measured factory shape of an untouched
+    # M4300 port: access VLAN 1, native VLAN 1, all 4093 VLANs allowed.
     switchport_mode: dict[int, int] = field(default_factory=dict)
     switchport_access_vlan: dict[int, int] = field(default_factory=dict)
+    switchport_native_vlan: dict[int, int] = field(default_factory=dict)
     switchport_allowed_vlans: dict[int, bytes] = field(default_factory=dict)
+    # The GENERAL-mode per-VLAN participation lists (columns 7 and 8). These are
+    # INDEPENDENT stored config, NOT a mirror of effective membership: measured
+    # live on m4300-24x port 1/0/15, which is access-mode on VLAN 10 (so really
+    # untagged in 10) while column 7 still read VLAN 1 -- the general-mode config
+    # it would fall back to. They are only in force while mode == general(3), and
+    # a SET of either answers notWritable on real hardware.
+    switchport_general_untagged: dict[int, set[int]] = field(default_factory=dict)
+    switchport_general_tagged: dict[int, set[int]] = field(default_factory=dict)
     # TRANSIENT (per-SET-PDU, not device state): VLAN ids whose egress PortList
     # was written by the PDU currently being applied. Only used by a model with
     # snmp_vlan_split_membership_writes, to reproduce the S3300's ordering quirk:
@@ -347,66 +358,152 @@ class VirtualSwitchState:
         """True when this model's VLAN membership is owned by switchport mode."""
         return get_model(self.model_key).snmp_vlan_write == "fastpath_switchport"
 
-    def _reject_if_readonly_qbridge(self, column: str, vid: int) -> None:
-        """Refuse a Q-BRIDGE PortList write on a switchport-dialect model.
+    @property
+    def _access_mode_ports(self) -> list[int]:
+        """Physical ports currently in switchport access mode."""
+        from ..protocols.snmp.oids import SWITCHPORT_MODE_ACCESS
 
-        This is the mock emulating an INVALID write: on FASTPATH 12.x these
-        columns are read-only mirrors and the agent answers commitFailed. Without
-        this the mock would happily accept a write real hardware rejects -- the
-        very class of mock/hardware divergence that hid this behaviour.
+        for port in self.ports:
+            self._switchport_defaults(port)
+        return [
+            p for p, m in self.switchport_mode.items() if m == SWITCHPORT_MODE_ACCESS
+        ]
+
+    def _reject_if_readonly_qbridge(self, column: str, vid: int) -> None:
+        """Refuse a Q-BRIDGE egress PortList write exactly as FASTPATH 12.x does.
+
+        The rule was pinned down live on 2026-07-30 with a deterministic A/B/A on
+        m4300-16x @10.1.5.20 (fw 12.0.19.15): flipping ONE port (1/0/1) between
+        general and access mode and issuing BYTE-IDENTICAL writes to an unrelated
+        throwaway VLAN each time gave general->noError, access->commitFailed,
+        general->noError, trunk->noError, access->commitFailed, general->noError.
+        So ``dot1qVlanStaticEgressPorts`` is writable only while NO interface on
+        the switch is in access mode -- switch-wide, not per-VLAN, not per-VLAN-row
+        and not per-firmware. That one rule also explains the m4300-24x
+        @10.1.5.13 (fw 12.0.13.8) rejecting the write in access, trunk AND general
+        mode: 21 of its 24 ports are access-mode, so the column is never writable
+        there.
+
+        Because the library's own UNTAGGED write puts a port INTO access mode, the
+        qbridge dialect is self-defeating on this firmware family -- which is why
+        both M4300s use snmp_vlan_write="fastpath_switchport".
         """
-        if self._switchport_model:
+        if not self._switchport_model:
+            return
+        access = self._access_mode_ports
+        if access:
             raise CommitFailedError(
-                f"{column}.{vid} is a read-only mirror on this model: VLAN "
-                "membership is owned by the per-port switchport mode "
-                "(a real FASTPATH 12.x agent answers commitFailed, even for a "
-                "byte-identical value). Write the switchport mode / access VLAN."
+                f"{column}.{vid}: the Q-BRIDGE egress PortList is read-only while "
+                f"any interface is in switchport access mode (ports {access} are) "
+                f"-- a real FASTPATH 12.x agent answers commitFailed here, even "
+                f"for a byte-identical value. Write the switchport mode / access "
+                f"VLAN / native VLAN / allowed-VLAN columns instead."
             )
 
     def _switchport_defaults(self, port: int) -> None:
-        """Seed a port's switchport row on first touch (mode access, VLAN 1)."""
+        """Seed a port's switchport row on first touch.
+
+        Defaults are the live-measured factory shape of an untouched M4300 port:
+        mode access(1), access VLAN 1, native VLAN 1, all 4093 VLANs allowed, and
+        general-mode participation = untagged in VLAN 1 / tagged nowhere (column 7
+        read VLAN 1 and column 8 read empty on EVERY port of both M4300 SKUs).
+        """
         from ..protocols.snmp.oids import SWITCHPORT_MODE_ACCESS
 
         self.switchport_mode.setdefault(port, SWITCHPORT_MODE_ACCESS)
         self.switchport_access_vlan.setdefault(port, 1)
+        self.switchport_native_vlan.setdefault(port, 1)
         if port not in self.switchport_allowed_vlans:
             # Real hardware ships every VLAN allowed (4093 of them on the M4300).
             self.switchport_allowed_vlans[port] = _all_vlans_bitmap()
+        self.switchport_general_untagged.setdefault(port, {1})
+        self.switchport_general_tagged.setdefault(port, set())
 
     def _apply_switchport(self, port: int) -> None:
         """Recompute VLAN membership from ``port``'s switchport config.
 
-        Mirrors what the real switch does: the Q-BRIDGE egress/untagged sets and
-        the PVID are DERIVED from switchport mode + access VLAN (verified live --
-        setting mode=access + accessVlan=V put the port into
-        dot1qVlanStaticEgressPorts.V AND ...UntaggedPorts.V and set dot1qPvid).
+        Reproduces the derivation established live on 2026-07-30 against BOTH
+        M4300 SKUs (m4300-24x @10.1.5.13 fw 12.0.13.8 port 1/0/8; m4300-16x
+        @10.1.5.20 fw 12.0.19.15 port 1/0/1) by writing the vendor columns and
+        re-reading the Q-BRIDGE mirrors after every single step:
+
+        * access(1)  -> untagged member of the access VLAN (col3) and NOTHING
+          else; it also drives the PVID.
+        * trunk(2)   -> untagged member of the native VLAN (col4), PLUS a TAGGED
+          member of (allowed(col6) INTERSECT existing VLANs) - {native}; the PVID
+          becomes the native VLAN. The native VLAN is an untagged member EVEN WHEN
+          it is not in the allowed list (proved by removing VLAN 1 from col6 while
+          native stayed 1: the port stayed untagged in VLAN 1).
+        * general(3) -> membership is the col7/col8 participation lists, which
+          answer notWritable; the PVID is configured independently (live: a
+          general-mode port read access VLAN 10 while its PVID was 1).
+
+        The previous version modelled trunk as "tagged member of every allowed
+        VLAN, untagged nowhere" and had no native VLAN at all -- which is exactly
+        why the mock could not catch a writer that flipped a port to trunk with
+        the factory all-4093 allowed list still in place and thereby handed it
+        every VLAN on the switch.
         """
         from ..protocols.snmp import oids as _oids
 
         self._switchport_defaults(port)
         mode = self.switchport_mode[port]
-        access_vlan = self.switchport_access_vlan[port]
         if mode == _oids.SWITCHPORT_MODE_ACCESS:
-            # Exactly one VLAN, untagged, and it drives the PVID.
-            for vsim in self.vlans.values():
+            untagged = {self.switchport_access_vlan[port]}
+            tagged: set[int] = set()
+            self.pvids[port] = self.switchport_access_vlan[port]
+        elif mode == _oids.SWITCHPORT_MODE_TRUNK:
+            native = self.switchport_native_vlan[port]
+            untagged = {native}
+            allowed = _vlans_in_bitmap(self.switchport_allowed_vlans[port])
+            tagged = (allowed & set(self.vlans)) - {native}
+            self.pvids[port] = native
+        else:  # SWITCHPORT_MODE_GENERAL
+            untagged = set(self.switchport_general_untagged[port])
+            tagged = set(self.switchport_general_tagged[port]) - untagged
+            # PVID is NOT derived in general mode -- see the docstring.
+        for vid, vsim in self.vlans.items():
+            if vid in untagged:
+                vsim.member.add(port)
+                vsim.untagged.add(port)
+            elif vid in tagged:
+                vsim.member.add(port)
+                vsim.untagged.discard(port)
+            else:
                 vsim.member.discard(port)
                 vsim.untagged.discard(port)
-            if access_vlan in self.vlans:
-                self.vlans[access_vlan].member.add(port)
-                self.vlans[access_vlan].untagged.add(port)
-            self.pvids[port] = access_vlan
-        elif mode == _oids.SWITCHPORT_MODE_TRUNK:
-            # Tagged member of every allowed VLAN; untagged nowhere.
-            allowed = _vlans_in_bitmap(self.switchport_allowed_vlans[port])
-            for vid, vsim in self.vlans.items():
-                vsim.untagged.discard(port)
-                if vid in allowed:
-                    vsim.member.add(port)
+
+    def _reconcile_qbridge_membership(self, vid: int, incoming: set[int]) -> None:
+        """Fold an ACCEPTED Q-BRIDGE egress write back into switchport config.
+
+        Only reachable when no port is in access mode (see
+        ``_reject_if_readonly_qbridge``). On the m4300-16x such a write is just
+        another front end for the same configuration, VERIFIED live: adding 1/0/1
+        to a VLAN while that port was TRUNK made the allowed-VLAN column (col6)
+        gain the VLAN and the port became a TAGGED member, and removing it again
+        cleared the col6 bit; doing the same while the port was GENERAL instead
+        updated the col7 untagged list and the port became an UNTAGGED member.
+        Keeping the vendor columns in step is what stops the mock drifting into a
+        state no real switch can be in.
+        """
+        from ..protocols.snmp import oids as _oids
+
+        for port in self.ports:
+            self._switchport_defaults(port)
+            mode = self.switchport_mode[port]
+            if mode == _oids.SWITCHPORT_MODE_TRUNK:
+                allowed = _vlans_in_bitmap(self.switchport_allowed_vlans[port])
+                allowed = allowed | {vid} if port in incoming else allowed - {vid}
+                self.switchport_allowed_vlans[port] = _vlan_bitmap_bytes(allowed)
+            elif mode == _oids.SWITCHPORT_MODE_GENERAL:
+                # The egress write auto-UNTAGS on this firmware (col7 gained the
+                # VLAN) -- the same class of side effect the S3300 shows.
+                if port in incoming:
+                    self.switchport_general_untagged[port].add(vid)
                 else:
-                    vsim.member.discard(port)
-        # SWITCHPORT_MODE_GENERAL leaves membership under explicit per-VLAN
-        # control, which this control plane cannot express over SNMP (the
-        # participation bitmaps are notWritable), so nothing is derived here.
+                    self.switchport_general_untagged[port].discard(vid)
+                    self.switchport_general_tagged[port].discard(vid)
+            self._apply_switchport(port)
 
     @property
     def sysinfo_sensors(self) -> list[SensorSim]:
@@ -510,23 +607,28 @@ class VirtualSwitchState:
                     "Gauge32",
                     str(self.switchport_access_vlan[port]),
                 )
+                m[f"{oids.FASTPATH_SWITCHPORT_NATIVE_VLAN}.{port}"] = (
+                    "Gauge32",
+                    str(self.switchport_native_vlan[port]),
+                )
                 m[f"{oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS}.{port}"] = (
                     "OCTETSTR",
                     self.switchport_allowed_vlans[port].decode("latin-1"),
                 )
-                # The read-only mirrors the real agent also exposes: which VLANs
-                # this port is tagged/untagged in, derived from live membership.
-                tagged = {
-                    vid
-                    for vid, vsim in self.vlans.items()
-                    if port in vsim.member and port not in vsim.untagged
-                }
-                untagged = {
-                    vid for vid, vsim in self.vlans.items() if port in vsim.untagged
-                }
+                # The two notWritable columns: the GENERAL-mode participation
+                # lists. Emitted from their own stored config, NOT derived from
+                # effective membership -- live proof they are independent is
+                # m4300-24x port 1/0/15, an access port on VLAN 10 (so really
+                # untagged in 10) whose column 7 still read VLAN 1.
                 for base, vids in (
-                    (oids.FASTPATH_SWITCHPORT_TAGGED_VLANS, tagged),
-                    (oids.FASTPATH_SWITCHPORT_UNTAGGED_VLANS, untagged),
+                    (
+                        oids.FASTPATH_SWITCHPORT_TAGGED_VLANS,
+                        self.switchport_general_tagged[port],
+                    ),
+                    (
+                        oids.FASTPATH_SWITCHPORT_UNTAGGED_VLANS,
+                        self.switchport_general_untagged[port],
+                    ),
                 ):
                     m[f"{base}.{port}"] = (
                         "OCTETSTR",
@@ -722,6 +824,11 @@ class VirtualSwitchState:
 
             self._reject_if_readonly_qbridge("dot1qVlanStaticEgressPorts", vid)
             incoming = set(decode_port_bitmap(_as_bytes(value)))
+            if self._switchport_model:
+                # Accepted (no access-mode port), so this firmware treats the
+                # column as an alternative front end for the switchport config.
+                self._reconcile_qbridge_membership(vid, incoming)
+                return
             if get_model(self.model_key).snmp_vlan_split_membership_writes:
                 # S3300 Smart-firmware side effect (VERIFIED live): a port added
                 # to the egress list becomes an UNTAGGED member. Recorded for this
@@ -739,7 +846,17 @@ class VirtualSwitchState:
         if vid is not None and vid in self.vlans:
             from ..protocols.snmp.parse import decode_port_bitmap
 
-            self._reject_if_readonly_qbridge("dot1qVlanStaticUntaggedPorts", vid)
+            if self._switchport_model:
+                # ACCEPTED AND SILENTLY IGNORED -- the nastiest of the three
+                # behaviours, and PROVEN live on m4300-24x @10.1.5.13: a SET of
+                # dot1qVlanStaticUntaggedPorts.4007 := {port 8} returned noError
+                # while the column still read back [] afterwards (and the same
+                # SET was accepted in access, trunk and general mode alike, in the
+                # very same session where the EGRESS column commitFailed). A mock
+                # that raised here would let the library "succeed" on a device
+                # that never applied anything, so it must no-op instead and let
+                # write verification be the thing that catches it.
+                return
             if vid in self.pdu_egress_writes:
                 # Same PDU already wrote this VLAN's egress list, whose auto-untag
                 # side effect wins on this firmware: the write is ACKed but has no
@@ -760,6 +877,26 @@ class VirtualSwitchState:
         port = _tail(oids.FASTPATH_SWITCHPORT_ACCESS_VLAN)
         if port is not None and self._switchport_model:
             self.switchport_access_vlan[port] = int(value)
+            self._apply_switchport(port)
+            return
+
+        port = _tail(oids.FASTPATH_SWITCHPORT_NATIVE_VLAN)
+        if port is not None and self._switchport_model:
+            # WRITABLE, live-verified on m4300-24x 1/0/8 (SET ...37.1.4.8 := 4007
+            # read back 4007), but only to an EXISTING VLAN in 1..4093: := 0,
+            # := 4094 and := a deleted VLAN id all answered commitFailed. That
+            # last one is why the writer can never express "untagged nowhere".
+            native = int(value)
+            if native not in self.vlans:
+                why = (
+                    "is out of range" if not 1 <= native <= 4093 else "does not exist"
+                )
+                raise CommitFailedError(
+                    f"switchport native VLAN for port {port} must be an existing "
+                    f"VLAN in 1..4093; {native} {why} (a real FASTPATH agent "
+                    f"answers commitFailed)"
+                )
+            self.switchport_native_vlan[port] = native
             self._apply_switchport(port)
             return
 
@@ -1030,6 +1167,7 @@ class VirtualSwitchState:
         if self._switchport_model and (
             _is_col(oids.FASTPATH_SWITCHPORT_MODE)
             or _is_col(oids.FASTPATH_SWITCHPORT_ACCESS_VLAN)
+            or _is_col(oids.FASTPATH_SWITCHPORT_NATIVE_VLAN)
             or _is_col(oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS)
             or _is_col(oids.FASTPATH_SWITCHPORT_TAGGED_VLANS)
             or _is_col(oids.FASTPATH_SWITCHPORT_UNTAGGED_VLANS)
