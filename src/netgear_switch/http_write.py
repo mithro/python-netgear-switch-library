@@ -273,10 +273,23 @@ def _csrf(html: str) -> str:
 
 
 def _require_path(model_key: str, path: str | None, op: str) -> str:
-    """Return ``path`` or raise honestly if this model's spec has none for ``op``."""
+    """Return ``path`` or raise honestly if this model's spec has none for ``op``.
+
+    The message says the SPEC has no path rather than "the web UI does not expose
+    it", because those are different claims and only the per-model spec entry
+    knows which one applies. Some Nones in ``endpoints.py`` are MEASURED absences
+    (the gs110emx really has no PoE/LLDP/MAC page -- its own JS publishes 39
+    pages, none of them those, and seven probed names each 404), while others are
+    simply undiscovered, usually because the switch was unreachable. Asserting a
+    device limitation for the second kind is what CLAUDE.md principle 4 forbids,
+    so the wording sends the reader to the spec entry, where the evidence -- or
+    its absence -- is recorded.
+    """
     if path is None:
         raise UnsupportedCapabilityError(
-            f"model {model_key!r} web UI does not expose {op}"
+            f"model {model_key!r} has no {op} page in its HTTP endpoint spec "
+            "(see protocols/http/endpoints.py for whether that is a measured "
+            "absence or an undiscovered page)"
         )
     return path
 
