@@ -92,6 +92,16 @@ def test_pvids_agree() -> None:
     assert dict(cli.get_pvids()) == dict(snmp.get_pvids())
 
 
+#: Ports the real GSM7252PS reports on VLAN 1 as ``Current: Exclude /
+#: Configured: Include``. SNMP reads the CONFIGURED table
+#: (dot1qVlanStaticEgressPorts) and so includes them; ``show vlan 1`` prints the
+#: CURRENT column and so does not. Measured live on 10.1.5.22 (2026-07-30) --
+#: see ``VlanSim.configured_only``. This is a genuine interface difference, not a
+#: mock artefact, so the cross-backend comparison accounts for it explicitly
+#: instead of the two faces being made to agree by flattening the state.
+_VLAN1_CONFIGURED_ONLY = frozenset({50, 51})
+
+
 def test_vlans_agree_on_physical_membership() -> None:
     cli, snmp = _readers()
 
@@ -105,7 +115,17 @@ def test_vlans_agree_on_physical_membership() -> None:
             )
         return out
 
-    assert proj(cli) == proj(snmp)
+    cli_v, snmp_v = proj(cli), proj(snmp)
+    assert set(cli_v) == set(snmp_v)
+    for vid, (cli_name, cli_member, cli_tagged) in cli_v.items():
+        snmp_name, snmp_member, snmp_tagged = snmp_v[vid]
+        assert cli_name == snmp_name, vid
+        extra = _VLAN1_CONFIGURED_ONLY if vid == 1 else frozenset()
+        assert cli_member == snmp_member - extra, vid
+        assert cli_tagged == snmp_tagged - extra, vid
+    # Pin the divergence itself, so a change that silently made the two faces
+    # identical again (i.e. made the mock unfaithful) fails here.
+    assert snmp_v[1][1] - cli_v[1][1] == _VLAN1_CONFIGURED_ONLY
 
 
 def test_poe_agrees_on_admin_power_delivering() -> None:

@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 
 from .errors import HttpUnexpectedPageError, UnsupportedCapabilityError
 from .models import MgmtIpConfig, VLANInfo, VlanMode
-from .protocols.http import parse
+from .protocols.http import forms, parse
 from .protocols.http.endpoints import http_spec
 
 if TYPE_CHECKING:
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     )
     from .protocols.http.endpoints import HttpModelSpec
     from .protocols.http.session import AsyncHttpSession, HttpSession
-    from .protocols.http.types import HttpSysInfo
+    from .protocols.http.types import FastpathMembership, HttpSysInfo
     from .registry import SwitchModel
 
 
@@ -116,11 +116,10 @@ def _is_goahead_dialect(spec: HttpModelSpec) -> bool:
     return spec.html_dialect is HtmlDialect.GOAHEAD_XML
 
 
-def _has_inline_vlan_egress(spec: HttpModelSpec) -> bool:
-    """True for the FASTPATH dialects whose VLAN page carries each VLAN's
-    egress list INLINE (M4300 vlanStatus.html and the XE one), so there is no
-    per-VLAN membership POST to make -- and requiring
-    ``vlan_membership_path`` for them would wrongly raise."""
+def _is_fastpath_dialect(spec: HttpModelSpec) -> bool:
+    """True for the managed FASTPATH/Cheetah models (gsm7252ps, gsm7228ps and
+    both M4300 SKUs), which share the ``switching/dot1q/vlan_port_cfg.html``
+    VLAN-membership page -- see ``parse.parse_fastpath_membership``."""
     return _is_m4300_dialect(spec) or _uses_xe_grid(spec)
 
 
@@ -300,6 +299,87 @@ def _check_membership_is_for(spec: HttpModelSpec, html: str, vid: int) -> None:
         )
 
 
+def fastpath_membership_paths(spec: HttpModelSpec, model_key: str) -> tuple[str, str]:
+    """``(GET page, POST target)`` for the managed FASTPATH VLAN-membership page.
+
+    Both must be populated for a managed model; a ``None`` here is a spec defect,
+    not a device limitation, so it raises with the field name rather than
+    degrading the read (principle 1: fail loud).
+    """
+    get_path = _require_path(model_key, spec.vlan_membership_path, "VLAN membership")
+    post_path = _require_path(
+        model_key, spec.vlan_membership_post_path, "the VLAN-membership form target"
+    )
+    return get_path, post_path
+
+
+def _check_fastpath_membership_is_for(
+    page: FastpathMembership, vid: int
+) -> FastpathMembership:
+    """Refuse a membership page that is showing a DIFFERENT VLAN.
+
+    The firmware re-renders whichever VLAN its ``vlanId`` field selected; if a
+    POST were rejected it would silently answer with the previously-shown VLAN,
+    and that VLAN's ports would be attributed to ``vid``. Same guard the
+    Plus-class ``_check_membership_is_for`` makes, and it is not theoretical --
+    it is exactly what ``8021qMembe.cgi`` does without its CSRF hash.
+    """
+    if page.vlan_id is not None and page.vlan_id != vid:
+        raise HttpUnexpectedPageError(
+            f"vlan_port_cfg_rw.html: asked for VLAN {vid} but the page shows VLAN "
+            f"{page.vlan_id} -- refusing to report the wrong VLAN's membership"
+        )
+    return page
+
+
+def _with_fastpath_egress(
+    vlans: list[VLANInfo], pages: dict[int, FastpathMembership]
+) -> list[VLANInfo]:
+    """Rebuild each VLAN's egress sets from its VLAN-Membership page.
+
+    All three sets come from that page: ``tagged``/``untagged`` from its
+    ``hiddenTagged``/``hiddenUnTagged`` ifName lists, and ``member`` as their
+    union -- NOT from ``vlanStatus.html``'s Member Ports cell.
+
+    That is a deliberate correction, not a shortcut. The two pages' member cells
+    genuinely disagree, and the disagreement is per-FIRMWARE, so neither can be
+    trusted as "the" membership on every model:
+
+    * GSM7252PS @10.1.5.22, VLAN 1: ``vlanStatus`` lists 17 ports, matching
+      ``show vlan 1``'s CURRENT column. Its own membership page agrees.
+    * M4300-24X @10.1.5.13, VLAN 10: ``vlanStatus`` lists
+      ``1/0/1 - 1/0/2, 1/0/5, 1/0/15 - 1/0/24``, i.e. 13 ports -- but
+      ``show vlan 10`` reports 1/0/21..1/0/24 as ``Current: Exclude /
+      Configured: Include``, so only 9 are current members. Despite its field
+      name (``SwitchingVlanCurrentConfig_VlanCurrentEgressPortList``) that cell
+      is reporting the CONFIGURED set on this firmware.
+
+    The membership page's two ifName lists matched ``show vlan <id>`` on EVERY
+    VLAN of all four switches (14 + 5 + 14 + 14), so they are the consistent
+    source, and using them also guarantees
+    ``member_ports == tagged_ports | untagged_ports`` -- an invariant a caller
+    can rely on and which the vlanStatus cell breaks.
+
+    A VLAN with no membership page (it disappeared between the two reads) is left
+    exactly as ``vlanStatus`` reported it rather than being dropped or guessed.
+    """
+    out: list[VLANInfo] = []
+    for v in vlans:
+        page = pages.get(v.vlan_id)
+        if page is None:
+            out.append(v)
+            continue
+        out.append(
+            dataclasses.replace(
+                v,
+                member_ports=page.tagged_ports | page.untagged_ports,
+                tagged_ports=page.tagged_ports,
+                untagged_ports=page.untagged_ports,
+            )
+        )
+    return out
+
+
 def _parse_sysinfo(spec: HttpModelSpec, html: str) -> HttpSysInfo:
     """Dispatch the device-identity/mgmt-IP page: gs105pe's switch_info.cgi
     (lowercase ip_address inputs, dhcpMode select) vs gs110emx's sysInfo.html."""
@@ -419,10 +499,14 @@ class HttpReader:
             return parse.parse_goahead_vlans(
                 self.session.get_page(cfg_path), self.session.get_page(pvid_path)
             )
-        if _has_inline_vlan_egress(self._spec):
-            # vlanStatus.html carries each VLAN's egress list inline, so there
-            # is no per-VLAN membership POST for these models.
-            return _parse_vlans(self._spec, self.session.get_page(cfg_path))
+        if _is_fastpath_dialect(self._spec):
+            # vlanStatus.html gives the VLAN list, names and member ports; the
+            # separate VLAN Membership page (live-discovered 2026-07-30) is what
+            # splits those members into tagged vs untagged. Both are read here --
+            # returning empty tagged/untagged sets from vlanStatus alone was the
+            # defect this replaces.
+            vlans = _parse_vlans(self._spec, self.session.get_page(cfg_path))
+            return _with_fastpath_egress(vlans, self._fastpath_membership(vlans))
         member_path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
@@ -442,6 +526,49 @@ class HttpReader:
             _check_membership_is_for(self._spec, html, vid)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
+
+    def read_fastpath_membership(self, vlan: int) -> FastpathMembership:
+        """One VLAN's membership page from the managed FASTPATH web UI.
+
+        The GET shows whichever VLAN the firmware last selected, so any other
+        VLAN needs the form POST the browser's own ``screen_refresh()`` makes:
+        the full field set with ``submt=0``, which re-renders WITHOUT applying
+        (confirmed live -- re-reading a VLAN returned a byte-identical page).
+        Shared by ``get_vlans`` and ``HttpWriter.set_vlan_membership``.
+        """
+        get_path, post_path = fastpath_membership_paths(self._spec, self.model.key)
+        page = parse.parse_fastpath_membership(self.session.get_page(get_path))
+        if page.vlan_id == vlan:
+            return page
+        body = forms.fastpath_membership_form(page, vlan=vlan)
+        return _check_fastpath_membership_is_for(
+            parse.parse_fastpath_membership(self.session.post_form(post_path, body)),
+            vlan,
+        )
+
+    def _fastpath_membership(
+        self, vlans: list[VLANInfo]
+    ) -> dict[int, FastpathMembership]:
+        """Every VLAN's membership page, reusing ONE base GET.
+
+        Deliberately not ``read_fastpath_membership`` per VLAN: that would re-GET
+        the base page for each of the 14 VLANs these switches carry.
+        """
+        get_path, post_path = fastpath_membership_paths(self._spec, self.model.key)
+        base = parse.parse_fastpath_membership(self.session.get_page(get_path))
+        pages: dict[int, FastpathMembership] = {}
+        for v in vlans:
+            if base.vlan_id == v.vlan_id:
+                pages[v.vlan_id] = base
+                continue
+            body = forms.fastpath_membership_form(base, vlan=v.vlan_id)
+            pages[v.vlan_id] = _check_fastpath_membership_is_for(
+                parse.parse_fastpath_membership(
+                    self.session.post_form(post_path, body)
+                ),
+                v.vlan_id,
+            )
+        return pages
 
     def get_macs(self) -> list[MacEntry]:
         path = _require_path(
@@ -514,13 +641,16 @@ class AsyncHttpReader:
                 await self.session.get_page(cfg_path),
                 await self.session.get_page(pvid_path),
             )
-        # The inline-egress check MUST precede the vlan_membership_path
-        # requirement: those models have no membership page (vlanStatus.html
-        # carries the egress list inline), so requiring it first made this
-        # async op raise while the sync twin worked -- a real sync/async
-        # divergence.
-        if _has_inline_vlan_egress(self._spec):
-            return _parse_vlans(self._spec, await self.session.get_page(cfg_path))
+        # The FASTPATH check MUST precede the vlan_membership_path requirement,
+        # because these models' VLAN LIST comes from vlanStatus.html while their
+        # membership page is a separate URL -- requiring the membership path
+        # first once made this async op raise while the sync twin worked, a real
+        # sync/async divergence.
+        if _is_fastpath_dialect(self._spec):
+            # Mirror of the sync twin: vlanStatus.html for the list/names/members,
+            # the VLAN Membership page for the tagged/untagged split.
+            vlans = _parse_vlans(self._spec, await self.session.get_page(cfg_path))
+            return _with_fastpath_egress(vlans, await self._fastpath_membership(vlans))
         member_path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
@@ -540,6 +670,40 @@ class AsyncHttpReader:
             _check_membership_is_for(self._spec, html, vid)
             result.append(_vlan_info(vid, html, self.model.port_count))
         return result
+
+    async def read_fastpath_membership(self, vlan: int) -> FastpathMembership:
+        """Async twin of ``HttpReader.read_fastpath_membership`` (see its docs)."""
+        get_path, post_path = fastpath_membership_paths(self._spec, self.model.key)
+        page = parse.parse_fastpath_membership(await self.session.get_page(get_path))
+        if page.vlan_id == vlan:
+            return page
+        body = forms.fastpath_membership_form(page, vlan=vlan)
+        return _check_fastpath_membership_is_for(
+            parse.parse_fastpath_membership(
+                await self.session.post_form(post_path, body)
+            ),
+            vlan,
+        )
+
+    async def _fastpath_membership(
+        self, vlans: list[VLANInfo]
+    ) -> dict[int, FastpathMembership]:
+        """Async twin of ``HttpReader._fastpath_membership`` (see its docs)."""
+        get_path, post_path = fastpath_membership_paths(self._spec, self.model.key)
+        base = parse.parse_fastpath_membership(await self.session.get_page(get_path))
+        pages: dict[int, FastpathMembership] = {}
+        for v in vlans:
+            if base.vlan_id == v.vlan_id:
+                pages[v.vlan_id] = base
+                continue
+            body = forms.fastpath_membership_form(base, vlan=v.vlan_id)
+            pages[v.vlan_id] = _check_fastpath_membership_is_for(
+                parse.parse_fastpath_membership(
+                    await self.session.post_form(post_path, body)
+                ),
+                v.vlan_id,
+            )
+        return pages
 
     async def get_macs(self) -> list[MacEntry]:
         path = _require_path(

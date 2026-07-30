@@ -7,6 +7,16 @@ target page to scrape the fresh CSRF ``hash``; (3) POSTs the encoded form;
 ``WriteVerificationError(before, after)`` on divergence, NEVER silently
 succeeding. Web-UI-impossible/UNVERIFIED writes (port enable, mgmt-IP) raise
 ``UnsupportedCapabilityError`` honestly.
+
+VLAN membership on the MANAGED (FASTPATH/Cheetah) models — gsm7252ps,
+gsm7228ps/S3300 and both M4300 SKUs — goes through
+``_set_fastpath_membership`` against the live-discovered
+``switching/dot1q/vlan_port_cfg_rw.html`` endpoint; the Plus-class models keep
+the ``8021qMembe.cgi`` path. That is a fifth step for these pages: they answer
+HTTP 200 even when they REFUSE the write, reporting it in a hidden
+``err_flag``/``err_msg`` pair, so the apply response is checked for that before
+verification (see ``_raise_on_fastpath_err_flag``) and the switch's own message
+is what the caller gets.
 """
 
 from __future__ import annotations
@@ -23,6 +33,7 @@ from .errors import (
     UnsupportedCapabilityError,
     WriteVerificationError,
 )
+from .http_read import fastpath_membership_paths
 from .protocols.http import forms, parse
 from .protocols.http.endpoints import HtmlDialect, http_spec
 from .protocols.http.session import MultipartFile
@@ -33,6 +44,7 @@ if TYPE_CHECKING:
     from .models import VlanMode
     from .protocols.http.endpoints import HttpModelSpec
     from .protocols.http.session import AsyncHttpSession, HttpSession
+    from .protocols.http.types import FastpathMembership
     from .registry import SwitchModel
     from .snmp_write import PoeCycleTimeouts
 
@@ -249,6 +261,59 @@ def _require_path(model_key: str, path: str | None, op: str) -> str:
     return path
 
 
+def _is_fastpath_dialect(spec: HttpModelSpec) -> bool:
+    """True for the managed FASTPATH/Cheetah models (gsm7252ps, gsm7228ps/S3300
+    and both M4300 SKUs), whose VLAN membership lives on
+    ``switching/dot1q/vlan_port_cfg.html`` rather than a Plus-class
+    ``8021qMembe.cgi``. Mirrors ``http_read._is_fastpath_dialect``."""
+    return spec.html_dialect in (
+        HtmlDialect.M4300,
+        HtmlDialect.XE_FASTPATH,
+        HtmlDialect.S3300,
+    )
+
+
+def _raise_on_fastpath_err_flag(html: str, what: str) -> None:
+    """Surface the switch's OWN rejection of a FASTPATH apply.
+
+    These pages answer HTTP 200 even when they refuse the write and report it in
+    two hidden fields the page's ``check_error()`` JS pops up:
+    ``err_flag=1`` plus a human ``err_msg``. Without this check the only symptom
+    was the generic verify-after-write failure, which hides the reason -- and the
+    reason is what a caller needs.
+
+    LIVE example (M4300-24X 10.1.5.13, 2026-07-30): applying membership for a
+    port whose ``switchport mode`` is ``access`` returns
+
+        err_flag=1
+        err_msg='Unable to set VLAN membership for VLAN ( 4004 )'
+
+    i.e. the FASTPATH precondition that a port only accepts explicit VLAN
+    participation while in ``general`` mode. That is a device requirement to be
+    reported, not a library limitation to be papered over.
+    """
+    flag = parse.parse_fastpath_err(html)
+    if flag is None:
+        return
+    raise HttpError(f"switch refused {what}: {flag}")
+
+
+def _require_fastpath_membership_for(
+    page: FastpathMembership, vlan: int, path: str
+) -> None:
+    """Refuse to act on a membership page showing a DIFFERENT VLAN.
+
+    Without this a rejected VLAN-select POST (the firmware answers by
+    re-rendering whichever VLAN was already showing) would have this writer
+    apply the caller's change to the WRONG VLAN.
+    """
+    if page.vlan_id is not None and page.vlan_id != vlan:
+        raise HttpUnexpectedPageError(
+            f"{path}: asked for VLAN {vlan} but the page shows VLAN "
+            f"{page.vlan_id} -- refusing to write to the wrong VLAN"
+        )
+
+
 def _vlan_checkbox_index(html: str, vlan: int) -> int | None:
     for m in re.finditer(r'name="vlanck(\d+)"[^>]*value="(\d+)"', html):
         if int(m.group(2)) == vlan:
@@ -347,6 +412,9 @@ class HttpWriter:
         self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
     ) -> None:
         self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            self._set_fastpath_membership(vlan, port, mode)
+            return
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
@@ -366,6 +434,64 @@ class HttpWriter:
                 before=states.get(port),
                 after=after.get(port),
             )
+
+    def _set_fastpath_membership(self, vlan: int, port: int, mode: VlanMode) -> None:
+        """Set one port's participation in ``vlan`` on the managed FASTPATH web UI.
+
+        Wire flow, all live-confirmed (see ``parse.parse_fastpath_membership``):
+
+        1. Read the VLAN's membership page (GET, then the browser's own
+           ``submt=0`` re-render POST if another VLAN is showing).
+        2. Replace ONLY this port's code in the ``hiddenMem`` string the device
+           rendered -- every other slot, including the LAG pseudo-interfaces this
+           library does not model, is preserved verbatim.
+        3. POST it back with ``submt=16`` (what the page's own ``submitform()``
+           sets), ``hiddenTagged``/``hiddenUnTagged`` cleared exactly as
+           ``resethidden()`` does.
+        4. Re-read and verify.
+
+        Verification reads the page's ``configured`` view (``hiddenMem``), NOT its
+        ``hiddenTagged``/``hiddenUnTagged`` egress lists. That is not a weaker
+        check, it is the only correct one: those lists are the CURRENT
+        (operational) view, and a port that is configured into a VLAN but not
+        currently participating is absent from them -- live-proven on gsm7252ps
+        VLAN 1, where ``1/0/50``/``1/0/51`` are ``Configured: Include`` yet
+        ``Current: Exclude``. Verifying against the current view would report a
+        successful write as failed for exactly the link-down ports a caller is
+        most likely to be configuring.
+        """
+        get_path, post_path = fastpath_membership_paths(self._spec, self.model.key)
+        before = self._read_fastpath_membership(vlan, get_path, post_path)
+        hidden = parse.fastpath_hidden_mem_with(before, port, mode)
+        applied = self.session.post_form(
+            post_path,
+            forms.fastpath_membership_form(
+                before, vlan=vlan, hidden_mem=hidden, apply=True
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"VLAN {vlan} port {port} -> {mode.value}")
+        after = self._read_fastpath_membership(vlan, get_path, post_path)
+        if after.configured.get(port) is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value} on "
+                f"{post_path} (hiddenMem slot "
+                f"{before.port_slots.get(port)})",
+                before=before.configured.get(port),
+                after=after.configured.get(port),
+            )
+
+    def _read_fastpath_membership(
+        self, vlan: int, get_path: str, post_path: str
+    ) -> FastpathMembership:
+        page = parse.parse_fastpath_membership(self.session.get_page(get_path))
+        if page.vlan_id == vlan:
+            return page
+        body = forms.fastpath_membership_form(page, vlan=vlan)
+        shown = parse.parse_fastpath_membership(
+            self.session.post_form(post_path, body)
+        )
+        _require_fastpath_membership_for(shown, vlan, post_path)
+        return shown
 
     def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
         del name, force  # web UI 8021qCf.cgi has no VLAN-name field (GROUNDED).
@@ -566,6 +692,9 @@ class AsyncHttpWriter:
         self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
     ) -> None:
         self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            await self._set_fastpath_membership(vlan, port, mode)
+            return
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
@@ -585,6 +714,43 @@ class AsyncHttpWriter:
                 before=states.get(port),
                 after=after.get(port),
             )
+
+    async def _set_fastpath_membership(
+        self, vlan: int, port: int, mode: VlanMode
+    ) -> None:
+        """Async twin of ``HttpWriter._set_fastpath_membership`` -- same wire flow
+        and the same configured-view verification (see its docstring)."""
+        get_path, post_path = fastpath_membership_paths(self._spec, self.model.key)
+        before = await self._read_fastpath_membership(vlan, get_path, post_path)
+        hidden = parse.fastpath_hidden_mem_with(before, port, mode)
+        applied = await self.session.post_form(
+            post_path,
+            forms.fastpath_membership_form(
+                before, vlan=vlan, hidden_mem=hidden, apply=True
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"VLAN {vlan} port {port} -> {mode.value}")
+        after = await self._read_fastpath_membership(vlan, get_path, post_path)
+        if after.configured.get(port) is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value} on "
+                f"{post_path} (hiddenMem slot {before.port_slots.get(port)})",
+                before=before.configured.get(port),
+                after=after.configured.get(port),
+            )
+
+    async def _read_fastpath_membership(
+        self, vlan: int, get_path: str, post_path: str
+    ) -> FastpathMembership:
+        page = parse.parse_fastpath_membership(await self.session.get_page(get_path))
+        if page.vlan_id == vlan:
+            return page
+        body = forms.fastpath_membership_form(page, vlan=vlan)
+        shown = parse.parse_fastpath_membership(
+            await self.session.post_form(post_path, body)
+        )
+        _require_fastpath_membership_for(shown, vlan, post_path)
+        return shown
 
     async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
         del name, force

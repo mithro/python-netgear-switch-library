@@ -32,6 +32,7 @@ from .state import (
     PortSim,
     SensorSim,
     VirtualSwitchState,
+    VlanMembershipPageSim,
     VlanSim,
 )
 
@@ -230,6 +231,13 @@ _GSM7252PS_PVIDS = {
 # membership varies (all 64 LAGs on VLAN 1, only lag 1-2 on VLAN 90). The web UI
 # lists only the physical ports; the LAG ifIndexes are kept here so a renderer
 # that forgets to drop them is caught (see test_web_projection).
+# Ports the real GSM7252PS reports on VLAN 1 as ``Current: Exclude /
+# Configured: Include`` -- see the split applied in ``seed_gsm7252ps``. They are
+# in the SNMP static-egress transcription below because that table IS the
+# configured one; keeping them out of the CURRENT member set is what makes the
+# mock's SNMP face and its HTTP/CLI faces disagree the same way hardware does.
+_GSM7252PS_VLAN1_CONFIGURED_ONLY = (50, 51)
+
 _GSM7252PS_VLANS = {
     1: (
         "default",
@@ -1100,6 +1108,28 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         vid: VlanSim(name=name, member=set(member), untagged=set(untagged))
         for vid, (name, member, untagged) in _GSM7252PS_VLANS.items()
     }
+    # Split the CONFIGURED-but-not-CURRENT ports out of the transcribed static
+    # bitmap. The table above is a literal copy of dot1qVlanStaticEgressPorts,
+    # which is the STATIC (configured) table -- so it includes ports the switch
+    # does NOT currently egress. Measured 2026-07-30 on the real GSM7252PS
+    # (10.1.5.22): ``show vlan 1`` reports
+    #     1/0/49  Include  Include     Untagged
+    #     1/0/50  Exclude  Include     Untagged
+    #     1/0/51  Exclude  Include     Untagged
+    #     1/0/52  Include  Include     Untagged
+    # and, matching that, the live HTTP reads show 1/0/50 and 1/0/51 in the VLAN
+    # Membership page's hiddenMem grid but NOT in its hiddenUnTagged list nor in
+    # vlanStatus.html's Member Ports cell. Only VLAN 1 is split here because that
+    # is the VLAN whose full ``show vlan`` output was captured -- the other VLANs
+    # get no unevidenced claim (principle: never round an inference up to a fact).
+    for port in _GSM7252PS_VLAN1_CONFIGURED_ONLY:
+        # Only PARTICIPATION moves. The untagged bitmap
+        # (dot1qVlanStaticUntaggedPorts) is a separate axis and genuinely still
+        # has these ports' bits set -- the real switch prints them as
+        # ``Configured: Include / Tagging: Untagged`` -- so leaving them in
+        # ``untagged`` is what keeps the SNMP projection byte-equal to the walk.
+        vlans[1].member.discard(port)
+        vlans[1].configured_only.add(port)
 
     pvids = dict(_GSM7252PS_PVIDS)
 
@@ -1190,6 +1220,12 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         # Real fixed Q-BRIDGE PortList width, measured LIVE (read-only) on this
         # switch @10.1.5.22: dot1qVlanStaticEgressPorts is 79 bytes wide.
         vlan_portlist_width=79,
+        # MEASURED off the real VLAN-Membership capture (2026-07-30,
+        # tests/fixtures/http/gsm7252ps_vlanPortCfg_vlan1.html): 116 hiddenMem
+        # slots = 52 ports + 64 LAGs, LAG ifNames 0/3/N, the OLDER
+        # toggleImageFirst/grey_[btu].gif grid, no trailing comma, no CSRFToken
+        # and UNescaped ifName lists (the only one of the four like that).
+        vlan_membership_page=VlanMembershipPageSim(slots=116, lag_slot=3, grid="gif"),
         sensors=sensors,
         http_sensors=http_sensors,
         macs=macs,
@@ -1744,6 +1780,14 @@ def seed_gsm7228ps() -> VirtualSwitchState:
         vlans=vlans,
         pvids=pvids,
         poe=poe,
+        # MEASURED off the real VLAN-Membership capture (2026-07-30,
+        # tests/fixtures/http/gsm7228ps_vlanPortCfg_vlan5.html): 78 hiddenMem
+        # slots = 52 ports + 26 LAGs, LAG ifNames 0/3/N, the NEWER
+        # togImg/switch_*.png grid, HTML-escaped ifName lists, no trailing comma
+        # and no CSRFToken.
+        vlan_membership_page=VlanMembershipPageSim(
+            slots=78, lag_slot=3, grid="png", escape=True
+        ),
         sensors=sensors,
         macs=macs,
         lldp=lldp,
@@ -2176,6 +2220,25 @@ def seed_m4300_24x() -> VirtualSwitchState:
         # Real fixed Q-BRIDGE PortList width, measured LIVE (read-only) on the
         # M4300 @10.1.5.13: dot1qVlanStaticEgressPorts is 131 bytes wide.
         vlan_portlist_width=131,
+        # MEASURED off the real VLAN-Membership capture (2026-07-30,
+        # tests/fixtures/http/m4300_vlanportcfg_vlan1.html): 152 hiddenMem slots
+        # = 24 ports + 128 LAGs, LAG ifNames 0/13/N, the togImg/switch_*.png
+        # grid, HTML-escaped ifName lists, and this firmware's TRAILING comma on
+        # hiddenMem/hiddenTagged. No CSRFToken on the 24X (the 16X has one).
+        vlan_membership_page=VlanMembershipPageSim(
+            slots=152, lag_slot=13, grid="png", trailing_comma=True, escape=True
+        ),
+        # LIVE-PROVEN 2026-07-30 on 10.1.5.13: EVERY port on this switch is
+        # ``switchport mode access`` or ``trunk`` (per its own
+        # ``show running-config``), and the M4300 image only accepts an explicit
+        # VLAN-membership apply on a port in ``general`` mode. Applying anyway
+        # returns HTTP 200 with ``err_flag=1`` and
+        # ``err_msg="Unable to set VLAN membership for VLAN ( 4004 )"``. The
+        # sibling M4300-16X (10.1.5.20) leaves ports 1-8 with no switchport-mode
+        # line at all and the SAME apply succeeds there -- so this is per-port
+        # configuration, not a per-model capability, and the mock models it
+        # per-port too.
+        vlan_membership_locked_ports=frozenset(range(1, 25)),
         poe={},  # VERIFIED: real capture's poe=[] -- this model has NO PoE.
         sensors=sensors,
         macs=macs,
@@ -2348,6 +2411,20 @@ def seed_m4300_16x() -> VirtualSwitchState:
         # Real fixed Q-BRIDGE PortList width, measured LIVE (read-only) on this
         # switch @10.1.5.20: dot1qVlanStaticEgressPorts is 131 bytes wide.
         vlan_portlist_width=131,
+        # MEASURED off the real VLAN-Membership capture (2026-07-30,
+        # tests/fixtures/http/m4300_16x_vlanportcfg_vlan4.html): 144 hiddenMem
+        # slots = 16 ports + 128 LAGs, LAG ifNames 0/13/N, togImg/switch_*.png
+        # grid, escaped ifName lists, trailing comma -- AND the per-page
+        # CSRFToken only this AV-era firmware carries (csrf=True), which the form
+        # builder must echo back.
+        vlan_membership_page=VlanMembershipPageSim(
+            slots=144,
+            lag_slot=13,
+            grid="png",
+            trailing_comma=True,
+            csrf=True,
+            escape=True,
+        ),
         poe=poe,  # VERIFIED: real capture -- all 16 ports PoE-capable.
         sensors=sensors,
         macs=macs,

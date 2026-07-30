@@ -247,11 +247,22 @@ def _referer_headers(spec: HttpModelSpec, host: str, *, secure: bool) -> dict[st
     carry the same port: the 16X answers **403** to a Referer that drops the
     :49152 (origin-exact CSRF check), so the host is used verbatim -- port and
     all. Standard-port models have no port in ``host`` and so are unaffected.
-    Models that do not need it get no extra headers."""
+    Models that do not need it get no extra headers.
+
+    ``Origin`` is sent alongside it because the AV-era 16X firmware ALSO demands
+    it -- but only on POSTs. Isolated live 2026-07-30 on 10.1.5.20:49152: with
+    ``Referer`` alone every POST answered ``403 Forbidden`` ("403 Forbidden\\r\\n",
+    15 bytes) -- including POSTs to pages whose GET returned 200 -- while adding
+    ``Origin: https://10.1.5.20:49152`` made the same POST return 200 with the
+    real page. Dropping ``Referer`` and keeping ``Origin`` went back to 403, so
+    the firmware wants BOTH. Sent on GETs too (harmless: browsers omit Origin on
+    same-origin GETs, and every model's GETs were re-verified live with it
+    present). Without this, the 16X could GET every read page but no POST could
+    ever reach it -- which is why its VLAN-membership page looked read-only."""
     if not spec.needs_referer:
         return {}
     scheme = "https" if secure else "http"
-    return {"Referer": f"{scheme}://{host}/"}
+    return {"Referer": f"{scheme}://{host}/", "Origin": f"{scheme}://{host}"}
 
 
 def _validate_response(

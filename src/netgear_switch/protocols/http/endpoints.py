@@ -230,10 +230,46 @@ class HttpModelSpec:
     # M4300-16X-PoE moves its Cheetah "Main UI" to HTTPS; every other model so
     # far is plain HTTP. ``False`` (the default) = http://.
     secure: bool = False
+    # The POST target of the VLAN-membership form, when it differs from the GET
+    # page in ``vlan_membership_path`` (mirrors ``login_post_path``). ``None``
+    # means the page POSTs back to itself -- every Plus-class model
+    # (``8021qMembe.cgi``, ``vlanMembership.html``).
+    #
+    # LIVE-DISCOVERED 2026-07-30 on all four FASTPATH switches: the managed
+    # "VLAN Membership" page GETs ``switching/dot1q/vlan_port_cfg.html`` but its
+    # ``<form ACTION=...>`` is the sibling ``switching/dot1q/vlan_port_cfg_rw.html``
+    # -- used for BOTH reads (``submt=0``, the VLAN <select>'s own onChange path)
+    # and applies (``submt=16``). See ``parse.parse_fastpath_membership``.
+    vlan_membership_post_path: str | None = None
     # Non-standard web-UI TCP port. ``None`` (the default) = the URL's implicit
     # 80/443. The M4300-16X-PoE serves its Cheetah UI on 49152; the facade forms
     # the host as ``<ip>:<web_port>`` when this is set.
     web_port: int | None = None
+
+
+# The managed (FASTPATH/Cheetah) "VLAN Membership" page, shared by every managed
+# model in this file -- gsm7252ps, gsm7228ps/S3300 and both M4300 SKUs (the M4300s
+# serve it under their ``/v1`` prefix). LIVE-DISCOVERED 2026-07-30, and it is NOT
+# guessable: fifteen plausible FASTPATH names were probed on 10.1.5.22 and every
+# one 404'd --
+#     GET /vlanMembership.html            -> HTTP 404
+#     GET /vlanMemberConfiguration.html   -> HTTP 404
+#     GET /vlanPortConfiguration.html     -> HTTP 404
+#     GET /vlanPortSummary.html           -> HTTP 404   (+11 more)
+# while ``/vlanConfiguration.html`` DOES exist but is the VLAN create/delete page
+# (no per-port Participation/Tagging anywhere in its 23104 bytes). The real URL is
+# a leaf of the JS nav tree, ``GET /base/js/ng_sideNav.js``:
+#     str+=FrthLvl("lvl2","VLAN Membership",
+#                        "switching/dot1q/vlan_port_cfg.html","none");
+# The page GETs ``vlan_port_cfg.html`` and its form POSTs to the ``_rw.html`` twin,
+# which serves BOTH reads (``submt=0``) and applies (``submt=16``) -- see
+# ``parse.parse_fastpath_membership`` and ``forms.fastpath_membership_form``.
+# Deliberately NOT a per-model literal: the same relative path was confirmed live
+# on all four SKUs, so a divergence would be a real finding, not a typo.
+_FASTPATH_VLAN_MEMBERSHIP = "/switching/dot1q/vlan_port_cfg.html"
+_FASTPATH_VLAN_MEMBERSHIP_RW = "/switching/dot1q/vlan_port_cfg_rw.html"
+_M4300_VLAN_MEMBERSHIP = f"/v1{_FASTPATH_VLAN_MEMBERSHIP}"
+_M4300_VLAN_MEMBERSHIP_RW = f"/v1{_FASTPATH_VLAN_MEMBERSHIP_RW}"
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -342,7 +378,13 @@ _GSM7228PS = HttpModelSpec(
     poe_config_path=None,
     poe_status_path="/poeInterfaceConfiguration.html",
     vlan_config_path="/vlanStatus.html",
-    vlan_membership_path=None,  # vlanStatus carries the egress list inline
+    # LIVE-DISCOVERED 2026-07-30 on the real S3300-52X (10.1.5.11) -- see
+    # _FASTPATH_VLAN_MEMBERSHIP below. GET returned 47740 bytes titled
+    # "VLAN Configuration" with the "VLAN Membership" section header, a vlanId
+    # <select> listing 1/5/21/121/4089, hiddenTagged=""/hiddenUnTagged=
+    # "1&#x2F;0&#x2F;49,..." and a 78-slot hiddenMem (52 ports + 26 LAGs).
+    vlan_membership_path=_FASTPATH_VLAN_MEMBERSHIP,
+    vlan_membership_post_path=_FASTPATH_VLAN_MEMBERSHIP_RW,
     pvid_path="/portPvidConfiguration.html",
     reboot_path=None,
     logout_path=None,
@@ -455,7 +497,14 @@ _M4300 = HttpModelSpec(
     poe_config_path=None,
     poe_status_path=None,
     vlan_config_path="/v1/vlanStatus.html",
-    vlan_membership_path=None,  # vlanStatus carries the egress list inline
+    # LIVE-DISCOVERED 2026-07-30 on the real M4300-24X (10.1.5.13) -- see
+    # _FASTPATH_VLAN_MEMBERSHIP. GET returned 65449 bytes titled "VLAN
+    # Configuration"; its form ACTION is /v1/switching/dot1q/vlan_port_cfg_rw.html,
+    # the vlanId <select> lists all 14 VLANs, and VLAN 1 reads back
+    # hiddenTagged="1&#x2F;0&#x2F;5," / hiddenUnTagged="1/0/1,1/0/2,1/0/7,1/0/8,
+    # 0/13/1,..." over a 152-slot hiddenMem (24 ports + 128 LAGs).
+    vlan_membership_path=_M4300_VLAN_MEMBERSHIP,
+    vlan_membership_post_path=_M4300_VLAN_MEMBERSHIP_RW,
     pvid_path="/v1/portPvidConfiguration.html",
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
@@ -501,6 +550,18 @@ _M4300_16X = dataclasses.replace(
     secure=True,
     web_port=49152,
 )
+# VLAN-membership note for the 16X specifically (the paths are inherited from the
+# 24X above, but the 16X needed a TRANSPORT fix before any of them could be
+# POSTed): this firmware answers ``403 Forbidden`` to EVERY POST -- including
+# POSTs to pages whose GET returns 200 -- unless an ``Origin`` header accompanies
+# the ``Referer``. Isolated live 2026-07-30 on 10.1.5.20:49152 (Referer alone ->
+# 403 "403 Forbidden\r\n"; + Origin -> 200 with the real VLAN 4 page; Origin
+# without Referer -> 403 again). Fixed in
+# ``transport/http/client.py::_referer_headers``. Its membership page also carries
+# a per-page ``CSRFToken`` hidden field the 24X does not have; the form builder
+# echoes back whatever the page rendered, so both SKUs work from one code path.
+# LIVE-VERIFIED 2026-07-30 (10.1.5.20:49152): 63503-byte page, 16-port grid,
+# 145-slot hiddenMem, VLAN 4 -> tagged 9,10,12..16 / untagged 11.
 
 # gsm7252ps (Fully Managed, 52-port/48-PoE, SNMP+HTTP). The LOGIN is
 # LIVE-VALIDATED against the real switch 10.1.5.22 (2026-07-22): the Cheetah
@@ -539,7 +600,14 @@ _GSM7252PS = HttpModelSpec(
     poe_config_path=None,  # never captured -- not guessed
     poe_status_path="/poeInterfaceConfiguration.html",
     vlan_config_path="/vlanStatus.html",
-    vlan_membership_path=None,  # vlanStatus carries the egress list inline
+    # LIVE-DISCOVERED 2026-07-30 on the real GSM7252PS (10.1.5.22) -- see
+    # _FASTPATH_VLAN_MEMBERSHIP for how (and after which 404s). GET returned
+    # 46700 bytes titled "VLAN Configuration" carrying the "VLAN Membership"
+    # section, and for VLAN 1: hiddenTagged="1/0/6",
+    # hiddenUnTagged="1/0/8,...,1/0/52,0/3/1..0/3/64", a 116-slot hiddenMem
+    # (52 ports + 64 LAGs) and the older ``grey_[btu].gif`` port grid.
+    vlan_membership_path=_FASTPATH_VLAN_MEMBERSHIP,
+    vlan_membership_post_path=_FASTPATH_VLAN_MEMBERSHIP_RW,
     pvid_path="/portPvidConfiguration.html",
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,

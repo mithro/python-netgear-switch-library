@@ -30,6 +30,7 @@ from ...protocols.http.crypt import merge_hash_md5
 from ...protocols.http.endpoints import HtmlDialect, HttpModelSpec, LoginScheme
 from .. import (
     web,
+    web_fastpath_vlan,
     web_gs105pe,
     web_gs110emx,
     web_gs728tpp,
@@ -171,14 +172,29 @@ class VirtualHttpFace:
                 self.end_headers()
                 self.wfile.write(data)
 
-            def _referer_ok(self) -> bool:
+            def _referer_ok(self, *, is_post: bool = False) -> bool:
                 """Mirror real hardware's CSRF guard: a model with
                 ``needs_referer`` (the M4300 /v1 UI) answers 403 to any request
                 without a Referer, so a transport that stopped sending it would
-                be caught here rather than passing silently."""
+                be caught here rather than passing silently.
+
+                The AV-era M4300-16X firmware (the ``secure`` M4300 spec, HTTPS
+                on :49152) additionally demands an ``Origin`` header on POSTs and
+                answers ``403 Forbidden`` without one -- isolated live on
+                10.1.5.20:49152 (2026-07-30): the SAME POST body returned 403 with
+                Referer alone and 200 once Origin was added, and dropping Referer
+                while keeping Origin went back to 403. Reproduced here because it
+                is exactly the kind of refusal a lenient mock would hide: with it
+                missing, the whole VLAN-membership write path looked impossible on
+                that SKU (every POST 403'd) while the pages GET fine.
+                """
                 if not face.spec.needs_referer:
                     return True
-                return "Referer" in self.headers
+                if "Referer" not in self.headers:
+                    return False
+                if is_post and face.spec.secure:
+                    return "Origin" in self.headers
+                return True
 
             def _goahead_get(self) -> None:
                 """Serve the GoAhead XML_API GET flow: GET / -> 302 to the
@@ -282,7 +298,11 @@ class VirtualHttpFace:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    if face.spec.session_token_field is not None:
+                    if (
+                        fp := face._render_fastpath_vlan_page(path, {})
+                    ) is not None:
+                        page = fp
+                    elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, {})
                     elif (gs105 := face._render_gs105pe_page(path, {})) is not None:
                         page = gs105
@@ -298,7 +318,7 @@ class VirtualHttpFace:
 
             def do_POST(self) -> None:
                 path = self.path.split("?", 1)[0]
-                if not self._referer_ok():
+                if not self._referer_ok(is_post=True):
                     self._send("403 Forbidden", 403)
                     return
                 if face.spec.html_dialect is HtmlDialect.GOAHEAD_XML:
@@ -332,7 +352,11 @@ class VirtualHttpFace:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    if face.spec.session_token_field is not None:
+                    if (
+                        fp := face._render_fastpath_vlan_page(path, form)
+                    ) is not None:
+                        page = fp
+                    elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, form)
                     elif (gs105 := face._render_gs105pe_page(path, form)) is not None:
                         page = gs105
@@ -384,6 +408,36 @@ class VirtualHttpFace:
             vid = int(form.get("VLAN_ID", "0")) or min(self.state.vlans, default=1)
             return web_gs105pe.render_vlan_membership(self.state, vid)
         return None
+
+    def _render_fastpath_vlan_page(
+        self, path: str, form: dict[str, str]
+    ) -> str | None:
+        """Serve the managed FASTPATH VLAN Membership page (GET page or its
+        ``_rw.html`` form target), applying the form first when it carries the
+        apply flag. ``None`` = not that page, so the caller falls through.
+
+        Checked BEFORE the per-dialect renderers because all three managed
+        dialects (XE_FASTPATH / S3300 / M4300) serve the SAME page from the same
+        state -- see ``web_fastpath_vlan``.
+        """
+        if path not in (
+            self.spec.vlan_membership_path,
+            self.spec.vlan_membership_post_path,
+        ):
+            return None
+        if self.state.vlan_membership_page is None:
+            # A model with no MEASURED page geometry must not get a fabricated
+            # page (principle 5); 404 is what the face does for any endpoint the
+            # device does not serve.
+            return None
+        # Resolve the refusal BEFORE applying: a refused apply must change
+        # nothing and come back as err_flag=1 + err_msg on a 200 page, exactly
+        # as the M4300 firmware answers a port that is not in general mode.
+        err = web_fastpath_vlan.refusal(self.state, form) or ""
+        web_fastpath_vlan.apply_membership(self.state, form)
+        return web_fastpath_vlan.render_membership(
+            self.state, self.spec, form, err_msg=err
+        )
 
     def _render_m4300_page(self, path: str) -> str | None:
         """Render an M4300 Cheetah /v1 read page from state, or ``None`` if

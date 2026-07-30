@@ -77,11 +77,78 @@ class PortSim:
 
 @dataclass
 class VlanSim:
-    """One dot1q VLAN: display name plus egress-member and untagged port sets."""
+    """One dot1q VLAN: display name plus egress-member and untagged port sets.
+
+    ``member``/``untagged`` are the **CURRENT** (operational) egress sets -- what
+    ``show vlan <id>`` prints under ``Current: Include``, what the FASTPATH
+    ``vlanStatus.html`` Member Ports cell lists, and what the VLAN Membership
+    page's ``hiddenTagged``/``hiddenUnTagged`` ifName lists carry.
+    """
 
     name: str
     member: set[int] = field(default_factory=set)
     untagged: set[int] = field(default_factory=set)
+    # Ports that are CONFIGURED into this VLAN but are NOT currently
+    # participating -- ``show vlan`` prints them as ``Current: Exclude /
+    # Configured: Include``. This is a REAL, MEASURED divergence, not a
+    # theoretical one: on GSM7252PS @10.1.5.22, VLAN 1 lists ports 1/0/50 and
+    # 1/0/51 exactly that way, so the switch reports them in
+    # ``dot1qVlanStaticEgressPorts`` (the STATIC/configured table) and in the web
+    # UI's ``hiddenMem`` grid, while omitting them from the CLI's current list,
+    # from ``vlanStatus.html`` and from ``hiddenTagged``/``hiddenUnTagged``.
+    #
+    # Keeping the two views separate is what lets the mock reproduce that split;
+    # collapsing them (as it did before) made the mock's SNMP and HTTP faces agree
+    # with each other while both disagreed with hardware. Empty (the default) =
+    # configured and current coincide, which is the normal case.
+    configured_only: set[int] = field(default_factory=set)
+
+    @property
+    def configured(self) -> set[int]:
+        """The CONFIGURED egress set: current members plus ``configured_only``."""
+        return self.member | self.configured_only
+
+
+@dataclass(frozen=True)
+class VlanMembershipPageSim:
+    """MEASURED shape of one model's FASTPATH "VLAN Membership" page.
+
+    Every field below is a number/flag read off a real capture of
+    ``switching/dot1q/vlan_port_cfg.html`` (2026-07-30), NOT derived from the
+    port count -- deliberately, for the same reason ``vlan_portlist_width`` is
+    seeded rather than computed: a mock that re-derives a device constant using
+    the code's own formula can only ever agree with the code (principle 5).
+
+    Live measurements:
+
+    ==========  =====  ========  ====  =============  ====  ======
+    model       slots  lag_slot  grid  trailing_comma csrf  escape
+    ==========  =====  ========  ====  =============  ====  ======
+    gsm7252ps     116         3  gif             no     no      no
+    gsm7228ps      78         3  png             no     no     yes
+    m4300-24x     152        13  png            yes     no     yes
+    m4300-16x     144        13  png            yes    yes     yes
+    ==========  =====  ========  ====  =============  ====  ======
+
+    ``slots`` = physical ports first, then the LAG pseudo-interfaces (so
+    ``slots - port_count`` LAGs: 64 / 26 / 128 / 128). ``lag_slot`` is the middle
+    component of a LAG ifName (``0/3/N`` on the gsm72xx, ``0/13/N`` on the
+    M4300). ``grid`` selects which of the two firmware generations' port grids
+    the page renders: ``"gif"`` = the older ``toggleImageFirst`` +
+    ``grey_[btu].gif`` cells (0-BASED hiddenMem index), ``"png"`` = the jQuery
+    ``togImg`` + ``switch_<state>_inactive.png`` cells (1-BASED index).
+    ``trailing_comma`` reproduces the M4300 firmware appending an empty field to
+    ``hiddenMem``/``hiddenTagged``. ``csrf`` renders the per-page ``CSRFToken``
+    the M4300-16X requires back on every POST. ``escape`` HTML-entity-escapes the
+    ifName lists (``1&#x2F;0&#x2F;49``) as every firmware but the gsm7252ps does.
+    """
+
+    slots: int
+    lag_slot: int
+    grid: str
+    trailing_comma: bool = False
+    csrf: bool = False
+    escape: bool = False
 
 
 @dataclass
@@ -277,6 +344,23 @@ class VirtualSwitchState:
     # rather than preserving the device width, so it sent a SET narrower than
     # this -- which a stricter Q-BRIDGE agent rejects outright.
     vlan_portlist_width: int | None = None
+    # Geometry of the managed FASTPATH "VLAN Membership" web page, MEASURED live
+    # (see VlanMembershipPageSim). None = this model has no such page (every
+    # Plus-class model, whose membership CGI is a different shape entirely), and
+    # the mock's HTTP face then 404s it rather than fabricating one.
+    vlan_membership_page: VlanMembershipPageSim | None = None
+    # Ports whose ``switchport mode`` makes the firmware REFUSE an explicit
+    # VLAN-membership apply. On the M4300 image a port only accepts explicit
+    # participation in ``general`` mode; in ``access`` or ``trunk`` mode the web
+    # UI answers HTTP 200 but sets ``err_flag=1`` with
+    # ``err_msg="Unable to set VLAN membership for VLAN ( <vid> )"``.
+    # LIVE-PROVEN 2026-07-30: on the M4300-24X (10.1.5.13) EVERY port is access or
+    # trunk (``show running-config``) and every membership apply was refused that
+    # way, while on the M4300-16X (10.1.5.20:49152) ports 1-8 carry no
+    # ``switchport mode`` line at all (the default) and the identical apply
+    # succeeded for all three modes. Empty (the default) = every port accepts it,
+    # which is what the gsm72xx images do.
+    vlan_membership_locked_ports: frozenset[int] = frozenset()
 
     @property
     def sysinfo_sensors(self) -> list[SensorSim]:
@@ -369,7 +453,12 @@ class VirtualSwitchState:
             m[f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"] = ("OCTETSTR", vsim.name)
             m[f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"] = (
                 "OCTETSTR",
-                encode_port_bitmap(vsim.member, width_bytes=vlan_width),
+                # dot1qVlanStaticEgressPorts is the STATIC (configured) table, so
+                # it reports ``configured``, not the current member set -- proven
+                # live on GSM7252PS @10.1.5.22, whose VLAN 1 static egress bitmap
+                # includes 1/0/50 and 1/0/51 even though ``show vlan 1`` and
+                # vlanStatus.html both omit them (see VlanSim.configured_only).
+                encode_port_bitmap(vsim.configured, width_bytes=vlan_width),
             )
             m[f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}"] = (
                 "OCTETSTR",
