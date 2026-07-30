@@ -260,8 +260,11 @@ class TestParseDeviceNewTags:
 
 
 def test_parse_device_aggregates_read_response():
-    pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
-                     server_mac=b"\xaa\xbb\xcc\xdd\xee\xff")
+    pkt = NSDPPacket(
+        op=Op.READ_RESPONSE,
+        client_mac=b"\x00" * 6,
+        server_mac=b"\xaa\xbb\xcc\xdd\xee\xff",
+    )
     pkt.add_tlv(Tag.MODEL, b"GS110EMX")
     pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
     pkt.add_tlv(Tag.IP_ADDRESS, b"\x0a\x01\x05\x14")

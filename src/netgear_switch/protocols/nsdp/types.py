@@ -4,13 +4,20 @@ These are the raw protocol shapes the parsers return; ``nsdp_read.py`` maps them
 onto the shared ``models.py`` types. Named with an ``Nsdp`` prefix so they never
 collide with the public ``models`` dataclasses.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
 
 _MBPS = {
-    0x00: 0, 0x01: 10, 0x02: 10, 0x03: 100, 0x04: 100, 0x05: 1000, 0xFF: 10000,
+    0x00: 0,
+    0x01: 10,
+    0x02: 10,
+    0x03: 100,
+    0x04: 100,
+    0x05: 1000,
+    0xFF: 10000,
 }
 
 

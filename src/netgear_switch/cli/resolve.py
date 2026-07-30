@@ -100,7 +100,10 @@ def _from_inventory(
             f"switch {args.switch!r} not found in {args.config}"
         ) from None
     community = _read_community(
-        args, env, cfg.snmp_community, prompt,
+        args,
+        env,
+        cfg.snmp_community,
+        prompt,
         snmp_backend=Backend.SNMP in cfg.model.backends,
     )
     write_override = _write_community_override(args, env)
@@ -148,7 +151,10 @@ def resolve_switch(
     if args.host and args.model:
         model = get_model(args.model)
         community = _read_community(
-            args, env, None, prompt,
+            args,
+            env,
+            None,
+            prompt,
             snmp_backend=Backend.SNMP in model.backends,
         )
         # A Plus switch (NSDP/HTTP) reached via --host/--model (no inventory)

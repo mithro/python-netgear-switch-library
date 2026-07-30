@@ -20,6 +20,7 @@ is what the fixture-driven parser tests in ``tests/test_http_read.py`` prove);
 this face's job is to serve the SAME STATE the NSDP face serves, so the
 HTTP<->NSDP cross-verification is meaningful.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -52,7 +53,7 @@ def render_status(state: VirtualSwitchState) -> str:
         f'<td class="def" sel="text">{"Up" if sim.link else "Down"}</td>\n'
         '<td class="def" sel="text">Auto</td>\n'
         f'<td class="def" sel="text">'
-        f'{_speed_text(sim.speed) if sim.link else "No Speed"}</td>\n'
+        f"{_speed_text(sim.speed) if sim.link else 'No Speed'}</td>\n"
         '<td class="def" sel="text">Disable</td>\n'
         '<td class="def" sel="text">16349</td>\n'
         for port, sim in sorted(state.ports.items())
@@ -80,9 +81,12 @@ def render_port_statistics(state: VirtualSwitchState) -> str:
         rows += (
             '<tr class="portID" name="portID">\n'
             f'<td class="def firstCol" sel="text">{port}</td>\n'
-            '<td class="def" sel="text">\n</td>\n' + halves(rx)
-            + f'<td class="def" sel="text">{tx}\n</td>\n' + halves(tx)
-            + f'<td class="def" sel="text">{crc}\n</td>\n' + halves(crc)
+            '<td class="def" sel="text">\n</td>\n'
+            + halves(rx)
+            + f'<td class="def" sel="text">{tx}\n</td>\n'
+            + halves(tx)
+            + f'<td class="def" sel="text">{crc}\n</td>\n'
+            + halves(crc)
         )
     return (
         "<html><body><form method=post action=portStatistics.cgi>"

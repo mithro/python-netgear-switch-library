@@ -3,6 +3,7 @@ facades against the same live NSDP VirtualSwitch face must return identical
 model objects, and writes applied via each facade must produce identical device
 state -- proving the backend is sync/async symmetric with no hardware.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -74,11 +74,19 @@ def test_ports_table_distinguishes_link_admin_name_and_speed_columns() -> None:
     # exact rows would change.
     ports = [
         PortStatus(
-            port=1, name="uplink", admin_enabled=False, link_up=True, speed_mbps=1000,
+            port=1,
+            name="uplink",
+            admin_enabled=False,
+            link_up=True,
+            speed_mbps=1000,
             description="to-core",
         ),
         PortStatus(
-            port=2, name="downlink", admin_enabled=True, link_up=False, speed_mbps=None,
+            port=2,
+            name="downlink",
+            admin_enabled=True,
+            link_up=False,
+            speed_mbps=None,
         ),
     ]
     text = fmt.ports_table(ports)
@@ -182,9 +190,7 @@ def test_lldp_table_renders_exact_neighbor_fields() -> None:
 def test_macs_table_renders_exact_mac_port_vlan_cells() -> None:
     entries = [MacEntry(mac="00:11:22:33:44:55", port=7, vlan_id=30)]
     text = fmt.macs_table(entries)
-    assert text == (
-        "MAC                Port  VLAN\n00:11:22:33:44:55  7     30  "
-    )
+    assert text == ("MAC                Port  VLAN\n00:11:22:33:44:55  7     30  ")
 
 
 def test_sensors_table_renders_exact_name_kind_value_unit_cells() -> None:

@@ -26,6 +26,7 @@ All page-path selection and HTML-to-model conversion lives in the
 module-level helpers below (pure, I/O-free); ``HttpReader``/``AsyncHttpReader``
 differ only in whether ``session.get_page``/``post_form`` is awaited.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -334,9 +335,7 @@ def _with_base_mac(cfg: MgmtIpConfig, sysinfo_page: str) -> MgmtIpConfig:
     (``DeviceBasicInfo/MacAddre``) and merged here -- matching the SNMP
     dot1dBaseBridgeAddress read so the HTTP and SNMP mgmt-IP agree field-for-
     field (including ``base_mac``)."""
-    return dataclasses.replace(
-        cfg, base_mac=parse.parse_goahead_base_mac(sysinfo_page)
-    )
+    return dataclasses.replace(cfg, base_mac=parse.parse_goahead_base_mac(sysinfo_page))
 
 
 def _vlan_info(vid: int, membership_html: str, port_count: int) -> VLANInfo:

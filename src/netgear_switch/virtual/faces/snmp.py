@@ -67,6 +67,7 @@ installed pysnmp v7 rather than trusted from a brief:**
   passing ``writeSubTree=(1, 3, 6, 1)`` alongside the existing
   ``readSubTree`` — same function, no new API.
 """
+
 from __future__ import annotations
 
 import asyncio

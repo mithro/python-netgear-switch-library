@@ -1,5 +1,6 @@
 # tests/conftest.py
 """Shared fixtures for the integration tests: a live VirtualSwitch."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

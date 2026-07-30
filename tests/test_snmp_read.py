@@ -154,17 +154,13 @@ def _full_tables() -> dict[str, list[SnmpRow]]:
             SnmpRow(f"{vendor.poe_power_mw}.1.1", "12800", "Gauge32"),
         ],
         vendor.box_fan: [SnmpRow(f"{vendor.box_fan}.0", "3500", "OCTETSTR")],
-        vendor.box_psu_power: [
-            SnmpRow(f"{vendor.box_psu_power}.0", "45", "OCTETSTR")
-        ],
+        vendor.box_psu_power: [SnmpRow(f"{vendor.box_psu_power}.0", "45", "OCTETSTR")],
         vendor.box_temp: [SnmpRow(f"{vendor.box_temp}.0", "30", "OCTETSTR")],
         oids.IP_ADENT_ADDR: [
             SnmpRow(f"{oids.IP_ADENT_ADDR}.10.1.5.20", "10.1.5.20", "IPADDR"),
         ],
         oids.IP_ADENT_NETMASK: [
-            SnmpRow(
-                f"{oids.IP_ADENT_NETMASK}.10.1.5.20", "255.255.255.0", "IPADDR"
-            ),
+            SnmpRow(f"{oids.IP_ADENT_NETMASK}.10.1.5.20", "255.255.255.0", "IPADDR"),
         ],
         oids.IP_ROUTE_DEST: [
             SnmpRow(f"{oids.IP_ROUTE_DEST}.0.0.0.0", "0.0.0.0", "IPADDR"),

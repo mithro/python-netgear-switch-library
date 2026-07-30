@@ -72,7 +72,7 @@ def test_packet_encode_has_signature_at_offset_0x18_and_end_marker():
     )
     pkt.add_tlv(Tag.MODEL)  # empty value = read request
     raw = pkt.encode()
-    assert raw[0] == 0x01                          # version
+    assert raw[0] == 0x01  # version
     assert raw[1] == Op.READ_REQUEST
     assert raw[0x18:0x1C] == NSDP_SIGNATURE
     assert raw.endswith(END_MARKER)
@@ -154,8 +154,10 @@ def test_packet_decode_hand_built_fixture_independent_of_encode():
         b"\x00" * 4,
     )
     body = (
-        struct.pack(">HH", Tag.HOSTNAME, 4) + b"sw01"
-        + struct.pack(">HH", Tag.DHCP_MODE, 1) + b"\x01"
+        struct.pack(">HH", Tag.HOSTNAME, 4)
+        + b"sw01"
+        + struct.pack(">HH", Tag.DHCP_MODE, 1)
+        + b"\x01"
     )
     raw = header + body + END_MARKER
 

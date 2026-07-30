@@ -6,6 +6,7 @@ membership, PVID and management IP on these Plus switches; MAC/FDB, LLDP,
 sensors and PoE are not in the protocol, so those ops raise
 ``UnsupportedCapabilityError`` rather than fabricating empty results.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -126,7 +127,10 @@ def _mgmt(dev: NsdpDevice) -> MgmtIpConfig:
     else:
         mode = IpMode.DHCP if dev.dhcp_enabled else IpMode.STATIC
     return MgmtIpConfig(
-        mode=mode, address=dev.ip, netmask=dev.netmask, gateway=dev.gateway,
+        mode=mode,
+        address=dev.ip,
+        netmask=dev.netmask,
+        gateway=dev.gateway,
         # NSDP always echoes the device MAC (Tag.MAC, with a server_mac
         # fallback -- see parse_device), so this is honestly always
         # populated, never a guess. Uppercased to match the SNMP-backend

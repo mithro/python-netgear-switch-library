@@ -16,6 +16,7 @@ Teardown is deterministic: ``stop()`` calls ``shutdown()`` (unblocks
 ``serve_forever``), joins the server thread, then ``server_close()`` closes the
 listening socket — so nothing leaks under ``-W error::ResourceWarning``.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -64,9 +65,7 @@ _PATH_FIELDS: tuple[str, ...] = tuple(
 def _known_paths(spec: HttpModelSpec) -> set[str]:
     """The set of paths ``spec`` actually serves (populated fields only)."""
     return {
-        value
-        for name in _PATH_FIELDS
-        if (value := getattr(spec, name)) is not None
+        value for name in _PATH_FIELDS if (value := getattr(spec, name)) is not None
     }
 
 
@@ -153,9 +152,7 @@ class VirtualHttpFace:
                 return self.rfile.read(length) if length else b""
 
             def _body(self, raw: bytes) -> dict[str, str]:
-                return {
-                    k: v[0] for k, v in parse_qs(raw.decode("latin-1")).items()
-                }
+                return {k: v[0] for k, v in parse_qs(raw.decode("latin-1")).items()}
 
             def _send(
                 self, text: str, status: int = 200, *, cookie: bool = False
@@ -195,9 +192,10 @@ class VirtualHttpFace:
                     return
                 if path_only.endswith("/System.xml") and "action=login" in query:
                     params = {k: v[0] for k, v in parse_qs(query).items()}
-                    ok = params.get("user") == face.spec.username and params.get(
-                        "password"
-                    ) == face.password
+                    ok = (
+                        params.get("user") == face.spec.username
+                        and params.get("password") == face.password
+                    )
                     code = "0" if ok else "1"
                     body = (
                         '<?xml version="1.0" encoding="UTF-8" ?>'
@@ -307,9 +305,8 @@ class VirtualHttpFace:
                 # cert-upload endpoint. Handle it BEFORE the urlencoded body
                 # parse (a multipart body is not urlencoded) so the mock records
                 # the certificate exactly as real firmware would receive it.
-                if (
-                    path == face.spec.cert_upload_path
-                    and content_type.startswith("multipart/form-data")
+                if path == face.spec.cert_upload_path and content_type.startswith(
+                    "multipart/form-data"
                 ):
                     status, page = face._handle_cert_upload(content_type, raw)
                     self._send(page, status)
@@ -349,9 +346,7 @@ class VirtualHttpFace:
         self._thread.start()
         return int(server.server_address[1])
 
-    def _render_gs105pe_page(
-        self, path: str, form: dict[str, str]
-    ) -> str | None:
+    def _render_gs105pe_page(self, path: str, form: dict[str, str]) -> str | None:
         """Render a GS105PE read page from state, or ``None`` if this model is
         not gs105pe (so the caller falls through to the generic renderer).
 
@@ -462,9 +457,7 @@ class VirtualHttpFace:
             return web_gs110emx.render_vlan_membership(self.state, self._token, vid)
         return "<html><body>Not Found</body></html>"
 
-    def _handle_cert_upload(
-        self, content_type: str, raw: bytes
-    ) -> tuple[int, str]:
+    def _handle_cert_upload(self, content_type: str, raw: bytes) -> tuple[int, str]:
         """Accept a multipart SSL-cert upload, validate the field names the
         real S3300 form carries, and record the received certificate on state.
 

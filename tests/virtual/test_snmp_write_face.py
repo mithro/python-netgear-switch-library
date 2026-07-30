@@ -8,6 +8,7 @@ through the real SNMP SET path (``SetCommandResponder`` -> ``write_variables``
 reads the new value back over the wire -- proving the whole SET->mutate->read
 loop, not just the state layer in isolation.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -179,10 +180,14 @@ def test_set_many_multi_varbind_pdu_applies_all_on_success():
     sw.start()
     try:
         client = PysnmpClient(sw.host, "public", port=sw.port)
-        asyncio.run(client.set_many([
-            SetVarbind(f"{oids.IF_ADMIN_STATUS}.6", 2, "i"),
-            SetVarbind(f"{oids.IF_ADMIN_STATUS}.7", 2, "i"),
-        ]))
+        asyncio.run(
+            client.set_many(
+                [
+                    SetVarbind(f"{oids.IF_ADMIN_STATUS}.6", 2, "i"),
+                    SetVarbind(f"{oids.IF_ADMIN_STATUS}.7", 2, "i"),
+                ]
+            )
+        )
         assert sw.state.ports[6].admin is False
         assert sw.state.ports[7].admin is False
     finally:
@@ -201,16 +206,22 @@ def test_set_many_vlan_egress_and_untagged_bitmaps_reflected_in_get_vlans():
         vid = 90
         new_member = {1, 2, 10, 25}
         new_untagged = {1, 2}
-        asyncio.run(client.set_many([
-            SetVarbind(
-                f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}",
-                encode_port_bitmap(new_member), "x",
-            ),
-            SetVarbind(
-                f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}",
-                encode_port_bitmap(new_untagged), "x",
-            ),
-        ]))
+        asyncio.run(
+            client.set_many(
+                [
+                    SetVarbind(
+                        f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}",
+                        encode_port_bitmap(new_member),
+                        "x",
+                    ),
+                    SetVarbind(
+                        f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}",
+                        encode_port_bitmap(new_untagged),
+                        "x",
+                    ),
+                ]
+            )
+        )
 
         reader = AsyncSnmpReader(client, get_model("gsm7252ps"))
         vlan90 = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
@@ -233,9 +244,7 @@ def test_set_vlan_create_name_destroy_via_rowstatus_reflected_in_get_vlans():
 
         assert all(v.vlan_id != vid for v in asyncio.run(reader.get_vlans()))
 
-        asyncio.run(
-            client.set(SetVarbind(row_oid, oids.ROW_STATUS_CREATE_AND_GO, "i"))
-        )
+        asyncio.run(client.set(SetVarbind(row_oid, oids.ROW_STATUS_CREATE_AND_GO, "i")))
         name_oid = f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"
         asyncio.run(client.set(SetVarbind(name_oid, b"guests", "x")))
         created = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
@@ -256,11 +265,15 @@ def test_set_mgmt_ip_write_oids_reflected_in_get_mgmt_ip():
         client = PysnmpClient(sw.host, "public", port=sw.port)
         model = get_model("gsm7252ps")
         vo = oids.vendor_oids(model)
-        asyncio.run(client.set_many([
-            SetVarbind(vo.mgmt_write_addr_unverified, "10.9.9.9", "a"),
-            SetVarbind(vo.mgmt_write_netmask_unverified, "255.255.255.0", "a"),
-            SetVarbind(vo.mgmt_write_gateway_unverified, "10.9.9.1", "a"),
-        ]))
+        asyncio.run(
+            client.set_many(
+                [
+                    SetVarbind(vo.mgmt_write_addr_unverified, "10.9.9.9", "a"),
+                    SetVarbind(vo.mgmt_write_netmask_unverified, "255.255.255.0", "a"),
+                    SetVarbind(vo.mgmt_write_gateway_unverified, "10.9.9.1", "a"),
+                ]
+            )
+        )
 
         reader = AsyncSnmpReader(client, model)
         cfg = asyncio.run(reader.get_mgmt_ip())
@@ -375,7 +388,7 @@ def test_async_snmp_writer_set_vlan_membership_live_preserves_other_ports():
         asyncio.run(writer.set_vlan_membership(vid, 6, VlanMode.UNTAGGED))
 
         after = next(v for v in asyncio.run(reader.get_vlans()) if v.vlan_id == vid)
-        assert after.member_ports == before.member_ports | {6}      # 6 joined
+        assert after.member_ports == before.member_ports | {6}  # 6 joined
         assert after.untagged_ports == before.untagged_ports | {6}  # 6 untagged too
     finally:
         sw.stop()
@@ -401,9 +414,9 @@ def test_snmp_writer_set_pvid_live_preserves_other_ports():
         writer.set_pvid(52, 90)
 
         after = dict(reader.get_pvids())
-        assert after[52] == 90         # changed
+        assert after[52] == 90  # changed
         assert after[49] == before[49]  # other port preserved
-        assert after[1] == before[1]    # other port preserved
+        assert after[1] == before[1]  # other port preserved
     finally:
         sw.stop()
 
@@ -514,7 +527,8 @@ def test_snmp_writer_cycle_poe_live_off_then_on():
         port = 2
 
         writer.cycle_poe(
-            port, force=True,
+            port,
+            force=True,
             timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
         )
 
@@ -540,7 +554,8 @@ def test_snmp_writer_clear_poe_fault_live_recovers_detect():
         sw.state.poe[port].detect = 4  # FAULT
 
         writer.clear_poe_fault(
-            port, force=True,
+            port,
+            force=True,
             timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
         )
 
@@ -566,7 +581,8 @@ def test_snmp_writer_cycle_poe_protected_port_requires_force_live():
         assert sw.state.poe[port].admin is True  # untouched
 
         writer.cycle_poe(
-            port, force=True,
+            port,
+            force=True,
             timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
         )
         assert sw.state.poe[port].admin is True  # cycled back on
@@ -586,10 +602,13 @@ def test_async_snmp_writer_cycle_poe_live_off_then_on():
         reader = AsyncSnmpReader(client, model)
         port = 6
 
-        asyncio.run(writer.cycle_poe(
-            port, force=True,
-            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
-        ))
+        asyncio.run(
+            writer.cycle_poe(
+                port,
+                force=True,
+                timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+            )
+        )
 
         status = next(p for p in asyncio.run(reader.get_poe()) if p.port == port)
         assert status.delivering
@@ -670,10 +689,13 @@ def test_async_snmp_writer_clear_poe_fault_live_recovers_detect():
         port = 8
         sw.state.poe[port].detect = 4  # FAULT
 
-        asyncio.run(writer.clear_poe_fault(
-            port, force=True,
-            timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
-        ))
+        asyncio.run(
+            writer.clear_poe_fault(
+                port,
+                force=True,
+                timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+            )
+        )
 
         status = next(p for p in asyncio.run(reader.get_poe()) if p.port == port)
         assert status.detect is not PoEDetect.FAULT

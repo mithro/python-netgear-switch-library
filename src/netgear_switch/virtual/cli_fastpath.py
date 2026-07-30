@@ -14,6 +14,7 @@ genuinely diverge (LLDP has no port-desc column in the CLI; sysInfo temperatures
 vs SNMP fan RPM), that is documented at the renderer and the test compares the
 shared projection only.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -43,9 +44,7 @@ def _dotted(label: str, value: object) -> str:
     return f"{label}{'.' * fill} {value}"
 
 
-def _table(
-    headers: list[str], widths: list[int], rows: list[list[object]]
-) -> str:
+def _table(headers: list[str], widths: list[int], rows: list[list[object]]) -> str:
     lines = [" ".join(h.ljust(w) for h, w in zip(headers, widths, strict=False))]
     lines.append(" ".join("-" * w for w in widths))
     for row in rows:
@@ -106,8 +105,15 @@ def render_network(state: VirtualSwitchState) -> str:
 
 def render_ports(state: VirtualSwitchState) -> str:
     headers = [
-        "Intf", "Type", "Admin", "Physical", "Physical",
-        "Link", "Link", "LACP", "Flow",
+        "Intf",
+        "Type",
+        "Admin",
+        "Physical",
+        "Physical",
+        "Link",
+        "Link",
+        "LACP",
+        "Flow",
     ]
     widths = [9, 6, 9, 10, 10, 6, 7, 6, 7]
     rows: list[list[object]] = []
@@ -172,16 +178,21 @@ def render_vlan_detail(state: VirtualSwitchState, vid: int) -> str:
 
 def render_pvids(state: VirtualSwitchState) -> str:
     headers = [
-        "Interface", "Port", "Port", "Acceptable",
-        "Ingress", "Ingress", "GVRP", "Default",
+        "Interface",
+        "Port",
+        "Port",
+        "Acceptable",
+        "Ingress",
+        "Ingress",
+        "GVRP",
+        "Default",
     ]
     widths = [9, 10, 8, 11, 10, 9, 7, 8]
     rows: list[list[object]] = []
     for p in _phys_ports(state):
         pvid = state.pvids.get(p, 1)
         rows.append(
-            [f"1/0/{p}", pvid, pvid, "Admit All", "Disable", "Disable",
-             "Enable", 0]
+            [f"1/0/{p}", pvid, pvid, "Admit All", "Disable", "Disable", "Enable", 0]
         )
     return _table(headers, widths, rows)
 
@@ -197,9 +208,7 @@ def render_mac_table(state: VirtualSwitchState) -> str:
         ifindex = state.bridge_ports.get(msim.bridge_port, msim.bridge_port)
         sim = state.ports.get(ifindex)
         iface = sim.name if sim is not None else f"1/0/{ifindex}"
-        rows.append(
-            [msim.vlan, _mac_text(msim.mac_bytes), iface, ifindex, "Learned"]
-        )
+        rows.append([msim.vlan, _mac_text(msim.mac_bytes), iface, ifindex, "Learned"])
     return _table(headers, widths, rows)
 
 
@@ -239,10 +248,16 @@ def render_poe(state: VirtualSwitchState) -> str:
     # emit whichever the driving model really prints.
     m4300 = _is_m4300(state)
     headers = [
-        "Intf", "High Power", "Max Power (mW)", "Class", "Power (mW)",
-        "Output Current (mA)", "Output Voltage (V)",
+        "Intf",
+        "High Power",
+        "Max Power (mW)",
+        "Class",
+        "Power (mW)",
+        "Output Current (mA)",
+        "Output Voltage (V)",
         *([] if m4300 else ["Temperature"]),
-        "Status", "Fault Status",
+        "Status",
+        "Fault Status",
     ]
     widths = [7, 11, 15, 9, 11, 20, 19, *([] if m4300 else [13]), 18, 13]
     rows: list[list[object]] = []
@@ -284,10 +299,7 @@ def render_environment(state: VirtualSwitchState) -> str:
         _table(
             ["Unit", "Sensor", "Description", "Temp (C)", "State", "Max_Temp (C)"],
             [4, 6, 16, 10, 14, 14],
-            [
-                [1, i + 1, s.instance, s.raw, "Normal", 55]
-                for i, s in enumerate(temps)
-            ],
+            [[1, i + 1, s.instance, s.raw, "Normal", 55] for i, s in enumerate(temps)],
         )
     )
     out += ["", "Fans:"]

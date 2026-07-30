@@ -143,7 +143,10 @@ def test_membership_bitmaps_forwards_width_bytes():
     egress = encode_port_bitmap({1})
     untagged = encode_port_bitmap({1})
     e, u = membership_bitmaps(
-        mode=VlanMode.UNTAGGED, port=5, egress=egress, untagged=untagged,
+        mode=VlanMode.UNTAGGED,
+        port=5,
+        egress=egress,
+        untagged=untagged,
         width_bytes=12,
     )
     assert len(e) == 12

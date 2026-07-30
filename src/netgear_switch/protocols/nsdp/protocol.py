@@ -12,6 +12,7 @@ path (``Op.WRITE_REQUEST``/``Op.WRITE_RESPONSE`` and ``NSDPPacket.add_tlv``
 with a non-empty value) is new relative to the read-only prior-art client,
 but uses the exact same wire layout.
 """
+
 from __future__ import annotations
 
 import struct

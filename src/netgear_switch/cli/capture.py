@@ -6,6 +6,7 @@ Opt-in, live-switch, never run in CI. The state snapshot uses the public
 a ``raw_walk`` callable is supplied. Output is a JSON file used *for reference*
 when hand-authoring fixtures (design spec Sec7.1) -- never committed as-is.
 """
+
 from __future__ import annotations
 
 import json
@@ -114,9 +115,7 @@ def run_capture(
     try:
         out_path.write_text(json.dumps(_as_dict(record), indent=2))
     except OSError as exc:
-        raise ConfigError(
-            f"cannot write capture output to {out_path}: {exc}"
-        ) from exc
+        raise ConfigError(f"cannot write capture output to {out_path}: {exc}") from exc
     return record
 
 

@@ -6,6 +6,7 @@ letter (``i`` INTEGER, ``u`` Gauge32/unsigned, ``s`` string, ``x`` hex/octets,
 helpers do a read-modify-write so only the target port's bit changes, leaving
 trunks and other access ports untouched (design spec §6).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,6 +1,7 @@
 """CliReader over the in-process mock CLI face, plus the CLI command spec, the
 shared ShellDriver, the SSH legacy-algorithm helper, and the facade's CLI gate.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -155,9 +156,7 @@ def test_cli_spec_raises_for_non_cli_model() -> None:
         cli_spec(get_model("gs110emx"))  # Plus switch: no CLI backend
 
 
-@pytest.mark.parametrize(
-    "key", ["gsm7252ps", "m4300-24x", "m4300-16x", "gsm7228ps"]
-)
+@pytest.mark.parametrize("key", ["gsm7252ps", "m4300-24x", "m4300-16x", "gsm7228ps"])
 def test_fastpath_models_register_ssh_and_telnet(key: str) -> None:
     backends = get_model(key).backends
     assert Backend.SSH in backends
@@ -221,9 +220,9 @@ def _driver(responses: list[bytes]) -> tuple[ShellDriver, _FakeChannel]:
 def test_shell_driver_setup_and_run() -> None:
     drv, ch = _driver(
         [
-            b"\r\n(GSM7252PS) #",                       # initial prompt
-            b"enable\r\n(GSM7252PS) #",                 # after enable
-            b"terminal length 0\r\n(GSM7252PS) #",      # after paging off
+            b"\r\n(GSM7252PS) #",  # initial prompt
+            b"enable\r\n(GSM7252PS) #",  # after enable
+            b"terminal length 0\r\n(GSM7252PS) #",  # after paging off
             b"show version\r\nMachine Model.... GSM7252PS\r\n(GSM7252PS) #",
         ]
     )
@@ -240,9 +239,9 @@ def test_shell_driver_setup_and_run() -> None:
 def test_shell_driver_handles_enable_password_prompt() -> None:
     _, ch = _driver(
         [
-            b"\r\n(GSM7252PS) >",                # initial prompt (unprivileged)
-            b"enable\r\nPassword:",              # enable asks for a password
-            b"\r\n(GSM7252PS) #",                # after password -> privileged
+            b"\r\n(GSM7252PS) >",  # initial prompt (unprivileged)
+            b"enable\r\nPassword:",  # enable asks for a password
+            b"\r\n(GSM7252PS) #",  # after password -> privileged
             b"terminal length 0\r\n(GSM7252PS) #",
         ]
     )

@@ -26,6 +26,7 @@ Two mitigations, applied together:
 This transport CANNOT be live-tested from CI (no network); it is transport-only,
 and the shared ``ShellDriver`` it builds on is unit-tested with a fake channel.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -128,9 +129,7 @@ class SshCliTransport(CliSession):
         assert self._driver is not None
         return self._driver.run_scp_copy(command, scp_password)
 
-    def run_write_memory(
-        self, command: str = "write memory", *, prestuff: bool
-    ) -> str:
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
         if self._driver is None:
             self.connect()
         assert self._driver is not None

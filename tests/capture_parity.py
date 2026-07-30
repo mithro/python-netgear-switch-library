@@ -37,6 +37,7 @@ a model whose web UI exposes a DIFFERENT sensor set (the gsm7252ps: SNMP fans+
 watts vs sysInfo temps+health) carries that second set in ``http_sensors``,
 validated against its own HTTP capture elsewhere, not here.
 """
+
 from __future__ import annotations
 
 import json
@@ -80,9 +81,7 @@ def _assert_ports_match(seed: VirtualSwitchState, capture: dict[str, Any]) -> No
         assert sim.name == real["name"], f"port {port} name"
         assert sim.admin == real["admin_enabled"], f"port {port} admin"
         assert sim.link == real["link_up"], f"port {port} link"
-        assert (sim.speed or None) == (real["speed_mbps"] or None), (
-            f"port {port} speed"
-        )
+        assert (sim.speed or None) == (real["speed_mbps"] or None), f"port {port} speed"
         assert sim.description == real["description"], f"port {port} description"
 
 
@@ -98,9 +97,9 @@ def _assert_poe_matches(seed: VirtualSwitchState, capture: dict[str, Any]) -> No
         # Mirror parse_poe exactly: a detect code outside RFC3621's 1-4 (e.g.
         # the gsm7252ps's "Other Fault" code 6 on port 6) maps to UNKNOWN, not
         # a KeyError. The capture records that port's detect as "unknown".
-        assert DETECT_MAP.get(psim.detect, PoEDetect.UNKNOWN).value == real[
-            "detect"
-        ], f"PoE port {port} detect"
+        assert DETECT_MAP.get(psim.detect, PoEDetect.UNKNOWN).value == real["detect"], (
+            f"PoE port {port} detect"
+        )
         assert (psim.power_mw or 0) == real["power_mw"], f"PoE port {port} power_mw"
 
 
@@ -129,7 +128,7 @@ def _assert_sensors_match(seed: VirtualSwitchState, capture: dict[str, Any]) -> 
     # capture sensor "name" is "{kind}{instance}" (see cli/capture.py); strip
     # the kind prefix back off to key by (kind, instance), matching SensorSim.
     real = {
-        (s["kind"], s["name"][len(s["kind"]):]): s["value"] for s in capture["sensors"]
+        (s["kind"], s["name"][len(s["kind"]) :]): s["value"] for s in capture["sensors"]
     }
     for ssim in seed.sensors:
         key = (ssim.kind, ssim.instance)

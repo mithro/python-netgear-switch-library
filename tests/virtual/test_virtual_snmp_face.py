@@ -14,6 +14,7 @@ brief's snippet didn't match the real client API:
   that calls ``asyncio.run(...)`` itself, so this file follows that same
   convention instead.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -283,10 +284,20 @@ def test_sync_get_poe_on_non_poe_model_raises_and_wire_emits_no_such_object():
         # faithful non-PoE agent regardless of the reader's guard.
         result = subprocess.run(
             [
-                "snmpbulkwalk", "-v2c", "-c", "public", "-On", "-Oe", "-OU", "-Ln",
-                f"{sw.host}:{sw.port}", oids.PETH_PSE_PORT_TABLE,
+                "snmpbulkwalk",
+                "-v2c",
+                "-c",
+                "public",
+                "-On",
+                "-Oe",
+                "-OU",
+                "-Ln",
+                f"{sw.host}:{sw.port}",
+                oids.PETH_PSE_PORT_TABLE,
             ],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         assert result.returncode == 0
         assert "No Such Object available on this agent at this OID" in result.stdout
@@ -317,15 +328,15 @@ def test_async_get_poe_on_non_poe_model_raises_and_wire_emits_no_such_object():
                     (sw.host, sw.port), timeout=2.0, retries=1
                 )
                 err_ind, err_stat, _idx, binds = await hlapi.next_cmd(
-                    engine, hlapi.CommunityData("public"), target,
+                    engine,
+                    hlapi.CommunityData("public"),
+                    target,
                     hlapi.ContextData(),
-                    hlapi.ObjectType(
-                        hlapi.ObjectIdentity(oids.PETH_PSE_PORT_TABLE)
-                    ),
+                    hlapi.ObjectType(hlapi.ObjectIdentity(oids.PETH_PSE_PORT_TABLE)),
                 )
                 assert not err_ind
                 assert not err_stat
-                (_name, value), = binds
+                ((_name, value),) = binds
                 assert value.__class__.__name__ == "NoSuchObject"
             finally:
                 engine.close_dispatcher()
@@ -359,6 +370,7 @@ def test_m4300_24x_ascii_base_mac_round_trips_through_the_mock_end_to_end_async(
     exercised through AsyncSnmpReader + PysnmpClient instead of
     SnmpReader + NetsnmpCliClient -- proves the quirk round-trips end-to-end
     over BOTH transports, not just the sync one."""
+
     async def run() -> None:
         sw = VirtualSwitch(model="m4300-24x")
         sw.start()

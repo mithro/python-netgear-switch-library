@@ -4,6 +4,7 @@ Pure and I/O-free, and transport-agnostic. The net-snmp CLI (sync) and pysnmp
 (async) transports both implement these protocols and return SnmpRow instances
 the parsers consume. No transport-specific types appear here.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -13,6 +13,7 @@ top-level because this module lives under ``transport/http`` and is only ever
 imported lazily by ``_dispatch`` (function-local imports), exactly like the
 SNMP transports — ``import netgear_switch`` never reaches here.
 """
+
 from __future__ import annotations
 
 import re
@@ -144,8 +145,7 @@ def _apply_xml_api_login(
     session_id = resp.headers.get("sessionID", "")
     if not session_id:
         raise HttpAuthError(
-            f"web-UI login failed for {spec.model_key} — no sessionID response "
-            "header"
+            f"web-UI login failed for {spec.model_key} — no sessionID response header"
         )
     cookies.set("userStatus", "ok")
     cookies.set("usernme", spec.username)
@@ -236,9 +236,7 @@ async def _aretry_on_dropped_connection(
     raise HttpError(f"{context}: connection dropped by switch: {last}") from last
 
 
-def _referer_headers(
-    spec: HttpModelSpec, host: str, *, secure: bool
-) -> dict[str, str]:
+def _referer_headers(spec: HttpModelSpec, host: str, *, secure: bool) -> dict[str, str]:
     """Headers every request must carry for this model.
 
     The M4300 Cheetah /v1 UI answers **403 Forbidden** to any request that
@@ -343,13 +341,9 @@ class HttpClient:
     def _xml_api_login(self) -> None:
         """GS728TPP GoAhead three-step login (see ``LoginScheme.XML_API``)."""
         try:
-            redirect = self._client.get(
-                self._spec.login_path, follow_redirects=False
-            )
+            redirect = self._client.get(self._spec.login_path, follow_redirects=False)
             self._session_path = _xml_api_session_path(redirect)
-            url = _xml_api_login_url(
-                self._spec, self._session_path, self._password
-            )
+            url = _xml_api_login_url(self._spec, self._session_path, self._password)
             resp = self._client.get(url)
             _validate_response(resp, context="GET System.xml?action=login")
         except httpx.HTTPError as exc:
@@ -499,9 +493,7 @@ class AsyncHttpClient:
                 self._spec.login_path, follow_redirects=False
             )
             self._session_path = _xml_api_session_path(redirect)
-            url = _xml_api_login_url(
-                self._spec, self._session_path, self._password
-            )
+            url = _xml_api_login_url(self._spec, self._session_path, self._password)
             resp = await self._client.get(url)
             _validate_response(resp, context="GET System.xml?action=login")
         except httpx.HTTPError as exc:

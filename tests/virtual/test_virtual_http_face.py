@@ -45,6 +45,7 @@ def test_login_read_write_reread(face) -> None:
         client.login()
         poe = client.get_page("/getPoePortStatus.cgi")
         from netgear_switch.protocols.http import parse
+
         assert parse.parse_poe_status(poe)[0].detect is PoEDetect.DELIVERING
         # Turn PoE port 2 off via the CGI, then re-read.
         page = client.get_page("/PoEPortConfig.cgi")
@@ -423,14 +424,14 @@ def test_goahead_face_serves_every_read_op_from_state(goahead_face) -> None:
 
             mgmt = reader.get_mgmt_ip()
             assert (mgmt.address, mgmt.netmask, mgmt.gateway) == (
-                state.mgmt.address, state.mgmt.netmask, state.mgmt.gateway,
+                state.mgmt.address,
+                state.mgmt.netmask,
+                state.mgmt.gateway,
             )
             assert mgmt.mode is IpMode.UNKNOWN
             # base_mac now read from the SystemInfo page (DeviceBasicInfo/
             # MacAddre), uppercased -> parity with the SNMP base MAC.
-            assert mgmt.base_mac == ":".join(
-                f"{b:02X}" for b in state.nsdp_mac
-            )
+            assert mgmt.base_mac == ":".join(f"{b:02X}" for b in state.nsdp_mac)
         finally:
             client.close()
 

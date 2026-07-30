@@ -28,8 +28,9 @@ def virtual_gs110emx() -> Iterator[VirtualSwitch]:
 
 
 def _client(sw: VirtualSwitch) -> UdpNsdpClient:
-    return UdpNsdpClient(sw.host, client_port=0, server_port=sw.port,
-                         client_mac=_MAC, timeout=2.0)
+    return UdpNsdpClient(
+        sw.host, client_port=0, server_port=sw.port, client_mac=_MAC, timeout=2.0
+    )
 
 
 def test_face_read_returns_seed_ports(virtual_gs110emx: VirtualSwitch) -> None:

@@ -387,9 +387,7 @@ def test_ip_set_force_forwarded() -> None:
         sw,
     )
     assert code == context.EXIT_OK
-    assert sw.calls == [
-        ("set_mgmt_ip", "10.1.5.30", "255.255.255.0", "10.1.5.1", True)
-    ]
+    assert sw.calls == [("set_mgmt_ip", "10.1.5.30", "255.255.255.0", "10.1.5.1", True)]
 
 
 def test_ip_set_protected_refused_without_force() -> None:
@@ -418,6 +416,4 @@ def test_ip_set_protected_allowed_with_force() -> None:
         sw,
     )
     assert code == context.EXIT_OK
-    assert sw.calls == [
-        ("set_mgmt_ip", "10.1.5.30", "255.255.255.0", "10.1.5.1", True)
-    ]
+    assert sw.calls == [("set_mgmt_ip", "10.1.5.30", "255.255.255.0", "10.1.5.1", True)]

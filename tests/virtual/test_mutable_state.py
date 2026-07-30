@@ -13,11 +13,11 @@ def test_apply_write_poe_admin_off_sets_detect_and_link_down():
     assert st.poe[1].detect == 3
     st.apply_write(f"{oids.PETH_PSE_PORT_TABLE}.3.1.1", 2)  # admin disable
     assert st.poe[1].admin is False
-    assert st.poe[1].detect == 1        # unused/disabled
-    assert st.ports[1].link is False    # coherence: link drops
+    assert st.poe[1].detect == 1  # unused/disabled
+    assert st.ports[1].link is False  # coherence: link drops
     st.apply_write(f"{oids.PETH_PSE_PORT_TABLE}.3.1.1", 1)  # admin enable
     assert st.poe[1].admin is True
-    assert st.poe[1].detect == 3        # delivering
+    assert st.poe[1].detect == 3  # delivering
 
 
 def test_apply_write_ifadmin_and_pvid():

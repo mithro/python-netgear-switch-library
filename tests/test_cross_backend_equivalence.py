@@ -15,6 +15,7 @@ reports ``admin_enabled=True``, ``name=None``), so port equality is on
 A real HTTP<->NSDP diff against live hardware is the same comparison run against
 ``10.1.5.25``; it is not a CI test because that switch rate-limits NSDP hard
 (see the live-hardware memory notes)."""
+
 from __future__ import annotations
 
 import math
@@ -60,8 +61,7 @@ def _vlan_sets(
     vlans: object,
 ) -> dict[int, tuple[frozenset[int], frozenset[int], frozenset[int]]]:
     return {  # type: ignore[attr-defined]
-        v.vlan_id: (v.member_ports, v.tagged_ports, v.untagged_ports)
-        for v in vlans
+        v.vlan_id: (v.member_ports, v.tagged_ports, v.untagged_ports) for v in vlans
     }
 
 
@@ -83,9 +83,7 @@ def test_http_and_nsdp_reads_agree(model_key: str) -> None:
     sw = VirtualSwitch(model=model_key)
     sw.start()
     try:
-        client = HttpClient(
-            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
-        )
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", http_spec(model))
         client.login()
         http = HttpReader(client, model)
         nsdp = NsdpReader(_StateNsdpClient(sw.state), model)
@@ -97,7 +95,11 @@ def test_http_and_nsdp_reads_agree(model_key: str) -> None:
             assert _stats_pairs(http.get_stats()) == _stats_pairs(nsdp.get_stats())
             hm, nm = http.get_mgmt_ip(), nsdp.get_mgmt_ip()
             assert (hm.address, hm.netmask, hm.gateway, hm.base_mac, hm.mode) == (
-                nm.address, nm.netmask, nm.gateway, nm.base_mac, nm.mode,
+                nm.address,
+                nm.netmask,
+                nm.gateway,
+                nm.base_mac,
+                nm.mode,
             )
             assert http.get_ports()
             assert http.get_vlans()
@@ -124,9 +126,7 @@ def test_m4300_http_and_snmp_reads_agree() -> None:
     sw = VirtualSwitch(model="m4300-24x")
     sw.start()
     try:
-        client = HttpClient(
-            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
-        )
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", http_spec(model))
         client.login()
         http = HttpReader(client, model)
         snmp = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
@@ -157,8 +157,7 @@ def test_m4300_http_and_snmp_reads_agree() -> None:
             # returned [] because the mock rendered a numeric label the parser
             # could never match.
             http_temps = {
-                (s.name, s.value) for s in http.get_sensors()
-                if s.kind == "temperature"
+                (s.name, s.value) for s in http.get_sensors() if s.kind == "temperature"
             }
             snmp_temps = {
                 s.value for s in snmp.get_sensors() if s.kind == "temperature"
@@ -188,9 +187,7 @@ def test_gs305ep_http_and_nsdp_reads_agree() -> None:
     sw = VirtualSwitch(model="gs305ep")
     sw.start()
     try:
-        client = HttpClient(
-            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
-        )
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", http_spec(model))
         client.login()
         http = HttpReader(client, model)
         nsdp = NsdpReader(_StateNsdpClient(sw.state), model)
@@ -241,9 +238,7 @@ def test_m4300_16x_http_and_snmp_reads_agree() -> None:
     sw = VirtualSwitch(model="m4300-16x")
     sw.start()
     try:
-        client = HttpClient(
-            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
-        )
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", http_spec(model))
         client.login()
         # m4300-16x HTTP ships reads_verified=False (the real 16X FASTPATH web UI
         # is HTTPS-on-49152, unlike this inherited-from-24X http:80 spec -- see
@@ -276,8 +271,7 @@ def test_m4300_16x_http_and_snmp_reads_agree() -> None:
             # Sensors: like the 24X, the HTTP page exposes temperatures; compare
             # the temperature readings both backends can represent.
             http_temps = {
-                (s.name, s.value) for s in http.get_sensors()
-                if s.kind == "temperature"
+                (s.name, s.value) for s in http.get_sensors() if s.kind == "temperature"
             }
             snmp_temps = {
                 s.value for s in snmp.get_sensors() if s.kind == "temperature"
@@ -298,7 +292,9 @@ def test_m4300_16x_http_and_snmp_reads_agree() -> None:
             for port, hp in http_poe.items():
                 sp = snmp_poe[port]
                 assert (hp.admin_enabled, hp.detect, hp.power_mw) == (
-                    sp.admin_enabled, sp.detect, sp.power_mw,
+                    sp.admin_enabled,
+                    sp.detect,
+                    sp.power_mw,
                 ), f"PoE port {port} differs"
         finally:
             client.close()
@@ -311,9 +307,7 @@ def test_gs110emx_http_and_nsdp_reads_agree() -> None:
     sw = VirtualSwitch(model="gs110emx")
     sw.start()
     try:
-        client = HttpClient(
-            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
-        )
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", http_spec(model))
         client.login()
         http = HttpReader(client, model)
         nsdp = NsdpReader(_StateNsdpClient(sw.state), model)
@@ -400,9 +394,7 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
             )
             client.login()
             http = HttpReader(client, model)
-            snmp = SnmpReader(
-                NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model
-            )
+            snmp = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
             try:
                 http_ports = _port_pairs(http.get_ports())
                 snmp_ports = _port_pairs(snmp.get_ports())
@@ -453,7 +445,8 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                 for port, hp in http_poe.items():
                     sp = snmp_poe[port]
                     assert (hp.admin_enabled, hp.power_mw) == (
-                        sp.admin_enabled, sp.power_mw,
+                        sp.admin_enabled,
+                        sp.power_mw,
                     )
                     if sp.detect is not PoEDetect.UNKNOWN:
                         assert hp.detect is sp.detect, f"PoE {port} detect differs"
@@ -467,12 +460,20 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                 }
 
                 assert [
-                    (n.local_port, n.remote_sys_name, n.remote_chassis_id,
-                     n.remote_port_id)
+                    (
+                        n.local_port,
+                        n.remote_sys_name,
+                        n.remote_chassis_id,
+                        n.remote_port_id,
+                    )
                     for n in http.get_lldp()
                 ] == [
-                    (n.local_port, n.remote_sys_name, n.remote_chassis_id,
-                     n.remote_port_id)
+                    (
+                        n.local_port,
+                        n.remote_sys_name,
+                        n.remote_chassis_id,
+                        n.remote_port_id,
+                    )
                     for n in snmp.get_lldp()
                 ]
 
@@ -485,20 +486,24 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                 # their own captures (see gsm7252ps.json vs gsm7252ps_sysInfo.html).
                 snmp_sensors = snmp.get_sensors()
                 assert {(s.name, s.value) for s in snmp_sensors} == {
-                    ("fan0", 2850.0), ("fan2", 2350.0),
-                    ("power0", 49.0), ("power1", 30.0),
-                    ("power2", 32.0), ("power3", 31.0),
+                    ("fan0", 2850.0),
+                    ("fan2", 2350.0),
+                    ("power0", 49.0),
+                    ("power1", 30.0),
+                    ("power2", 32.0),
+                    ("power3", 31.0),
                 }
                 assert not [s for s in snmp_sensors if s.kind == "temperature"]
 
                 http_sensors = http.get_sensors()
                 http_temps = {
-                    (s.name, s.value) for s in http_sensors
-                    if s.kind == "temperature"
+                    (s.name, s.value) for s in http_sensors if s.kind == "temperature"
                 }
                 assert http_temps == {
-                    ("System", 29.0), ("CPU", 49.0),
-                    ("MAC-A", 32.0), ("MAC-B", 31.0),
+                    ("System", 29.0),
+                    ("CPU", 49.0),
+                    ("MAC-A", 32.0),
+                    ("MAC-B", 31.0),
                 }
                 # the HTTP fan/PSU rows are health flags, never RPM/watts
                 assert all(
@@ -510,12 +515,16 @@ def test_gsm7252ps_http_and_snmp_reads_agree() -> None:
                 # here, and HTTP the only source of temperatures.
                 assert {s.kind for s in snmp_sensors} == {"fan", "power"}
                 assert {s.kind for s in http_sensors} == {
-                    "temperature", "fan", "power",
+                    "temperature",
+                    "fan",
+                    "power",
                 }
 
                 hm, sm = http.get_mgmt_ip(), snmp.get_mgmt_ip()
                 assert (hm.address, hm.netmask, hm.base_mac) == (
-                    sm.address, sm.netmask, sm.base_mac,
+                    sm.address,
+                    sm.netmask,
+                    sm.base_mac,
                 )
             finally:
                 client.close()
@@ -551,9 +560,7 @@ def test_gs728tpp_http_and_snmp_reads_agree() -> None:
     sw = VirtualSwitch(model="gs728tpp")
     sw.start()
     try:
-        client = HttpClient(
-            f"127.0.0.1:{sw.http_port}", "password", http_spec(model)
-        )
+        client = HttpClient(f"127.0.0.1:{sw.http_port}", "password", http_spec(model))
         client.login()
         http = HttpReader(client, model)
         snmp = SnmpReader(NetsnmpCliClient(f"{sw.host}:{sw.port}", "public"), model)
@@ -578,15 +585,23 @@ def test_gs728tpp_http_and_snmp_reads_agree() -> None:
             # SNMP _format_mac_octetstring), so there is no case difference.
             def _lldp(reader: object) -> list[tuple[object, ...]]:
                 return [
-                    (n.local_port, n.remote_sys_name, n.remote_chassis_id,
-                     n.remote_port_id, n.remote_port_desc)
+                    (
+                        n.local_port,
+                        n.remote_sys_name,
+                        n.remote_chassis_id,
+                        n.remote_port_id,
+                        n.remote_port_desc,
+                    )
                     for n in reader.get_lldp()  # type: ignore[attr-defined]
                 ]
+
             assert _lldp(http) == _lldp(snmp)
             # value pinned so a future case regression is caught, not hidden
             assert {n.remote_port_id for n in http.get_lldp()} == {
-                "2C:CF:67:BB:49:A1", "00:0A:FA:24:28:D8",
-                "00:0A:FA:24:28:D9", "00:0A:FA:24:28:DA",
+                "2C:CF:67:BB:49:A1",
+                "00:0A:FA:24:28:D8",
+                "00:0A:FA:24:28:D9",
+                "00:0A:FA:24:28:DA",
             }
 
             # mgmt-IP: STRICT field equality including base_mac. The wcd IPConf
@@ -595,7 +610,12 @@ def test_gs728tpp_http_and_snmp_reads_agree() -> None:
             # dot1dBaseBridgeAddress reports.
             hm, sm = http.get_mgmt_ip(), snmp.get_mgmt_ip()
             assert (hm.address, hm.netmask, hm.gateway, hm.mode, hm.base_mac) == (
-                sm.address, sm.netmask, sm.gateway, sm.mode, sm.base_mac)
+                sm.address,
+                sm.netmask,
+                sm.gateway,
+                sm.mode,
+                sm.base_mac,
+            )
             assert hm.base_mac == "B0:39:56:77:54:29"
 
             # PoE: port + admin + detect are IDENTICAL. power_mw is the ONE
@@ -611,7 +631,10 @@ def test_gs728tpp_http_and_snmp_reads_agree() -> None:
             for port, hp2 in http_poe.items():
                 sp2 = snmp_poe[port]
                 assert (hp2.port, hp2.admin_enabled, hp2.detect) == (
-                    sp2.port, sp2.admin_enabled, sp2.detect), f"PoE {port}"
+                    sp2.port,
+                    sp2.admin_enabled,
+                    sp2.detect,
+                ), f"PoE {port}"
             assert {p.power_mw for p in http_poe.values()} == {0}
             assert {p.power_mw for p in snmp_poe.values()} == {None}  # SNMP-absent
 
@@ -625,20 +648,21 @@ def test_gs728tpp_http_and_snmp_reads_agree() -> None:
             # health flag (value=1.0 / unit="state") for those same components.
             snmp_sensors = snmp.get_sensors()
             http_sensors = http.get_sensors()
-            assert {(s.name, s.kind) for s in snmp_sensors} == {
-                (s.name, s.kind) for s in http_sensors
-            } == {
-                ("Main PS", "power"), ("Redundant PS", "power"),
-                ("Fan1", "fan"), ("Fan2", "fan"),
-            }
+            assert (
+                {(s.name, s.kind) for s in snmp_sensors}
+                == {(s.name, s.kind) for s in http_sensors}
+                == {
+                    ("Main PS", "power"),
+                    ("Redundant PS", "power"),
+                    ("Fan1", "fan"),
+                    ("Fan2", "fan"),
+                }
+            )
             # value/unit: SNMP-absent (inventory, NaN) vs HTTP live (state, 1.0)
             assert all(
-                s.unit == "inventory" and math.isnan(s.value)
-                for s in snmp_sensors
+                s.unit == "inventory" and math.isnan(s.value) for s in snmp_sensors
             )
-            assert all(
-                s.unit == "state" and s.value == 1.0 for s in http_sensors
-            )
+            assert all(s.unit == "state" and s.value == 1.0 for s in http_sensors)
         finally:
             client.close()
     finally:

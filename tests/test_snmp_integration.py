@@ -3,6 +3,7 @@
 against the same live VirtualSwitch must return byte-for-byte identical model
 objects, over real (non-empty) seeded data -- never a vacuous [] == [] pass.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -27,14 +27,19 @@ class FakeNsdpWriteClient:
     def __init__(self, *, apply: bool = True) -> None:
         self.pvids: dict[int, int] = {1: 1, 2: 1}
         self.vlans: dict[int, tuple[set[int], set[int]]] = {90: ({1, 2}, set())}
-        self.mgmt = {"ip": "10.1.5.20", "mask": "255.255.255.0",
-                     "gw": "10.1.5.1", "dhcp": False}
+        self.mgmt = {
+            "ip": "10.1.5.20",
+            "mask": "255.255.255.0",
+            "gw": "10.1.5.1",
+            "dhcp": False,
+        }
         self.writes: list[list[Tag]] = []
         self._apply = apply
 
     def read(self, tags):
-        pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
-                         server_mac=b"\xaa" * 6)
+        pkt = NSDPPacket(
+            op=Op.READ_RESPONSE, client_mac=b"\x00" * 6, server_mac=b"\xaa" * 6
+        )
         pkt.add_tlv(Tag.MODEL, b"GS110EMX")
         pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
         for port, vlan in self.pvids.items():
@@ -43,7 +48,8 @@ class FakeNsdpWriteClient:
             pkt.add_tlv(
                 Tag.VLAN_MEMBERS,
                 struct.pack(">H", vlan)
-                + ports_to_bitmap(members, 2) + ports_to_bitmap(tagged, 2),
+                + ports_to_bitmap(members, 2)
+                + ports_to_bitmap(tagged, 2),
             )
         pkt.add_tlv(Tag.IP_ADDRESS, socket.inet_aton(self.mgmt["ip"]))
         pkt.add_tlv(Tag.NETMASK, socket.inet_aton(self.mgmt["mask"]))
@@ -63,6 +69,7 @@ class FakeNsdpWriteClient:
             self.pvids[t.value[0]] = struct.unpack_from(">H", t.value, 1)[0]
         elif t.tag == Tag.VLAN_MEMBERS:
             from netgear_switch.protocols.nsdp.parsers import parse_vlan_members
+
             m = parse_vlan_members(t.value, 10)
             self.vlans[m.vlan_id] = (set(m.member_ports), set(m.tagged_ports))
         elif t.tag == Tag.IP_ADDRESS:
@@ -74,8 +81,9 @@ class FakeNsdpWriteClient:
 
 
 def _writer(client=None, **kw) -> NsdpWriter:
-    return NsdpWriter(client or FakeNsdpWriteClient(), get_model("gs110emx"),
-                      password="admin", **kw)
+    return NsdpWriter(
+        client or FakeNsdpWriteClient(), get_model("gs110emx"), password="admin", **kw
+    )
 
 
 def test_set_pvid_writes_and_verifies():
@@ -97,7 +105,7 @@ def test_set_vlan_membership_rmw_tagged():
     members, tagged = client.vlans[90]
     assert 10 in members
     assert 10 in tagged
-    assert {1, 2} <= members   # existing members preserved (read-modify-write)
+    assert {1, 2} <= members  # existing members preserved (read-modify-write)
 
 
 def test_set_vlan_membership_excluded_removes_port():
@@ -113,8 +121,8 @@ def test_protected_port_blocks_pvid_without_force():
     w = _writer(client, protected_ports=frozenset({1}))
     with pytest.raises(ProtectedPortError):
         w.set_pvid(1, 90)
-    assert client.writes == []            # nothing sent
-    w.set_pvid(1, 90, force=True)         # force bypasses
+    assert client.writes == []  # nothing sent
+    w.set_pvid(1, 90, force=True)  # force bypasses
     assert client.pvids[1] == 90
 
 

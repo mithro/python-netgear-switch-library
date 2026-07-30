@@ -68,20 +68,31 @@ def test_parse_port_status_keeps_all_when_no_iftype_walk():
 def test_parse_port_stats_filters_to_physical_ports():
     """ifHC counters are ifIndex-keyed; get_stats must drop the same non-physical
     interfaces get_ports does, or SNMP stats (146 rows) != HTTP stats (16)."""
+
     def _c(base, pairs):
         return _rows(base, pairs, "Counter64")
+
     in_o = _c("1.3.6.1.2.1.31.1.1.1.6", {1: "100", 770: "999"})
     out_o = _c("1.3.6.1.2.1.31.1.1.1.10", {1: "200", 770: "999"})
     if_types = _rows("1.3.6.1.2.1.2.2.1.3", {1: "6", 770: "161"}, "INTEGER")
     stats = parse.parse_port_stats(
-        in_octets=in_o, out_octets=out_o, in_ucast=[], out_ucast=[],
-        in_errors=[], out_errors=[], if_types=if_types,
+        in_octets=in_o,
+        out_octets=out_o,
+        in_ucast=[],
+        out_ucast=[],
+        in_errors=[],
+        out_errors=[],
+        if_types=if_types,
     )
     assert [s.port for s in stats] == [1]  # LAG 770 dropped
     # No ifType walk -> keep all (backward-compatible).
     stats_all = parse.parse_port_stats(
-        in_octets=in_o, out_octets=out_o, in_ucast=[], out_ucast=[],
-        in_errors=[], out_errors=[],
+        in_octets=in_o,
+        out_octets=out_o,
+        in_ucast=[],
+        out_ucast=[],
+        in_errors=[],
+        out_errors=[],
     )
     assert [s.port for s in stats_all] == [1, 770]
 
@@ -92,9 +103,7 @@ def test_parse_pvids_filters_to_physical_ports():
     pvid_rows = _rows(
         "1.3.6.1.2.1.17.7.1.4.5.1.1", {1: "10", 2: "20", 770: "1"}, "Gauge32"
     )
-    if_types = _rows(
-        "1.3.6.1.2.1.2.2.1.3", {1: "6", 2: "6", 770: "161"}, "INTEGER"
-    )
+    if_types = _rows("1.3.6.1.2.1.2.2.1.3", {1: "6", 2: "6", 770: "161"}, "INTEGER")
     assert parse.parse_pvids(pvid_rows, if_types) == [(1, 10), (2, 20)]
     # No ifType walk -> keep all (backward-compatible).
     assert parse.parse_pvids(pvid_rows) == [(1, 10), (2, 20), (770, 1)]

@@ -14,6 +14,7 @@ nothing to implement honestly without a hardware capture. A switch that rejects
 v1 auth returns result 0x0700 (bad password); the transport surfaces that as an
 NsdpError telling the caller v2 is required (see Task 4).
 """
+
 from __future__ import annotations
 
 V1_KEY = b"NtgrSmartSwitchRock"

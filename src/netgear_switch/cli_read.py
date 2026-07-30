@@ -16,6 +16,7 @@ honestly rather than fabricating: ``get_poe`` on the non-PoE M4300-24X (PoE port
 count 0) is the only such carve-out -- every other ``show`` command exists on
 every FASTPATH switch.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

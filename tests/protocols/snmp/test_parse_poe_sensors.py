@@ -94,15 +94,17 @@ def test_parse_entity_sensors_inventory_from_real_capture():
     # Real gs728tpp ENTITY-MIB rows (10.2.5.10 capture): two PSUs (class 6) and
     # two fans (class 7); the chassis/slot/port rows (other classes) are ignored.
     cls, name, descr = (
-        oids.ENT_PHYSICAL_CLASS, oids.ENT_PHYSICAL_NAME, oids.ENT_PHYSICAL_DESCR,
+        oids.ENT_PHYSICAL_CLASS,
+        oids.ENT_PHYSICAL_NAME,
+        oids.ENT_PHYSICAL_DESCR,
     )
     class_rows = [
-        SnmpRow(f"{cls}.67108992", "1", "INTEGER"),   # "Netgear" chassis -> ignored
-        SnmpRow(f"{cls}.67109185", "6", "INTEGER"),   # PSU
-        SnmpRow(f"{cls}.67109186", "6", "INTEGER"),   # PSU
-        SnmpRow(f"{cls}.67109249", "7", "INTEGER"),   # fan
-        SnmpRow(f"{cls}.67109250", "7", "INTEGER"),   # fan
-        SnmpRow(f"{cls}.68420352", "3", "INTEGER"),   # "GS728TPP" module -> ignored
+        SnmpRow(f"{cls}.67108992", "1", "INTEGER"),  # "Netgear" chassis -> ignored
+        SnmpRow(f"{cls}.67109185", "6", "INTEGER"),  # PSU
+        SnmpRow(f"{cls}.67109186", "6", "INTEGER"),  # PSU
+        SnmpRow(f"{cls}.67109249", "7", "INTEGER"),  # fan
+        SnmpRow(f"{cls}.67109250", "7", "INTEGER"),  # fan
+        SnmpRow(f"{cls}.68420352", "3", "INTEGER"),  # "GS728TPP" module -> ignored
     ]
     name_rows = [
         SnmpRow(f"{name}.67109185", "Main PowerSupply", "OCTETSTR"),
@@ -140,5 +142,6 @@ def test_parse_entity_sensors_falls_back_to_descr_then_index():
     descr_rows = [SnmpRow(f"{descr}.10", "Fan", "OCTETSTR")]
     sensors = parse.parse_entity_sensors(class_rows, [], descr_rows)
     assert [(s.name, s.kind) for s in sensors] == [
-        ("Fan", "fan"), ("power11", "power"),
+        ("Fan", "fan"),
+        ("power11", "power"),
     ]

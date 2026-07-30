@@ -14,6 +14,7 @@ production write needing a staging SCP server); this is the strongest
 verification of the deploy byte-path achievable here -- see
 ``cli_write.deploy_certificate_scp`` and ``transport/cli/session.ShellDriver``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -141,9 +142,7 @@ class _DriverSession:
     def run_scp_copy(self, command: str, scp_password: str) -> str:
         return self._driver.run_scp_copy(command, scp_password)
 
-    def run_write_memory(
-        self, command: str = "write memory", *, prestuff: bool
-    ) -> str:
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
         return self._driver.run_write_memory(command, prestuff=prestuff)
 
     def close(self) -> None:

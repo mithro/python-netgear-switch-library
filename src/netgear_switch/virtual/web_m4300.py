@@ -13,6 +13,7 @@ Interface names are HTML-escaped (``1&#x2F;0&#x2F;1``) because the real
 firmware escapes them -- that escaping once collapsed every parsed port number
 to 1, so reproducing it keeps the regression visible in CI.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -71,11 +72,14 @@ def render_ports(state: VirtualSwitchState) -> str:
             inst, "1_2_3", "Enable" if sim.admin else "Disable", "baseport_AdminMode"
         )
         body += _cell(
-            inst, "1_2_10", "Link Up" if sim.link else "Link Down",
+            inst,
+            "1_2_10",
+            "Link Up" if sim.link else "Link Down",
             "baseport_LinkStatus2",
         )
         body += _cell(
-            inst, "1_2_9",
+            inst,
+            "1_2_9",
             _speed_text(sim.speed) if sim.link else "",
             "baseport_PhysicalStatus",
         )
@@ -145,14 +149,14 @@ def render_vlans(state: VirtualSwitchState) -> str:
         parts = [f"1/0/{p}" for p in physical]
         parts += [f"lag {i}" for i, _ in enumerate(lags, start=1)]
         egress = ", ".join(parts)
-        body += _cell(
-            inst, "1_5_1", str(vid), "SwitchingVlanStaticConfig_VlanIndex"
-        )
+        body += _cell(inst, "1_5_1", str(vid), "SwitchingVlanStaticConfig_VlanIndex")
         body += _cell(
             inst, "1_5_2", vsim.name or "", "SwitchingVlanStaticConfig_VlanName"
         )
         body += _cell(
-            inst, "1_5_4", egress,
+            inst,
+            "1_5_4",
+            egress,
             "SwitchingVlanCurrentConfig_VlanCurrentEgressPortList",
         )
     return _page(body)
@@ -168,9 +172,7 @@ def render_mac_table(state: VirtualSwitchState) -> str:
         body += _cell(
             inst, "1_6_2", _iface(entry.bridge_port), "SwitchingmacAddrGroup_Intf"
         )
-        body += _cell(
-            inst, "1_6_3", str(entry.vlan), "SwitchingmacAddrGroup_vlanIndex"
-        )
+        body += _cell(inst, "1_6_3", str(entry.vlan), "SwitchingmacAddrGroup_vlanIndex")
     return _page(body)
 
 

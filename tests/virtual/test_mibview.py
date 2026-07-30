@@ -27,11 +27,15 @@ class _FakeState:
 
 def _view() -> StateMibView:
     # .8.2 must sort BEFORE .8.10 numerically (a string sort would invert them).
-    return StateMibView(_FakeState({
-        "1.3.6.1.2.1.2.2.1.8.1": ("INTEGER", "1"),
-        "1.3.6.1.2.1.2.2.1.8.2": ("INTEGER", "2"),
-        "1.3.6.1.2.1.2.2.1.8.10": ("INTEGER", "3"),
-    }))
+    return StateMibView(
+        _FakeState(
+            {
+                "1.3.6.1.2.1.2.2.1.8.1": ("INTEGER", "1"),
+                "1.3.6.1.2.1.2.2.1.8.2": ("INTEGER", "2"),
+                "1.3.6.1.2.1.2.2.1.8.10": ("INTEGER", "3"),
+            }
+        )
+    )
 
 
 def test_get_exact_match():

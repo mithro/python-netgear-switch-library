@@ -14,24 +14,31 @@ from netgear_switch.registry import get_model
 
 
 def _canned_packet() -> NSDPPacket:
-    pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
-                      server_mac=b"\xaa\xbb\xcc\xdd\xee\xff")
+    pkt = NSDPPacket(
+        op=Op.READ_RESPONSE,
+        client_mac=b"\x00" * 6,
+        server_mac=b"\xaa\xbb\xcc\xdd\xee\xff",
+    )
     pkt.add_tlv(Tag.MODEL, b"GS110EMX")
     pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
-    pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")   # port 1, gigabit
-    pkt.add_tlv(Tag.PORT_STATUS, b"\x03\x00\x01")   # port 3, down
-    pkt.add_tlv(Tag.PORT_STATUS, b"\x09\xff\x01")   # port 9, 10G
+    pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")  # port 1, gigabit
+    pkt.add_tlv(Tag.PORT_STATUS, b"\x03\x00\x01")  # port 3, down
+    pkt.add_tlv(Tag.PORT_STATUS, b"\x09\xff\x01")  # port 9, 10G
     pkt.add_tlv(
         Tag.PORT_STATISTICS,
-        b"\x01" + struct.pack(">Q", 1000) + struct.pack(">Q", 500)
-        + struct.pack(">Q", 2) + b"\x00" * 24,
+        b"\x01"
+        + struct.pack(">Q", 1000)
+        + struct.pack(">Q", 500)
+        + struct.pack(">Q", 2)
+        + b"\x00" * 24,
     )
     pkt.add_tlv(
         Tag.VLAN_MEMBERS,
-        struct.pack(">H", 90) + bytes([0b1100_0000, 0b0100_0000])
+        struct.pack(">H", 90)
+        + bytes([0b1100_0000, 0b0100_0000])
         + bytes([0b0000_0000, 0b0100_0000]),  # members {1,2,10} tagged {10}
     )
-    pkt.add_tlv(Tag.PORT_PVID, b"\x01\x00\x5a")     # port 1 -> vlan 90
+    pkt.add_tlv(Tag.PORT_PVID, b"\x01\x00\x5a")  # port 1 -> vlan 90
     pkt.add_tlv(Tag.IP_ADDRESS, b"\x0a\x01\x05\x14")
     pkt.add_tlv(Tag.NETMASK, b"\xff\xff\xff\x00")
     pkt.add_tlv(Tag.GATEWAY, b"\x0a\x01\x05\x01")
@@ -124,7 +131,7 @@ def test_get_ports_maps_speed_and_link():
     ports = {p.port: p for p in _reader().get_ports()}
     assert ports[1].link_up is True
     assert ports[1].speed_mbps == 1000
-    assert ports[1].admin_enabled is True   # NSDP can't read admin; documented True
+    assert ports[1].admin_enabled is True  # NSDP can't read admin; documented True
     assert ports[3].link_up is False
     assert ports[3].speed_mbps is None
     assert ports[9].speed_mbps == 10000
@@ -135,7 +142,7 @@ def test_get_stats_maps_bytes_and_crc_errors():
     assert stats[1].rx_bytes == 1000
     assert stats[1].tx_bytes == 500
     assert stats[1].rx_errors == 2
-    assert stats[1].rx_packets is None   # NSDP does not report packet counts
+    assert stats[1].rx_packets is None  # NSDP does not report packet counts
     assert stats[1].tx_errors is None
 
 
@@ -145,7 +152,7 @@ def test_get_vlans_and_pvids():
     assert v90.member_ports == frozenset({1, 2, 10})
     assert v90.tagged_ports == frozenset({10})
     assert v90.untagged_ports == frozenset({1, 2})
-    assert v90.name is None    # NSDP VLAN_MEMBERS carries no VLAN name
+    assert v90.name is None  # NSDP VLAN_MEMBERS carries no VLAN name
     assert (1, 90) in _reader().get_pvids()
 
 

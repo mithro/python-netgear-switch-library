@@ -12,6 +12,7 @@ actually advertises, and returning a 404-equivalent for anything else) is
 Task 11's job at the I/O boundary; this module renders/applies whatever page
 its caller already resolved against ``spec``.
 """
+
 from __future__ import annotations
 
 import re
@@ -27,7 +28,7 @@ _DETECT_TEXT = {3: "Delivering", 1: "Searching", 2: "Disabled", 4: "Fault"}
 
 def render_login(rand: str) -> str:
     return (
-        f'<html><body><form>'
+        f"<html><body><form>"
         f'<input type="hidden" id="rand" name="rand" value="{rand}">'
         f'<input type="hidden" name="hash" value="{_HASH}">'
         f"</form></body></html>"
@@ -63,8 +64,8 @@ def _render_dashboard(state: VirtualSwitchState) -> str:
     rows = "".join(
         f'<tr class="portID"><td><input type="checkbox"></td>'
         f"<td>{p}</td>"
-        f'<td>{("Up " + str(sim.speed) + "M") if sim.link else "Down"}</td>'
-        f'<td>{"Enabled" if sim.admin else "Disabled"}</td>'
+        f"<td>{('Up ' + str(sim.speed) + 'M') if sim.link else 'Down'}</td>"
+        f"<td>{'Enabled' if sim.admin else 'Disabled'}</td>"
         f"<td>{sim.name}</td></tr>"
         for p, sim in sorted(state.ports.items())
     )

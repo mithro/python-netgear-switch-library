@@ -9,6 +9,7 @@ Two layers are tested independently, on purpose:
   plain strings -- no SnmpRow/client machinery needed. This is where the
   HONESTY constraint (never guess; unregistered/ambiguous -> None) is proven.
 """
+
 from __future__ import annotations
 
 import re
@@ -93,9 +94,7 @@ def test_detect_model_from_sysdescr_is_case_insensitive():
         parse.detect_model_from_sysdescr("netgear gsm7252ps switch", MODELS)
         == "gsm7252ps"
     )
-    assert (
-        parse.detect_model_from_sysdescr("Netgear M4300-24X", MODELS) == "m4300-24x"
-    )
+    assert parse.detect_model_from_sysdescr("Netgear M4300-24X", MODELS) == "m4300-24x"
 
 
 def test_detect_model_from_sysdescr_matches_s3300_alias_for_gsm7228ps():
@@ -113,15 +112,16 @@ def test_detect_model_from_sysdescr_matches_s3300_alias_for_gsm7228ps():
     # generic textual meaning. So the alias match is now proven against a
     # bare, unsuffixed occurrence of the alias token instead, which is the
     # only form that is unambiguously safe to match.
-    assert parse.detect_model_from_sysdescr(
-        "NETGEAR S3300 Managed Switch, firmware 6.4.2.9", MODELS
-    ) == "gsm7228ps"
+    assert (
+        parse.detect_model_from_sysdescr(
+            "NETGEAR S3300 Managed Switch, firmware 6.4.2.9", MODELS
+        )
+        == "gsm7228ps"
+    )
 
 
 def test_detect_model_from_sysdescr_matches_xsm_alias_for_m4300_24x():
-    assert (
-        parse.detect_model_from_sysdescr("NETGEAR XSM4324CS", MODELS) == "m4300-24x"
-    )
+    assert parse.detect_model_from_sysdescr("NETGEAR XSM4324CS", MODELS) == "m4300-24x"
 
 
 def test_detect_model_from_sysdescr_unregistered_netgear_model_is_none():
@@ -145,12 +145,9 @@ def test_detect_model_from_sysdescr_matches_unverified_models():
     # token, exactly like the verified models above.
     assert parse.detect_model_from_sysdescr("NETGEAR M7300 switch", MODELS) == "m7300"
     assert (
-        parse.detect_model_from_sysdescr("NETGEAR M7300-24XF switch", MODELS)
-        == "m7300"
+        parse.detect_model_from_sysdescr("NETGEAR M7300-24XF switch", MODELS) == "m7300"
     )
-    assert (
-        parse.detect_model_from_sysdescr("NETGEAR XS748T switch", MODELS) == "xs748t"
-    )
+    assert parse.detect_model_from_sysdescr("NETGEAR XS748T switch", MODELS) == "xs748t"
     assert (
         parse.detect_model_from_sysdescr("NETGEAR GS728TPP switch", MODELS)
         == "gs728tpp"
@@ -166,21 +163,13 @@ def test_detect_model_from_sysdescr_non_netgear_garbage_is_none():
 def test_detect_model_from_sysdescr_distinguishes_m4300_16x_from_24x():
     # Neither model's tokens may be a substring of the other's -- otherwise a
     # 16X switch could be misidentified as a 24X (or vice versa).
-    assert (
-        parse.detect_model_from_sysdescr("NETGEAR M4300-16X", MODELS) == "m4300-16x"
-    )
-    assert (
-        parse.detect_model_from_sysdescr("NETGEAR M4300-24X", MODELS) == "m4300-24x"
-    )
+    assert parse.detect_model_from_sysdescr("NETGEAR M4300-16X", MODELS) == "m4300-16x"
+    assert parse.detect_model_from_sysdescr("NETGEAR M4300-24X", MODELS) == "m4300-24x"
 
 
 def test_detect_model_from_sysdescr_distinguishes_gsm7252ps_from_gsm7228ps():
-    assert (
-        parse.detect_model_from_sysdescr("NETGEAR GSM7252PS", MODELS) == "gsm7252ps"
-    )
-    assert (
-        parse.detect_model_from_sysdescr("NETGEAR GSM7228PS", MODELS) == "gsm7228ps"
-    )
+    assert parse.detect_model_from_sysdescr("NETGEAR GSM7252PS", MODELS) == "gsm7252ps"
+    assert parse.detect_model_from_sysdescr("NETGEAR GSM7228PS", MODELS) == "gsm7228ps"
 
 
 def test_detect_model_from_sysdescr_rejects_gs305epp_extension_of_gs305ep():
@@ -188,9 +177,10 @@ def test_detect_model_from_sysdescr_rejects_gs305epp_extension_of_gs305ep():
     # 123W model -- NOT the registered 63W GS305EP. Bare substring matching
     # used to wrongly return "gs305ep" here because "GS305EP" is a prefix of
     # "GS305EPP" with no word boundary check. Must honestly return None.
-    assert parse.detect_model_from_sysdescr(
-        "NETGEAR GS305EPP Managed Switch", MODELS
-    ) is None
+    assert (
+        parse.detect_model_from_sysdescr("NETGEAR GS305EPP Managed Switch", MODELS)
+        is None
+    )
 
 
 def test_detect_model_from_sysdescr_rejects_unregistered_s3300_skus():
@@ -200,9 +190,12 @@ def test_detect_model_from_sysdescr_rejects_unregistered_s3300_skus():
     # return "gsm7228ps" here since "S3300" is a substring/prefix of
     # "S3300-28X" separated only by a hyphen. Must honestly return None.
     assert parse.detect_model_from_sysdescr("NETGEAR S3300-28X", MODELS) is None
-    assert parse.detect_model_from_sysdescr(
-        "NETGEAR S3300-28X-PoE+ Managed Switch", MODELS
-    ) is None
+    assert (
+        parse.detect_model_from_sysdescr(
+            "NETGEAR S3300-28X-PoE+ Managed Switch", MODELS
+        )
+        is None
+    )
 
 
 # --- detect_model_from_sysobjectid: authoritative sysObjectID matching ------
@@ -239,7 +232,10 @@ def test_detect_model_from_sysobjectid_unmapped_or_absent_is_none():
     # An OID with no real-capture-confirmed mapping is honestly None, never a
     # guess -- and so are absent/empty inputs.
     assert parse.detect_model_from_sysobjectid("1.3.6.1.4.1.9.1.1", MODELS) is None
-    assert parse.detect_model_from_sysobjectid("1.3.6.1.4.1.4526.10.100.14", MODELS) is None
+    assert (
+        parse.detect_model_from_sysobjectid("1.3.6.1.4.1.4526.10.100.14", MODELS)
+        is None
+    )
     assert parse.detect_model_from_sysobjectid(None, MODELS) is None
     assert parse.detect_model_from_sysobjectid("", MODELS) is None
 
@@ -247,9 +243,7 @@ def test_detect_model_from_sysobjectid_unmapped_or_absent_is_none():
 def test_detect_model_from_sysobjectid_only_returns_models_actually_present():
     # Honesty: even a mapped OID resolves ONLY when the target key is present
     # in the passed `models` mapping (never conjures a model out of the map).
-    assert (
-        parse.detect_model_from_sysobjectid("1.3.6.1.4.1.4526.100.10.19", {}) is None
-    )
+    assert parse.detect_model_from_sysobjectid("1.3.6.1.4.1.4526.100.10.19", {}) is None
 
 
 def test_detect_model_from_sysdescr_ambiguous_match_is_none():
@@ -262,13 +256,21 @@ def test_detect_model_from_sysdescr_ambiguous_match_is_none():
 
     fake_models = {
         "fake-a": SwitchModel(
-            key="fake-a", display_name="FAKEA", switch_class=SwitchClass.PLUS,
-            port_count=1, poe_port_count=0, backends=frozenset({Backend.SNMP}),
+            key="fake-a",
+            display_name="FAKEA",
+            switch_class=SwitchClass.PLUS,
+            port_count=1,
+            poe_port_count=0,
+            backends=frozenset({Backend.SNMP}),
             snmp_vendor_base=None,
         ),
         "fake-b": SwitchModel(
-            key="fake-b", display_name="FAKEB", switch_class=SwitchClass.PLUS,
-            port_count=1, poe_port_count=0, backends=frozenset({Backend.SNMP}),
+            key="fake-b",
+            display_name="FAKEB",
+            switch_class=SwitchClass.PLUS,
+            port_count=1,
+            poe_port_count=0,
+            backends=frozenset({Backend.SNMP}),
             snmp_vendor_base=None,
         ),
     }

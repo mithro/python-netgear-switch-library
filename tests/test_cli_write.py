@@ -5,6 +5,7 @@ over the in-process mock CLI face, the SyncSwitch facade dispatch, and the M4300
 GROUNDED in prior art (certbot-hook FastpathScpUpdater), MOCK-TESTED, NOT
 live-verified -- a real run is a production write needing a staging SCP server.
 """
+
 from __future__ import annotations
 
 import pytest

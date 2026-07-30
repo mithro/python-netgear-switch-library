@@ -3,6 +3,7 @@
 Every expected value is transcribed from ``tests/fixtures/cli/gsm7252ps_*.txt``
 (split from the live SSH transcript of 10.1.5.22), never invented.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -49,7 +50,20 @@ def test_parse_port_status_columns() -> None:
 def test_parse_vlan_brief_lists_every_vlan() -> None:
     brief = parse.parse_vlan_brief(_read("show_vlan_brief"))
     assert [v for v, _ in brief] == [
-        1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141
+        1,
+        4,
+        5,
+        6,
+        7,
+        10,
+        20,
+        21,
+        41,
+        89,
+        90,
+        99,
+        121,
+        141,
     ]
     assert dict(brief)[90] == "iot"
     assert dict(brief)[1] == "default"
@@ -208,7 +222,20 @@ def test_m4300_parse_vlan_list_via_show_vlan() -> None:
     # "show vlan" on 12.0 (not "show vlan brief"): identical table shape.
     brief = parse.parse_vlan_brief(_read_m4300("show_vlan"))
     assert [v for v, _ in brief] == [
-        1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141
+        1,
+        4,
+        5,
+        6,
+        7,
+        10,
+        20,
+        21,
+        41,
+        89,
+        90,
+        99,
+        121,
+        141,
     ]
     assert dict(brief)[1] == "default"
     assert dict(brief)[90] == "iot"
@@ -255,9 +282,10 @@ def test_m4300_parse_environment_sensors() -> None:
 
 
 def test_m4300_parse_lldp_neighbours() -> None:
-    nbrs = {n.local_port: n for n in parse.parse_lldp(_read_m4300(
-        "show_lldp_remote_device_all"
-    ))}
+    nbrs = {
+        n.local_port: n
+        for n in parse.parse_lldp(_read_m4300("show_lldp_remote_device_all"))
+    }
     assert set(nbrs) == {1, 2, 9, 10, 19, 20, 21, 22, 23, 24}  # 10 neighbours
     assert nbrs[1].remote_chassis_id == "8C:3B:AD:69:1C:38"
     assert nbrs[1].remote_port_id == "1/0/14"
@@ -325,7 +353,20 @@ def test_m4300_16x_parse_port_status_16_physical_ports() -> None:
 def test_m4300_16x_parse_vlan_list_via_show_vlan() -> None:
     brief = parse.parse_vlan_brief(_read_m4300_16x("show_vlan"))
     assert [v for v, _ in brief] == [
-        1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141
+        1,
+        4,
+        5,
+        6,
+        7,
+        10,
+        20,
+        21,
+        41,
+        89,
+        90,
+        99,
+        121,
+        141,
     ]
     assert dict(brief)[5] == "net"
 
@@ -422,13 +463,27 @@ def test_header_columns_reconstructs_wrapped_poe_headers() -> None:
     # their multi-line wrapped headers.
     gsm = parse.header_columns(_read("show_poe_port_info_all"))
     assert gsm == [
-        "Intf", "High Power", "Max Power (mW)", "Class", "Power (mW)",
-        "Output Current (mA)", "Output Voltage (V)", "Temperature",
-        "Status", "Fault Status",
+        "Intf",
+        "High Power",
+        "Max Power (mW)",
+        "Class",
+        "Power (mW)",
+        "Output Current (mA)",
+        "Output Voltage (V)",
+        "Temperature",
+        "Status",
+        "Fault Status",
     ]
     m16 = parse.header_columns(_read_m4300_16x("show_poe_port_info_all"))
     assert "Temperature" not in m16
     assert m16 == [
-        "Intf", "High Power", "Max Power (mW)", "Class", "Power (mW)",
-        "Output Current (mA)", "Output Voltage (V)", "Status", "Fault Status",
+        "Intf",
+        "High Power",
+        "Max Power (mW)",
+        "Class",
+        "Power (mW)",
+        "Output Current (mA)",
+        "Output Voltage (V)",
+        "Status",
+        "Fault Status",
     ]

@@ -12,6 +12,7 @@ telnet disabled).
 ``telnetlib`` was removed from the stdlib in Python 3.13; on such an interpreter
 this whole module skips cleanly with a clear reason instead of erroring.
 """
+
 from __future__ import annotations
 
 import importlib.util

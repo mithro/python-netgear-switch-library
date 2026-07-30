@@ -1,4 +1,5 @@
 """Sync/async write-equivalence against the live mutable VirtualSwitch."""
+
 from __future__ import annotations
 
 from equivalence import assert_write_equivalent
@@ -111,8 +112,9 @@ def test_write_equiv_set_vlan_membership_excluded():
     assert_write_equivalent(
         lambda s: s.set_vlan_membership(90, 10, VlanMode.EXCLUDED, force=True),
         lambda a: a.set_vlan_membership(90, 10, VlanMode.EXCLUDED, force=True),
-        lambda snap: 10
-        not in next(v for v in snap.vlans if v.vlan_id == 90).member_ports,
+        lambda snap: (
+            10 not in next(v for v in snap.vlans if v.vlan_id == 90).member_ports
+        ),
     )
 
 

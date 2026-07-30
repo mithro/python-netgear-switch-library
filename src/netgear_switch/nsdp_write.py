@@ -8,6 +8,7 @@ before/after on mismatch; a bad password / transport error surfaces as
 tag for (PoE, per-port admin, VLAN create/delete) raise
 ``UnsupportedCapabilityError`` — never a silent no-op.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -110,7 +111,8 @@ class NsdpWriter:
         if after.get(port) != vlan:
             raise WriteVerificationError(
                 f"PVID for port {port} did not read back as {vlan}",
-                before=before.get(port), after=after.get(port),
+                before=before.get(port),
+                after=after.get(port),
             )
 
     def set_vlan_membership(
@@ -131,7 +133,8 @@ class NsdpWriter:
         if not _membership_ok(after, port, mode):
             raise WriteVerificationError(
                 f"VLAN {vlan} membership for port {port} did not read back as {mode}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     def set_mgmt_ip(
@@ -159,14 +162,18 @@ class NsdpWriter:
         if (after.address, after.netmask, after.gateway) != (address, netmask, gateway):
             raise WriteVerificationError(
                 "management IP did not read back as written",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         raise UnsupportedCapabilityError(_NO_POE)
 
     def cycle_poe(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
         # timeouts accepted-but-unused: matches SnmpWriter's signature so the
@@ -175,7 +182,10 @@ class NsdpWriter:
         raise UnsupportedCapabilityError(_NO_POE)
 
     def clear_poe_fault(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
         raise UnsupportedCapabilityError(_NO_POE)
@@ -232,7 +242,8 @@ class AsyncNsdpWriter:
         if after.get(port) != vlan:
             raise WriteVerificationError(
                 f"PVID for port {port} did not read back as {vlan}",
-                before=before.get(port), after=after.get(port),
+                before=before.get(port),
+                after=after.get(port),
             )
 
     async def set_vlan_membership(
@@ -253,7 +264,8 @@ class AsyncNsdpWriter:
         if not _membership_ok(after, port, mode):
             raise WriteVerificationError(
                 f"VLAN {vlan} membership for port {port} did not read back as {mode}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     async def set_mgmt_ip(
@@ -281,14 +293,18 @@ class AsyncNsdpWriter:
         if (after.address, after.netmask, after.gateway) != (address, netmask, gateway):
             raise WriteVerificationError(
                 "management IP did not read back as written",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         raise UnsupportedCapabilityError(_NO_POE)
 
     async def cycle_poe(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
         # timeouts accepted-but-unused: matches AsyncSnmpWriter's signature so
@@ -298,7 +314,10 @@ class AsyncNsdpWriter:
         raise UnsupportedCapabilityError(_NO_POE)
 
     async def clear_poe_fault(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
         raise UnsupportedCapabilityError(_NO_POE)

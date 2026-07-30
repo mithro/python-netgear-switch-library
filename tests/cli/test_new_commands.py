@@ -13,9 +13,7 @@ from netgear_switch.protocols.nsdp.types import NsdpDevice
 from netgear_switch.registry import get_model
 
 
-def run(
-    argv: list[str], switch: object, stdin: str = ""
-) -> tuple[int, str, str]:
+def run(argv: list[str], switch: object, stdin: str = "") -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     code = main(
         argv,
@@ -122,9 +120,7 @@ def test_nsdp_device_errors_honestly_on_non_nsdp_model() -> None:
 
     class NoNsdp(RecordingSwitch):
         def nsdp_device(self) -> NsdpDevice:
-            raise UnsupportedCapabilityError(
-                "model 'm4300-24x' has no NSDP backend"
-            )
+            raise UnsupportedCapabilityError("model 'm4300-24x' has no NSDP backend")
 
     code, out, err = run(["nsdp-device"], NoNsdp())
     assert code == context.EXIT_ERROR
@@ -199,9 +195,7 @@ def _write_pems(tmp_path) -> tuple[str, str]:
     cert.write_text(
         "-----BEGIN CERTIFICATE-----\nCERTDATA\n-----END CERTIFICATE-----\n"
     )
-    key.write_text(
-        "-----BEGIN PRIVATE KEY-----\nKEYDATA\n-----END PRIVATE KEY-----\n"
-    )
+    key.write_text("-----BEGIN PRIVATE KEY-----\nKEYDATA\n-----END PRIVATE KEY-----\n")
     return str(cert), str(key)
 
 

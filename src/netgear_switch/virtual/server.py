@@ -8,6 +8,7 @@ switches. Each supported backend is bound in its own independent ``if``
 block, so a ``{NSDP, HTTP}`` model binds both an NSDP face (``self.port``)
 and an HTTP face (``self.http_port``) concurrently.
 """
+
 from __future__ import annotations
 
 from ..errors import UnsupportedCapabilityError

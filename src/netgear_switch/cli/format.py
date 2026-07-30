@@ -158,7 +158,13 @@ def stats_table(stats: Sequence[PortStats]) -> str:
         for s in stats
     ]
     headers = (
-        "Port", "RxBytes", "TxBytes", "RxPackets", "TxPackets", "RxErrors", "TxErrors",
+        "Port",
+        "RxBytes",
+        "TxBytes",
+        "RxPackets",
+        "TxPackets",
+        "RxErrors",
+        "TxErrors",
     )
     return _table(headers, rows)
 

@@ -295,8 +295,7 @@ def _cmd_upload_certificate_scp(
         assume_yes=args.yes,
         host=switch.host,
         description=(
-            f"deploy SSL certificate over SCP from {args.scp_source}"
-            f"{args.remote_dir}"
+            f"deploy SSL certificate over SCP from {args.scp_source}{args.remote_dir}"
         ),
         action=lambda: switch.upload_certificate_scp(
             scp_source=args.scp_source,
@@ -487,9 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
     read_cmd("macs", _cmd_macs, "show the MAC/FDB table")
     read_cmd("sensors", _cmd_sensors, "show sensors")
     read_cmd("show", _cmd_show, "show a full switch snapshot")
-    read_cmd(
-        "identify", _cmd_identify, "detect the switch's real model over SNMP"
-    )
+    read_cmd("identify", _cmd_identify, "detect the switch's real model over SNMP")
     read_cmd(
         "nsdp-device",
         _cmd_nsdp_device,
@@ -612,9 +609,7 @@ def build_parser() -> argparse.ArgumentParser:
     ip = sub.add_parser("ip", parents=[child_gp], help="show or set the management IP")
     ip.set_defaults(func=_cmd_ip)
     ip_sub = ip.add_subparsers(dest="ip_cmd")
-    ip_set = ip_sub.add_parser(
-        "set", parents=[child_gp], help="set the management IP"
-    )
+    ip_set = ip_sub.add_parser("set", parents=[child_gp], help="set the management IP")
     ip_set.add_argument("address")
     ip_set.add_argument("netmask")
     ip_set.add_argument("gateway")

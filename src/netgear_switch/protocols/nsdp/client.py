@@ -5,6 +5,7 @@ lives here beside the protocol rather than in ``errors.py``, matching the
 ``SnmpError`` precedent; both subclass the shared ``NetgearSwitchError`` base so
 callers can still catch the library-wide root.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,8 +38,7 @@ def check_result(packet: NSDPPacket) -> None:
         return
     if packet.result == RESULT_BAD_PASSWORD:
         raise NsdpError(
-            "NSDP write rejected: bad password (result 0x0700). "
-            f"{AUTH_V2_UNSUPPORTED}"
+            f"NSDP write rejected: bad password (result 0x0700). {AUTH_V2_UNSUPPORTED}"
         )
     raise NsdpError(f"NSDP request failed with result 0x{packet.result:04x}")
 

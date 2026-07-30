@@ -217,8 +217,11 @@ def test_gs105pe_http_ports_match_live_nsdp() -> None:
     reader = HttpReader(_FakeSession(_gs105pe_pages()), get_model("gs105pe"))
     ports = {p.port: (p.link_up, p.speed_mbps) for p in reader.get_ports()}
     assert ports == {
-        1: (False, None), 2: (False, None), 3: (True, 100),
-        4: (False, None), 5: (True, 1000),
+        1: (False, None),
+        2: (False, None),
+        3: (True, 100),
+        4: (False, None),
+        5: (True, 1000),
     }
 
 
@@ -332,11 +335,13 @@ def test_m4300_http_macs_skip_non_physical_interfaces() -> None:
 
     html = (_FIX / "m4300_addresstable.html").read_text()
     rows = [
-        r for r in parse.parse_cheetah_rows(html)
+        r
+        for r in parse.parse_cheetah_rows(html)
         if "SwitchingmacAddrGroup_MacAddress" in r
     ]
     non_physical = [
-        r for r in rows
+        r
+        for r in rows
         if not re.fullmatch(r"\d+/\d+/\d+", r.get("SwitchingmacAddrGroup_Intf", ""))
     ]
     assert non_physical, "fixture should contain lag/vlan entries"
@@ -422,12 +427,12 @@ def test_m4300_async_reader_matches_sync() -> None:
         pages = _m4300_pages()
         sync = HttpReader(_FakeSession(pages), get_model("m4300-24x"))
         aio = AsyncHttpReader(_AsyncFakeSession(pages), get_model("m4300-24x"))
-        assert [
-            (v.vlan_id, sorted(v.member_ports)) for v in await aio.get_vlans()
-        ] == [(v.vlan_id, sorted(v.member_ports)) for v in sync.get_vlans()]
-        assert [
-            (p.port, p.link_up, p.speed_mbps) for p in await aio.get_ports()
-        ] == [(p.port, p.link_up, p.speed_mbps) for p in sync.get_ports()]
+        assert [(v.vlan_id, sorted(v.member_ports)) for v in await aio.get_vlans()] == [
+            (v.vlan_id, sorted(v.member_ports)) for v in sync.get_vlans()
+        ]
+        assert [(p.port, p.link_up, p.speed_mbps) for p in await aio.get_ports()] == [
+            (p.port, p.link_up, p.speed_mbps) for p in sync.get_ports()
+        ]
         assert dict(await aio.get_pvids()) == dict(sync.get_pvids())
         assert (await aio.get_mgmt_ip()).base_mac == sync.get_mgmt_ip().base_mac
         assert await aio.get_sensors() == sync.get_sensors()
@@ -532,7 +537,10 @@ def test_gsm7252ps_every_read_op_is_served_over_http() -> None:
 
         sensors = reader.get_sensors()
         assert {s.name for s in sensors if s.kind == "temperature"} == {
-            "System", "CPU", "MAC-A", "MAC-B"
+            "System",
+            "CPU",
+            "MAC-A",
+            "MAC-B",
         }
         assert any(s.kind == "fan" for s in sensors)
 

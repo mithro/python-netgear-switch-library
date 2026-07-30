@@ -14,6 +14,7 @@ A ``VirtualSwitch`` exposes one via ``cli_session()``; the session setup command
 (``enable`` / ``terminal length 0``) are accepted as no-op success, matching a
 real shell.
 """
+
 from __future__ import annotations
 
 import re
@@ -64,9 +65,7 @@ class VirtualCliFace:
         deploy.copies.append((source_url, dest))
         return f"Data transfer complete. bytes transferred to {dest}"
 
-    def run_write_memory(
-        self, command: str = "write memory", *, prestuff: bool
-    ) -> str:
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
         """In-process stand-in for the ``write memory`` save-config confirm."""
         deploy = self._deploy()
         deploy.commands.append(command.strip())

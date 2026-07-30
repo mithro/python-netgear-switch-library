@@ -97,8 +97,7 @@ def _cert_upload_multipart(
     """
     if spec.cert_upload_path is None or spec.cert_upload_file_field is None:
         raise UnsupportedCapabilityError(
-            f"model {spec.model_key!r} has no known SSL-certificate "
-            "upload mechanism"
+            f"model {spec.model_key!r} has no known SSL-certificate upload mechanism"
         )
     payload = MultipartFile(
         field=spec.cert_upload_file_field,
@@ -140,10 +139,14 @@ def _rsa_pkcs1_pair(key_pem: str) -> tuple[str, str]:
         format=serialization.PrivateFormat.TraditionalOpenSSL,
         encryption_algorithm=serialization.NoEncryption(),
     ).decode()
-    public_pkcs1 = private_key.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.PKCS1,
-    ).decode()
+    public_pkcs1 = (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.PKCS1,
+        )
+        .decode()
+    )
     return private_pkcs1.strip(), public_pkcs1.strip()
 
 
@@ -179,8 +182,7 @@ def _cert_upload_xml(
     """
     if spec.cert_upload_path is None:
         raise UnsupportedCapabilityError(
-            f"model {spec.model_key!r} has no known SSL-certificate "
-            "upload mechanism"
+            f"model {spec.model_key!r} has no known SSL-certificate upload mechanism"
         )
     private_pkcs1, public_pkcs1 = _rsa_pkcs1_pair(key_pem)
     body = _build_gs728tpp_cert_xml(cert_pem.strip(), public_pkcs1, private_pkcs1)

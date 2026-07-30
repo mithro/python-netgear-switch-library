@@ -62,8 +62,12 @@ def test_unimplemented_roots_skips_vendor_poe_power_when_no_vendor_base():
     from netgear_switch.registry import SwitchClass, SwitchModel
 
     stub = SwitchModel(
-        key="stub", display_name="stub", switch_class=SwitchClass.FULLY_MANAGED,
-        port_count=4, poe_port_count=0, backends=frozenset(),
+        key="stub",
+        display_name="stub",
+        switch_class=SwitchClass.FULLY_MANAGED,
+        port_count=4,
+        poe_port_count=0,
+        backends=frozenset(),
         snmp_vendor_base=None,
     )
     assert oids.unimplemented_roots(stub) == [oids.PETH_PSE_PORT_TABLE]

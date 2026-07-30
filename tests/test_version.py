@@ -1,5 +1,6 @@
 # tests/test_version.py
 """The package version must be derived from git (hatch-vcs), never hard-coded."""
+
 from __future__ import annotations
 
 import re

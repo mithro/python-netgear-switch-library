@@ -9,6 +9,7 @@ WRITE_REQUEST after validating the v1 ``PASSWORD`` TLV (a mismatch returns resul
 ``NsdpError``). ``stop()`` closes the socket deterministically so no
 ResourceWarning is emitted under ``-W error::ResourceWarning``.
 """
+
 from __future__ import annotations
 
 import contextlib

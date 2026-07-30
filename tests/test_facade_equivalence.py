@@ -1,4 +1,5 @@
 """Live-mock equivalence: both facades against a seeded VirtualSwitch."""
+
 from __future__ import annotations
 
 import asyncio
@@ -48,13 +49,12 @@ def test_facades_equivalent_m4300_16x_with_poe(
 def test_facade_serves_gsm7228ps_snmp_reads(
     virtual_gsm7228ps: VirtualSwitch,
 ) -> None:
-    """gsm7228ps (SNMP+HTTP) is now honestly ``verified=False``
-    (UNVERIFIED-pending-capture: no real capture exists and its _SMP vendor
-    family is a spec-guess -- same honesty convention as m7300/xs748t). It
-    still carries an illustrative/structural ``seed_gsm7228ps()`` (see its own
-    docstring -- nothing here is a claim about real hardware) so the SNMP read
-    path stays exercised: prove it serves every SNMP read op non-vacuously,
-    sync and async alike."""
+    """gsm7228ps (the S3300-52X-PoE+) is ``verified=True`` as of 2026-07-30:
+    its ``seed_gsm7228ps()`` is a literal transcription of the real capture
+    (tests/fixtures/captures/gsm7228ps.json), strict-parity-checked in
+    tests/virtual/test_gsm7228ps_seed.py. Here we prove both facades serve
+    every SNMP read op non-vacuously AND agree byte-for-byte (sync == async)
+    over the seeded mock."""
     sync, aio = facades_for(virtual_gsm7228ps)
 
     ports = sync.get_ports()

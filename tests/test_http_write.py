@@ -49,7 +49,7 @@ class _FakeGs305epState:
         if path == "/getPoePortStatus.cgi":
             rows = "".join(
                 f'<tr class="portID"><td>{p}</td><td>'
-                f'{"Delivering" if on else "Disabled"}</td><td>0</td></tr>'
+                f"{'Delivering' if on else 'Disabled'}</td><td>0</td></tr>"
                 for p, on in self.poe_on.items()
             )
             return f"<table>{rows}</table>"
@@ -99,8 +99,7 @@ class _FakeGs305epState:
                 for p in range(1, _PORT_COUNT + 1)
             )
             return (
-                '<input name="hash" value="h">'
-                f'<input id="hiddenMem" value="{hidden}">'
+                f'<input name="hash" value="h"><input id="hiddenMem" value="{hidden}">'
             )
         if path == "/8021qCf.cgi":
             if self.honour_writes:
@@ -323,9 +322,7 @@ def test_async_set_poe_write_not_reflected_raises_verification() -> None:
 
 def test_async_protected_port_blocks_without_force() -> None:
     sess = _AsyncStatefulSession()
-    writer = AsyncHttpWriter(
-        sess, get_model("gs305ep"), protected_ports=frozenset({2})
-    )
+    writer = AsyncHttpWriter(sess, get_model("gs305ep"), protected_ports=frozenset({2}))
     with pytest.raises(ProtectedPortError):
         _run(writer.set_poe(2, False))
     _run(writer.set_poe(2, False, force=True))
@@ -704,11 +701,15 @@ def test_upload_certificate_gs728tpp_rejects_non_rsa_key() -> None:
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import ec
 
-    ec_key = ec.generate_private_key(ec.SECP256R1()).private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode()
+    ec_key = (
+        ec.generate_private_key(ec.SECP256R1())
+        .private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        .decode()
+    )
     sess = _XmlCertSpySession()
     writer = HttpWriter(sess, get_model("gs728tpp"))
     with pytest.raises(ValueError, match="RSA"):

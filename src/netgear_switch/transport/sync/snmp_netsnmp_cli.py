@@ -4,6 +4,7 @@ No Python SNMP package is used. The net-snmp binaries (snmpget/snmpbulkwalk)
 are a system requirement — install the OS `snmp` package
 (`apt-get install -y snmp`). Args are passed as a list; shell is never used.
 """
+
 from __future__ import annotations
 
 import re
@@ -59,9 +60,7 @@ def _format_set_value(vb: SetVarbind) -> str:
     """
     if vb.type_letter == "x":
         data = (
-            vb.value
-            if isinstance(vb.value, bytes)
-            else str(vb.value).encode("latin-1")
+            vb.value if isinstance(vb.value, bytes) else str(vb.value).encode("latin-1")
         )
         return data.hex()
     return str(vb.value)
@@ -155,9 +154,7 @@ def parse_netsnmp_lines(text: str, *, empty_subtree_ok: bool = False) -> list[Sn
     def flush_hex() -> None:
         nonlocal pending_oid
         if pending_oid is not None:
-            data = bytes(
-                int(tok, 16) for chunk in pending_hex for tok in chunk.split()
-            )
+            data = bytes(int(tok, 16) for chunk in pending_hex for tok in chunk.split())
             rows.append(SnmpRow(pending_oid, data, "Hex-STRING"))
             pending_oid = None
             pending_hex.clear()

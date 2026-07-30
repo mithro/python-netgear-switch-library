@@ -32,12 +32,8 @@ def test_decode_port_bitmap_raises_on_non_latin1_str():
 def test_parse_vlans_joins_names_egress_untagged():
     names = [SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.1.5", "net", "OCTETSTR")]
     # egress ports 1,2 ; untagged port 2  -> tagged {1}, untagged {2}
-    egress = [
-        SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.2.5", bytes([0b11000000]), "OCTETSTR")
-    ]
-    untag = [
-        SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.4.5", bytes([0b01000000]), "OCTETSTR")
-    ]
+    egress = [SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.2.5", bytes([0b11000000]), "OCTETSTR")]
+    untag = [SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.4.5", bytes([0b01000000]), "OCTETSTR")]
     vlans = parse.parse_vlans(names, egress, untag)
     assert len(vlans) == 1
     v = vlans[0]
@@ -70,9 +66,7 @@ def test_parse_pvids_sorted_port_vlan_pairs():
 def test_parse_vlans_raises_on_present_but_malformed_index():
     names = [SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.1.5", "net", "OCTETSTR")]
     # egress row IS present but its VLAN index is non-numeric -> SnmpError.
-    egress = [
-        SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.2.x", bytes([0b11000000]), "OCTETSTR")
-    ]
+    egress = [SnmpRow("1.3.6.1.2.1.17.7.1.4.3.1.2.x", bytes([0b11000000]), "OCTETSTR")]
     with pytest.raises(SnmpError):
         parse.parse_vlans(names, egress, [])
 

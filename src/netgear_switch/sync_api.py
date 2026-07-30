@@ -1,4 +1,5 @@
 """Public synchronous read/write facade: SyncSwitch."""
+
 from __future__ import annotations
 
 import os
@@ -113,9 +114,7 @@ class _LazyCliSession:
     def run_scp_copy(self, command: str, scp_password: str) -> str:
         return self._live().run_scp_copy(command, scp_password)
 
-    def run_write_memory(
-        self, command: str = "write memory", *, prestuff: bool
-    ) -> str:
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
         return self._live().run_write_memory(command, prestuff=prestuff)
 
     def close(self) -> None:
@@ -276,7 +275,8 @@ class SyncSwitch:
             return cfg.http_password(env=_env)
 
         return cls(
-            cfg.model, cfg.host,
+            cfg.model,
+            cfg.host,
             snmp_community=cfg.snmp_community,
             snmp_write_community_resolver=_resolve_write_community,
             nsdp_interface=cfg.nsdp_interface,
@@ -358,8 +358,10 @@ class SyncSwitch:
             reader = CliReader(
                 _LazyCliSession(
                     lambda: build_sync_cli_client(
-                        self.host, "admin",
-                        self._resolve_http_password(), self.model,
+                        self.host,
+                        "admin",
+                        self._resolve_http_password(),
+                        self.model,
                     )
                 ),
                 self.model,
@@ -391,7 +393,9 @@ class SyncSwitch:
                     f"no NSDP admin password configured for {self.host!r}"
                 )
             writer = NsdpWriter(
-                nsdp, self.model, password=password,
+                nsdp,
+                self.model,
+                password=password,
                 protected_ports=self.protected_ports,
             )
         elif backend is Backend.HTTP:
@@ -401,7 +405,8 @@ class SyncSwitch:
                     "UNVERIFIED-pending-capture"
                 )
             writer = HttpWriter(
-                _LazyHttpSession(self._http_session), self.model,
+                _LazyHttpSession(self._http_session),
+                self.model,
                 protected_ports=self.protected_ports,
             )
         else:  # a CLI backend (SSH/telnet/console)
@@ -645,13 +650,19 @@ class SyncSwitch:
                 return
 
     def cycle_poe(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
     ) -> None:
         self._write(lambda w: w.cycle_poe(port, force=force, timeouts=timeouts))
 
     def clear_poe_fault(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
     ) -> None:
         self._write(lambda w: w.clear_poe_fault(port, force=force, timeouts=timeouts))
@@ -669,7 +680,8 @@ class SyncSwitch:
         # bypasses the SNMP-first _write dispatch because cert upload is
         # HTTP-only.
         return HttpWriter(
-            _LazyHttpSession(self._http_session), self.model,
+            _LazyHttpSession(self._http_session),
+            self.model,
             protected_ports=self.protected_ports,
         )
 

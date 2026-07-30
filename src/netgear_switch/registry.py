@@ -12,7 +12,7 @@ from .errors import UnknownModelError
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-_FM = "1.3.6.1.4.1.4526.10"   # Fully Managed vendor subtree (M4300, GSM7252PS)
+_FM = "1.3.6.1.4.1.4526.10"  # Fully Managed vendor subtree (M4300, GSM7252PS)
 _SMP = "1.3.6.1.4.1.4526.11"  # Smart Managed Pro vendor subtree (S3300/GSM7228PS)
 
 
@@ -136,14 +136,18 @@ _MODELS: dict[str, SwitchModel] = {
             48,
             {Backend.SNMP, Backend.HTTP, Backend.SSH, Backend.TELNET},
             _SMP,
-            # UNVERIFIED-pending-capture: NO real-hardware capture exists for
-            # this model (its seed is illustrative/structural -- see
-            # seed_gsm7228ps). The _SMP (4526.11) vendor family is a spec-guess
-            # from the same 4526 subtree that turned out WRONG on gs728tpp, so
-            # its vendor sensor/PoE-power readings are unconfirmed. Honesty
-            # convention matches m7300/xs748t: keep the backends + specs, but do
-            # NOT claim verified until a live capture confirms the OID family.
-            verified=False,
+            # VERIFIED 2026-07-30 against real hardware: the S3300-52X-PoE+
+            # (sw-netgear-s3300-1 @ 10.1.5.11, sysObjectID 4526.100.10.19). The
+            # live capture (tests/fixtures/captures/gsm7228ps.json) CONFIRMED
+            # the _SMP (4526.11) vendor family is correct here -- unlike
+            # gs728tpp (which had zero 4526 OIDs), this switch's fan/temp/PoE
+            # vendor data really does live under 4526.11.43, and all 9 read
+            # ops cross-verified SNMP<->mock. Its sysDescr "S3300-52X-PoE+" is
+            # auto-detected via SYSOBJECTID_MODELS (the OID map), since the
+            # text is deliberately unmatchable (same shape as the unregistered
+            # S3300-28X). Registered key is gsm7228ps; "s3300" is an alias
+            # (see MODEL_ALIASES). NOTE 4526.100.10.19 is the product-ID OID,
+            # distinct from the 4526.11 vendor DATA subtree.
         ),
         _model(
             "gs110emx",

@@ -46,9 +46,7 @@ class FakeWriteClient:
             # (tables can have multi-component index suffixes, e.g. the PoE
             # table's <col>.<group>.<port>) rather than assuming the leaf's
             # immediate parent is the table's walk key.
-            base = next(
-                (k for k in self._tables if vb.oid.startswith(f"{k}.")), None
-            )
+            base = next((k for k in self._tables if vb.oid.startswith(f"{k}.")), None)
             if base is None:
                 base, _, _ = vb.oid.rpartition(".")
             self._tables.setdefault(base, [])
@@ -84,9 +82,7 @@ class FakeAsyncWriteClient:
         if not self._apply:
             return
         for vb in vbs:
-            base = next(
-                (k for k in self._tables if vb.oid.startswith(f"{k}.")), None
-            )
+            base = next((k for k in self._tables if vb.oid.startswith(f"{k}.")), None)
             if base is None:
                 base, _, _ = vb.oid.rpartition(".")
             self._tables.setdefault(base, [])
@@ -123,7 +119,7 @@ def test_protected_port_blocks_disruptive_write_without_force():
     w = SnmpWriter(client, get_model("gsm7252ps"), protected_ports=frozenset({5}))
     with pytest.raises(ProtectedPortError):
         w.set_poe(5, on=False)
-    assert client.sets == []            # nothing sent
+    assert client.sets == []  # nothing sent
     w.set_poe(5, on=False, force=True)  # force bypasses the guard
     assert client.sets
 
@@ -151,9 +147,7 @@ def _vlan_tables(vid=90, member=(1, 2, 10), untagged=(1, 2)):
             SnmpRow(f"{egress_oid}.{vid}", encode_port_bitmap(member), "Hex-STRING")
         ],
         untagged_oid: [
-            SnmpRow(
-                f"{untagged_oid}.{vid}", encode_port_bitmap(untagged), "Hex-STRING"
-            )
+            SnmpRow(f"{untagged_oid}.{vid}", encode_port_bitmap(untagged), "Hex-STRING")
         ],
         oids.DOT1Q_PVID: [SnmpRow(f"{oids.DOT1Q_PVID}.10", 1, "Gauge32")],
     }
@@ -207,7 +201,8 @@ class EgressOnlyVlanAsyncClient(FakeAsyncWriteClient):
         for vb in vbs:
             if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS):
                 self._tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
-                    SnmpRow(vb.oid, vb.value, "Hex-STRING")]
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")
+                ]
             # untagged column deliberately not applied
 
 
@@ -286,7 +281,8 @@ class EgressOnlyVlanClient(FakeWriteClient):
         for vb in vbs:
             if vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_EGRESS):
                 self._tables[oids.DOT1Q_VLAN_STATIC_EGRESS] = [
-                    SnmpRow(vb.oid, vb.value, "Hex-STRING")]
+                    SnmpRow(vb.oid, vb.value, "Hex-STRING")
+                ]
             # untagged column deliberately not applied
 
 
@@ -348,9 +344,7 @@ def test_async_set_vlan_membership_rmw_preserves_other_ports():
 
 def test_async_set_vlan_membership_catches_dropped_untagged_write():
     # UNTAGGED mode sets both egress AND untagged; the client drops untagged.
-    client = EgressOnlyVlanAsyncClient(
-        _vlan_tables(member=(1, 2, 10), untagged=(1, 2))
-    )
+    client = EgressOnlyVlanAsyncClient(_vlan_tables(member=(1, 2, 10), untagged=(1, 2)))
     w = AsyncSnmpWriter(client, get_model("gsm7252ps"))
     with pytest.raises(WriteVerificationError) as exc:
         asyncio.run(w.set_vlan_membership(90, 25, VlanMode.UNTAGGED, force=True))
@@ -438,8 +432,8 @@ def test_delete_vlan_protected_member_requires_force():
     w = SnmpWriter(client, get_model("gsm7252ps"), protected_ports=frozenset({1}))
     with pytest.raises(ProtectedPortError):
         w.delete_vlan(90)
-    assert client.sets == []           # nothing sent when the guard fires
-    w.delete_vlan(90, force=True)      # force bypasses the guard
+    assert client.sets == []  # nothing sent when the guard fires
+    w.delete_vlan(90, force=True)  # force bypasses the guard
     assert any(s.oid == f"{_ROW_STATUS_COL}.90" for s in client.sets)
 
 
@@ -509,7 +503,8 @@ class CoherentPoeClient(FakeWriteClient):
                     SnmpRow(f"{pse}.6.1.{port}", 3 if on else 1, "INTEGER"),
                 ]
                 self._tables[oids.IF_OPER_STATUS] = [
-                    SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 1 if on else 2, "INTEGER")]
+                    SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 1 if on else 2, "INTEGER")
+                ]
 
 
 class AsyncCoherentPoeClient(FakeAsyncWriteClient):
@@ -528,7 +523,8 @@ class AsyncCoherentPoeClient(FakeAsyncWriteClient):
                     SnmpRow(f"{pse}.6.1.{port}", 3 if on else 1, "INTEGER"),
                 ]
                 self._tables[oids.IF_OPER_STATUS] = [
-                    SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 1 if on else 2, "INTEGER")]
+                    SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 1 if on else 2, "INTEGER")
+                ]
 
 
 class AsyncStuckOffPoeClient(FakeAsyncWriteClient):
@@ -549,7 +545,8 @@ class AsyncStuckOffPoeClient(FakeAsyncWriteClient):
                         SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.{port}", 1, "INTEGER"),
                     ]
                     self._tables[oids.IF_OPER_STATUS] = [
-                        SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 2, "INTEGER")]
+                        SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 2, "INTEGER")
+                    ]
                 # admin on: intentionally left un-wired -> detect stays "searching"
                 # forever, so phase 2 (-> delivering) never terminates on its own.
 
@@ -572,7 +569,8 @@ class StuckOffPoeClient(FakeWriteClient):
                         SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.{port}", 1, "INTEGER"),
                     ]
                     self._tables[oids.IF_OPER_STATUS] = [
-                        SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 2, "INTEGER")]
+                        SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 2, "INTEGER")
+                    ]
                 # admin on: intentionally left un-wired -> detect stays "searching"
                 # forever, so phase 2 (-> delivering) never terminates on its own.
 
@@ -607,9 +605,12 @@ def test_cycle_poe_off_then_on_terminates_fast():
     client = CoherentPoeClient(_poe_full_tables())
     w = SnmpWriter(client, get_model("gsm7252ps"))
     calls: list[float] = []
-    w.cycle_poe(5, force=True,
-                timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
-                sleep=calls.append)
+    w.cycle_poe(
+        5,
+        force=True,
+        timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+        sleep=calls.append,
+    )
     prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
     admin_sets = [s.value for s in client.sets if s.oid.startswith(prefix)]
     assert admin_sets == [2, 1]  # off then on
@@ -624,9 +625,12 @@ def test_clear_poe_fault_recovers_detect():
     client = CoherentPoeClient(tables)
     w = SnmpWriter(client, get_model("gsm7252ps"))
     calls: list[float] = []
-    w.clear_poe_fault(5, force=True,
-                      timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
-                      sleep=calls.append)
+    w.clear_poe_fault(
+        5,
+        force=True,
+        timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+        sleep=calls.append,
+    )
     detect = next(p.detect for p in w._reader.get_poe() if p.port == 5)
     assert detect is not PoEDetect.FAULT
     prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
@@ -637,8 +641,7 @@ def test_clear_poe_fault_recovers_detect():
     # per-varbind ordering for a repeated OID undefined, so a real agent may
     # reject such a PDU or collapse it (last-wins), silently defeating the
     # off->on re-arm.
-    poe_calls = [c for c in client.calls
-                 if c and c[0].oid.startswith(prefix)]
+    poe_calls = [c for c in client.calls if c and c[0].oid.startswith(prefix)]
     assert [len(c) for c in poe_calls] == [1, 1]
 
 
@@ -665,9 +668,13 @@ def test_cycle_poe_off_never_reached_raises_timeout_and_terminates():
     client = FakeWriteClient(_poe_full_tables(), apply=False)  # SET never applied
     w = SnmpWriter(client, get_model("gsm7252ps"))
     with pytest.raises(WriteVerificationError, match="did not turn off"):
-        w.cycle_poe(5, force=True,
-                    timeouts=PoeCycleTimeouts(off_timeout=1, poll_interval=0),
-                    sleep=lambda _: None, clock=_incrementing_clock())
+        w.cycle_poe(
+            5,
+            force=True,
+            timeouts=PoeCycleTimeouts(off_timeout=1, poll_interval=0),
+            sleep=lambda _: None,
+            clock=_incrementing_clock(),
+        )
 
 
 def test_cycle_poe_on_never_reached_raises_timeout_and_terminates():
@@ -677,9 +684,12 @@ def test_cycle_poe_on_never_reached_raises_timeout_and_terminates():
     w = SnmpWriter(client, get_model("gsm7252ps"))
     with pytest.raises(WriteVerificationError, match="did not return to delivering"):
         w.cycle_poe(
-            5, force=True,
+            5,
+            force=True,
             timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
-            sleep=lambda _: None, clock=_incrementing_clock())
+            sleep=lambda _: None,
+            clock=_incrementing_clock(),
+        )
 
 
 def test_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
@@ -694,10 +704,13 @@ def test_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
     client = StuckOffPoeClient(tables)
     w = SnmpWriter(client, get_model("gsm7252ps"))
     with pytest.raises(WriteVerificationError, match="still in FAULT"):
-        w.clear_poe_fault(5, force=True,
-                          timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1,
-                                                     poll_interval=0),
-                          sleep=lambda _: None, clock=_incrementing_clock())
+        w.clear_poe_fault(
+            5,
+            force=True,
+            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+            sleep=lambda _: None,
+            clock=_incrementing_clock(),
+        )
 
 
 def test_async_cycle_poe_off_then_on_terminates_fast():
@@ -708,10 +721,14 @@ def test_async_cycle_poe_off_then_on_terminates_fast():
     async def _sleep(seconds: float) -> None:
         calls.append(seconds)
 
-    asyncio.run(w.cycle_poe(
-        5, force=True,
-        timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
-        sleep=_sleep))
+    asyncio.run(
+        w.cycle_poe(
+            5,
+            force=True,
+            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+            sleep=_sleep,
+        )
+    )
     prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
     admin_sets = [s.value for s in client.sets if s.oid.startswith(prefix)]
     assert admin_sets == [2, 1]
@@ -729,10 +746,14 @@ def test_async_clear_poe_fault_recovers_detect():
     async def _sleep(seconds: float) -> None:
         return None
 
-    asyncio.run(w.clear_poe_fault(
-        5, force=True,
-        timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
-        sleep=_sleep))
+    asyncio.run(
+        w.clear_poe_fault(
+            5,
+            force=True,
+            timeouts=PoeCycleTimeouts(on_timeout=1, poll_interval=0),
+            sleep=_sleep,
+        )
+    )
     detect = next(p.detect for p in asyncio.run(w._reader.get_poe()) if p.port == 5)
     assert detect is not PoEDetect.FAULT
     prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
@@ -740,8 +761,7 @@ def test_async_clear_poe_fault_recovers_detect():
     assert admin_sets == [2, 1]  # off then on
     # TWO SEPARATE single-varbind SET calls -- never one set_many PDU with a
     # duplicate OID (see the sync test's comment for the rationale).
-    poe_calls = [c for c in client.calls
-                 if c and c[0].oid.startswith(prefix)]
+    poe_calls = [c for c in client.calls if c and c[0].oid.startswith(prefix)]
     assert [len(c) for c in poe_calls] == [1, 1]
 
 
@@ -761,10 +781,15 @@ def test_async_cycle_poe_off_never_reached_raises_timeout_and_terminates():
         return None
 
     with pytest.raises(WriteVerificationError, match="did not turn off"):
-        asyncio.run(w.cycle_poe(
-            5, force=True,
-            timeouts=PoeCycleTimeouts(off_timeout=1, poll_interval=0),
-            sleep=_sleep, clock=_incrementing_clock()))
+        asyncio.run(
+            w.cycle_poe(
+                5,
+                force=True,
+                timeouts=PoeCycleTimeouts(off_timeout=1, poll_interval=0),
+                sleep=_sleep,
+                clock=_incrementing_clock(),
+            )
+        )
     assert client.sets  # the off SET was issued, but never took effect
 
 
@@ -778,10 +803,15 @@ def test_async_cycle_poe_on_never_reached_raises_timeout_and_terminates():
         return None
 
     with pytest.raises(WriteVerificationError, match="did not return to delivering"):
-        asyncio.run(w.cycle_poe(
-            5, force=True,
-            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
-            sleep=_sleep, clock=_incrementing_clock()))
+        asyncio.run(
+            w.cycle_poe(
+                5,
+                force=True,
+                timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+                sleep=_sleep,
+                clock=_incrementing_clock(),
+            )
+        )
 
 
 def test_async_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
@@ -801,10 +831,15 @@ def test_async_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
         return None
 
     with pytest.raises(WriteVerificationError, match="still in FAULT"):
-        asyncio.run(w.clear_poe_fault(
-            5, force=True,
-            timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
-            sleep=_sleep, clock=_incrementing_clock()))
+        asyncio.run(
+            w.clear_poe_fault(
+                5,
+                force=True,
+                timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+                sleep=_sleep,
+                clock=_incrementing_clock(),
+            )
+        )
 
 
 def test_async_clear_poe_fault_protected_port_requires_force():

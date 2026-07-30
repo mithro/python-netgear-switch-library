@@ -11,6 +11,7 @@ Only the data block matters to the parsers (they slice it out and ignore the
 surrounding template), so this emits a minimal-but-faithful
 ``<ResponseData><DeviceConfiguration>..`` envelope.
 """
+
 from __future__ import annotations
 
 import xml.etree.ElementTree as ElementTree
@@ -139,9 +140,7 @@ def render_lldp(state: VirtualSwitchState) -> str:
         f"<systemName>{escape(n.sys_name)}</systemName></NeighborEntry>"
         for n in state.lldp
     )
-    return _wcd(
-        f'<LLDPMEDNeighborList type="section">{rows}</LLDPMEDNeighborList>'
-    )
+    return _wcd(f'<LLDPMEDNeighborList type="section">{rows}</LLDPMEDNeighborList>')
 
 
 def render_mgmt_ip(state: VirtualSwitchState) -> str:
@@ -166,8 +165,7 @@ def render_device_info_and_sensors(state: VirtualSwitchState) -> str:
     ``SensorSim`` carries the XML tag in ``instance`` and the wire code in
     ``raw``), so the seed is the single source of truth for both faces."""
     diag = "".join(
-        f"<{s.instance}>{s.raw}</{s.instance}>"
-        for s in state.sysinfo_sensors
+        f"<{s.instance}>{s.raw}</{s.instance}>" for s in state.sysinfo_sensors
     )
     dev = (
         '<DeviceBasicInfo type="section">'

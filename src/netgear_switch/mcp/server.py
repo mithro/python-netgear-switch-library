@@ -16,6 +16,7 @@ model-initiated and reconfiguring a live switch is destructive. Even then each
 disruptive op requires the caller to pass ``force=true`` (the same rail the CLI
 and library enforce).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,8 +52,7 @@ def _jsonable(obj: Any) -> Any:
     """Recursively convert a models dataclass tree into plain JSON types."""
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return {
-            f.name: _jsonable(getattr(obj, f.name))
-            for f in dataclasses.fields(obj)
+            f.name: _jsonable(getattr(obj, f.name)) for f in dataclasses.fields(obj)
         }
     if isinstance(obj, enum.Enum):
         return obj.value
@@ -130,9 +130,7 @@ def list_inventory_switches(
     """The named switches in the TOML inventory (``[switches.<name>]``)."""
     path_str = config or env.get(_INVENTORY_ENV)
     if not path_str:
-        raise ConfigError(
-            "no inventory: pass `config` or set $NGSW_INVENTORY"
-        )
+        raise ConfigError("no inventory: pass `config` or set $NGSW_INVENTORY")
     path = Path(path_str)
     if not path.is_file():
         raise ConfigError(f"inventory file not found: {path}")
@@ -153,14 +151,23 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
     mcp = FastMCP("netgear-switch")
 
     def resolver(
-        switch: str | None, host: str | None, model: str | None,
-        config: str | None, community: str | None,
-        http_password: str | None, nsdp_interface: str | None,
+        switch: str | None,
+        host: str | None,
+        model: str | None,
+        config: str | None,
+        community: str | None,
+        http_password: str | None,
+        nsdp_interface: str | None,
     ) -> SyncSwitch:
         return _resolve(
-            switch=switch, host=host, model=model, config=config,
-            community=community, http_password=http_password,
-            nsdp_interface=nsdp_interface, env=env,
+            switch=switch,
+            host=host,
+            model=model,
+            config=config,
+            community=community,
+            http_password=http_password,
+            nsdp_interface=nsdp_interface,
+            env=env,
         )
 
     @mcp.tool()
@@ -170,7 +177,9 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
 
     @mcp.tool()
     def identify(
-        host: str, model: str, config: str | None = None,
+        host: str,
+        model: str,
+        config: str | None = None,
         community: str | None = None,
     ) -> dict[str, Any]:
         """Detect a switch's model over SNMP (sysDescr matching)."""
@@ -181,14 +190,22 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
     def _register_read(name: str, method: str, doc: str) -> None:
         @mcp.tool(name=name, description=doc)
         def _tool(  # type: ignore[no-untyped-def]
-            switch: str | None = None, host: str | None = None,
-            model: str | None = None, config: str | None = None,
-            community: str | None = None, http_password: str | None = None,
+            switch: str | None = None,
+            host: str | None = None,
+            model: str | None = None,
+            config: str | None = None,
+            community: str | None = None,
+            http_password: str | None = None,
             nsdp_interface: str | None = None,
         ):
             sw = resolver(
-                switch, host, model, config, community,
-                http_password, nsdp_interface,
+                switch,
+                host,
+                model,
+                config,
+                community,
+                http_password,
+                nsdp_interface,
             )
             return _read(name, lambda: getattr(sw, method)())
 
@@ -247,10 +264,15 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def set_pvid(
-        port: int, vlan: int, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        port: int,
+        vlan: int,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Set a port's PVID (native VLAN). Disruptive: needs force=true."""
@@ -261,10 +283,15 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def set_port_enabled(
-        port: int, enabled: bool, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        port: int,
+        enabled: bool,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Administratively enable/disable a port. Disruptive: needs force=true."""
@@ -277,10 +304,15 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def set_poe(
-        port: int, on: bool, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        port: int,
+        on: bool,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Turn a port's PoE on/off. Disruptive: needs force=true."""
@@ -291,10 +323,16 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def set_vlan_membership(
-        vlan: int, port: int, mode: str, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        vlan: int,
+        port: int,
+        mode: str,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Set a port's membership in a VLAN (mode: tagged|untagged|excluded).
@@ -316,10 +354,15 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def create_vlan(
-        vlan: int, name: str, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        vlan: int,
+        name: str,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Create a VLAN. Disruptive: needs force=true."""
@@ -330,10 +373,14 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def delete_vlan(
-        vlan: int, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        vlan: int,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Delete a VLAN. Disruptive: needs force=true."""
@@ -344,10 +391,14 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def cycle_poe(
-        port: int, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        port: int,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Power-cycle a port's PoE (off, wait, on) -- reboots the attached
@@ -359,10 +410,14 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def clear_poe_fault(
-        port: int, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        port: int,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Clear a port's latched PoE fault by cycling its power.
@@ -374,10 +429,16 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def set_mgmt_ip(
-        address: str, netmask: str, gateway: str, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        address: str,
+        netmask: str,
+        gateway: str,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Set the switch's static management IP, netmask and gateway.
@@ -393,10 +454,15 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def upload_certificate(
-        cert_pem: str, key_pem: str, force: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        cert_pem: str,
+        key_pem: str,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Upload an HTTPS SSL server certificate + private key (both PEM text)
@@ -413,10 +479,16 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
 
     @mcp.tool()
     def upload_certificate_scp(
-        scp_source: str, scp_password: str, remote_dir: str, chain: bool = False,
-        switch: str | None = None, host: str | None = None,
-        model: str | None = None, config: str | None = None,
-        community: str | None = None, http_password: str | None = None,
+        scp_source: str,
+        scp_password: str,
+        remote_dir: str,
+        chain: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
         nsdp_interface: str | None = None,
     ) -> dict[str, Any]:
         """Deploy an HTTPS SSL certificate over SCP to a FASTPATH switch

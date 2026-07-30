@@ -5,6 +5,7 @@ Field names/values are GROUNDED against ``py_netgear_plus`` GS30xSeries
 ``rcfiles/bin/netgear-smp-vlan`` (8021q/PVID forms). Each op requires the
 page's CSRF ``hash`` (scraped just before the POST by the writer).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -47,9 +48,7 @@ def membership_hidden_mem(states: Mapping[int, VlanMode], port_count: int) -> st
     )
 
 
-def membership_form(
-    *, vlan: int, hidden_mem: str, csrf_hash: str
-) -> dict[str, str]:
+def membership_form(*, vlan: int, hidden_mem: str, csrf_hash: str) -> dict[str, str]:
     return {"VLAN_ID": str(vlan), "hiddenMem": hidden_mem, "hash": csrf_hash}
 
 

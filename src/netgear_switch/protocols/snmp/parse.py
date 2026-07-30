@@ -1,5 +1,6 @@
 # src/netgear_switch/protocols/snmp/parse.py
 """Pure SNMP-row -> models.py parsers. No I/O."""
+
 from __future__ import annotations
 
 import string
@@ -30,7 +31,7 @@ def _suffix(row: SnmpRow, base: str) -> str | None:
     prefix = base + "."
     if not row.oid.startswith(prefix):
         return None
-    return row.oid[len(prefix):]
+    return row.oid[len(prefix) :]
 
 
 def index_int_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, int]:
@@ -47,15 +48,11 @@ def index_int_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, int]:
         try:
             idx = int(suffix)
         except ValueError as exc:
-            raise SnmpError(
-                f"malformed index {suffix!r} at {row.oid}"
-            ) from exc
+            raise SnmpError(f"malformed index {suffix!r} at {row.oid}") from exc
         try:
             value = int(row.value)
         except ValueError as exc:
-            raise SnmpError(
-                f"non-integer value {row.value!r} at {row.oid}"
-            ) from exc
+            raise SnmpError(f"non-integer value {row.value!r} at {row.oid}") from exc
         out[idx] = value
     return out
 
@@ -86,9 +83,7 @@ def index_str_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, str]:
         try:
             idx = int(suffix)
         except ValueError as exc:
-            raise SnmpError(
-                f"non-integer index {suffix!r} at {row.oid}"
-            ) from exc
+            raise SnmpError(f"non-integer index {suffix!r} at {row.oid}") from exc
         value = row.value
         if isinstance(value, bytes):
             value = value.decode("utf-8", "replace")
@@ -189,8 +184,9 @@ def parse_port_stats(
     # get_stats emits the M4300's 130 phantom LAG/CPU/VLAN interfaces that the
     # web portStatistics page never lists, breaking HTTP<->SNMP stats parity.
     physical = _physical_ports(if_types)
-    ports = sorted(set(rx_b) | set(tx_b) | set(rx_p) | set(tx_p)
-                   | set(rx_e) | set(tx_e))
+    ports = sorted(
+        set(rx_b) | set(tx_b) | set(rx_p) | set(tx_p) | set(rx_e) | set(tx_e)
+    )
     if physical is not None:
         ports = [p for p in ports if p in physical]
     return [
@@ -437,7 +433,7 @@ def parse_lldp(rows: Sequence[SnmpRow]) -> list[LLDPNeighbor]:
     for row in rows:
         if not row.oid.startswith(prefix):
             continue
-        parts = row.oid[len(prefix):].split(".")
+        parts = row.oid[len(prefix) :].split(".")
         if len(parts) != 4:
             raise SnmpError(f"malformed LLDP index at {row.oid}")
         try:
@@ -497,7 +493,7 @@ def parse_macs(
     for row in fdb:
         if not row.oid.startswith(prefix):
             continue
-        parts = row.oid[len(prefix):].split(".")
+        parts = row.oid[len(prefix) :].split(".")
         if len(parts) != 7:  # <vlan>.<6 MAC bytes>
             raise SnmpError(f"malformed FDB index at {row.oid}")
         try:
@@ -548,7 +544,7 @@ def parse_poe(
     for row in status:
         if not row.oid.startswith(prefix):
             continue
-        parts = row.oid[len(prefix):].split(".")
+        parts = row.oid[len(prefix) :].split(".")
         if len(parts) != 3:
             continue
         column = int(parts[0])
@@ -614,8 +610,9 @@ def parse_box_sensors(
                     f"non-integer {kind} reading {row.value!r} at {row.oid}"
                 ) from exc
             result.append(
-                Sensor(name=f"{kind}{instance}", kind=kind,
-                        value=float(value), unit=unit)
+                Sensor(
+                    name=f"{kind}{instance}", kind=kind, value=float(value), unit=unit
+                )
             )
     return result
 
@@ -660,8 +657,12 @@ def parse_entity_sensors(
             continue
         name = names.get(idx) or descrs.get(idx) or f"{kind}{idx}"
         result.append(
-            Sensor(name=_canon_sensor_name(name), kind=kind,
-                   value=float("nan"), unit="inventory")
+            Sensor(
+                name=_canon_sensor_name(name),
+                kind=kind,
+                value=float("nan"),
+                unit="inventory",
+            )
         )
     return result
 
@@ -704,7 +705,7 @@ def _ipv4_from_rfc4293_index(rows: Sequence[SnmpRow]) -> str | None:
     for row in rows:
         if not row.oid.startswith(prefix):
             continue
-        parts = row.oid[len(prefix):].split(".")
+        parts = row.oid[len(prefix) :].split(".")
         # ipv4 (type 1) with a 4-byte address: type, len=4, then 4 octets.
         if len(parts) < 6 or parts[0] != "1" or parts[1] != "4":
             continue
@@ -750,7 +751,7 @@ def parse_mgmt_ip(
         if row.value == "127.0.0.1":
             continue
         ip = _ip_str(row)
-        ip_index = row.oid[len(aprefix):]
+        ip_index = row.oid[len(aprefix) :]
         break
 
     # RFC-4293 fallback: firmware that leaves ipAddrTable empty (M4300) carries
@@ -768,15 +769,13 @@ def parse_mgmt_ip(
                 mask = _ip_str(r)
                 break
 
-    dest_rows = {
-        r.oid[len(oids.IP_ROUTE_DEST) + 1:]: r.value for r in route_dest
-    }
+    dest_rows = {r.oid[len(oids.IP_ROUTE_DEST) + 1 :]: r.value for r in route_dest}
     gateway: str | None = None
     nprefix = oids.IP_ROUTE_NEXTHOP + "."
     for row in route_nexthop:
         if not row.oid.startswith(nprefix):
             continue
-        idx = row.oid[len(nprefix):]
+        idx = row.oid[len(nprefix) :]
         if dest_rows.get(idx) == "0.0.0.0":
             gateway = _ip_str(row)
             break
@@ -794,7 +793,10 @@ def parse_mgmt_ip(
         break
 
     return MgmtIpConfig(
-        mode=mode, address=ip, netmask=mask, gateway=gateway,
+        mode=mode,
+        address=ip,
+        netmask=mask,
+        gateway=gateway,
         base_mac=parse_base_mac(base_mac),
     )
 

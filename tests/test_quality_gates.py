@@ -1,5 +1,6 @@
 # tests/test_quality_gates.py
 """The quality gates and the new package path must be wired up."""
+
 from __future__ import annotations
 
 import tomllib

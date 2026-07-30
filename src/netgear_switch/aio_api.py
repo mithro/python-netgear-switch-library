@@ -1,4 +1,5 @@
 """Public asynchronous read/write facade: AsyncSwitch (mirror of SyncSwitch)."""
+
 from __future__ import annotations
 
 import os
@@ -216,7 +217,8 @@ class AsyncSwitch:
             return cfg.http_password(env=_env)
 
         return cls(
-            cfg.model, cfg.host,
+            cfg.model,
+            cfg.host,
             snmp_community=cfg.snmp_community,
             snmp_write_community_resolver=_resolve_write_community,
             nsdp_interface=cfg.nsdp_interface,
@@ -312,7 +314,9 @@ class AsyncSwitch:
                     f"no NSDP admin password configured for {self.host!r}"
                 )
             writer = AsyncNsdpWriter(
-                nsdp, self.model, password=password,
+                nsdp,
+                self.model,
+                password=password,
                 protected_ports=self.protected_ports,
             )
         elif backend is Backend.HTTP:
@@ -322,7 +326,8 @@ class AsyncSwitch:
                     "UNVERIFIED-pending-capture"
                 )
             writer = AsyncHttpWriter(
-                _LazyAsyncHttpSession(self._http_session), self.model,
+                _LazyAsyncHttpSession(self._http_session),
+                self.model,
                 protected_ports=self.protected_ports,
             )
         else:  # a CLI backend (SSH/telnet/console)
@@ -542,13 +547,19 @@ class AsyncSwitch:
                 return
 
     async def cycle_poe(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
     ) -> None:
         await self._write(lambda w: w.cycle_poe(port, force=force, timeouts=timeouts))
 
     async def clear_poe_fault(
-        self, port: int, *, force: bool = False,
+        self,
+        port: int,
+        *,
+        force: bool = False,
         timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
     ) -> None:
         await self._write(
@@ -566,7 +577,8 @@ class AsyncSwitch:
         # See SyncSwitch._cert_writer: cert upload bypasses both the
         # http_reads_supported gate and the SNMP-first _write dispatch.
         return AsyncHttpWriter(
-            _LazyAsyncHttpSession(self._http_session), self.model,
+            _LazyAsyncHttpSession(self._http_session),
+            self.model,
             protected_ports=self.protected_ports,
         )
 

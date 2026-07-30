@@ -6,6 +6,7 @@ verifies (``WriteVerificationError`` with before/after on mismatch — a real
 Disruptive writes to a ``protected_ports`` port are refused unless ``force=True``
 (design spec §6).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -117,7 +118,8 @@ class SnmpWriter:
         if after is None or after.admin_enabled != on:
             raise WriteVerificationError(
                 f"PoE admin for port {port} did not read back as {on}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     def _poe_rearm(
@@ -145,7 +147,9 @@ class SnmpWriter:
             if clock() >= deadline:
                 raise WriteVerificationError(
                     f"PoE port {port} did not turn off within {timeouts.off_timeout}s",
-                    before=before, after=self._poe_status(port))
+                    before=before,
+                    after=self._poe_status(port),
+                )
             sleep(timeouts.poll_interval)
         # Phase 2: on, poll until the caller's recovery predicate is met.
         self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
@@ -154,7 +158,9 @@ class SnmpWriter:
             if clock() >= deadline:
                 raise WriteVerificationError(
                     on_timeout_message.format(timeout=timeouts.on_timeout),
-                    before=before, after=self._poe_status(port))
+                    before=before,
+                    after=self._poe_status(port),
+                )
             sleep(timeouts.poll_interval)
 
     def cycle_poe(
@@ -168,11 +174,13 @@ class SnmpWriter:
     ) -> None:
         self._guard(port, force)
         self._poe_rearm(
-            port, timeouts=timeouts, sleep=sleep, clock=clock,
+            port,
+            timeouts=timeouts,
+            sleep=sleep,
+            clock=clock,
             on_recovered=lambda st: bool(st and st.delivering),
             on_timeout_message=(
-                f"PoE port {port} did not return to delivering within "
-                "{timeout}s"
+                f"PoE port {port} did not return to delivering within {{timeout}}s"
             ),
         )
 
@@ -193,7 +201,10 @@ class SnmpWriter:
         # item 5); tests inject tiny timeouts so this is fast against the
         # coherent mock.
         self._poe_rearm(
-            port, timeouts=timeouts, sleep=sleep, clock=clock,
+            port,
+            timeouts=timeouts,
+            sleep=sleep,
+            clock=clock,
             on_recovered=_poe_recovered,
             on_timeout_message=(
                 f"PoE port {port} still in FAULT after clear within {{timeout}}s"
@@ -217,7 +228,8 @@ class SnmpWriter:
         if after is None or after.admin_enabled != enabled:
             raise WriteVerificationError(
                 f"admin state for port {port} did not read back as {enabled}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
@@ -228,7 +240,8 @@ class SnmpWriter:
         if (port, vlan) not in after:
             raise WriteVerificationError(
                 f"PVID for port {port} did not read back as {vlan}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     def set_vlan_membership(
@@ -241,15 +254,20 @@ class SnmpWriter:
             # verification divergence (review item 9).
             raise SnmpError(f"VLAN {vlan} does not exist")
         new_egress, new_untagged = membership_bitmaps(
-            mode=mode, port=port,
+            mode=mode,
+            port=port,
             egress=encode_port_bitmap(before.member_ports),
             untagged=encode_port_bitmap(before.untagged_ports),
             width_bytes=vlan_bitmap_width(self.model),
         )
-        self.client.set_many([
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"),
-        ])
+        self.client.set_many(
+            [
+                SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),
+                SetVarbind(
+                    f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"
+                ),
+            ]
+        )
         after = self._vlan(vlan)
         # Verify BOTH columns this op wrote: egress membership AND the untagged
         # set. A mock/device that accepts the egress SET but silently drops the
@@ -259,20 +277,23 @@ class SnmpWriter:
         if after is None:
             raise WriteVerificationError(
                 f"VLAN {vlan} disappeared while setting membership for port {port}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
         if after.member_ports != want_egress:
             raise WriteVerificationError(
                 f"VLAN {vlan} egress (member_ports) for port {port} did not "
                 f"verify: wanted {sorted(want_egress)}, "
                 f"got {sorted(after.member_ports)}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
         if after.untagged_ports != want_untagged:
             raise WriteVerificationError(
                 f"VLAN {vlan} untagged_ports for port {port} did not verify: "
                 f"wanted {sorted(want_untagged)}, got {sorted(after.untagged_ports)}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
@@ -280,16 +301,22 @@ class SnmpWriter:
         # non-disruptive and does NOT require force. ``force`` exists only for
         # signature symmetry with delete_vlan (review item 3).
         before = self._vlan(vlan)
-        self.client.set_many([
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
-                       oids.ROW_STATUS_CREATE_AND_GO, "i"),
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vlan}", name, "s"),
-        ])
+        self.client.set_many(
+            [
+                SetVarbind(
+                    f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+                    oids.ROW_STATUS_CREATE_AND_GO,
+                    "i",
+                ),
+                SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vlan}", name, "s"),
+            ]
+        )
         after = self._vlan(vlan)
         if after is None or (after.name or "") != name:
             raise WriteVerificationError(
                 f"VLAN {vlan} was not created with name {name!r}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
@@ -311,14 +338,19 @@ class SnmpWriter:
                     f"VLAN {vlan} includes protected port(s) {sorted(clash)}; "
                     f"pass force=True to delete it anyway"
                 )
-        self.client.set(SetVarbind(
-            f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
-            oids.ROW_STATUS_DESTROY, "i",
-        ))
+        self.client.set(
+            SetVarbind(
+                f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+                oids.ROW_STATUS_DESTROY,
+                "i",
+            )
+        )
         after = self._vlan(vlan)
         if after is not None:
             raise WriteVerificationError(
-                f"VLAN {vlan} still exists after destroy", before=before, after=after,
+                f"VLAN {vlan} still exists after destroy",
+                before=before,
+                after=after,
             )
 
     def set_mgmt_ip(
@@ -339,11 +371,13 @@ class SnmpWriter:
             )
         vo = oids.vendor_oids(self.model)
         before = self._reader.get_mgmt_ip()
-        self.client.set_many([
-            SetVarbind(vo.mgmt_write_addr_unverified, address, "a"),
-            SetVarbind(vo.mgmt_write_netmask_unverified, netmask, "a"),
-            SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
-        ])
+        self.client.set_many(
+            [
+                SetVarbind(vo.mgmt_write_addr_unverified, address, "a"),
+                SetVarbind(vo.mgmt_write_netmask_unverified, netmask, "a"),
+                SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
+            ]
+        )
         after = self._reader.get_mgmt_ip()
         # Highest strand-risk op: verify EVERY field written (address, netmask,
         # AND gateway), naming whichever diverged (review item 2).
@@ -355,7 +389,9 @@ class SnmpWriter:
             if got != want:
                 raise WriteVerificationError(
                     f"management {field} did not read back as {want!r} (got {got!r})",
-                    before=before, after=after)
+                    before=before,
+                    after=after,
+                )
 
 
 class AsyncSnmpWriter:
@@ -399,7 +435,8 @@ class AsyncSnmpWriter:
         if after is None or after.admin_enabled != on:
             raise WriteVerificationError(
                 f"PoE admin for port {port} did not read back as {on}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     async def _port_up(self, port: int) -> bool:
@@ -429,7 +466,9 @@ class AsyncSnmpWriter:
             if clock() >= deadline:
                 raise WriteVerificationError(
                     f"PoE port {port} did not turn off within {timeouts.off_timeout}s",
-                    before=before, after=await self._poe_status(port))
+                    before=before,
+                    after=await self._poe_status(port),
+                )
             await sleep(timeouts.poll_interval)
         # Phase 2: on, poll until the caller's recovery predicate is met.
         await self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
@@ -438,7 +477,9 @@ class AsyncSnmpWriter:
             if clock() >= deadline:
                 raise WriteVerificationError(
                     on_timeout_message.format(timeout=timeouts.on_timeout),
-                    before=before, after=await self._poe_status(port))
+                    before=before,
+                    after=await self._poe_status(port),
+                )
             await sleep(timeouts.poll_interval)
 
     async def cycle_poe(
@@ -452,11 +493,13 @@ class AsyncSnmpWriter:
     ) -> None:
         self._guard(port, force)
         await self._poe_rearm(
-            port, timeouts=timeouts, sleep=sleep, clock=clock,
+            port,
+            timeouts=timeouts,
+            sleep=sleep,
+            clock=clock,
             on_recovered=lambda st: bool(st and st.delivering),
             on_timeout_message=(
-                f"PoE port {port} did not return to delivering within "
-                "{timeout}s"
+                f"PoE port {port} did not return to delivering within {{timeout}}s"
             ),
         )
 
@@ -474,7 +517,10 @@ class AsyncSnmpWriter:
         # -- see _poe_rearm), then poll for detect to leave FAULT (review item
         # 5); tiny timeouts in tests.
         await self._poe_rearm(
-            port, timeouts=timeouts, sleep=sleep, clock=clock,
+            port,
+            timeouts=timeouts,
+            sleep=sleep,
+            clock=clock,
             on_recovered=_poe_recovered,
             on_timeout_message=(
                 f"PoE port {port} still in FAULT after clear within {{timeout}}s"
@@ -494,7 +540,8 @@ class AsyncSnmpWriter:
         if after is None or after.admin_enabled != enabled:
             raise WriteVerificationError(
                 f"admin state for port {port} did not read back as {enabled}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
@@ -505,7 +552,8 @@ class AsyncSnmpWriter:
         if (port, vlan) not in after:
             raise WriteVerificationError(
                 f"PVID for port {port} did not read back as {vlan}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     async def set_vlan_membership(
@@ -517,15 +565,20 @@ class AsyncSnmpWriter:
             # Precondition failure (review item 9): no SET attempted.
             raise SnmpError(f"VLAN {vlan} does not exist")
         new_egress, new_untagged = membership_bitmaps(
-            mode=mode, port=port,
+            mode=mode,
+            port=port,
             egress=encode_port_bitmap(before.member_ports),
             untagged=encode_port_bitmap(before.untagged_ports),
             width_bytes=vlan_bitmap_width(self.model),
         )
-        await self.client.set_many([
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"),
-        ])
+        await self.client.set_many(
+            [
+                SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vlan}", new_egress, "x"),
+                SetVarbind(
+                    f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vlan}", new_untagged, "x"
+                ),
+            ]
+        )
         after = await self._vlan(vlan)
         # Verify BOTH written columns (egress AND untagged) — review item 1.
         want_egress = frozenset(decode_port_bitmap(new_egress))
@@ -533,35 +586,44 @@ class AsyncSnmpWriter:
         if after is None:
             raise WriteVerificationError(
                 f"VLAN {vlan} disappeared while setting membership for port {port}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
         if after.member_ports != want_egress:
             raise WriteVerificationError(
                 f"VLAN {vlan} egress (member_ports) for port {port} did not "
                 f"verify: wanted {sorted(want_egress)}, "
                 f"got {sorted(after.member_ports)}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
         if after.untagged_ports != want_untagged:
             raise WriteVerificationError(
                 f"VLAN {vlan} untagged_ports for port {port} did not verify: "
                 f"wanted {sorted(want_untagged)}, got {sorted(after.untagged_ports)}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
         # Empty VLAN creation is non-disruptive; force is for symmetry only.
         before = await self._vlan(vlan)
-        await self.client.set_many([
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
-                       oids.ROW_STATUS_CREATE_AND_GO, "i"),
-            SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vlan}", name, "s"),
-        ])
+        await self.client.set_many(
+            [
+                SetVarbind(
+                    f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+                    oids.ROW_STATUS_CREATE_AND_GO,
+                    "i",
+                ),
+                SetVarbind(f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vlan}", name, "s"),
+            ]
+        )
         after = await self._vlan(vlan)
         if after is None or (after.name or "") != name:
             raise WriteVerificationError(
                 f"VLAN {vlan} was not created with name {name!r}",
-                before=before, after=after,
+                before=before,
+                after=after,
             )
 
     async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
@@ -579,14 +641,19 @@ class AsyncSnmpWriter:
                     f"VLAN {vlan} includes protected port(s) {sorted(clash)}; "
                     f"pass force=True to delete it anyway"
                 )
-        await self.client.set(SetVarbind(
-            f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
-            oids.ROW_STATUS_DESTROY, "i",
-        ))
+        await self.client.set(
+            SetVarbind(
+                f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{vlan}",
+                oids.ROW_STATUS_DESTROY,
+                "i",
+            )
+        )
         after = await self._vlan(vlan)
         if after is not None:
             raise WriteVerificationError(
-                f"VLAN {vlan} still exists after destroy", before=before, after=after,
+                f"VLAN {vlan} still exists after destroy",
+                before=before,
+                after=after,
             )
 
     async def set_mgmt_ip(
@@ -607,11 +674,13 @@ class AsyncSnmpWriter:
             )
         vo = oids.vendor_oids(self.model)
         before = await self._reader.get_mgmt_ip()
-        await self.client.set_many([
-            SetVarbind(vo.mgmt_write_addr_unverified, address, "a"),
-            SetVarbind(vo.mgmt_write_netmask_unverified, netmask, "a"),
-            SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
-        ])
+        await self.client.set_many(
+            [
+                SetVarbind(vo.mgmt_write_addr_unverified, address, "a"),
+                SetVarbind(vo.mgmt_write_netmask_unverified, netmask, "a"),
+                SetVarbind(vo.mgmt_write_gateway_unverified, gateway, "a"),
+            ]
+        )
         after = await self._reader.get_mgmt_ip()
         # Verify EVERY field written (address, netmask, AND gateway) — item 2.
         for field, want, got in (
@@ -622,4 +691,6 @@ class AsyncSnmpWriter:
             if got != want:
                 raise WriteVerificationError(
                     f"management {field} did not read back as {want!r} (got {got!r})",
-                    before=before, after=after)
+                    before=before,
+                    after=after,
+                )

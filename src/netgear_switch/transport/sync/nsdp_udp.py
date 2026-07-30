@@ -8,6 +8,7 @@ unprivileged ephemeral port on loopback (so no root/CAP_NET_BIND_SERVICE and no
 SO_BINDTODEVICE are needed under test). Errors (timeout / malformed / bad
 password) surface as ``NsdpError``, never silently.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -112,8 +113,6 @@ class UdpNsdpClient:
         # misrouted/duplicate UDP datagram (e.g. a stray READ_RESPONSE with
         # result=0) must not silently pass check_result as a successful write.
         if resp.op != Op.WRITE_RESPONSE:
-            raise NsdpError(
-                f"expected WRITE_RESPONSE from {self.host}, got {resp.op}"
-            )
+            raise NsdpError(f"expected WRITE_RESPONSE from {self.host}, got {resp.op}")
         check_result(resp)
         return resp

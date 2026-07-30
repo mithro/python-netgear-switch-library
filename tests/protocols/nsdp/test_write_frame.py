@@ -42,7 +42,7 @@ def test_vlan_members_tlv_encoding_10_port():
     assert tlv.tag == Tag.VLAN_MEMBERS
     vlan_id = struct.unpack_from(">H", tlv.value, 0)[0]
     assert vlan_id == 90
-    member_bitmap = tlv.value[2:4]   # ceil(10/8) = 2 bytes
+    member_bitmap = tlv.value[2:4]  # ceil(10/8) = 2 bytes
     tagged_bitmap = tlv.value[4:6]
     assert bitmap_to_ports(member_bitmap) == frozenset({1, 2, 10})
     assert bitmap_to_ports(tagged_bitmap) == frozenset({10})

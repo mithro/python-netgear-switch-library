@@ -314,9 +314,7 @@ def test_sync_get_page_mid_session_redirect_to_login_raises_auth() -> None:
     # Skip login() so no SID cookie is set; the handler serves the
     # "redirect to login" page as it would for a server-expired session.
     client._logged_in = True
-    with pytest.raises(
-        HttpAuthError, match=r"session lost fetching /dashboard\.cgi"
-    ):
+    with pytest.raises(HttpAuthError, match=r"session lost fetching /dashboard\.cgi"):
         client.get_page("/dashboard.cgi")
     client.close()
 
@@ -351,9 +349,7 @@ def test_token_params_none_for_cookie_session_spec() -> None:
 
 
 def test_token_form_field_carries_field_for_token_session_spec() -> None:
-    assert _token_form_field(_GAMBIT_SPEC, _GAMBIT_TOKEN) == {
-        "Gambit": _GAMBIT_TOKEN
-    }
+    assert _token_form_field(_GAMBIT_SPEC, _GAMBIT_TOKEN) == {"Gambit": _GAMBIT_TOKEN}
 
 
 def test_token_form_field_empty_for_cookie_session_spec() -> None:
@@ -368,7 +364,9 @@ def test_sync_gambit_login_gets_login_path_but_posts_to_login_post_path() -> Non
     assert _GAMBIT_SPEC.login_path == "/"
     assert _GAMBIT_SPEC.login_post_path == "/redirect.html"
     client = HttpClient(
-        "sw.example", _GAMBIT_PASSWORD, _GAMBIT_SPEC,
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
         transport=httpx.MockTransport(_gambit_handler),
     )
     try:
@@ -382,7 +380,9 @@ def test_sync_gambit_login_gets_login_path_but_posts_to_login_post_path() -> Non
 
 def test_sync_gambit_wrong_password_raises_auth_error() -> None:
     client = HttpClient(
-        "sw.example", "wrong-password", _GAMBIT_SPEC,
+        "sw.example",
+        "wrong-password",
+        _GAMBIT_SPEC,
         transport=httpx.MockTransport(_gambit_handler),
     )
     try:
@@ -399,7 +399,9 @@ def test_async_gambit_wrong_password_raises_auth_error() -> None:
 
     async def run() -> None:
         client = AsyncHttpClient(
-            "sw.example", "wrong-password", _GAMBIT_SPEC,
+            "sw.example",
+            "wrong-password",
+            _GAMBIT_SPEC,
             transport=httpx.MockTransport(_gambit_handler),
         )
         try:
@@ -418,7 +420,9 @@ def test_sync_get_page_mid_session_stale_gambit_token_raises_auth() -> None:
     mirrors the cookie path's test_sync_get_page_mid_session_redirect_to_
     login_raises_auth above."""
     client = HttpClient(
-        "sw.example", _GAMBIT_PASSWORD, _GAMBIT_SPEC,
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
         transport=httpx.MockTransport(_gambit_handler),
     )
     client._logged_in = True
@@ -437,7 +441,9 @@ def test_async_get_page_mid_session_stale_gambit_token_raises_auth() -> None:
 
     async def run() -> None:
         client = AsyncHttpClient(
-            "sw.example", _GAMBIT_PASSWORD, _GAMBIT_SPEC,
+            "sw.example",
+            _GAMBIT_PASSWORD,
+            _GAMBIT_SPEC,
             transport=httpx.MockTransport(_gambit_handler),
         )
         client._logged_in = True
@@ -489,9 +495,7 @@ def test_secure_false_builds_http_base_url_and_referer() -> None:
 
 
 def test_secure_true_builds_https_base_url_and_referer() -> None:
-    client = HttpClient(
-        "sw.example:49152", _PASSWORD, _M4300_SPEC, secure=True
-    )
+    client = HttpClient("sw.example:49152", _PASSWORD, _M4300_SPEC, secure=True)
     try:
         assert str(client._client.base_url) == "https://sw.example:49152"
         # Referer keeps the FULL host incl. port, scheme tracks `secure`: the

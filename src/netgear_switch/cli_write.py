@@ -15,6 +15,7 @@ to pull the PEM from, which CI has neither the hardware nor the network for. The
 library only SENDS the copy commands; the CALLER stages the PEM on the SCP source
 first (per the user's decision), exactly as the certbot hook's ``main`` does.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

@@ -3,6 +3,7 @@
 backend-specific read shape lives next to the protocol that produces it, not
 in ``models.py``, until/unless a second backend needs the same shape).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

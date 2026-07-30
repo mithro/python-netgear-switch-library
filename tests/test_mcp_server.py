@@ -19,13 +19,29 @@ from netgear_switch.registry import get_model
 from netgear_switch.sync_api import SyncSwitch
 
 _READ_TOOLS = {
-    "get_ports", "get_stats", "get_vlans", "get_pvids", "get_macs",
-    "get_lldp", "get_sensors", "get_poe", "get_mgmt_ip", "identify",
-    "list_switches", "snapshot", "get_device",
+    "get_ports",
+    "get_stats",
+    "get_vlans",
+    "get_pvids",
+    "get_macs",
+    "get_lldp",
+    "get_sensors",
+    "get_poe",
+    "get_mgmt_ip",
+    "identify",
+    "list_switches",
+    "snapshot",
+    "get_device",
 }
 _WRITE_TOOLS = {
-    "set_pvid", "set_port_enabled", "set_poe", "set_vlan_membership",
-    "create_vlan", "delete_vlan", "cycle_poe", "clear_poe_fault",
+    "set_pvid",
+    "set_port_enabled",
+    "set_poe",
+    "set_vlan_membership",
+    "create_vlan",
+    "delete_vlan",
+    "cycle_poe",
+    "clear_poe_fault",
     "set_mgmt_ip",
 }
 
@@ -49,8 +65,16 @@ def test_writes_registered_when_opted_in() -> None:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("1", True), ("true", True), ("YES", True), ("on", True),
-     ("0", False), ("", False), ("off", False), ("maybe", False)],
+    [
+        ("1", True),
+        ("true", True),
+        ("YES", True),
+        ("on", True),
+        ("0", False),
+        ("", False),
+        ("off", False),
+        ("maybe", False),
+    ],
 )
 def test_writes_enabled_parsing(value: str, expected: bool) -> None:
     assert mod.writes_enabled({"NGSW_MCP_ALLOW_WRITES": value}) is expected
@@ -58,20 +82,28 @@ def test_writes_enabled_parsing(value: str, expected: bool) -> None:
 
 def test_jsonable_serializes_models_tree() -> None:
     vlan = VLANInfo(
-        vlan_id=90, name="iot",
+        vlan_id=90,
+        name="iot",
         member_ports=frozenset({2, 1, 3}),
         tagged_ports=frozenset({1}),
         untagged_ports=frozenset({2, 3}),
     )
     out = mod._jsonable([vlan])
-    assert out == [{
-        "vlan_id": 90, "name": "iot",
-        "member_ports": [1, 2, 3],          # frozenset -> sorted list
-        "tagged_ports": [1], "untagged_ports": [2, 3],
-    }]
+    assert out == [
+        {
+            "vlan_id": 90,
+            "name": "iot",
+            "member_ports": [1, 2, 3],  # frozenset -> sorted list
+            "tagged_ports": [1],
+            "untagged_ports": [2, 3],
+        }
+    ]
     mgmt = MgmtIpConfig(
-        mode=IpMode.STATIC, address="10.1.5.25", netmask="255.255.255.0",
-        gateway="10.1.5.1", base_mac="AA:BB:CC:DD:EE:FF",
+        mode=IpMode.STATIC,
+        address="10.1.5.25",
+        netmask="255.255.255.0",
+        gateway="10.1.5.1",
+        base_mac="AA:BB:CC:DD:EE:FF",
     )
     assert mod._jsonable(mgmt)["mode"] == "static"  # enum -> value
 
@@ -82,7 +114,8 @@ def test_read_wraps_unsupported_capability() -> None:
 
     res = mod._read("get_macs", boom)
     assert res == {
-        "unsupported": True, "op": "get_macs",
+        "unsupported": True,
+        "op": "get_macs",
         "detail": "no MAC table on a Plus switch",
     }
 
@@ -99,8 +132,14 @@ def test_read_wraps_library_error() -> None:
 def test_resolve_requires_a_selector() -> None:
     with pytest.raises(ConfigError, match="either"):
         mod._resolve(
-            switch=None, host=None, model=None, config=None,
-            community=None, http_password=None, nsdp_interface=None, env={},
+            switch=None,
+            host=None,
+            model=None,
+            config=None,
+            community=None,
+            http_password=None,
+            nsdp_interface=None,
+            env={},
         )
 
 
@@ -126,7 +165,8 @@ class _CannedNsdp:
 
     def read(self, tags):
         pkt = NSDPPacket(
-            op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
+            op=Op.READ_RESPONSE,
+            client_mac=b"\x00" * 6,
             server_mac=b"\xbc\xa5\x11\xb8\xec\xf1",
         )
         pkt.add_tlv(Tag.MODEL, b"GS110EMX")
@@ -152,6 +192,7 @@ def _call(srv, name, args) -> list:
 def test_get_ports_end_to_end_against_a_mock(monkeypatch) -> None:
     """A read tool, driven through the real FastMCP machinery, returns the
     reader's data as JSON -- proving the server wraps the library faithfully."""
+
     def fake_resolve(_ns, *, env=None, prompt=None):
         return SyncSwitch(get_model("gs110emx"), "10.1.5.25", nsdp_client=_CannedNsdp())
 
@@ -171,6 +212,7 @@ def test_get_ports_end_to_end_against_a_mock(monkeypatch) -> None:
 def test_unsupported_op_returns_structured_result(monkeypatch) -> None:
     """gs110emx has no MAC table over any backend -> the tool reports it
     honestly rather than fabricating an empty list."""
+
     def fake_resolve(_ns, *, env=None, prompt=None):
         return SyncSwitch(get_model("gs110emx"), "10.1.5.25", nsdp_client=_CannedNsdp())
 
@@ -195,9 +237,15 @@ def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
     )
     srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
     res = _call(
-        srv, "set_pvid",
-        {"host": "10.1.5.25", "model": "gs110emx", "port": 3, "vlan": 90,
-         "force": True},
+        srv,
+        "set_pvid",
+        {
+            "host": "10.1.5.25",
+            "model": "gs110emx",
+            "port": 3,
+            "vlan": 90,
+            "force": True,
+        },
     )[0]
     assert res == {"ok": True, "op": "set_pvid"}
     assert calls == [(3, 90, True)]
@@ -206,7 +254,11 @@ def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
 # Public SyncSwitch methods that deliberately get NO MCP tool: connection
 # lifecycle and raw HTTP primitives, none of which are switch operations.
 _NOT_MCP_EXPOSED = {
-    "login", "get_page", "post_form", "close", "from_config",
+    "login",
+    "get_page",
+    "post_form",
+    "close",
+    "from_config",
 }
 # SyncSwitch method -> MCP tool name, where the two differ.
 _RENAMED = {"nsdp_device": "get_device"}
@@ -251,14 +303,23 @@ def test_new_write_tools_reach_the_switch(monkeypatch) -> None:
     srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
     sel = {"host": "h", "model": "gs110emx", "force": True}
     assert _call(srv, "cycle_poe", {**sel, "port": 4})[0] == {
-        "ok": True, "op": "cycle_poe"
+        "ok": True,
+        "op": "cycle_poe",
     }
     assert _call(srv, "clear_poe_fault", {**sel, "port": 5})[0]["ok"] is True
-    assert _call(
-        srv, "set_mgmt_ip",
-        {**sel, "address": "10.1.5.9", "netmask": "255.255.255.0",
-         "gateway": "10.1.5.1"},
-    )[0]["ok"] is True
+    assert (
+        _call(
+            srv,
+            "set_mgmt_ip",
+            {
+                **sel,
+                "address": "10.1.5.9",
+                "netmask": "255.255.255.0",
+                "gateway": "10.1.5.1",
+            },
+        )[0]["ok"]
+        is True
+    )
     assert calls == [
         ("cycle_poe", 4, True),
         ("clear_poe_fault", 5, True),
@@ -279,9 +340,15 @@ def test_upload_certificate_tool_reaches_the_switch(monkeypatch) -> None:
     )
     srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
     res = _call(
-        srv, "upload_certificate",
-        {"host": "h", "model": "gsm7228ps", "cert_pem": "CERT",
-         "key_pem": "KEY", "force": True},
+        srv,
+        "upload_certificate",
+        {
+            "host": "h",
+            "model": "gsm7228ps",
+            "cert_pem": "CERT",
+            "key_pem": "KEY",
+            "force": True,
+        },
     )[0]
     assert res == {"ok": True, "op": "upload_certificate"}
     assert calls == [("CERT", "KEY", True)]
@@ -291,6 +358,7 @@ def test_upload_certificate_tool_reports_not_implemented(monkeypatch) -> None:
     """A known-but-unimplemented mechanism (m4300 SCP) surfaces as
     ``not_implemented`` -- never ``unsupported`` (the hardware CAN do it) and
     never an uncaught stack trace."""
+
     class _M4300Like:
         def upload_certificate(self, cert_pem, key_pem, *, force):
             raise NotImplementedError("uses SCP file-copy to the switch")
@@ -300,9 +368,15 @@ def test_upload_certificate_tool_reports_not_implemented(monkeypatch) -> None:
     )
     srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
     res = _call(
-        srv, "upload_certificate",
-        {"host": "h", "model": "m4300-24x", "cert_pem": "C", "key_pem": "K",
-         "force": True},
+        srv,
+        "upload_certificate",
+        {
+            "host": "h",
+            "model": "m4300-24x",
+            "cert_pem": "C",
+            "key_pem": "K",
+            "force": True,
+        },
     )[0]
     assert res["not_implemented"] is True
     assert res["op"] == "upload_certificate"
@@ -315,7 +389,8 @@ def test_set_vlan_membership_rejects_bad_mode(monkeypatch) -> None:
     )
     srv = mod.build_server(env={"NGSW_MCP_ALLOW_WRITES": "1"})
     res = _call(
-        srv, "set_vlan_membership",
+        srv,
+        "set_vlan_membership",
         {"host": "h", "model": "gs110emx", "vlan": 90, "port": 1, "mode": "bogus"},
     )[0]
     assert "invalid mode" in res["error"]

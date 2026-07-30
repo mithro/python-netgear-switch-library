@@ -30,6 +30,7 @@ cross-compared: the two hardware interfaces genuinely expose different sensor
 sets (``show environment`` temperatures vs the SNMP fan-RPM/PSU walk), exactly
 as the codebase already documents for its HTTP ``http_sensors`` vs ``sensors``.
 """
+
 from __future__ import annotations
 
 from netgear_switch.cli_read import CliReader
@@ -72,6 +73,7 @@ def _readers() -> tuple[CliReader, SnmpReader]:
 
 def test_ports_agree_on_physical_ports() -> None:
     cli, snmp = _readers()
+
     def proj(p: object) -> tuple:
         return (
             p.admin_enabled,  # type: ignore[attr-defined]
@@ -109,8 +111,9 @@ def test_vlans_agree_on_physical_membership() -> None:
 def test_poe_agrees_on_admin_power_delivering() -> None:
     cli, snmp = _readers()
     cli_p = {p.port: (p.admin_enabled, p.power_mw, p.delivering) for p in cli.get_poe()}
-    snmp_p = {p.port: (p.admin_enabled, p.power_mw, p.delivering)
-              for p in snmp.get_poe()}
+    snmp_p = {
+        p.port: (p.admin_enabled, p.power_mw, p.delivering) for p in snmp.get_poe()
+    }
     assert cli_p == snmp_p
     assert len(cli_p) == 48
 

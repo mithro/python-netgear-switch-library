@@ -8,6 +8,7 @@ through its own transport's normalizer, and assert the resulting
 value-parity contract described in ``snmp_pysnmp.py``'s module docstring and
 ``SnmpRow``'s docstring directly, independent of any higher-level parser.
 """
+
 from __future__ import annotations
 
 from netgear_switch.transport.aio.snmp_pysnmp import _normalize_varbind

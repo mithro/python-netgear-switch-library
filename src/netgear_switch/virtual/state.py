@@ -7,6 +7,7 @@ dataclasses. ``oid_map()`` projects that state onto the flat numeric
 OID -> (snmp_type, value) view a protocol face (Task 15) serves and the
 Task 5-9 parsers consume. This module is pure data + projection: no network.
 """
+
 from __future__ import annotations
 
 import copy
@@ -312,7 +313,8 @@ class VirtualSwitchState:
         # fixture only -- see the field docstrings above, never trust it as
         # ground truth for a real device.
         m[oids.SYS_DESCR] = (
-            "OCTETSTR", self.sys_descr or f"Netgear {model.display_name}"
+            "OCTETSTR",
+            self.sys_descr or f"Netgear {model.display_name}",
         )
         # sysObjectID: the seeded value, else a plausible placeholder under the
         # model's vendor subtree (or the generic mgmt.mib-2 root when the model
@@ -346,18 +348,23 @@ class VirtualSwitchState:
         for vid, vsim in self.vlans.items():
             m[f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"] = ("OCTETSTR", vsim.name)
             m[f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"] = (
-                "OCTETSTR", encode_port_bitmap(vsim.member, width_bytes=vlan_width))
+                "OCTETSTR",
+                encode_port_bitmap(vsim.member, width_bytes=vlan_width),
+            )
             m[f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{vid}"] = (
-                "OCTETSTR", encode_port_bitmap(vsim.untagged, width_bytes=vlan_width))
+                "OCTETSTR",
+                encode_port_bitmap(vsim.untagged, width_bytes=vlan_width),
+            )
 
         for port, pv in self.pvids.items():
             m[f"{oids.DOT1Q_PVID}.{port}"] = ("Gauge32", str(pv))
 
         for port, psim in self.poe.items():
             m[f"{oids.PETH_PSE_PORT_TABLE}.3.1.{port}"] = (
-                "INTEGER", "1" if psim.admin else "2")
-            m[f"{oids.PETH_PSE_PORT_TABLE}.6.1.{port}"] = (
-                "INTEGER", str(psim.detect))
+                "INTEGER",
+                "1" if psim.admin else "2",
+            )
+            m[f"{oids.PETH_PSE_PORT_TABLE}.6.1.{port}"] = ("INTEGER", str(psim.detect))
             # Per-port delivered-power (mW) is a Netgear VENDOR column; a model
             # with no vendor subtree (gs728tpp) exposes no such column at all.
             if v is not None:
@@ -379,7 +386,9 @@ class VirtualSwitchState:
         # live value). entPhysicalClass is the int enum; Name/Descr are text.
         for ent in self.entity_components:
             m[f"{oids.ENT_PHYSICAL_CLASS}.{ent.index}"] = (
-                "INTEGER", str(ent.phys_class))
+                "INTEGER",
+                str(ent.phys_class),
+            )
             m[f"{oids.ENT_PHYSICAL_NAME}.{ent.index}"] = ("OCTETSTR", ent.name)
             m[f"{oids.ENT_PHYSICAL_DESCR}.{ent.index}"] = ("OCTETSTR", ent.descr)
 
@@ -389,10 +398,14 @@ class VirtualSwitchState:
         for msim in self.macs:
             mac_suffix = ".".join(str(b) for b in msim.mac_bytes)
             m[f"{oids.DOT1Q_TP_FDB_PORT}.{msim.vlan}.{mac_suffix}"] = (
-                "INTEGER", str(msim.bridge_port))
+                "INTEGER",
+                str(msim.bridge_port),
+            )
         for bridge_port, ifindex in self.bridge_ports.items():
             m[f"{oids.DOT1D_BASE_PORT_IF_INDEX}.{bridge_port}"] = (
-                "INTEGER", str(ifindex))
+                "INTEGER",
+                str(ifindex),
+            )
 
         # LLDP remote neighbours across lldpRemTable columns 5/7/8/9.
         for nb in self.lldp:
@@ -413,7 +426,9 @@ class VirtualSwitchState:
         # returns IpMode.UNKNOWN, matching that model's HTTP mgmt-IP read.
         if v is not None:
             m[f"{v.dhcp_mode_unverified}.0"] = (
-                "INTEGER", "2" if self.mgmt.mode == "static" else "1")
+                "INTEGER",
+                "2" if self.mgmt.mode == "static" else "1",
+            )
 
         return m
 
@@ -462,8 +477,8 @@ class VirtualSwitchState:
 
         def _tail(base: str) -> int | None:
             prefix = base + "."
-            if oid.startswith(prefix) and oid[len(prefix):].isdigit():
-                return int(oid[len(prefix):])
+            if oid.startswith(prefix) and oid[len(prefix) :].isdigit():
+                return int(oid[len(prefix) :])
             return None
 
         def _as_bytes(val: int | bytes | str) -> bytes:
@@ -483,8 +498,8 @@ class VirtualSwitchState:
 
         # pethPsePortAdminEnable = <table>.3.1.<port>
         poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
-        if oid.startswith(poe_prefix) and oid[len(poe_prefix):].isdigit():
-            p = int(oid[len(poe_prefix):])
+        if oid.startswith(poe_prefix) and oid[len(poe_prefix) :].isdigit():
+            p = int(oid[len(poe_prefix) :])
             if p in self.poe:
                 on = int(value) == 1
                 self.poe[p].admin = on
@@ -503,6 +518,7 @@ class VirtualSwitchState:
         vid = _tail(oids.DOT1Q_VLAN_STATIC_EGRESS)
         if vid is not None and vid in self.vlans:
             from ..protocols.snmp.parse import decode_port_bitmap
+
             self.vlans[vid].member = set(decode_port_bitmap(_as_bytes(value)))
             return
 
@@ -510,6 +526,7 @@ class VirtualSwitchState:
         vid = _tail(oids.DOT1Q_VLAN_STATIC_UNTAGGED)
         if vid is not None and vid in self.vlans:
             from ..protocols.snmp.parse import decode_port_bitmap
+
             self.vlans[vid].untagged = set(decode_port_bitmap(_as_bytes(value)))
             return
 
@@ -611,6 +628,7 @@ class VirtualSwitchState:
                 )
         if Tag.VLAN_MEMBERS in tags:
             from ..protocols.nsdp.parsers import ports_to_bitmap
+
             for vid, vsim in sorted(self.vlans.items()):
                 tagged = vsim.member - vsim.untagged
                 out.append(
@@ -638,6 +656,7 @@ class VirtualSwitchState:
             out.append(TLVEntry(Tag.QOS_ENGINE, bytes([self.nsdp_qos_engine])))
         if Tag.PORT_MIRRORING in tags and self.nsdp_port_mirroring_dest is not None:
             from ..protocols.nsdp.parsers import ports_to_bitmap
+
             # The source-port bitmap width is MODEL-dependent on real hardware:
             # a 5-port GS105PE returns a 2-byte bitmap (3-byte TLV) while a
             # 10-port GS110EMX returns 3 bytes. Hard-coding 3 meant the mock
@@ -656,12 +675,20 @@ class VirtualSwitchState:
             out.append(
                 TLVEntry(
                     Tag.IGMP_SNOOPING,
-                    bytes([0x00, 1 if self.nsdp_igmp_snooping_enabled else 0,
-                           0x00, vlan_byte]),
+                    bytes(
+                        [
+                            0x00,
+                            1 if self.nsdp_igmp_snooping_enabled else 0,
+                            0x00,
+                            vlan_byte,
+                        ]
+                    ),
                 )
             )
-        if (Tag.BROADCAST_FILTERING in tags
-                and self.nsdp_broadcast_filtering is not None):
+        if (
+            Tag.BROADCAST_FILTERING in tags
+            and self.nsdp_broadcast_filtering is not None
+        ):
             out.append(
                 TLVEntry(
                     Tag.BROADCAST_FILTERING,
@@ -726,12 +753,12 @@ class VirtualSwitchState:
 
         def _is_col(base: str) -> bool:
             prefix = base + "."
-            return oid.startswith(prefix) and oid[len(prefix):].isdigit()
+            return oid.startswith(prefix) and oid[len(prefix) :].isdigit()
 
         if _is_col(oids.IF_ADMIN_STATUS):
             return True
         poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
-        if oid.startswith(poe_prefix) and oid[len(poe_prefix):].isdigit():
+        if oid.startswith(poe_prefix) and oid[len(poe_prefix) :].isdigit():
             return True
         if _is_col(oids.DOT1Q_PVID):
             return True

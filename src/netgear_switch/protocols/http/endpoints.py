@@ -52,6 +52,7 @@ flows are grounded in captured prior art or still
   switch (10.1.5.22) -- ports/PVIDs match, mgmt-IP is an exact match, and every
   read op returns real data.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -70,10 +71,10 @@ if TYPE_CHECKING:
 
 
 class LoginScheme(enum.Enum):
-    MERGE_HASH_CGI = "merge_hash_cgi"   # Plus SID scheme (gs305ep) — GROUNDED
-    GAMBIT = "gambit"                   # EMx merge-hash + token (gs110emx) — GROUNDED
-    CHEETAH_FORM = "cheetah_form"       # Pro/S3300 (gsm7228ps) — plaintext form
-    CHEETAH_V1 = "cheetah_v1"           # M4300 /v1 — uname+pwd + Referer CSRF
+    MERGE_HASH_CGI = "merge_hash_cgi"  # Plus SID scheme (gs305ep) — GROUNDED
+    GAMBIT = "gambit"  # EMx merge-hash + token (gs110emx) — GROUNDED
+    CHEETAH_FORM = "cheetah_form"  # Pro/S3300 (gsm7228ps) — plaintext form
+    CHEETAH_V1 = "cheetah_v1"  # M4300 /v1 — uname+pwd + Referer CSRF
     # GS728TPP GoAhead XML-API (grounded in certbot-hook GS728TPPUpdater): a
     # THREE-step handshake, not a form POST -- GET / returns a 302 redirect to a
     # per-session path, then a GET of ``<sess>/System.xml?action=login&user=..&
@@ -544,8 +545,7 @@ _GS728TPP = HttpModelSpec(
     cookie_name="sessionID",
     needs_rand=False,
     dashboard_path=(
-        "wcd?{file=/Switching/Ports/portConfiguration_master_jq.htm}"
-        "{Standard802_3List}"
+        "wcd?{file=/Switching/Ports/portConfiguration_master_jq.htm}{Standard802_3List}"
     ),
     stats_path=None,  # per-port stats unavailable via HTTP -> get_stats raises
     sysinfo_path=(
@@ -560,9 +560,7 @@ _GS728TPP = HttpModelSpec(
     poe_status_path=(
         "wcd?{file=/System/PoE/PoeInterfaceConf_master.xml}{PoEPSEInterfaceList}"
     ),
-    vlan_config_path=(
-        "wcd?{file=/Switching/VLAN/VlanConfBasic_master.xml}{VLANList}"
-    ),
+    vlan_config_path=("wcd?{file=/Switching/VLAN/VlanConfBasic_master.xml}{VLANList}"),
     # VLAN membership is derived from the per-port JoinVLANList carried inline in
     # the PVID page (VLANInterfaceList), so there is no separate membership POST.
     vlan_membership_path=None,
@@ -574,8 +572,7 @@ _GS728TPP = HttpModelSpec(
         "{ForwardingTable}"
     ),
     lldp_path=(
-        "wcd?{file=/System/LLDP/NeighborsInformation_master.xml}"
-        "{LLDPMEDNeighborList}"
+        "wcd?{file=/System/LLDP/NeighborsInformation_master.xml}{LLDPMEDNeighborList}"
     ),
     reboot_path=None,
     logout_path=None,
@@ -605,7 +602,13 @@ _GS728TPP = HttpModelSpec(
 _SPECS: dict[str, HttpModelSpec] = {
     s.model_key: s
     for s in (
-        _GS305EP, _GS110EMX, _GSM7228PS, _GS105PE, _M4300, _M4300_16X, _GSM7252PS,
+        _GS305EP,
+        _GS110EMX,
+        _GSM7228PS,
+        _GS105PE,
+        _M4300,
+        _M4300_16X,
+        _GSM7252PS,
         _GS728TPP,
     )
 }
@@ -616,9 +619,7 @@ HTTP_SPECS: Mapping[str, HttpModelSpec] = MappingProxyType(_SPECS)
 def http_spec(model: SwitchModel) -> HttpModelSpec:
     """Return the web-UI spec for ``model`` or raise if it has no HTTP backend."""
     if Backend.HTTP not in model.backends:
-        raise UnsupportedCapabilityError(
-            f"model {model.key!r} has no HTTP backend"
-        )
+        raise UnsupportedCapabilityError(f"model {model.key!r} has no HTTP backend")
     try:
         return _SPECS[model.key]
     except KeyError:

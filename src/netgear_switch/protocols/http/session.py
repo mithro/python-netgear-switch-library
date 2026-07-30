@@ -4,6 +4,7 @@ Both the sync (``httpx.Client``) and async (``httpx.AsyncClient``) transports
 implement these. Readers/writers depend only on these three methods, so the
 pure protocol layer is the single shared codebase across sync and async.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,5 +1,6 @@
 """Live-mock equivalence: sync/async facades routed through the HTTP backend
 against a seeded gs305ep VirtualSwitch (NSDP reads + HTTP PoE reads/writes)."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

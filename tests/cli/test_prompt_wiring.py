@@ -7,6 +7,7 @@ called directly (as ``test_resolve.py`` already covers).
 here) so that, with no community available from a CLI flag, env var, or
 config, the prompt tier actually fires in production.
 """
+
 from __future__ import annotations
 
 import io

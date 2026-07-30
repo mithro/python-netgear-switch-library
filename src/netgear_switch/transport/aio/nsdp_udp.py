@@ -6,6 +6,7 @@ read/write are unit-testable with a fake exchange (no real UDP), the async
 analogue of the sync client's ``sock_factory`` seam. As with the sync client,
 ``client_port=0`` binds an unprivileged ephemeral port for the virtual face.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -133,9 +134,7 @@ class AsyncUdpNsdpClient:
         try:
             return NSDPPacket.decode(data)
         except ValueError as exc:
-            raise NsdpError(
-                f"malformed NSDP response from {self.host}: {exc}"
-            ) from exc
+            raise NsdpError(f"malformed NSDP response from {self.host}: {exc}") from exc
 
     async def read(self, tags: list[Tag]) -> NSDPPacket:
         req = build_read_request(
@@ -155,8 +154,6 @@ class AsyncUdpNsdpClient:
         # misrouted/duplicate UDP datagram (e.g. a stray READ_RESPONSE with
         # result=0) must not silently pass check_result as a successful write.
         if resp.op != Op.WRITE_RESPONSE:
-            raise NsdpError(
-                f"expected WRITE_RESPONSE from {self.host}, got {resp.op}"
-            )
+            raise NsdpError(f"expected WRITE_RESPONSE from {self.host}, got {resp.op}")
         check_result(resp)
         return resp

@@ -15,6 +15,7 @@ and restores the shipped spec afterwards. It is a test seam only: nothing in
 no longer needs it -- its shipped spec is ``reads_verified=True`` after the live
 cross-verify -- so passing it here is a harmless no-op.)
 """
+
 from __future__ import annotations
 
 import contextlib

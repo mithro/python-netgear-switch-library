@@ -7,11 +7,11 @@ from netgear_switch.protocols.http import forms
 def test_poe_apply_form_grounded_fields() -> None:
     f = forms.poe_apply_form(port=2, on=True, is_epx=True, csrf_hash="h")
     assert f["ACTION"] == "Apply"
-    assert f["portID"] == "1"          # 0-indexed
+    assert f["portID"] == "1"  # 0-indexed
     assert f["ADMIN_MODE"] == "1"
     assert f["PORT_PRIO"] == "0"
     assert f["POW_MOD"] == "3"
-    assert f["POW_LIMT_TYP"] == "2"    # EPx variant
+    assert f["POW_LIMT_TYP"] == "2"  # EPx variant
     assert f["DETEC_TYP"] == "2"
     assert f["DISCONNECT_TYP"] == "2"
     assert f["hash"] == "h"

@@ -11,6 +11,7 @@ depends on it; on 3.13+ constructing this transport raises a clear
 ``CliTransportError`` telling the caller to use SSH or the console transport
 instead. Telnet on a management switch is plaintext and best avoided anyway.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -89,9 +90,7 @@ class TelnetCliTransport(CliSession):
         assert self._driver is not None
         return self._driver.run_scp_copy(command, scp_password)
 
-    def run_write_memory(
-        self, command: str = "write memory", *, prestuff: bool
-    ) -> str:
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
         if self._driver is None:
             self.connect()
         assert self._driver is not None

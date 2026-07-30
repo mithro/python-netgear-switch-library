@@ -5,6 +5,7 @@ Every parser is total over the bytes it accepts and raises ``ValueError`` on a
 wrong length or a bad prefix, so a malformed TLV surfaces early rather than
 producing a silently-wrong value.
 """
+
 from __future__ import annotations
 
 import socket

@@ -18,6 +18,7 @@ into response bytes. `serve()` frames it over any read/write byte callables, and
 the two `start_*` helpers wire it onto a real loopback TCP socket (telnet) and a
 real pty master (console) so the transports open genuine sockets / serial ports.
 """
+
 from __future__ import annotations
 
 import contextlib

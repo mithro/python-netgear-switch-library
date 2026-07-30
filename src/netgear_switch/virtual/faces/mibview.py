@@ -5,6 +5,7 @@ No pysnmp, no network: a sorted (oid_tuple, snmp_type, value) list answering
 exact-match GET and lexicographic GETNEXT with bisect. Task 15 wires this into
 the real pysnmp command responder.
 """
+
 from __future__ import annotations
 
 import bisect

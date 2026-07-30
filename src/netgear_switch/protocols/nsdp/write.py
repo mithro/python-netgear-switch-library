@@ -21,6 +21,7 @@ be REJECTED by real hardware — the switch may only accept those changes via th
 ``vlan_members_tlv`` encoders here as confirmation that those tags are writable;
 their writability is unconfirmed and must be settled by a hardware capture.
 """
+
 from __future__ import annotations
 
 import socket

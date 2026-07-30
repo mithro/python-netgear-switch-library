@@ -47,8 +47,7 @@ def test_parse_gambit_token() -> None:
 def test_parse_gambit_token_absent_or_empty() -> None:
     assert parse.parse_gambit_token("<html>no token here</html>") is None
     assert (
-        parse.parse_gambit_token('<input type="hidden" name="Gambit" value="">')
-        == ""
+        parse.parse_gambit_token('<input type="hidden" name="Gambit" value="">') == ""
     )
 
 
@@ -186,10 +185,10 @@ def test_parse_pvids_rejects_malformed_page() -> None:
 def test_parse_pvids_rejects_rows_without_sel_cells() -> None:
     # portID rows present but missing sel="text"/sel="input" cells (wrong shape)
     malformed_rows = (
-        '<html><table>'
+        "<html><table>"
         '<tr class="portID"><td>1</td><td>90</td></tr>'
         '<tr class="portID"><td>2</td><td>1</td></tr>'
-        '</table></html>'
+        "</table></html>"
     )
     with pytest.raises(HttpUnexpectedPageError):
         parse.parse_pvids(malformed_rows)
@@ -230,9 +229,9 @@ def test_parse_xe_rows_groups_by_instance_prefix() -> None:
     """
     rows = parse.parse_xe_rows(_read("gsm7252ps_portsConfiguration.html"))
     assert len(rows) == 52
-    assert rows[0]["1_2_1"] == "1/0/1"      # first row, instance 1.0.52
-    assert rows[0]["1_2_13"] == "1"         # ifindex column
-    assert rows[51]["1_2_1"] == "1/0/52"    # last row, instance 1.51.52
+    assert rows[0]["1_2_1"] == "1/0/1"  # first row, instance 1.0.52
+    assert rows[0]["1_2_13"] == "1"  # ifindex column
+    assert rows[51]["1_2_1"] == "1/0/52"  # last row, instance 1.51.52
     assert rows[51]["1_2_13"] == "52"
     # the blank "global" template row (NAME=v_g_1_2_1) carries no instance
     # prefix and must not become a 53rd row
@@ -240,14 +239,15 @@ def test_parse_xe_rows_groups_by_instance_prefix() -> None:
 
 
 def test_parse_xe_port_status_matches_capture() -> None:
-    ports = {p.port: p for p in parse.parse_xe_port_status(
-        _read("gsm7252ps_portsConfiguration.html")
-    )}
+    ports = {
+        p.port: p
+        for p in parse.parse_xe_port_status(_read("gsm7252ps_portsConfiguration.html"))
+    }
     assert len(ports) == 52
     assert ports[1].name == "1/0/1"
     assert ports[1].admin_enabled is True
     assert ports[1].link_up is True
-    assert ports[1].speed_mbps == 1000          # "1000 Mbps"
+    assert ports[1].speed_mbps == 1000  # "1000 Mbps"
     # 1/0/50 is a 10G uplink: "10G Full " -> 10000
     assert ports[50].speed_mbps == 10000
     # 1/0/52 is down; its Physical Status reads "Unknown" -> no speed
@@ -257,8 +257,27 @@ def test_parse_xe_port_status_matches_capture() -> None:
     assert ports[23].speed_mbps is None  # down
     assert ports[47].speed_mbps == 1000
     down = {p for p, s in ports.items() if not s.link_up}
-    assert down == {6, 8, 10, 12, 15, 19, 21, 23, 28, 29, 34, 35, 36, 39, 40,
-                    43, 44, 48, 52}
+    assert down == {
+        6,
+        8,
+        10,
+        12,
+        15,
+        19,
+        21,
+        23,
+        28,
+        29,
+        34,
+        35,
+        36,
+        39,
+        40,
+        43,
+        44,
+        48,
+        52,
+    }
 
 
 def test_parse_xe_port_status_rejects_malformed_page() -> None:
@@ -270,9 +289,9 @@ def test_parse_xe_stats_are_packets_not_bytes() -> None:
     """portStatistics.html reports PACKETS only -- there is no octet column on
     this page, so rx_bytes/tx_bytes are honestly None (values transcribed from
     the capture: 1/0/1 received 287280 packets, transmitted 155832097)."""
-    stats = {s.port: s for s in parse.parse_xe_stats(
-        _read("gsm7252ps_portStatistics.html")
-    )}
+    stats = {
+        s.port: s for s in parse.parse_xe_stats(_read("gsm7252ps_portStatistics.html"))
+    }
     assert len(stats) == 52
     assert stats[1].rx_bytes is None
     assert stats[1].tx_bytes is None
@@ -306,9 +325,9 @@ def test_parse_xe_pvids_use_the_configured_column() -> None:
 
 
 def test_parse_xe_vlans_expand_physical_ports_only() -> None:
-    vlans = {v.vlan_id: v for v in parse.parse_xe_vlans(
-        _read("gsm7252ps_vlanStatus.html")
-    )}
+    vlans = {
+        v.vlan_id: v for v in parse.parse_xe_vlans(_read("gsm7252ps_vlanStatus.html"))
+    }
     assert set(vlans) == {1, 4, 5, 6, 7, 10, 20, 21, 41, 89, 90, 99, 121, 141}
     assert vlans[1].name == "default"
     assert vlans[4].name == "wifi"
@@ -368,22 +387,23 @@ def test_poe_power_to_mw_firmware_variance() -> None:
     despite a shared "(mW)" header. The decimal point disambiguates so both
     normalise to the same milliwatts that the SNMP vendor OID reports."""
     f = parse._poe_power_to_mw
-    assert f("3500") == 3500        # gsm7252ps: integer mW, as-is
-    assert f("4.60") == 4600        # M4300-16X: decimal watts -> mW (live)
+    assert f("3500") == 3500  # gsm7252ps: integer mW, as-is
+    assert f("4.60") == 4600  # M4300-16X: decimal watts -> mW (live)
     assert f("0") == 0
     assert f("0.00") == 0
-    assert f("") is None            # empty cell -> honest absence
+    assert f("") is None  # empty cell -> honest absence
     assert f("--") is None
 
 
 def test_parse_xe_poe_matches_capture() -> None:
-    poe = {p.port: p for p in parse.parse_xe_poe(
-        _read("gsm7252ps_poeInterfaceConfiguration.html")
-    )}
+    poe = {
+        p.port: p
+        for p in parse.parse_xe_poe(_read("gsm7252ps_poeInterfaceConfiguration.html"))
+    }
     assert len(poe) == 48  # only the 48 PoE ports, not all 52
     assert poe[1].admin_enabled is True
     assert poe[1].detect is PoEDetect.DELIVERING  # "Delivering power"
-    assert poe[1].power_mw == 3500                # Output Power (mW)
+    assert poe[1].power_mw == 3500  # Output Power (mW)
     assert poe[48].detect is PoEDetect.SEARCHING
     assert poe[48].power_mw == 0
     # port 6 reads "Other Fault" -- a FAULT, not UNKNOWN (SNMP's own detect
@@ -392,9 +412,10 @@ def test_parse_xe_poe_matches_capture() -> None:
 
 
 def test_parse_xe_lldp_matches_capture() -> None:
-    nb = {n.local_port: n for n in parse.parse_xe_lldp(
-        _read("gsm7252ps_lldpRemoteInventory.html")
-    )}
+    nb = {
+        n.local_port: n
+        for n in parse.parse_xe_lldp(_read("gsm7252ps_lldpRemoteInventory.html"))
+    }
     assert len(nb) == 31
     assert nb[1].remote_sys_name == "rpi5-pmod"
     assert nb[1].remote_chassis_id == "88:A2:9E:80:87:9B"
@@ -475,6 +496,7 @@ def test_parse_xe_sysinfo_parsers_reject_malformed_page() -> None:
 # --- captures of the live switch 10.2.5.10 (tests/fixtures/http/gs728tpp_*.xml, ---
 # --- transcribed from tmp/gs728tpp_ground_truth.json). ---
 
+
 def test_goahead_ports() -> None:
     ports = {p.port: p for p in parse.parse_goahead_ports(_read("gs728tpp_ports.xml"))}
     # 28 physical ports (g1..g28); the 8 LAG rows are not ports
@@ -500,9 +522,10 @@ def test_goahead_pvids() -> None:
 
 def test_goahead_vlans() -> None:
     membership = _read("gs728tpp_pvids_membership.xml")
-    vlans = {v.vlan_id: v for v in parse.parse_goahead_vlans(
-        _read("gs728tpp_vlans.xml"), membership
-    )}
+    vlans = {
+        v.vlan_id: v
+        for v in parse.parse_goahead_vlans(_read("gs728tpp_vlans.xml"), membership)
+    }
     assert set(vlans) == {1, 2, 3, 5, 6, 7, 10, 20, 31, 41, 90, 99}
     assert vlans[5].name == "net"
     # VLAN 5 (net): ports 3/5/12/23 are untagged (their PVID), the rest tagged
@@ -545,9 +568,12 @@ def test_goahead_lldp() -> None:
 
 
 def test_goahead_sensors() -> None:
-    sensors = {(s.kind, s.name): s for s in parse.parse_goahead_sensors(
-        _read("gs728tpp_device_info_and_sensors.xml")
-    )}
+    sensors = {
+        (s.kind, s.name): s
+        for s in parse.parse_goahead_sensors(
+            _read("gs728tpp_device_info_and_sensors.xml")
+        )
+    }
     # fan1/fan2 report OK; fan3-5 are absent (status 5) and skipped
     assert sensors[("fan", "Fan1")].value == 1.0
     assert sensors[("fan", "Fan2")].value == 1.0
@@ -572,9 +598,7 @@ def test_goahead_base_mac_from_systeminfo() -> None:
     # The switch's base MAC lives on the SystemInfo page (DeviceBasicInfo/
     # MacAddre), uppercased to match the SNMP/NSDP base_mac formatting so
     # HTTP get_mgmt_ip reaches full parity with SNMP.
-    mac = parse.parse_goahead_base_mac(
-        _read("gs728tpp_device_info_and_sensors.xml")
-    )
+    mac = parse.parse_goahead_base_mac(_read("gs728tpp_device_info_and_sensors.xml"))
     assert mac == "B0:39:56:77:54:29"
 
 

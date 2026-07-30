@@ -13,6 +13,7 @@ how a channel's ``send``/``recv`` bytes are wired. The parsers
 (``protocols.cli.parse``) are shared too: the transports carry bytes, the driver
 frames them into per-command text, and the parsers turn that text into models.
 """
+
 from __future__ import annotations
 
 import re
@@ -196,9 +197,7 @@ class ShellDriver:
             return transcript
         raise CliTransportError(f"SCP copy did not complete: {command!r}")
 
-    def run_write_memory(
-        self, command: str = "write memory", *, prestuff: bool
-    ) -> str:
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
         """Persist the running config, answering the ``(y/n)`` save confirm.
 
         ``prestuff=True`` (GSM7252PS) pre-stuffs the ``y`` in the SAME write as the

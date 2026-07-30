@@ -7,6 +7,7 @@ results are non-empty, content-pinned, and byte-for-byte identical across the
 two independent transports. Future backends/models reuse this by supplying
 their own EquivalencePins.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -70,11 +71,11 @@ GSM7252PS_PINS = EquivalencePins(
     port_name="1/0/1",
     vlan_id=90,
     vlan_name="iot",
-    vlan_member_port=11,    # a real member of VLAN 90 on the captured switch
+    vlan_member_port=11,  # a real member of VLAN 90 on the captured switch
     mgmt_address="10.1.5.22",
     mgmt_mode=IpMode.STATIC,
     poe_port=1,
-    poe_power_mw=3_500,     # captured live draw on 1/0/1
+    poe_power_mw=3_500,  # captured live draw on 1/0/1
     mac="C8:00:84:89:71:70",
     mac_port=110,
     lldp_port_id="1/xg51",
@@ -83,18 +84,18 @@ GSM7252PS_PINS = EquivalencePins(
 
 
 GS110EMX_PINS = EquivalencePins(
-    port_name="1000",       # unused for NSDP (no port names); see note below
+    port_name="1000",  # unused for NSDP (no port names); see note below
     vlan_id=90,
-    vlan_name="",           # NSDP carries no VLAN name
+    vlan_name="",  # NSDP carries no VLAN name
     vlan_member_port=10,
     mgmt_address="10.1.5.25",
     mgmt_mode=IpMode.STATIC,
     base_mac="BC:A5:11:B8:EC:F1",
-    poe_port=0,             # NSDP exposes no PoE (unused)
+    poe_port=0,  # NSDP exposes no PoE (unused)
     poe_power_mw=0,
-    mac="",                 # NSDP exposes no MAC table (unused)
+    mac="",  # NSDP exposes no MAC table (unused)
     mac_port=0,
-    lldp_port_id=None,      # NSDP exposes no LLDP (unused)
+    lldp_port_id=None,  # NSDP exposes no LLDP (unused)
 )
 
 
@@ -448,7 +449,7 @@ def assert_nsdp_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> 
     aio_snap = asyncio.run(aio.snapshot())
     assert sync_snap == aio_snap
     assert sync_snap.model == sw.model
-    assert sync_snap.macs == ()      # Plus: no MAC table, aggregated empty
+    assert sync_snap.macs == ()  # Plus: no MAC table, aggregated empty
     assert sync_snap.poe == ()
 
     gc.collect()  # no leaked datagram transports before -W error::ResourceWarning
@@ -470,7 +471,7 @@ class HttpEquivalencePins:
 # not its name; the poe/vlan pins span the HTTP + NSDP backends. port_name is kept
 # on the dataclass for parity with EquivalencePins but is not asserted here.
 GS305EP_HTTP_PINS = HttpEquivalencePins(
-    port_name="",           # unused: NSDP-served ports have no name
+    port_name="",  # unused: NSDP-served ports have no name
     poe_port=1,
     poe_power_mw=12_800,
     vlan_id=90,
@@ -538,9 +539,9 @@ def assert_http_facades_equivalent(
 
     # Content pins spanning BOTH backends.
     assert any(p.port == 1 and p.speed_mbps == 1000 for p in ports)  # NSDP
-    target = next(v for v in vlans if v.vlan_id == pins.vlan_id)      # NSDP
+    target = next(v for v in vlans if v.vlan_id == pins.vlan_id)  # NSDP
     assert pins.vlan_member_port in target.member_ports
-    delivering = [p for p in poe if p.power_mw]                       # HTTP
+    delivering = [p for p in poe if p.power_mw]  # HTTP
     assert delivering[0].port == pins.poe_port
     assert delivering[0].power_mw == pins.poe_power_mw
     # base_mac comes via NSDP (HttpReader.get_mgmt_ip always raises), so it

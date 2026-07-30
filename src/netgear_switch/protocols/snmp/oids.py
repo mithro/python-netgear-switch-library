@@ -17,13 +17,13 @@ if TYPE_CHECKING:
 # MIB-II System group scalars (Task 2 model detection): both are full,
 # instance-qualified (".0") leaf OIDs, fetched with a plain exact-OID GET
 # (unlike the walk-based base-OIDs below) -- see snmp_read.read_system_info.
-SYS_DESCR = "1.3.6.1.2.1.1.1.0"       # sysDescr: text incl. the model name
-SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"   # sysObjectID: read-only signal, unused
+SYS_DESCR = "1.3.6.1.2.1.1.1.0"  # sysDescr: text incl. the model name
+SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"  # sysObjectID: read-only signal, unused
 # for matching (no known OID->model table exists -- see parse.py's
 # detect_model_from_sysdescr docstring).
-IF_TYPE = "1.3.6.1.2.1.2.2.1.3"                # ifType (6=ethernetCsmacd=physical)
-IF_ADMIN_STATUS = "1.3.6.1.2.1.2.2.1.7"        # ifAdminStatus (1=up,2=down)
-IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"        # ifOperStatus  (1=up,2=down)
+IF_TYPE = "1.3.6.1.2.1.2.2.1.3"  # ifType (6=ethernetCsmacd=physical)
+IF_ADMIN_STATUS = "1.3.6.1.2.1.2.2.1.7"  # ifAdminStatus (1=up,2=down)
+IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"  # ifOperStatus  (1=up,2=down)
 IF_IN_ERRORS = "1.3.6.1.2.1.2.2.1.14"
 IF_OUT_ERRORS = "1.3.6.1.2.1.2.2.1.20"
 IF_NAME = "1.3.6.1.2.1.31.1.1.1.1"
@@ -31,25 +31,25 @@ IF_HC_IN_OCTETS = "1.3.6.1.2.1.31.1.1.1.6"
 IF_HC_IN_UCAST = "1.3.6.1.2.1.31.1.1.1.7"
 IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"
 IF_HC_OUT_UCAST = "1.3.6.1.2.1.31.1.1.1.11"
-IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"    # Mbps
+IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"  # Mbps
 IF_ALIAS = "1.3.6.1.2.1.31.1.1.1.18"
 DOT1D_BASE_BRIDGE_ADDRESS = "1.3.6.1.2.1.17.1.1"  # scalar (.0); BRIDGE-MIB base MAC
 DOT1D_BASE_PORT_IF_INDEX = "1.3.6.1.2.1.17.1.4.1.2"
-DOT1Q_TP_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"   # MAC table, port column ONLY
+DOT1Q_TP_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"  # MAC table, port column ONLY
 DOT1Q_VLAN_STATIC_NAME = "1.3.6.1.2.1.17.7.1.4.3.1.1"
 DOT1Q_VLAN_STATIC_EGRESS = "1.3.6.1.2.1.17.7.1.4.3.1.2"
 DOT1Q_VLAN_STATIC_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.3.1.4"
 DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"
 DOT1Q_VLAN_STATIC_ROW_STATUS = "1.3.6.1.2.1.17.7.1.4.3.1.5"  # dot1qVlanStaticRowStatus
 ROW_STATUS_CREATE_AND_GO = 4  # RowStatus createAndGo
-ROW_STATUS_DESTROY = 6        # RowStatus destroy
+ROW_STATUS_DESTROY = 6  # RowStatus destroy
 # ENTITY-MIB entPhysicalTable columns (RFC 4133/2737). Some Netgear agents
 # (verified: the GS728TPP, whose SNMP agent implements ZERO 4526 vendor OIDs)
 # expose their fan/PSU sensor components ONLY as this standard physical
 # inventory -- entPhysicalClass says what a row is, entPhysicalName/Descr name
 # it -- with NO live status/value anywhere in SNMP. See parse_entity_sensors.
 ENT_PHYSICAL_DESCR = "1.3.6.1.2.1.47.1.1.1.1.2"
-ENT_PHYSICAL_CLASS = "1.3.6.1.2.1.47.1.1.1.1.5"   # int enum; 6=powerSupply,7=fan
+ENT_PHYSICAL_CLASS = "1.3.6.1.2.1.47.1.1.1.1.5"  # int enum; 6=powerSupply,7=fan
 ENT_PHYSICAL_NAME = "1.3.6.1.2.1.47.1.1.1.1.7"
 ENT_CLASS_POWER_SUPPLY = 6
 ENT_CLASS_FAN = 7
@@ -65,7 +65,7 @@ IP_ADENT_NETMASK = "1.3.6.1.2.1.4.20.1.3"
 # ipAddrTable EMPTY and publishes the management address here instead, encoded
 # in the ROW INDEX: ipAddressIfIndex .<type>.<len>.<ip-bytes> (type 1=ipv4).
 IP_ADDRESS_IFINDEX = "1.3.6.1.2.1.4.34.1.3"
-IP_ROUTE_DEST = "1.3.6.1.2.1.4.21.1.1"       # ipRouteDest
+IP_ROUTE_DEST = "1.3.6.1.2.1.4.21.1.1"  # ipRouteDest
 # ipRouteNextHop (gateway where dest=0.0.0.0)
 IP_ROUTE_NEXTHOP = "1.3.6.1.2.1.4.21.1.7"
 

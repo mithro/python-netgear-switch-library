@@ -5,6 +5,7 @@ The Plus family authenticates with ``md5(merge(password, rand))`` where
 interleaves the two strings character by character. GROUNDED against
 ``rcfiles/bin/netgear-smp-vlan`` and ``py_netgear_plus/netgear_crypt.py``.
 """
+
 from __future__ import annotations
 
 import hashlib

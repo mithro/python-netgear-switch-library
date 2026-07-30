@@ -12,6 +12,7 @@ serial hardware.
 Skips cleanly if pyserial (the ``[ssh]`` extra) is not installed, or on a
 platform without ``os.openpty`` (e.g. Windows).
 """
+
 from __future__ import annotations
 
 import importlib.util

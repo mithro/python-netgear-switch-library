@@ -22,6 +22,7 @@ getting them wrong is what a parser regression would look like:
 bold-label/value cells and three status tables, which is what
 ``parse_xe_labelled_values``/``parse_xe_sensors``/``parse_xe_mgmt_ip`` read.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -37,7 +38,7 @@ def _iface(port: int) -> str:
 def _cell(instance: str, xid: str, value: str) -> str:
     return (
         f'<TD class="def alt0" p="{instance}0" id={xid}>'
-        f'<INPUT xid={xid} TYPE=hidden NAME={instance}.v_{xid} '
+        f"<INPUT xid={xid} TYPE=hidden NAME={instance}.v_{xid} "
         f'VALUE="{value}">{value}</TD>\n'
     )
 
@@ -185,9 +186,9 @@ def render_mac_table(state: VirtualSwitchState) -> str:
     with the true row count, so the reader's anti-truncation guard is
     exercised against a page that is legitimately complete."""
     body = (
-        '<TR id=1_1 class=deftestme>\n'
-        '<TD class=defleft id=1_1_1>Total MAC Addresses</TD>\n'
-        f'<TD class=defright id=1_1_1><INPUT xid=1_1_1 TYPE=hidden '
+        "<TR id=1_1 class=deftestme>\n"
+        "<TD class=defleft id=1_1_1>Total MAC Addresses</TD>\n"
+        f"<TD class=defright id=1_1_1><INPUT xid=1_1_1 TYPE=hidden "
         f'NAME=v_1_1_1 VALUE="{len(state.macs)}"></TD>\n</TR>\n'
     )
     body += _header(

@@ -1,5 +1,6 @@
 # src/netgear_switch/snmp_read.py
 """Model-driven SNMP read operations over a sync or async client."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -77,24 +78,31 @@ class SnmpReader:
     def get_ports(self) -> list[PortStatus]:
         w = self.client.walk
         return parse.parse_port_status(
-            w(oids.IF_ADMIN_STATUS), w(oids.IF_OPER_STATUS),
-            w(oids.IF_HIGH_SPEED), w(oids.IF_NAME), w(oids.IF_ALIAS),
+            w(oids.IF_ADMIN_STATUS),
+            w(oids.IF_OPER_STATUS),
+            w(oids.IF_HIGH_SPEED),
+            w(oids.IF_NAME),
+            w(oids.IF_ALIAS),
             w(oids.IF_TYPE),
         )
 
     def get_stats(self) -> list[PortStats]:
         w = self.client.walk
         return parse.parse_port_stats(
-            in_octets=w(oids.IF_HC_IN_OCTETS), out_octets=w(oids.IF_HC_OUT_OCTETS),
-            in_ucast=w(oids.IF_HC_IN_UCAST), out_ucast=w(oids.IF_HC_OUT_UCAST),
-            in_errors=w(oids.IF_IN_ERRORS), out_errors=w(oids.IF_OUT_ERRORS),
+            in_octets=w(oids.IF_HC_IN_OCTETS),
+            out_octets=w(oids.IF_HC_OUT_OCTETS),
+            in_ucast=w(oids.IF_HC_IN_UCAST),
+            out_ucast=w(oids.IF_HC_OUT_UCAST),
+            in_errors=w(oids.IF_IN_ERRORS),
+            out_errors=w(oids.IF_OUT_ERRORS),
             if_types=w(oids.IF_TYPE),
         )
 
     def get_vlans(self) -> list[VLANInfo]:
         w = self.client.walk
         return parse.parse_vlans(
-            w(oids.DOT1Q_VLAN_STATIC_NAME), w(oids.DOT1Q_VLAN_STATIC_EGRESS),
+            w(oids.DOT1Q_VLAN_STATIC_NAME),
+            w(oids.DOT1Q_VLAN_STATIC_EGRESS),
             w(oids.DOT1Q_VLAN_STATIC_UNTAGGED),
         )
 
@@ -131,7 +139,8 @@ class SnmpReader:
         w = self.client.walk
         power = (
             w(oids.vendor_oids(self.model).poe_power_mw)
-            if oids.has_vendor_oids(self.model) else []
+            if oids.has_vendor_oids(self.model)
+            else []
         )
         return parse.parse_poe(w(oids.PETH_PSE_PORT_TABLE), power)
 
@@ -141,7 +150,8 @@ class SnmpReader:
             # No vendor subtree (gs728tpp): the fan/PSU components live only in
             # the standard ENTITY-MIB physical inventory, with no live value.
             return parse.parse_entity_sensors(
-                w(oids.ENT_PHYSICAL_CLASS), w(oids.ENT_PHYSICAL_NAME),
+                w(oids.ENT_PHYSICAL_CLASS),
+                w(oids.ENT_PHYSICAL_NAME),
                 w(oids.ENT_PHYSICAL_DESCR),
             )
         vendor = oids.vendor_oids(self.model)
@@ -170,11 +180,14 @@ class SnmpReader:
         w = self.client.walk
         dhcp = (
             w(oids.vendor_oids(self.model).dhcp_mode_unverified)
-            if oids.has_vendor_oids(self.model) else []
+            if oids.has_vendor_oids(self.model)
+            else []
         )
         return parse.parse_mgmt_ip(
-            w(oids.IP_ADENT_ADDR), w(oids.IP_ADENT_NETMASK),
-            w(oids.IP_ROUTE_DEST), w(oids.IP_ROUTE_NEXTHOP),
+            w(oids.IP_ADENT_ADDR),
+            w(oids.IP_ADENT_NETMASK),
+            w(oids.IP_ROUTE_DEST),
+            w(oids.IP_ROUTE_NEXTHOP),
             dhcp,
             w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
             w(oids.IP_ADDRESS_IFINDEX),  # RFC-4293 fallback (M4300)
@@ -203,9 +216,12 @@ class AsyncSnmpReader:
     async def get_ports(self) -> list[PortStatus]:
         w = self.client.walk
         return parse.parse_port_status(
-            await w(oids.IF_ADMIN_STATUS), await w(oids.IF_OPER_STATUS),
-            await w(oids.IF_HIGH_SPEED), await w(oids.IF_NAME),
-            await w(oids.IF_ALIAS), await w(oids.IF_TYPE),
+            await w(oids.IF_ADMIN_STATUS),
+            await w(oids.IF_OPER_STATUS),
+            await w(oids.IF_HIGH_SPEED),
+            await w(oids.IF_NAME),
+            await w(oids.IF_ALIAS),
+            await w(oids.IF_TYPE),
         )
 
     async def get_stats(self) -> list[PortStats]:
@@ -254,7 +270,8 @@ class AsyncSnmpReader:
         w = self.client.walk
         power = (
             await w(oids.vendor_oids(self.model).poe_power_mw)
-            if oids.has_vendor_oids(self.model) else []
+            if oids.has_vendor_oids(self.model)
+            else []
         )
         return parse.parse_poe(await w(oids.PETH_PSE_PORT_TABLE), power)
 
@@ -290,11 +307,14 @@ class AsyncSnmpReader:
         w = self.client.walk
         dhcp = (
             await w(oids.vendor_oids(self.model).dhcp_mode_unverified)
-            if oids.has_vendor_oids(self.model) else []
+            if oids.has_vendor_oids(self.model)
+            else []
         )
         return parse.parse_mgmt_ip(
-            await w(oids.IP_ADENT_ADDR), await w(oids.IP_ADENT_NETMASK),
-            await w(oids.IP_ROUTE_DEST), await w(oids.IP_ROUTE_NEXTHOP),
+            await w(oids.IP_ADENT_ADDR),
+            await w(oids.IP_ADENT_NETMASK),
+            await w(oids.IP_ROUTE_DEST),
+            await w(oids.IP_ROUTE_NEXTHOP),
             dhcp,
             await w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
             await w(oids.IP_ADDRESS_IFINDEX),  # RFC-4293 fallback (M4300)

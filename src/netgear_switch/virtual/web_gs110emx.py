@@ -19,6 +19,7 @@ every row (including the last) with the same trailing whitespace for
 simplicity, so a byte-diff against the original 10-port capture differs by
 exactly those 2 bytes.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

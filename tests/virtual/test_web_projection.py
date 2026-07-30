@@ -24,7 +24,9 @@ def test_seed_round_trips_through_render_and_parse() -> None:
 def test_apply_poe_form_mutates_state() -> None:
     state = seed_gs305ep()
     web.apply_form(
-        state, _SPEC, "/PoEPortConfig.cgi",
+        state,
+        _SPEC,
+        "/PoEPortConfig.cgi",
         {"ACTION": "Apply", "portID": "1", "ADMIN_MODE": "0", "hash": "h"},
     )
     assert state.poe[2].admin is False
@@ -34,7 +36,9 @@ def test_apply_membership_form_mutates_vlan() -> None:
     state = seed_gs305ep()
     # hiddenMem "22111": ports 1,2 Tagged; 3,4,5 Untagged, for VLAN 90.
     web.apply_form(
-        state, _SPEC, "/8021qMembe.cgi",
+        state,
+        _SPEC,
+        "/8021qMembe.cgi",
         {"VLAN_ID": "90", "hiddenMem": "22111", "hash": "h"},
     )
     assert 1 in state.vlans[90].member
@@ -160,11 +164,15 @@ def test_apply_poe_reset_reasserts_detect_per_admin_state() -> None:
     assert state.poe[4].admin is False
 
     web.apply_form(
-        state, _SPEC, _SPEC.poe_config_path,
+        state,
+        _SPEC,
+        _SPEC.poe_config_path,
         forms.poe_reset_form(port=2, csrf_hash="h"),
     )
     web.apply_form(
-        state, _SPEC, _SPEC.poe_config_path,
+        state,
+        _SPEC,
+        _SPEC.poe_config_path,
         forms.poe_reset_form(port=4, csrf_hash="h"),
     )
 
@@ -178,7 +186,9 @@ def test_apply_pvid_form_changes_only_targeted_port() -> None:
     state = seed_gs305ep()
 
     web.apply_form(
-        state, _SPEC, _SPEC.pvid_path,
+        state,
+        _SPEC,
+        _SPEC.pvid_path,
         forms.pvid_form(port=3, vlan=90, csrf_hash="h"),
     )
 
@@ -191,13 +201,17 @@ def test_apply_vlan_cfg_add_and_delete() -> None:
     state = seed_gs305ep()
 
     web.apply_form(
-        state, _SPEC, _SPEC.vlan_config_path,
+        state,
+        _SPEC,
+        _SPEC.vlan_config_path,
         forms.vlan_add_form(vlan=50, csrf_hash="h"),
     )
     assert 50 in state.vlans
 
     web.apply_form(
-        state, _SPEC, _SPEC.vlan_config_path,
+        state,
+        _SPEC,
+        _SPEC.vlan_config_path,
         forms.vlan_delete_form(vlan=90, checkbox_index=1, csrf_hash="h"),
     )
     assert 90 not in state.vlans

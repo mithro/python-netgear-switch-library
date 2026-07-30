@@ -5,6 +5,7 @@ facades stay identical and Slices 5/6 can add NSDP/HTTP backends without
 touching the public facade surface. Transport imports are function-local so
 ``import netgear_switch`` never requires net-snmp binaries or pysnmp.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -34,32 +35,24 @@ BACKEND_NOT_IMPLEMENTED = (
 def require_snmp_backend(model: SwitchModel) -> None:
     """Raise unless the model exposes an SNMP read backend."""
     if Backend.SNMP not in model.backends:
-        raise UnsupportedCapabilityError(
-            BACKEND_NOT_IMPLEMENTED.format(key=model.key)
-        )
+        raise UnsupportedCapabilityError(BACKEND_NOT_IMPLEMENTED.format(key=model.key))
 
 
 def require_mac_table(model: SwitchModel) -> None:
     """Raise unless the model has a readable MAC/FDB table."""
     if not model.has_mac_table:
-        raise UnsupportedCapabilityError(
-            f"model {model.key!r} has no MAC/FDB table"
-        )
+        raise UnsupportedCapabilityError(f"model {model.key!r} has no MAC/FDB table")
 
 
 def require_nsdp_backend(model: SwitchModel) -> None:
     """Raise unless the model exposes an NSDP backend."""
     if Backend.NSDP not in model.backends:
-        raise UnsupportedCapabilityError(
-            f"model {model.key!r} has no NSDP backend"
-        )
+        raise UnsupportedCapabilityError(f"model {model.key!r} has no NSDP backend")
 
 
 def _require_community(host: str, community: str | None) -> str:
     if community is None:
-        raise CredentialError(
-            f"no SNMP read community configured for {host!r}"
-        )
+        raise CredentialError(f"no SNMP read community configured for {host!r}")
     return community
 
 
@@ -82,9 +75,7 @@ def _require_write_community(host: str, community: str | None) -> str:
     # unresolved/blank write-community spec could silently flow through to
     # `snmpset -c ""` instead of raising (carry-forward review fix).
     if not community:
-        raise CredentialError(
-            f"no SNMP write community configured for {host!r}"
-        )
+        raise CredentialError(f"no SNMP write community configured for {host!r}")
     return community
 
 
@@ -129,9 +120,7 @@ def build_async_nsdp_client(host: str, interface: str | None) -> AsyncNsdpWriteC
 def require_http_backend(model: SwitchModel) -> None:
     """Raise unless the model exposes an HTTP web-UI backend."""
     if Backend.HTTP not in model.backends:
-        raise UnsupportedCapabilityError(
-            f"model {model.key!r} has no HTTP backend"
-        )
+        raise UnsupportedCapabilityError(f"model {model.key!r} has no HTTP backend")
 
 
 def http_reads_supported(model: SwitchModel) -> bool:
@@ -168,9 +157,7 @@ def require_cli_backend(model: SwitchModel) -> None:
     from .protocols.cli.commands import CLI_BACKENDS
 
     if not (CLI_BACKENDS & model.backends):
-        raise UnsupportedCapabilityError(
-            f"model {model.key!r} has no CLI backend"
-        )
+        raise UnsupportedCapabilityError(f"model {model.key!r} has no CLI backend")
 
 
 def cli_reads_supported(model: SwitchModel) -> bool:

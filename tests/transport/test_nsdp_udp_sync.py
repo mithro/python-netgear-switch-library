@@ -69,8 +69,13 @@ def _client(response: bytes | None) -> tuple[UdpNsdpClient, list[_FakeSocket]]:
         made.append(s)
         return s
 
-    return UdpNsdpClient("127.0.0.1", client_port=0, server_port=63322,
-                         client_mac=_MAC, sock_factory=factory), made
+    return UdpNsdpClient(
+        "127.0.0.1",
+        client_port=0,
+        server_port=63322,
+        client_mac=_MAC,
+        sock_factory=factory,
+    ), made
 
 
 def test_read_sends_read_request_and_decodes_response():
@@ -101,8 +106,11 @@ def test_interface_binds_to_device_and_unicasts_to_host(monkeypatch):
     )
     fake = _FakeSocket(_response_packet())
     client = UdpNsdpClient(
-        "10.1.5.25", interface="br-net", client_port=63321,
-        server_port=63322, sock_factory=lambda *a, **k: fake,
+        "10.1.5.25",
+        interface="br-net",
+        client_port=63321,
+        server_port=63322,
+        sock_factory=lambda *a, **k: fake,
     )
     pkt = client.read([Tag.MODEL])
     assert pkt.op == Op.READ_RESPONSE
@@ -143,8 +151,11 @@ def test_async_interface_binds_to_device_and_unicasts_to_host(monkeypatch):
     port = face.start()
     try:
         client = AsyncUdpNsdpClient(
-            "127.0.0.1", interface="lo", client_mac=_MAC,
-            client_port=0, server_port=port,
+            "127.0.0.1",
+            interface="lo",
+            client_mac=_MAC,
+            client_port=0,
+            server_port=port,
         )
         pkt = asyncio.run(client.read([Tag.MODEL]))
     finally:
@@ -166,8 +177,11 @@ def test_sync_bindtodevice_is_best_effort(monkeypatch):
     )
     fake = _FakeSocket(_response_packet(), fail_on_opt=socket.SO_BINDTODEVICE)
     client = UdpNsdpClient(
-        "10.1.5.25", interface="br-net", client_port=63321,
-        server_port=63322, sock_factory=lambda *a, **k: fake,
+        "10.1.5.25",
+        interface="br-net",
+        client_port=63321,
+        server_port=63322,
+        sock_factory=lambda *a, **k: fake,
     )
     pkt = client.read([Tag.MODEL])
     assert pkt.op == Op.READ_RESPONSE  # the read still completed
@@ -212,12 +226,15 @@ def _fake_transceive(response: bytes | None):
         if response is None:
             raise TimeoutError("timed out")
         return response
+
     return transceive
 
 
 def test_async_read_decodes_response():
     client = AsyncUdpNsdpClient(
-        "127.0.0.1", client_port=0, client_mac=_MAC,
+        "127.0.0.1",
+        client_port=0,
+        client_mac=_MAC,
         transceive=_fake_transceive(_response_packet()),
     )
     pkt = asyncio.run(client.read([Tag.MODEL]))
@@ -227,7 +244,9 @@ def test_async_read_decodes_response():
 
 def test_async_read_timeout_raises_nsdperror():
     client = AsyncUdpNsdpClient(
-        "127.0.0.1", client_port=0, client_mac=_MAC,
+        "127.0.0.1",
+        client_port=0,
+        client_mac=_MAC,
         transceive=_fake_transceive(None),
     )
     with pytest.raises(NsdpError, match="timed out"):
@@ -236,7 +255,9 @@ def test_async_read_timeout_raises_nsdperror():
 
 def test_async_write_bad_password_raises_nsdperror():
     client = AsyncUdpNsdpClient(
-        "127.0.0.1", client_port=0, client_mac=_MAC,
+        "127.0.0.1",
+        client_port=0,
+        client_mac=_MAC,
         transceive=_fake_transceive(
             _response_packet(op=Op.WRITE_RESPONSE, result=0x0700)
         ),
@@ -248,7 +269,9 @@ def test_async_write_bad_password_raises_nsdperror():
 def test_async_write_wrong_op_response_raises_nsdperror():
     # A stray READ_RESPONSE (result=0) must NOT pass as a successful write.
     client = AsyncUdpNsdpClient(
-        "127.0.0.1", client_port=0, client_mac=_MAC,
+        "127.0.0.1",
+        client_port=0,
+        client_mac=_MAC,
         transceive=_fake_transceive(_response_packet(op=Op.READ_RESPONSE, result=0)),
     )
     with pytest.raises(NsdpError, match="expected WRITE_RESPONSE"):
@@ -257,7 +280,9 @@ def test_async_write_wrong_op_response_raises_nsdperror():
 
 def test_async_read_malformed_response_raises_nsdperror():
     client = AsyncUdpNsdpClient(
-        "127.0.0.1", client_port=0, client_mac=_MAC,
+        "127.0.0.1",
+        client_port=0,
+        client_mac=_MAC,
         transceive=_fake_transceive(b"not-nsdp-bytes"),
     )
     with pytest.raises(NsdpError, match="malformed"):
@@ -307,7 +332,8 @@ def _run_transceive_with_fake_socket(fake: _FakeAioSocket, monkeypatch, **kwargs
         )
         return loop.run_until_complete(
             _udp_transceive(
-                b"payload", ("127.0.0.1", 63322),
+                b"payload",
+                ("127.0.0.1", 63322),
                 client_port=kwargs.get("client_port", 0),
                 interface=kwargs.get("interface"),
                 timeout=1.0,
@@ -332,5 +358,5 @@ def test_udp_transceive_bindtodevice_is_best_effort(monkeypatch):
     fake = _FakeAioSocket(fail_on="bind", fail_on_opt=socket.SO_BINDTODEVICE)
     with pytest.raises(OSError, match="Address already in use"):
         _run_transceive_with_fake_socket(fake, monkeypatch, interface="eth0")
-    assert socket.SO_BINDTODEVICE in fake.opts     # attempted (then suppressed)
+    assert socket.SO_BINDTODEVICE in fake.opts  # attempted (then suppressed)
     assert fake.closed is True

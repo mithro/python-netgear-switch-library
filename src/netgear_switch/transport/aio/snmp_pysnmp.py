@@ -13,6 +13,7 @@ into pysnmp's untyped internals), so no `type: ignore` is needed at all;
 everything downstream of this one seam is deliberately treated as `Any`, and
 the rest of the module is fully typed.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -30,6 +31,7 @@ def _pysnmp_asyncio() -> Any:
     """Lazily import pysnmp's v3arch asyncio hlapi module."""
     return importlib.import_module("pysnmp.hlapi.v3arch.asyncio")
 
+
 # pysnmp class name -> net-snmp-style type token (parity with the CLI client).
 _TOKEN = {
     "Integer": "INTEGER",
@@ -44,8 +46,15 @@ _TOKEN = {
     "ObjectIdentity": "OID",
 }
 _INT_CLASSES = frozenset(
-    {"Integer", "Integer32", "Gauge32", "Unsigned32", "Counter32",
-     "Counter64", "TimeTicks"}
+    {
+        "Integer",
+        "Integer32",
+        "Gauge32",
+        "Unsigned32",
+        "Counter32",
+        "Counter64",
+        "TimeTicks",
+    }
 )
 _ABSENT_CLASSES = frozenset({"NoSuchObject", "NoSuchInstance", "EndOfMibView"})
 
@@ -98,9 +107,7 @@ def _to_set_value(hlapi: Any, vb: SetVarbind) -> Any:
         return hlapi.IpAddress(str(vb.value))
     if vb.type_letter in ("s", "x"):
         data = (
-            vb.value
-            if isinstance(vb.value, bytes)
-            else str(vb.value).encode("latin-1")
+            vb.value if isinstance(vb.value, bytes) else str(vb.value).encode("latin-1")
         )
         return hlapi.OctetString(data)
     raise SnmpError(f"unsupported SET type letter {vb.type_letter!r}")
@@ -132,7 +139,9 @@ class PysnmpClient:
                 (self.host, self.port), timeout=self.timeout, retries=self.retries
             )
             err_ind, err_stat, _idx, binds = await hlapi.get_cmd(
-                engine, hlapi.CommunityData(self.community), target,
+                engine,
+                hlapi.CommunityData(self.community),
+                target,
                 hlapi.ContextData(),
                 *[hlapi.ObjectType(hlapi.ObjectIdentity(o)) for o in oids],
             )
@@ -151,8 +160,12 @@ class PysnmpClient:
                 (self.host, self.port), timeout=self.timeout, retries=self.retries
             )
             async for err_ind, err_stat, _idx, binds in hlapi.bulk_walk_cmd(
-                engine, hlapi.CommunityData(self.community), target,
-                hlapi.ContextData(), 0, 25,
+                engine,
+                hlapi.CommunityData(self.community),
+                target,
+                hlapi.ContextData(),
+                0,
+                25,
                 hlapi.ObjectType(hlapi.ObjectIdentity(base_oid)),
                 lexicographicMode=False,
             ):
@@ -227,8 +240,11 @@ class PysnmpClient:
                 for vb in varbinds
             ]
             err_ind, err_stat, _idx, _binds = await hlapi.set_cmd(
-                engine, hlapi.CommunityData(self.community), target,
-                hlapi.ContextData(), *objects,
+                engine,
+                hlapi.CommunityData(self.community),
+                target,
+                hlapi.ContextData(),
+                *objects,
             )
             if err_ind or err_stat:
                 raise SnmpError(

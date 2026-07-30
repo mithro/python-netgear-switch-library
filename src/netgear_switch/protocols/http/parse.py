@@ -28,6 +28,7 @@ Two different failure shapes are deliberate:
   structure means the wrong page came back, not "empty switch" -> never
   silently swallowed into an empty list/dict.
 """
+
 from __future__ import annotations
 
 import re
@@ -702,7 +703,8 @@ def parse_m4300_vlans(html: str) -> list[VLANInfo]:
     ``tagged_ports`` and ``untagged_ports`` are left EMPTY rather than guessed
     -- only ``member_ports`` is populated (see the reader's docs)."""
     rows = [
-        r for r in parse_cheetah_rows(html)
+        r
+        for r in parse_cheetah_rows(html)
         if "SwitchingVlanStaticConfig_VlanIndex" in r
     ]
     if not rows:
@@ -749,8 +751,7 @@ def parse_m4300_macs(html: str) -> list[MacEntry]:
        names SNMP -- which returns the complete table -- as the way to get it.
     """
     rows = [
-        r for r in parse_cheetah_rows(html)
-        if "SwitchingmacAddrGroup_MacAddress" in r
+        r for r in parse_cheetah_rows(html) if "SwitchingmacAddrGroup_MacAddress" in r
     ]
     if not rows:
         raise HttpUnexpectedPageError(
@@ -797,9 +798,7 @@ def parse_m4300_sysinfo(html: str) -> MgmtIpConfig:
     )
     if m:
         addr, netmask = m.group(1), m.group(2)
-    mac_m = re.search(
-        r"System MAC Address</td>\s*<td[^>]*>\s*([0-9A-Fa-f:]{17})", html
-    )
+    mac_m = re.search(r"System MAC Address</td>\s*<td[^>]*>\s*([0-9A-Fa-f:]{17})", html)
     if addr is None and mac_m is None:
         raise HttpUnexpectedPageError(
             "sysInfo.html: neither IPv4 Management Address nor System MAC Address found"
@@ -827,9 +826,7 @@ def parse_m4300_sensors(html: str) -> list[Sensor]:
     RPM, is the honest source for fan sensors on this model.
     """
     return [
-        Sensor(
-            name=label.strip(), kind="temperature", value=float(celsius), unit="C"
-        )
+        Sensor(name=label.strip(), kind="temperature", value=float(celsius), unit="C")
         for label, celsius in re.findall(
             r"<td[^>]*>([A-Za-z ]{2,28})</td>\s*<td[^>]*>\s*(\d+)\s*&#8451;", html
         )
@@ -975,7 +972,8 @@ def parse_xe_stats(html: str) -> list[PortStats]:
     page has keeps a wrong page from parsing into plausible garbage.
     """
     rows = [
-        r for r in parse_xe_rows(html)
+        r
+        for r in parse_xe_rows(html)
         if _XE_STATS_IFACE in r and _XE_STATS_RX_PKTS in r
     ]
     if not rows:
@@ -1025,7 +1023,8 @@ def parse_xe_pvids(html: str) -> list[tuple[int, int]]:
     the ports a LAG makes interesting.
     """
     rows = [
-        r for r in parse_xe_rows(html)
+        r
+        for r in parse_xe_rows(html)
         if _XE_PVID_IFACE in r and _XE_PVID_CONFIGURED in r
     ]
     out: list[tuple[int, int]] = []
@@ -1065,7 +1064,8 @@ def parse_xe_vlans(html: str) -> list[VLANInfo]:
     ``tagged_ports``/``untagged_ports`` stay EMPTY rather than guessed.
     """
     rows = [
-        r for r in parse_xe_rows(html)
+        r
+        for r in parse_xe_rows(html)
         if _XE_VLAN_ID in r and _XE_VLAN_TYPE in r and _XE_VLAN_MEMBERS in r
     ]
     out: list[VLANInfo] = []
@@ -1083,9 +1083,7 @@ def parse_xe_vlans(html: str) -> list[VLANInfo]:
             )
         )
     if not out:
-        raise HttpUnexpectedPageError(
-            "vlanStatus.html: no XE VLAN row could be parsed"
-        )
+        raise HttpUnexpectedPageError("vlanStatus.html: no XE VLAN row could be parsed")
     return out
 
 
@@ -1118,10 +1116,7 @@ def parse_xe_macs(html: str) -> list[MacEntry]:
        RAISES and names SNMP as the complete source. (The captured page is not
        paginated: 242 stated, 243 rendered.)
     """
-    rows = [
-        r for r in parse_xe_rows(html)
-        if _XE_MAC_ADDR in r and _XE_MAC_PORT in r
-    ]
+    rows = [r for r in parse_xe_rows(html) if _XE_MAC_ADDR in r and _XE_MAC_PORT in r]
     if not rows:
         raise HttpUnexpectedPageError(
             "basicAddressTable.html: no XE MAC rows "
@@ -1180,8 +1175,7 @@ def parse_xe_poe(html: str) -> list[PoEStatus]:
     detect map has no code and honestly reports UNKNOWN).
     """
     rows = [
-        r for r in parse_xe_rows(html)
-        if _XE_POE_IFACE in r and _XE_POE_STATUS in r
+        r for r in parse_xe_rows(html) if _XE_POE_IFACE in r and _XE_POE_STATUS in r
     ]
     if not rows:
         raise HttpUnexpectedPageError(
@@ -1445,8 +1439,7 @@ def parse_xe_mgmt_ip(html: str) -> MgmtIpConfig:
         mac = ""
     if addr is None and not mac:
         raise HttpUnexpectedPageError(
-            "sysInfo.html: neither IPv4 Network Interface nor System MAC "
-            "Address found"
+            "sysInfo.html: neither IPv4 Network Interface nor System MAC Address found"
         )
     return MgmtIpConfig(
         mode=IpMode.UNKNOWN,
@@ -1565,9 +1558,7 @@ def parse_reboot_ok(html: str) -> bool:
 
 def _labeled_cell(html: str, label: str) -> str | None:
     """GS110EMX sysInfo.html's ``<td>Label</td><td>value</td>`` row shape."""
-    m = re.search(
-        rf'<td[^>]*>{re.escape(label)}</td>\s*<td[^>]*>([^<]*)</td>', html
-    )
+    m = re.search(rf"<td[^>]*>{re.escape(label)}</td>\s*<td[^>]*>([^<]*)</td>", html)
     return m.group(1).strip() if m else None
 
 
@@ -1915,8 +1906,9 @@ def _goahead_state_sensor(
     raw = _gtext(entry, tag)
     if raw in _GOAHEAD_ABSENT_STATUS:
         return []
-    return [Sensor(name=name, kind=kind, value=1.0 if raw == "1" else 0.0,
-                   unit="state")]
+    return [
+        Sensor(name=name, kind=kind, value=1.0 if raw == "1" else 0.0, unit="state")
+    ]
 
 
 def parse_goahead_sensors(body: str) -> list[Sensor]:
@@ -1937,14 +1929,11 @@ def parse_goahead_sensors(body: str) -> list[Sensor]:
     for n in range(1, 6):
         out += _goahead_state_sensor(entry, f"fan{n}Status", f"Fan{n}", "fan")
     out += _goahead_state_sensor(entry, "mainPSStatus", "Main PS", "power")
-    out += _goahead_state_sensor(
-        entry, "redundantPSStatus", "Redundant PS", "power"
-    )
+    out += _goahead_state_sensor(entry, "redundantPSStatus", "Redundant PS", "power")
     temp = _int(_gtext(entry, "tempSensorValue"))
     if temp is not None and temp > 0:
         out.append(
-            Sensor(name="Temperature", kind="temperature", value=float(temp),
-                   unit="C")
+            Sensor(name="Temperature", kind="temperature", value=float(temp), unit="C")
         )
     return out
 

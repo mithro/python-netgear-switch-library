@@ -15,7 +15,11 @@ from netgear_switch.sync_api import SyncSwitch
 # (These mirror ``test_mcp_server._NOT_MCP_EXPOSED``; names absent from
 # SyncSwitch are simply never enumerated, which is harmless.)
 _NOT_CLI_EXPOSED = {
-    "login", "get_page", "post_form", "close", "from_config",
+    "login",
+    "get_page",
+    "post_form",
+    "close",
+    "from_config",
 }
 
 # SyncSwitch operation -> the ``ngsw`` subcommand that reaches it. Ops served by

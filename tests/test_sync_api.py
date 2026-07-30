@@ -177,9 +177,10 @@ def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> No
             if path == "/getPoePortStatus.cgi":
                 return (
                     '<tr class="portID"><td>1</td><td>Delivering</td>'
-                    '<td>12800</td></tr>'
+                    "<td>12800</td></tr>"
                 )
             return "<input name='hash' value='h'>"
+
         def post_form(self, path: str, data: dict[str, str]) -> str:
             return ""
 
@@ -205,9 +206,7 @@ def test_reader_builds_default_client_when_not_injected(
         build_calls.append((host, community))
         return FakeClient(_ports_tables())
 
-    monkeypatch.setattr(
-        "netgear_switch.sync_api.build_sync_snmp_client", fake_build
-    )
+    monkeypatch.setattr("netgear_switch.sync_api.build_sync_snmp_client", fake_build)
 
     sw = SyncSwitch(get_model("gsm7252ps"), "10.0.0.5")
     ports = sw.get_ports()
@@ -251,42 +250,48 @@ def _all_writes_tables() -> dict[str, list[SnmpRow]]:
     """Seed tables for every facade write method's happy path on port 1,
     coherent enough that each op's post-write verification passes."""
     tables = _ports_tables()
-    tables.update({
-        oids.PETH_PSE_PORT_TABLE: [
-            SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.1", 1, "INTEGER"),
-            SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.1", 3, "INTEGER"),
-        ],
-        oids.DOT1Q_PVID: [SnmpRow(f"{oids.DOT1Q_PVID}.1", 1, "Gauge32")],
-        oids.DOT1Q_VLAN_STATIC_NAME: [
-            SnmpRow(
-                f"{oids.DOT1Q_VLAN_STATIC_NAME}.{_WRITE_VLAN}", "existing", "STRING"
-            )
-        ],
-        oids.DOT1Q_VLAN_STATIC_EGRESS: [
-            SnmpRow(
-                f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{_WRITE_VLAN}",
-                encode_port_bitmap((1,)), "Hex-STRING",
-            )
-        ],
-        oids.DOT1Q_VLAN_STATIC_UNTAGGED: [
-            SnmpRow(
-                f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{_WRITE_VLAN}",
-                encode_port_bitmap((1,)), "Hex-STRING",
-            )
-        ],
-        oids.IP_ADENT_ADDR: [
-            SnmpRow(f"{oids.IP_ADENT_ADDR}.10.1.5.20", "10.1.5.20", "IpAddress")
-        ],
-        oids.IP_ADENT_NETMASK: [
-            SnmpRow(f"{oids.IP_ADENT_NETMASK}.10.1.5.20", "255.255.255.0", "IpAddress")
-        ],
-        oids.IP_ROUTE_DEST: [
-            SnmpRow(f"{oids.IP_ROUTE_DEST}.0.0.0.0", "0.0.0.0", "IpAddress")
-        ],
-        oids.IP_ROUTE_NEXTHOP: [
-            SnmpRow(f"{oids.IP_ROUTE_NEXTHOP}.0.0.0.0", "10.1.5.1", "IpAddress")
-        ],
-    })
+    tables.update(
+        {
+            oids.PETH_PSE_PORT_TABLE: [
+                SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.1", 1, "INTEGER"),
+                SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.1", 3, "INTEGER"),
+            ],
+            oids.DOT1Q_PVID: [SnmpRow(f"{oids.DOT1Q_PVID}.1", 1, "Gauge32")],
+            oids.DOT1Q_VLAN_STATIC_NAME: [
+                SnmpRow(
+                    f"{oids.DOT1Q_VLAN_STATIC_NAME}.{_WRITE_VLAN}", "existing", "STRING"
+                )
+            ],
+            oids.DOT1Q_VLAN_STATIC_EGRESS: [
+                SnmpRow(
+                    f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{_WRITE_VLAN}",
+                    encode_port_bitmap((1,)),
+                    "Hex-STRING",
+                )
+            ],
+            oids.DOT1Q_VLAN_STATIC_UNTAGGED: [
+                SnmpRow(
+                    f"{oids.DOT1Q_VLAN_STATIC_UNTAGGED}.{_WRITE_VLAN}",
+                    encode_port_bitmap((1,)),
+                    "Hex-STRING",
+                )
+            ],
+            oids.IP_ADENT_ADDR: [
+                SnmpRow(f"{oids.IP_ADENT_ADDR}.10.1.5.20", "10.1.5.20", "IpAddress")
+            ],
+            oids.IP_ADENT_NETMASK: [
+                SnmpRow(
+                    f"{oids.IP_ADENT_NETMASK}.10.1.5.20", "255.255.255.0", "IpAddress"
+                )
+            ],
+            oids.IP_ROUTE_DEST: [
+                SnmpRow(f"{oids.IP_ROUTE_DEST}.0.0.0.0", "0.0.0.0", "IpAddress")
+            ],
+            oids.IP_ROUTE_NEXTHOP: [
+                SnmpRow(f"{oids.IP_ROUTE_NEXTHOP}.0.0.0.0", "10.1.5.1", "IpAddress")
+            ],
+        }
+    )
     return tables
 
 
@@ -343,7 +348,8 @@ class AllWritesRecordingClient(FakeClient):
             vid = vb.oid.rsplit(".", 1)[1]
             if int(vb.value) == oids.ROW_STATUS_DESTROY:
                 self._tables[oids.DOT1Q_VLAN_STATIC_NAME] = [
-                    r for r in self._tables.get(oids.DOT1Q_VLAN_STATIC_NAME, [])
+                    r
+                    for r in self._tables.get(oids.DOT1Q_VLAN_STATIC_NAME, [])
                     if not r.oid.endswith(f".{vid}")
                 ]
             # CREATE_AND_GO: the paired NAME SET in the same batch supplies
@@ -351,11 +357,13 @@ class AllWritesRecordingClient(FakeClient):
         elif vb.oid.startswith(oids.DOT1Q_VLAN_STATIC_NAME):
             vid = vb.oid.rsplit(".", 1)[1]
             kept = [
-                r for r in self._tables.get(oids.DOT1Q_VLAN_STATIC_NAME, [])
+                r
+                for r in self._tables.get(oids.DOT1Q_VLAN_STATIC_NAME, [])
                 if not r.oid.endswith(f".{vid}")
             ]
             self._tables[oids.DOT1Q_VLAN_STATIC_NAME] = [
-                *kept, SnmpRow(vb.oid, vb.value, "STRING")
+                *kept,
+                SnmpRow(vb.oid, vb.value, "STRING"),
             ]
         elif vb.oid == self._mgmt_addr_oid:
             self._mgmt_addr = str(vb.value)
@@ -399,15 +407,19 @@ def test_sync_switch_write_methods_delegate_to_writer() -> None:
     )
 
     sw.create_vlan(_NEW_VLAN, "temp-vlan", force=True)
-    assert (
-        f"{oids.DOT1Q_VLAN_STATIC_NAME}.{_NEW_VLAN}", "s", "temp-vlan"
-    ) in {(s.oid, s.type_letter, s.value) for s in client.sets}
+    assert (f"{oids.DOT1Q_VLAN_STATIC_NAME}.{_NEW_VLAN}", "s", "temp-vlan") in {
+        (s.oid, s.type_letter, s.value) for s in client.sets
+    }
 
     sw.delete_vlan(_NEW_VLAN, force=True)
-    assert SetVarbind(
-        f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{_NEW_VLAN}",
-        oids.ROW_STATUS_DESTROY, "i",
-    ) in client.sets
+    assert (
+        SetVarbind(
+            f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.{_NEW_VLAN}",
+            oids.ROW_STATUS_DESTROY,
+            "i",
+        )
+        in client.sets
+    )
 
     sw.cycle_poe(1, force=True, timeouts=tiny)
     admin_sets = [
@@ -423,9 +435,10 @@ def test_sync_switch_write_methods_delegate_to_writer() -> None:
 
     sw.set_mgmt_ip("10.9.9.9", "255.255.255.0", "10.9.9.1", force=True)
     assert SetVarbind(vo.mgmt_write_addr_unverified, "10.9.9.9", "a") in client.sets
-    assert SetVarbind(
-        vo.mgmt_write_netmask_unverified, "255.255.255.0", "a"
-    ) in client.sets
+    assert (
+        SetVarbind(vo.mgmt_write_netmask_unverified, "255.255.255.0", "a")
+        in client.sets
+    )
     assert SetVarbind(vo.mgmt_write_gateway_unverified, "10.9.9.1", "a") in client.sets
 
 
@@ -444,8 +457,10 @@ def test_plus_model_write_raises_unsupported_capability() -> None:
             raise AssertionError("must not be called")
 
     sw = SyncSwitch(
-        get_model("gs305ep"), "host",  # {NSDP, HTTP} only
-        nsdp_write_client=DummyNsdp(), nsdp_password="admin",
+        get_model("gs305ep"),
+        "host",  # {NSDP, HTTP} only
+        nsdp_write_client=DummyNsdp(),
+        nsdp_password="admin",
     )
     with pytest.raises(UnsupportedCapabilityError) as exc:
         sw.set_port_enabled(1, enabled=False, force=True)
@@ -540,7 +555,8 @@ def test_write_community_resolver_invoked_at_most_once_across_writes(
     )
 
     sw = SyncSwitch(
-        get_model("gsm7252ps"), "host",
+        get_model("gsm7252ps"),
+        "host",
         snmp_write_community_resolver=counting_resolver,
     )
     sw.set_port_enabled(1, enabled=False, force=True)
@@ -567,7 +583,8 @@ def test_resolve_write_community_explicit_value_wins_over_resolver(
         raise AssertionError("resolver must not run when an explicit value is set")
 
     sw = SyncSwitch(
-        get_model("gsm7252ps"), "host",
+        get_model("gsm7252ps"),
+        "host",
         snmp_write_community="explicit-comm",
         snmp_write_community_resolver=unused_resolver,
     )
@@ -600,8 +617,9 @@ def test_sync_switch_plus_model_reads_over_nsdp() -> None:
 
     class FakeNsdp:
         def read(self, tags):
-            pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
-                             server_mac=b"\xaa" * 6)
+            pkt = NSDPPacket(
+                op=Op.READ_RESPONSE, client_mac=b"\x00" * 6, server_mac=b"\xaa" * 6
+            )
             pkt.add_tlv(Tag.MODEL, b"GS110EMX")
             pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
             pkt.add_tlv(Tag.PORT_STATUS, b"\x01\x05\x01")
@@ -627,8 +645,10 @@ def test_sync_switch_plus_set_pvid_over_nsdp() -> None:
 
         def read(self, tags):
             import struct
-            pkt = NSDPPacket(op=Op.READ_RESPONSE, client_mac=b"\x00" * 6,
-                             server_mac=b"\xaa" * 6)
+
+            pkt = NSDPPacket(
+                op=Op.READ_RESPONSE, client_mac=b"\x00" * 6, server_mac=b"\xaa" * 6
+            )
             pkt.add_tlv(Tag.MODEL, b"GS110EMX")
             pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
             for p, v in self.pvids.items():
@@ -637,6 +657,7 @@ def test_sync_switch_plus_set_pvid_over_nsdp() -> None:
 
         def write(self, tlvs, *, password):
             import struct
+
             self.writes.append(password)
             for t in tlvs:
                 if t.tag == Tag.PORT_PVID:
@@ -644,9 +665,13 @@ def test_sync_switch_plus_set_pvid_over_nsdp() -> None:
             return NSDPPacket(op=Op.WRITE_RESPONSE, client_mac=b"\x00" * 6, result=0)
 
     client = RecordingNsdp()
-    sw = SyncSwitch(get_model("gs110emx"), "10.1.5.20",
-                    nsdp_write_client=client, nsdp_client=client,
-                    nsdp_password="admin")
+    sw = SyncSwitch(
+        get_model("gs110emx"),
+        "10.1.5.20",
+        nsdp_write_client=client,
+        nsdp_client=client,
+        nsdp_password="admin",
+    )
     sw.set_pvid(1, 90)
     assert client.pvids[1] == 90
     assert client.writes == ["admin"]
@@ -667,17 +692,21 @@ def test_gs305ep_poe_routes_to_http_ports_stay_nsdp() -> None:
             if path == "/getPoePortStatus.cgi":
                 return (
                     '<tr class="portID"><td>1</td><td>Delivering</td>'
-                    '<td>12800</td></tr>'
+                    "<td>12800</td></tr>"
                 )
             return "<input name='hash' value='h'>"
+
         def post_form(self, path: str, data: dict[str, str]) -> str:
             return ""
 
     # NsdpReader.get_poe() raises UnsupportedCapabilityError WITHOUT touching its
     # client, so a bare object() is a safe stand-in for the (unused) NSDP client.
     sw = SyncSwitch(
-        get_model("gs305ep"), "sw.example",
-        nsdp_client=object(), nsdp_password="x", http_client=_HttpSess(),
+        get_model("gs305ep"),
+        "sw.example",
+        nsdp_client=object(),
+        nsdp_password="x",
+        http_client=_HttpSess(),
     )
     poe = sw.get_poe()
     assert poe[0].port == 1
@@ -705,9 +734,13 @@ def test_http_password_resolved_lazily(monkeypatch: pytest.MonkeyPatch) -> None:
     from netgear_switch.sync_api import SyncSwitch
 
     cfg = SwitchConfig(
-        name="p", model=get_model("gs305ep"), host="h",
-        snmp_community=None, snmp_write_community_spec=None,
-        http_password_spec="${MISSING_HTTP_PW}", nsdp_interface=None,
+        name="p",
+        model=get_model("gs305ep"),
+        host="h",
+        snmp_community=None,
+        snmp_write_community_spec=None,
+        http_password_spec="${MISSING_HTTP_PW}",
+        nsdp_interface=None,
         protected_ports=frozenset(),
     )
     # Construction must NOT raise even though the spec is unresolvable.
@@ -734,7 +767,7 @@ def test_http_client_closed_after_http_routed_op(
             if path == "/getPoePortStatus.cgi":
                 return (
                     '<tr class="portID"><td>1</td><td>Delivering</td>'
-                    '<td>12800</td></tr>'
+                    "<td>12800</td></tr>"
                 )
             return "<input name='hash' value='h'>"
 
@@ -751,8 +784,11 @@ def test_http_client_closed_after_http_routed_op(
     )
 
     with SyncSwitch(
-        get_model("gs305ep"), "sw.example",
-        nsdp_client=object(), nsdp_password="x", http_password="secret",
+        get_model("gs305ep"),
+        "sw.example",
+        nsdp_client=object(),
+        nsdp_password="x",
+        http_password="secret",
     ) as sw:
         poe = sw.get_poe()
         assert poe[0].port == 1
@@ -774,7 +810,7 @@ def test_injected_http_client_is_never_closed_by_facade() -> None:
             if path == "/getPoePortStatus.cgi":
                 return (
                     '<tr class="portID"><td>1</td><td>Delivering</td>'
-                    '<td>12800</td></tr>'
+                    "<td>12800</td></tr>"
                 )
             return "<input name='hash' value='h'>"
 
@@ -785,8 +821,11 @@ def test_injected_http_client_is_never_closed_by_facade() -> None:
             raise AssertionError("facade must never close a caller-injected client")
 
     with SyncSwitch(
-        get_model("gs305ep"), "sw.example",
-        nsdp_client=object(), nsdp_password="x", http_client=_HttpSess(),
+        get_model("gs305ep"),
+        "sw.example",
+        nsdp_client=object(),
+        nsdp_password="x",
+        http_client=_HttpSess(),
     ) as sw:
         sw.get_poe()
     # __exit__ ran close() above; no AssertionError means the injected
@@ -903,8 +942,10 @@ def test_delete_vlan_guards_protected_member_before_http_fallback() -> None:
             raise AssertionError("guard must refuse before HTTP is ever touched")
 
     sw = SyncSwitch(
-        get_model("gs305ep"), "sw.example",
-        nsdp_client=FakeNsdp(), http_client=_RaisingHttpSess(),
+        get_model("gs305ep"),
+        "sw.example",
+        nsdp_client=FakeNsdp(),
+        http_client=_RaisingHttpSess(),
         protected_ports=frozenset({1}),
     )
     with pytest.raises(ProtectedPortError):

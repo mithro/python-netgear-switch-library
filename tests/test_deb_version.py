@@ -12,6 +12,7 @@ expected value from ``git`` at test time, mirroring the derivation logic
 itself (see the brief's own verification: ``0.0.post$(git rev-list --count
 HEAD)``).
 """
+
 from __future__ import annotations
 
 import ast
@@ -30,19 +31,25 @@ _DEBIAN_VERSION_RE = re.compile(r"^\d+(\.\d+)*(\.post\d+)?$")
 def _run(*args: str) -> str:
     return subprocess.run(
         ["python3", str(SCRIPT), *args],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
 
 def _git(*args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(REPO), *args],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
 
 
 def _run_in_repo(
-    repo: Path, *args: str, check: bool = True,
+    repo: Path,
+    *args: str,
+    check: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     """Invoke the script with ``DEB_VERSION_REPO`` pointed at a temp repo.
 
@@ -55,7 +62,10 @@ def _run_in_repo(
     env["DEB_VERSION_REPO"] = str(repo)
     return subprocess.run(
         ["python3", str(SCRIPT), *args],
-        capture_output=True, text=True, check=check, env=env,
+        capture_output=True,
+        text=True,
+        check=check,
+        env=env,
     )
 
 
@@ -67,7 +77,8 @@ def _init_repo(path: Path) -> None:
         check=True,
     )
     subprocess.run(
-        ["git", "-C", str(path), "config", "user.name", "Test User"], check=True,
+        ["git", "-C", str(path), "config", "user.name", "Test User"],
+        check=True,
     )
 
 
@@ -87,7 +98,13 @@ def test_script_is_executable_and_has_correct_shebang():
 def test_only_stdlib_imports():
     """Must run in a bare Debian container before any deps are installed."""
     stdlib_allow = {
-        "argparse", "os", "re", "subprocess", "sys", "pathlib", "__future__",
+        "argparse",
+        "os",
+        "re",
+        "subprocess",
+        "sys",
+        "pathlib",
+        "__future__",
     }
     tree = ast.parse(SCRIPT.read_text())
     seen = set()
@@ -118,7 +135,8 @@ def test_write_changelog_produces_parseable_debian_changelog(tmp_path):
         backup.write_bytes(CHANGELOG.read_bytes())
     try:
         subprocess.run(
-            ["python3", str(SCRIPT), "--write-changelog"], check=True,
+            ["python3", str(SCRIPT), "--write-changelog"],
+            check=True,
         )
         assert CHANGELOG.exists()
         first_line = CHANGELOG.read_text().splitlines()[0]

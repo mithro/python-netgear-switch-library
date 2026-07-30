@@ -249,19 +249,29 @@ def test_walk_error_wraps(monkeypatch):
 
 def test_normalize_varbind_absent_ip_oid_and_textual_fallback():
     assert _normalize_varbind("1.2.3", NoSuchInstance()) == (
-        "1.2.3", "", "NOSUCHINSTANCE"
+        "1.2.3",
+        "",
+        "NOSUCHINSTANCE",
     )
     assert _normalize_varbind("1.2.3", OctetString(b"1/0/1")) == (
-        "1.2.3", "1/0/1", "STRING"
+        "1.2.3",
+        "1/0/1",
+        "STRING",
     )
     assert _normalize_varbind(".1.2.3", IpAddress("10.1.5.20")) == (
-        "1.2.3", "10.1.5.20", "IpAddress"
+        "1.2.3",
+        "10.1.5.20",
+        "IpAddress",
     )
     assert _normalize_varbind("1.2.3", ObjectIdentifier(".1.3.6.1.4.1")) == (
-        "1.2.3", "1.3.6.1.4.1", "OID"
+        "1.2.3",
+        "1.3.6.1.4.1",
+        "OID",
     )
     assert _normalize_varbind("1.2.3", _FakeTextual()) == (
-        "1.2.3", "textual-value", "_FakeTextual"
+        "1.2.3",
+        "textual-value",
+        "_FakeTextual",
     )
 
 
@@ -320,8 +330,15 @@ def test_do_walk_raises_on_error_indication(monkeypatch):
     c = PysnmpClient("h", "public")
 
     async def fake_bulk_walk_cmd(
-        engine, community, target, context, non_rep, max_rep, obj,
-        *, lexicographicMode,  # noqa: N803
+        engine,
+        community,
+        target,
+        context,
+        non_rep,
+        max_rep,
+        obj,
+        *,
+        lexicographicMode,  # noqa: N803
     ):
         yield "timeout", 0, 0, []
 
@@ -340,8 +357,15 @@ def test_do_walk_empty_subtree_returns_rows_so_far(monkeypatch):
     c = PysnmpClient("h", "public")
 
     async def fake_bulk_walk_cmd(
-        engine, community, target, context, non_rep, max_rep, obj,
-        *, lexicographicMode,  # noqa: N803
+        engine,
+        community,
+        target,
+        context,
+        non_rep,
+        max_rep,
+        obj,
+        *,
+        lexicographicMode,  # noqa: N803
     ):
         yield None, 0, 0, [("1.3.6.1.2.1.105.1.1.1", NoSuchObject())]
 
@@ -357,8 +381,15 @@ def test_do_walk_absent_after_rows_stops_and_keeps_rows(monkeypatch):
     c = PysnmpClient("h", "public")
 
     async def fake_bulk_walk_cmd(
-        engine, community, target, context, non_rep, max_rep, obj,
-        *, lexicographicMode,  # noqa: N803
+        engine,
+        community,
+        target,
+        context,
+        non_rep,
+        max_rep,
+        obj,
+        *,
+        lexicographicMode,  # noqa: N803
     ):
         yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.1", Integer32(1))]
         yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.2", NoSuchInstance())]
@@ -376,8 +407,15 @@ def test_do_walk_stops_cleanly_on_end_of_mib_view(monkeypatch):
     c = PysnmpClient("h", "public")
 
     async def fake_bulk_walk_cmd(
-        engine, community, target, context, non_rep, max_rep, obj,
-        *, lexicographicMode,  # noqa: N803
+        engine,
+        community,
+        target,
+        context,
+        non_rep,
+        max_rep,
+        obj,
+        *,
+        lexicographicMode,  # noqa: N803
     ):
         yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.1", Integer32(1))]
         yield None, 0, 0, [("1.3.6.1.2.1.2.2.1.8.2", EndOfMibView())]
@@ -427,9 +465,7 @@ def test_do_set_raises_on_error_indication(monkeypatch):
 
     calls = _install_fake_pysnmp(monkeypatch, set_cmd=fake_set_cmd)
     with pytest.raises(SnmpError):
-        asyncio.run(
-            c._do_set([SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")])
-        )
+        asyncio.run(c._do_set([SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")]))
     assert calls["closed"] is True
 
 
@@ -443,9 +479,7 @@ def test_do_set_raises_on_error_status(monkeypatch):
 
     calls = _install_fake_pysnmp(monkeypatch, set_cmd=fake_set_cmd)
     with pytest.raises(SnmpError, match=re.escape("1.3.6.1.2.1.2.2.1.7.5")):
-        asyncio.run(
-            c._do_set([SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")])
-        )
+        asyncio.run(c._do_set([SetVarbind("1.3.6.1.2.1.2.2.1.7.5", 2, "i")]))
     assert calls["closed"] is True
 
 

@@ -10,12 +10,19 @@ from netgear_switch.registry import (
 )
 
 _VERIFIED_KEYS = (
-    "m4300-24x", "m4300-16x", "gsm7252ps", "gs110emx", "gs305ep",
-    "gs105pe", "gs728tpp",
+    "m4300-24x",
+    "m4300-16x",
+    "gsm7252ps",
+    "gs110emx",
+    "gs305ep",
+    "gs105pe",
+    "gs728tpp",
+    "gsm7228ps",
 )
-# gsm7228ps is UNVERIFIED-pending-capture (no real capture exists; _SMP vendor
-# family is an unconfirmed spec-guess) -- honesty flag matches m7300/xs748t.
-_UNVERIFIED_KEYS = ("m7300", "xs748t", "gsm7228ps")
+# gsm7228ps (the S3300-52X-PoE+) was verified 2026-07-30 against real hardware
+# (tests/fixtures/captures/gsm7228ps.json); m7300/xs748t remain
+# UNVERIFIED-pending-capture (still powered off, no capture exists).
+_UNVERIFIED_KEYS = ("m7300", "xs748t")
 
 
 def test_known_models_present():
@@ -136,7 +143,11 @@ def test_gs105pe_virtual_seed_matches_live_capture():
     assert st.model_name == "GS105PE"
     assert st.nsdp_mac == b"\x38\x94\xed\xb7\xcd\xe0"
     assert {p: (s.link, s.speed) for p, s in st.ports.items()} == {
-        1: (False, 0), 2: (False, 0), 3: (True, 100), 4: (False, 0), 5: (True, 1000)
+        1: (False, 0),
+        2: (False, 0),
+        3: (True, 100),
+        4: (False, 0),
+        5: (True, 1000),
     }
     assert set(st.vlans) == {1, 41, 90}
     assert st.pvids == {1: 41, 2: 41, 3: 90, 4: 41, 5: 1}

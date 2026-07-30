@@ -7,6 +7,7 @@ CI (no serial hardware); transport-only, parser-shared.
 
 pyserial is imported lazily so ``import netgear_switch`` never depends on it.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -88,9 +89,7 @@ class ConsoleCliTransport(CliSession):
         assert self._driver is not None
         return self._driver.run_scp_copy(command, scp_password)
 
-    def run_write_memory(
-        self, command: str = "write memory", *, prestuff: bool
-    ) -> str:
+    def run_write_memory(self, command: str = "write memory", *, prestuff: bool) -> str:
         if self._driver is None:
             self.connect()
         assert self._driver is not None

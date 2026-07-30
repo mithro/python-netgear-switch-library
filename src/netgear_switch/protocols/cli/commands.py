@@ -26,6 +26,7 @@ FASTPATH's ``show`` grammar is nearly identical across the Fully Managed
 (M4300/GSM7252PS) and Smart Managed Pro (GSM7228PS/S3300) lines, but the newer
 M4300 firmware (12.0.13.8) renamed two commands -- see ``_M4300_OVERRIDES``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -108,8 +109,7 @@ _M4300_16X = CliModelSpec(
 _GSM7228PS = CliModelSpec(model_key="gsm7228ps", captured=False, reads_verified=False)
 
 _SPECS: dict[str, CliModelSpec] = {
-    s.model_key: s
-    for s in (_GSM7252PS, _M4300_24X, _M4300_16X, _GSM7228PS)
+    s.model_key: s for s in (_GSM7252PS, _M4300_24X, _M4300_16X, _GSM7228PS)
 }
 
 CLI_SPECS: Mapping[str, CliModelSpec] = MappingProxyType(_SPECS)
@@ -182,8 +182,7 @@ def scp_cert_profile(model: SwitchModel) -> ScpCertProfile:
         return _SCP_CERT_PROFILES[model.key]
     except KeyError:
         raise UnsupportedCapabilityError(
-            f"model {model.key!r} has no known copy-scp SSL-certificate "
-            "deploy profile"
+            f"model {model.key!r} has no known copy-scp SSL-certificate deploy profile"
         ) from None
 
 

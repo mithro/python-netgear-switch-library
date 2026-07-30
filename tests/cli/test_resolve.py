@@ -50,9 +50,7 @@ def test_prompt_used_when_no_flag_env_or_config() -> None:
         seen.append(text)
         return "typed"
 
-    sw = resolve_switch(
-        _args(host="h", model="gsm7252ps"), env={}, prompt=fake_prompt
-    )
+    sw = resolve_switch(_args(host="h", model="gsm7252ps"), env={}, prompt=fake_prompt)
     assert sw._snmp_community == "typed"
     assert seen  # prompt was actually invoked
 
@@ -155,7 +153,9 @@ def test_config_value_beats_prompt(tmp_path: Path) -> None:
 def test_cli_write_community_override_reaches_switch() -> None:
     sw = resolve_switch(
         _args(
-            host="h", model="gsm7252ps", community="ro_secret",
+            host="h",
+            model="gsm7252ps",
+            community="ro_secret",
             write_community="wr_secret",
         ),
         env={},
@@ -197,18 +197,14 @@ def test_inventory_cli_write_community_override_wins_over_spec(
 
 def test_unknown_model_raises_unknownmodelerror() -> None:
     with pytest.raises(UnknownModelError, match="bogus-model"):
-        resolve_switch(
-            _args(host="h", model="bogus-model", community="secret"), env={}
-        )
+        resolve_switch(_args(host="h", model="bogus-model", community="secret"), env={})
 
 
 # --- Blank prompt result is treated as unresolved --------------------------
 
 
 def test_blank_prompt_result_is_treated_as_unresolved() -> None:
-    sw = resolve_switch(
-        _args(host="h", model="gsm7252ps"), env={}, prompt=lambda _: ""
-    )
+    sw = resolve_switch(_args(host="h", model="gsm7252ps"), env={}, prompt=lambda _: "")
     assert sw._snmp_community is None
     # The library's existing lazy CredentialError must fire at SNMP-build
     # time, not silently pass "" through as a real community.
@@ -255,9 +251,7 @@ def test_no_snmp_community_prompt_for_nsdp_only_switch_via_inventory(
     # (gs110emx = HTTP+NSDP, no SNMP backend) must never be prompted for an
     # SNMP read community.
     inv = tmp_path / "inv.toml"
-    inv.write_text(
-        '[switches.plus1]\nmodel = "gs110emx"\nhost = "10.1.5.25"\n'
-    )
+    inv.write_text('[switches.plus1]\nmodel = "gs110emx"\nhost = "10.1.5.25"\n')
 
     def exploding_prompt(text: str) -> str:
         raise AssertionError("must not prompt for SNMP community on a Plus switch")

@@ -15,6 +15,7 @@ docstring) is still checked here directly, plus the model-specific quirks
 quirk) that need the raw ``oid_map()``/parser layer, not just the seed's
 plain dataclass fields.
 """
+
 from __future__ import annotations
 
 import json
@@ -48,9 +49,7 @@ def test_m4300_24x_seed_matches_capture():
     """Ports/PoE(absent)/VLANs/PVIDs/sensors/mgmt-IP/base-MAC all pinned to
     the real capture in one pass -- see
     ``capture_parity.assert_seed_matches_capture``."""
-    assert_seed_matches_capture(
-        seed_m4300_24x(), _FIXTURES / "m4300-24x.json"
-    )
+    assert_seed_matches_capture(seed_m4300_24x(), _FIXTURES / "m4300-24x.json")
 
 
 def test_m4300_24x_has_no_poe_and_wire_projects_empty_table():
@@ -95,9 +94,7 @@ def test_m4300_16x_seed_matches_capture():
     in one pass -- see ``capture_parity.assert_seed_matches_capture``. (This
     model's captured mgmt_ip.address is None -- the helper honestly skips the
     address/netmask/gateway checks in that case; see its own docstring.)"""
-    assert_seed_matches_capture(
-        seed_m4300_16x(), _FIXTURES / "m4300-16x.json"
-    )
+    assert_seed_matches_capture(seed_m4300_16x(), _FIXTURES / "m4300-16x.json")
 
 
 def test_m4300_16x_has_poe_on_all_16_ports_with_two_delivering():

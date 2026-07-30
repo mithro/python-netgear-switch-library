@@ -24,6 +24,7 @@ FASTPATH prints two shapes:
   ``"Not Supported"``), so ``table_columns``/``iter_table_rows`` slice strictly
   by the ruler's dash-group spans.
 """
+
 from __future__ import annotations
 
 import re
@@ -115,9 +116,7 @@ def _slice_row(spans: list[tuple[int, int | None]], row: str) -> list[str]:
     return [_slice_cell(row, start, end) for start, end in spans]
 
 
-def iter_table_rows(
-    text: str, *, after: str | None = None
-) -> Iterator[list[str]]:
+def iter_table_rows(text: str, *, after: str | None = None) -> Iterator[list[str]]:
     """Yield each data row (as sliced, stripped cells) of a fixed-width table.
 
     The table is the block of lines following the first ruler (``----``) line --
@@ -135,7 +134,7 @@ def iter_table_rows(
     if idx >= len(lines):
         return
     spans = _ruler_spans(lines[idx])
-    for line in lines[idx + 1:]:
+    for line in lines[idx + 1 :]:
         if not line.strip() or _RULER_RE.match(line):
             break
         yield _slice_row(spans, line)
@@ -169,12 +168,10 @@ def header_columns(text: str, *, after: str | None = None) -> list[str]:
     start = idx - 1
     while start >= 0 and lines[start].strip() and not _RULER_RE.match(lines[start]):
         start -= 1
-    header_lines = lines[start + 1:idx]
+    header_lines = lines[start + 1 : idx]
     names: list[str] = []
     for span_start, span_end in spans:
-        pieces = [
-            _slice_cell(hl, span_start, span_end) for hl in header_lines
-        ]
+        pieces = [_slice_cell(hl, span_start, span_end) for hl in header_lines]
         names.append(re.sub(r"\s+", " ", " ".join(p for p in pieces if p)))
     return names
 
@@ -609,10 +606,12 @@ def parse_mgmt_ip(text: str) -> MgmtIpConfig:
     """
     fields = labelled_values(text)
     proto = (
-        fields.get("Configured IPv4 Protocol") or fields.get("Method") or ""
-    ).strip().upper()
-    mode = IpMode.DHCP if proto == "DHCP" else (
-        IpMode.STATIC if proto else IpMode.UNKNOWN
+        (fields.get("Configured IPv4 Protocol") or fields.get("Method") or "")
+        .strip()
+        .upper()
+    )
+    mode = (
+        IpMode.DHCP if proto == "DHCP" else (IpMode.STATIC if proto else IpMode.UNKNOWN)
     )
     mac = fields.get("Burned In MAC Address", "").strip().upper()
     return MgmtIpConfig(

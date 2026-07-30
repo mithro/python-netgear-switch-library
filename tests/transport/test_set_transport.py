@@ -42,15 +42,21 @@ def test_set_many_is_one_pdu_with_hex_for_x_type():
         return _Proc(stdout="")
 
     client = NetsnmpCliClient("host", "w", runner=runner)
-    client.set_many([
-        SetVarbind("1.3.6.1.2.1.17.7.1.4.5.1.1.5", 90, "u"),
-        SetVarbind("1.3.6.1.2.1.17.7.1.4.3.1.2.90", bytes([0xC0, 0x00]), "x"),
-    ])
+    client.set_many(
+        [
+            SetVarbind("1.3.6.1.2.1.17.7.1.4.5.1.1.5", 90, "u"),
+            SetVarbind("1.3.6.1.2.1.17.7.1.4.3.1.2.90", bytes([0xC0, 0x00]), "x"),
+        ]
+    )
     assert len(captured) == 1  # single snmpset invocation = atomic PDU
     argv = captured[0]
     assert argv[-6:] == [
-        "1.3.6.1.2.1.17.7.1.4.5.1.1.5", "u", "90",
-        "1.3.6.1.2.1.17.7.1.4.3.1.2.90", "x", "c000",
+        "1.3.6.1.2.1.17.7.1.4.5.1.1.5",
+        "u",
+        "90",
+        "1.3.6.1.2.1.17.7.1.4.3.1.2.90",
+        "x",
+        "c000",
     ]
 
 
@@ -68,16 +74,20 @@ class _FakeHlapi:
     """Records which SMI constructor was used, mirroring the value_parity fake."""
 
     class Integer32:
-        def __init__(self, v): self.kind, self.v = "Integer32", v
+        def __init__(self, v):
+            self.kind, self.v = "Integer32", v
 
     class Gauge32:
-        def __init__(self, v): self.kind, self.v = "Gauge32", v
+        def __init__(self, v):
+            self.kind, self.v = "Gauge32", v
 
     class OctetString:
-        def __init__(self, v): self.kind, self.v = "OctetString", v
+        def __init__(self, v):
+            self.kind, self.v = "OctetString", v
 
     class IpAddress:
-        def __init__(self, v): self.kind, self.v = "IpAddress", v
+        def __init__(self, v):
+            self.kind, self.v = "IpAddress", v
 
 
 def test_to_set_value_maps_type_letters():

@@ -20,9 +20,7 @@ def test_seed_builds_coherent_oid_map():
     assert f"{oids.IF_OPER_STATUS}.1" in m
     # a delivering PoE port exists with vendor mW > 0
     poe_base = oids.vendor_oids(get_model("gsm7252ps")).poe_power_mw + "."
-    assert any(
-        k.startswith(poe_base) and int(v[1]) > 0 for k, v in m.items()
-    )
+    assert any(k.startswith(poe_base) and int(v[1]) > 0 for k, v in m.items())
 
 
 def test_seed_roundtrips_through_parsers():
@@ -45,8 +43,10 @@ def test_seed_roundtrips_through_parsers():
     )
     assert {v.vlan_id for v in vlans} >= {1, 90}
     mgmt = parse.parse_mgmt_ip(
-        rows(oids.IP_ADENT_ADDR), rows(oids.IP_ADENT_NETMASK),
-        rows(oids.IP_ROUTE_DEST), rows(oids.IP_ROUTE_NEXTHOP),
+        rows(oids.IP_ADENT_ADDR),
+        rows(oids.IP_ADENT_NETMASK),
+        rows(oids.IP_ROUTE_DEST),
+        rows(oids.IP_ROUTE_NEXTHOP),
         rows(oids.vendor_oids(get_model("gsm7252ps")).dhcp_mode_unverified),
         rows(oids.DOT1D_BASE_BRIDGE_ADDRESS),
     )
@@ -69,9 +69,12 @@ def test_seed_emits_nonempty_stats_macs_lldp():
         ]
 
     stats = parse.parse_port_stats(
-        in_octets=rows(oids.IF_HC_IN_OCTETS), out_octets=rows(oids.IF_HC_OUT_OCTETS),
-        in_ucast=rows(oids.IF_HC_IN_UCAST), out_ucast=rows(oids.IF_HC_OUT_UCAST),
-        in_errors=rows(oids.IF_IN_ERRORS), out_errors=rows(oids.IF_OUT_ERRORS),
+        in_octets=rows(oids.IF_HC_IN_OCTETS),
+        out_octets=rows(oids.IF_HC_OUT_OCTETS),
+        in_ucast=rows(oids.IF_HC_IN_UCAST),
+        out_ucast=rows(oids.IF_HC_OUT_UCAST),
+        in_errors=rows(oids.IF_IN_ERRORS),
+        out_errors=rows(oids.IF_OUT_ERRORS),
     )
     assert len([s for s in stats if s.rx_bytes is not None]) >= 2
 
@@ -109,8 +112,11 @@ def test_seed_emits_nonempty_ports_pvids_poe_sensors():
         ]
 
     ports = parse.parse_port_status(
-        rows(oids.IF_ADMIN_STATUS), rows(oids.IF_OPER_STATUS),
-        rows(oids.IF_HIGH_SPEED), rows(oids.IF_NAME), rows(oids.IF_ALIAS),
+        rows(oids.IF_ADMIN_STATUS),
+        rows(oids.IF_OPER_STATUS),
+        rows(oids.IF_HIGH_SPEED),
+        rows(oids.IF_NAME),
+        rows(oids.IF_ALIAS),
     )
     # 52 physical ports + the two non-physical interfaces the seed carries
     # from the capture (ifIndex 417 CPU, 418 lag 1) -- SNMP reports every
@@ -148,8 +154,12 @@ def test_seed_emits_nonempty_ports_pvids_poe_sensors():
     # four PSU wattages -- and NO temperature (that sensor lives only on the
     # HTTP sysInfo page for this device). Matches captures/gsm7252ps.json.
     assert {(s.name, s.value) for s in sensors} == {
-        ("fan0", 2850.0), ("fan2", 2350.0),
-        ("power0", 49.0), ("power1", 30.0), ("power2", 32.0), ("power3", 31.0),
+        ("fan0", 2850.0),
+        ("fan2", 2350.0),
+        ("power0", 49.0),
+        ("power1", 30.0),
+        ("power2", 32.0),
+        ("power3", 31.0),
     }
     assert {s.kind for s in sensors} == {"fan", "power"}
 
@@ -198,7 +208,10 @@ def test_seed_gsm7252ps_stats_match_capture():
             continue  # CPU/lag placeholders carry no seeded counters
         r = real[port]
         assert (sim.rx_octets, sim.tx_octets, sim.rx_ucast, sim.tx_ucast) == (
-            r["rx_bytes"], r["tx_bytes"], r["rx_packets"], r["tx_packets"]
+            r["rx_bytes"],
+            r["tx_bytes"],
+            r["rx_packets"],
+            r["tx_packets"],
         ), f"port {port} counters"
         checked += 1
     assert checked == 52  # all 52 physical ports pinned

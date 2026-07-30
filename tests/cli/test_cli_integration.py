@@ -9,6 +9,7 @@ every layer downstream of it is real: ``SyncSwitch`` -> ``SnmpReader`` /
 the ``VirtualSwitch``'s bound SNMP face -> ``VirtualSwitchState``. This is
 the same wiring pattern as ``tests/test_snmp_integration.py``.
 """
+
 from __future__ import annotations
 
 import io

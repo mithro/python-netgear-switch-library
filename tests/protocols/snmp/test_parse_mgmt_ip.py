@@ -33,7 +33,8 @@ def test_parse_mgmt_ip_rfc4293_fallback_when_ipaddrtable_empty():
         SnmpRow(f"{oids.IP_ADDRESS_IFINDEX}.1.4.127.0.0.1", 1, "INTEGER"),
         SnmpRow(
             f"{oids.IP_ADDRESS_IFINDEX}.2.16.36.4.14.128.161.55.1.5.0.0.0.0.0.0.0.32",
-            898, "INTEGER",
+            898,
+            "INTEGER",
         ),
         SnmpRow(f"{oids.IP_ADDRESS_IFINDEX}.1.4.10.1.5.20", 898, "INTEGER"),
     ]
@@ -84,7 +85,10 @@ def test_parse_mgmt_ip_static_with_gateway():
 def test_parse_mgmt_ip_dhcp_and_unknown_default():
     addr = [SnmpRow("1.3.6.1.2.1.4.20.1.1.10.1.5.20", "10.1.5.20", "IPADDR")]
     cfg = parse.parse_mgmt_ip(
-        addr, [], [], [],
+        addr,
+        [],
+        [],
+        [],
         [SnmpRow(_DHCP_MODE_OID, 1, "INTEGER")],
         [],
     )

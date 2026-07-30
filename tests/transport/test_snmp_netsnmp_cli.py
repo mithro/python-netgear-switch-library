@@ -43,10 +43,7 @@ def test_parse_string_ip_oid_timeticks():
 
 
 def test_parse_hex_string_multiline():
-    text = (
-        ".1.3.6.1.2.1.17.7.1.4.3.1.2.5 = Hex-STRING: C0 00 00 00\n"
-        "00 00 00 01\n"
-    )
+    text = ".1.3.6.1.2.1.17.7.1.4.3.1.2.5 = Hex-STRING: C0 00 00 00\n00 00 00 01\n"
     rows = parse_netsnmp_lines(text)
     assert len(rows) == 1
     assert rows[0].snmp_type == "Hex-STRING"
@@ -114,8 +111,7 @@ def test_parse_no_such_object_names_oid_in_error():
 def test_parse_no_such_instance_at_oid_raises():
     with pytest.raises(SnmpError):
         parse_netsnmp_lines(
-            ".1.3.6.1.2.1.2.2.1.8.99 = "
-            "No Such Instance currently exists at this OID\n"
+            ".1.3.6.1.2.1.2.2.1.8.99 = No Such Instance currently exists at this OID\n"
         )
 
 
@@ -125,9 +121,7 @@ def test_parse_string_containing_marker_words_is_not_an_error():
     text = '.1.3.6.1.2.1.31.1.1.1.1.1 = STRING: "port no such object test"\n'
     rows = parse_netsnmp_lines(text)
     assert rows == [
-        SnmpRow(
-            "1.3.6.1.2.1.31.1.1.1.1.1", "port no such object test", "STRING"
-        )
+        SnmpRow("1.3.6.1.2.1.31.1.1.1.1.1", "port no such object test", "STRING")
     ]
 
 
