@@ -258,10 +258,18 @@ def test_delete_vlan_not_removed_raises_verification() -> None:
         writer.delete_vlan(10)
 
 
-def test_clear_poe_fault_is_unsupported() -> None:
-    writer = HttpWriter(_StatefulSession(), get_model("gs305ep"))
-    with pytest.raises(UnsupportedCapabilityError):
-        writer.clear_poe_fault(2)
+def test_clear_poe_fault_posts_the_plus_reset_form() -> None:
+    """A Plus switch has no separate clear-fault action: re-running detection
+    IS the clear, which on this UI is PoEPortConfig.cgi's Reset -- exactly what
+    ``cycle_poe`` posts. (This used to raise UnsupportedCapabilityError even
+    though the mechanism was known and already implemented next door.)"""
+    sess = _StatefulSession()
+    writer = HttpWriter(sess, get_model("gs305ep"))
+    writer.clear_poe_fault(2)
+    assert sess.posts[-1] == (
+        "/PoEPortConfig.cgi",
+        {"ACTION": "Reset", "port1": "checked", "hash": "h"},
+    )
 
 
 def test_cycle_poe_posts_reset_form() -> None:
@@ -370,10 +378,14 @@ def test_async_delete_vlan_verifies() -> None:
     assert 10 not in sess.vlan_ids
 
 
-def test_async_clear_poe_fault_is_unsupported() -> None:
-    writer = AsyncHttpWriter(_AsyncStatefulSession(), get_model("gs305ep"))
-    with pytest.raises(UnsupportedCapabilityError):
-        _run(writer.clear_poe_fault(2))
+def test_async_clear_poe_fault_posts_the_plus_reset_form() -> None:
+    sess = _AsyncStatefulSession()
+    writer = AsyncHttpWriter(sess, get_model("gs305ep"))
+    _run(writer.clear_poe_fault(2))
+    assert sess.posts[-1] == (
+        "/PoEPortConfig.cgi",
+        {"ACTION": "Reset", "port1": "checked", "hash": "h"},
+    )
 
 
 def test_async_cycle_poe_posts_reset_form() -> None:

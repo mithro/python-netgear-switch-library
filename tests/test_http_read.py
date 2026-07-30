@@ -155,6 +155,11 @@ def _gsm7228ps_pages() -> dict[str, str]:
         "/base/system/management/sysInfo.html": (
             _FIX / "gsm7228ps_sysInfo.html"
         ).read_text(),
+        # LIVE capture 2026-07-30 from 10.1.5.11. This page is why the old
+        # "the S3300's mgmt IP is unreachable over HTTP" note was WRONG.
+        "/ipConfiguration.html": (
+            _FIX / "gsm7228ps_ipConfiguration.html"
+        ).read_text(),
         # The VLAN-Membership page, captured 2026-07-30 -- only VLAN 5 was
         # captured on this switch, so get_vlans() (which needs all five VLANs)
         # is exercised against the MOCK instead; see
@@ -173,7 +178,7 @@ def test_gsm7228ps_reads_are_grounded_not_refused() -> None:
     # (tests/fixtures/http/gsm7228ps_*.html) and cross-verified vs SNMP, so the
     # spec ships reads_verified=True and constructing a reader must succeed --
     # the same graduation gsm7252ps made. Ports/PVIDs/PoE/VLANs/LLDP/MACs are
-    # served; mgmt-IP is base-MAC only; sensors raise (SNMP-only on this model).
+    # served; sensors raise (SNMP-only on this model).
     reader = HttpReader(_FakeSession(_gsm7228ps_pages()), get_model("gsm7228ps"))
     assert {p.port for p in reader.get_ports()} == set(range(1, 53))
     assert len(reader.get_poe()) == 48
@@ -197,8 +202,14 @@ def test_gsm7228ps_reads_are_grounded_not_refused() -> None:
     assert member5.tagged_ports == frozenset({49, 50, 51, 52})
     assert member5.untagged_ports == frozenset({41})
     assert len(reader.get_macs()) == 17  # base MAC on CPU "c1" is skipped
+    # CORRECTION (live 2026-07-30, 10.1.5.11): this model's mgmt IP is NOT
+    # "unreachable over HTTP". /ipConfiguration.html serves the real address,
+    # mask, gateway and addressing method; only the base MAC comes from sysInfo.
     mgmt = reader.get_mgmt_ip()
-    assert mgmt.address is None
+    assert mgmt.address == "10.1.5.11"
+    assert mgmt.netmask == "255.255.255.0"
+    assert mgmt.gateway == "10.1.5.1"
+    assert mgmt.mode is IpMode.DHCP
     assert mgmt.base_mac == "08:BD:43:6B:B8:D8"
     with pytest.raises(UnsupportedCapabilityError):
         reader.get_sensors()  # S3300 sysInfo has no live fan/temp table
@@ -370,6 +381,17 @@ def _m4300_pages() -> dict[str, str]:
         "/v1/base/system/management/sysInfo.html": (
             _FIX / "m4300_sysinfo.html"
         ).read_text(),
+        # LIVE capture 2026-07-31 from 10.1.5.13: the M4300 DOES have an LLDP
+        # neighbour page (the same lldpRemoteInventory.html the XE models use).
+        "/v1/lldpRemoteInventory.html": (
+            _FIX / "m4300_lldpRemoteInventory.html"
+        ).read_text(),
+        # LIVE capture 2026-07-30 from 10.1.5.13. The MANAGEMENT-VLAN page, not
+        # /v1/ipConfiguration.html -- that one exists too, but describes the
+        # (unused) service port and reads 0.0.0.0 on both M4300 SKUs.
+        "/v1/mgmtVlanIpv4Configuration.html": (
+            _FIX / "m4300_mgmtVlanIpv4Configuration.html"
+        ).read_text(),
         # VLAN-Membership, captured 2026-07-30 (VLAN 1 only on this switch).
         "/v1/switching/dot1q/vlan_port_cfg.html": _membership(
             "m4300_vlanportcfg_vlan1.html"
@@ -474,19 +496,33 @@ def test_m4300_http_mgmt_and_sensors() -> None:
     mgmt = reader.get_mgmt_ip()
     assert mgmt.address == "10.1.5.13"
     assert mgmt.netmask == "255.255.255.0"
+    # From mgmtVlanIpv4Configuration.html, which -- unlike the sysInfo page this
+    # used to read -- carries the gateway AND the addressing method, so neither
+    # is None/UNKNOWN any more (live 2026-07-30, matches SNMP).
+    assert mgmt.gateway == "10.1.5.1"
+    assert mgmt.mode is IpMode.DHCP
+    # The BASE MAC still comes from sysInfo: the mgmt page's own v_4_4_1 is the
+    # management INTERFACE's MAC (…:BB:E3), one off from this.
     assert mgmt.base_mac == "8C:3B:AD:6B:BB:E0"
-    # the page carries no DHCP/static indicator -- UNKNOWN, never guessed
-    assert mgmt.mode is IpMode.UNKNOWN
     temps = reader.get_sensors()
     assert any(s.kind == "temperature" and s.value > 0 for s in temps)
 
 
-def test_m4300_http_lldp_unsupported() -> None:
-    """The M4300 web UI exposes only LLDP-MED data (no chassis/port-id
-    neighbour table), so HTTP LLDP must raise rather than fabricate."""
+def test_m4300_http_lldp_matches_live_snmp() -> None:
+    """CORRECTION of an absence-of-evidence claim. This used to assert that the
+    M4300 web UI exposes only LLDP-MED data and that get_lldp must raise. It
+    does have a neighbour table -- the same ``lldpRemoteInventory.html`` the XE
+    models use, found via the firmware's own nav tree (2026-07-31, 10.1.5.13).
+    The 11 neighbours below are byte-for-byte what that switch's SNMP
+    lldpRemTable reported in the same session."""
     reader = HttpReader(_FakeSession(_m4300_pages()), get_model("m4300-24x"))
-    with pytest.raises(UnsupportedCapabilityError):
-        reader.get_lldp()
+    lldp = reader.get_lldp()
+    assert len(lldp) == 11
+    by_port = {n.local_port: n for n in lldp}
+    assert by_port[1].remote_sys_name == "manage-sw-netgear-m4300-16x-poe-s2"
+    assert by_port[1].remote_chassis_id == "8C:3B:AD:69:1C:38"
+    assert by_port[2].remote_sys_name.startswith("sw-netgear-gsm7252ps")
+    assert by_port[19].remote_sys_name == "big-storage"
 
 
 def test_gs110emx_http_poe_and_l2_tables_unsupported() -> None:
@@ -605,6 +641,11 @@ def _gsm7252ps_pages() -> dict[str, str]:
         "/base/system/management/sysInfo.html": (
             _FIX / "gsm7252ps_sysInfo.html"
         ).read_text(),
+        # LIVE capture 2026-07-30 from 10.1.5.22 -- the page that adds the
+        # gateway and the DHCP/static method sysInfo does not carry.
+        "/ipConfiguration.html": (
+            _FIX / "gsm7252ps_ipConfiguration.html"
+        ).read_text(),
         # VLAN-Membership, captured 2026-07-30 (VLANs 1 and 141 on this switch).
         "/switching/dot1q/vlan_port_cfg.html": _membership(
             "gsm7252ps_vlanPortCfg_vlan1.html",
@@ -701,7 +742,10 @@ def test_gsm7252ps_every_read_op_is_served_over_http() -> None:
         mgmt = reader.get_mgmt_ip()
         assert (mgmt.address, mgmt.netmask) == ("10.1.5.22", "255.255.255.0")
         assert mgmt.base_mac == "E0:91:F5:0C:D6:DB"
-        assert mgmt.mode is IpMode.UNKNOWN
+        # From ipConfiguration.html (live 2026-07-30), not sysInfo: it names the
+        # gateway and the addressing method, so neither is None/UNKNOWN now.
+        assert mgmt.gateway == "10.1.5.1"
+        assert mgmt.mode is IpMode.DHCP
 
 
 def test_gsm7252ps_async_reader_matches_sync() -> None:

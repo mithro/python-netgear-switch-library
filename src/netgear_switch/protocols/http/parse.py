@@ -50,7 +50,7 @@ from ...models import (
     VLANInfo,
     VlanMode,
 )
-from .types import FastpathMembership, HttpSysInfo
+from .types import FastpathMembership, HttpSysInfo, XuiFormPage, XuiListPage, XuiRow
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1271,14 +1271,15 @@ def parse_s3300_macs(html: str) -> list[MacEntry]:
 def parse_s3300_mgmt(html: str) -> MgmtIpConfig:
     """S3300-52X ``sysInfo.html`` -> base MAC ONLY (no IPv4 address).
 
-    The S3300 Smart-Managed-Pro UI's statically-reachable sysInfo page exposes
-    the switch's ``Base MAC Address`` (a labelled cell, ``aid="1_16_1_right"``)
-    but NOT the IPv4 management address/netmask -- those live on a JS-menu-only
-    page this backend cannot reach. So mgmt-IP over HTTP returns ``UNKNOWN``
-    mode with address/netmask/gateway ``None`` and only ``base_mac`` populated;
-    SNMP is authoritative for the S3300's management address (see
-    ``tests/fixtures/captures/gsm7228ps.json``). The base MAC is uppercased to
-    match the SNMP/NSDP backends' dot1dBaseBridgeAddress formatting.
+    This page really does carry only the switch's ``Base MAC Address`` (a
+    labelled cell, ``aid="1_16_1_right"``) -- but the CONCLUSION that used to be
+    drawn from that was wrong. It said the IPv4 management address "lives on a
+    JS-menu-only page this backend cannot reach", so ``get_mgmt_ip`` returned
+    ``UNKNOWN`` mode with a ``None`` address. Live 2026-07-30 on 10.1.5.11:
+    ``GET /ipConfiguration.html`` answers 200 with the real address, mask,
+    gateway and method. This parser is therefore now used ONLY for the base MAC
+    (uppercased, to match the SNMP/NSDP dot1dBaseBridgeAddress formatting),
+    which that page does not carry -- see ``http_read._fastpath_base_mac``.
     """
     m = re.search(r"Base MAC Address</td>\s*<td[^>]*>\s*([0-9A-Fa-f:]{17})", html)
     if m is None:
@@ -2031,6 +2032,274 @@ def fastpath_hidden_mem_with(
     codes = page.hidden_mem.split(",")
     codes[slot] = _MODE_TO_FASTPATH_MEM[mode]
     return ",".join(codes)
+
+
+# ---------------------------------------------------------------------------
+# FASTPATH "XE"/Cheetah XUI generic form pages (portsConfiguration.html,
+# poeInterfaceConfiguration.html, ipConfiguration.html,
+# mgmtVlanIpv4Configuration.html ...).
+#
+# Every one of these pages carries TWO <FORM>s. The first, ``<page>.html/a0``,
+# is the applet/redirect form (applet_port/applet_unit/dbgopt) and holds no
+# data; the SECOND, ``<page>.html/a1``, is the read+write form. Everything below
+# is scoped to that second form so a field name can never be picked up from the
+# wrong one. LIVE-CONFIRMED 2026-07-30 on gsm7252ps 10.1.5.22, gsm7228ps
+# 10.1.5.11, m4300-24x 10.1.5.13 and m4300-16x 10.1.5.20:49152.
+_XUI_FORM_RE = re.compile(r'<FORM\b[^>]*ACTION="([^"]*/a1)"', re.IGNORECASE)
+# The repeating rows of a list page. ``p="1.35.520"`` is the row's coordinate
+# attribute; the field NAMES use the ``1.35.52.`` prefix (same digits, no
+# trailing column index), which is why the prefix is taken from a field name
+# rather than from ``p``.
+_XUI_ROW_RE = re.compile(r'<TR\s+p="[\d.]+"[^>]*>(.*?)</TR>', re.IGNORECASE | re.DOTALL)
+_XUI_ROW_FIELD_RE = re.compile(r"^((?:\d+\.)+)(v_\d+_\d+_\d+)$")
+# The trailing "redirection elements" block every XUI form ends with.
+_XUI_HIDDEN_NAMES = (
+    "submit_flag",
+    "submit_target",
+    "err_flag",
+    "err_msg",
+    "clazz_information",
+)
+# The page's buttons live in their own trailing ``<div id="xuiButtonsDiv">``.
+# Scoped to that div ON PURPOSE rather than matched by name shape: the button
+# fields are named ``v_2_1_N``/``v_3_1_N`` depending on the page, and on
+# gsm7228ps's ipConfiguration.html ``v_2_1_1`` is NOT a button at all -- it is
+# the Management VLAN ID data field. A name-shaped guess would have classified a
+# real setting as a button and dropped it from every echoed body.
+_XUI_BUTTONS_DIV_RE = re.compile(
+    r'<div id="xuiButtonsDiv"[^>]*>(.*?)</div>', re.IGNORECASE | re.DOTALL
+)
+# Page-level fields that are NOT data cells and must ride along on every apply.
+# Today that is exactly the per-page ``CSRFToken`` the AV-era M4300-16X issues
+# and whose absence it answers with 403; matched by name rather than by "not a
+# v_* field" so a future data field cannot be swept in by accident.
+_XUI_TOKEN_RE = re.compile(r"^CSRFToken$", re.IGNORECASE)
+
+
+def _xui_form_block(html: str, page: str) -> tuple[str, str]:
+    """``(action, inner HTML)`` of the page's write form, or raise."""
+    m = _XUI_FORM_RE.search(html)
+    if m is None:
+        raise HttpUnexpectedPageError(
+            f"{page}: no <FORM ACTION=\"...(/a1)\"> -- this is not a FASTPATH XUI "
+            "write page (wrong URL, or the session bounced to the login page)"
+        )
+    return unescape(m.group(1)), html[m.end() :]
+
+
+def _xui_inputs(block: str) -> tuple[dict[str, str], list[str]]:
+    """``({name: value}, [checkbox names])`` for one XUI form block.
+
+    Deliberately NOT ``_fastpath_form_fields``: that one echoes every input
+    because the VLAN-membership form must be byte-faithful to the browser. Here
+    two kinds must be separated out instead, or an echoed body would say
+    something the browser never says:
+
+    * ``DISABLED`` inputs (``v_1_1_1_extn``, and every button) are NOT submitted
+      by a browser -- the firmware enables the one clicked button itself.
+    * a ``checkbox`` carries no ``value`` attribute, so echoing it as ``""``
+      would silently SELECT that row. Row selection is the one thing these
+      pages key their writes off, so it is returned separately and only ever
+      set deliberately.
+    """
+    fields: dict[str, str] = {}
+    checkboxes: list[str] = []
+    for m in _INPUT_RE.finditer(block):
+        attrs = _tag_attrs(m.group(1))
+        name = attrs.get("name")
+        if not name or "disabled" in attrs:
+            continue
+        if attrs.get("type", "").lower() == "checkbox":
+            checkboxes.append(name)
+            continue
+        fields[name] = attrs.get("value", "")
+    for m in _SELECT_RE.finditer(block):
+        attrs = _tag_attrs(m.group(1))
+        name = attrs.get("name")
+        if not name or "disabled" in attrs:
+            continue
+        options = [_tag_attrs(o.group(1)) for o in _OPTION_RE.finditer(m.group(2))]
+        chosen = next((o for o in options if "selected" in o), None)
+        if chosen is None and options:
+            chosen = options[0]
+        fields[name] = chosen.get("value", "") if chosen else ""
+    return fields, checkboxes
+
+
+def _xui_buttons(html: str) -> dict[str, str]:
+    """The page's button fields -> their labels (``v_2_1_2`` -> ``APPLY``).
+
+    Kept even though the inputs are rendered ``DISABLED`` (so a browser would
+    not submit them), because the firmware's own ``xuiProcessButtonActions``
+    calls ``xuiShed(3, ...)`` to ENABLE the clicked button before
+    ``form.submit()`` -- so the real POST does carry exactly one of these, with
+    the label as its value. The labels are NOT interchangeable between models:
+    the same ``v_2_1_3`` reads ``RESET`` on gsm7252ps/gsm7228ps and
+    ``Power Cycle Port(s)`` on both M4300s (live 2026-07-30), which is why the
+    value is echoed from the page instead of being a constant.
+    """
+    div = _XUI_BUTTONS_DIV_RE.search(html)
+    if div is None:
+        return {}
+    out: dict[str, str] = {}
+    for m in _INPUT_RE.finditer(div.group(1)):
+        attrs = _tag_attrs(m.group(1))
+        name = attrs.get("name")
+        if name:
+            out[name] = unescape(attrs.get("value", ""))
+    return out
+
+
+def parse_xui_list_page(html: str, *, page: str = "XUI list page") -> XuiListPage:
+    """A FASTPATH XUI table page -> its write form + one ``XuiRow`` per row.
+
+    Raises ``HttpUnexpectedPageError`` when the write form is missing. An EMPTY
+    row tuple is NOT an error and is not swallowed either -- it is a real,
+    meaningful answer that the caller interprets: the M4300-24X genuinely has no
+    PoE, and its ``/v1/poeInterfaceConfiguration.html`` proves it with an HTTP
+    **200** of 28152 bytes carrying the correct ``<TITLE>NETGEAR -  PoE Port
+    Configuration</TITLE>``, the full button set and ZERO ``<TR p="...">`` rows
+    (live 2026-07-30 on 10.1.5.13). A 404 would have been a missing page; this
+    is a present page with no PSE ports.
+    """
+    action, block = _xui_form_block(html, page)
+    rows: list[XuiRow] = []
+    for m in _XUI_ROW_RE.finditer(block):
+        row_fields, checkboxes = _xui_inputs(m.group(1))
+        prefix = next(
+            (
+                match.group(1)
+                for name in row_fields
+                if (match := _XUI_ROW_FIELD_RE.match(name)) is not None
+            ),
+            None,
+        )
+        if prefix is None:
+            continue  # a spacer/label row, not a data row
+        rows.append(
+            XuiRow(
+                prefix=prefix,
+                checkbox=next((c for c in checkboxes if c.startswith(prefix)), None),
+                fields={k: unescape(v) for k, v in row_fields.items()},
+            )
+        )
+    form_fields, _cbs = _xui_inputs(_XUI_ROW_RE.sub("", block))
+    return XuiListPage(
+        action=action,
+        hidden={n: form_fields[n] for n in _XUI_HIDDEN_NAMES if n in form_fields},
+        buttons=_xui_buttons(block),
+        rows=tuple(rows),
+        tokens={
+            n: unescape(v)
+            for n, v in form_fields.items()
+            if _XUI_TOKEN_RE.match(n)
+        },
+    )
+
+
+def parse_xui_form_page(html: str, *, page: str = "XUI page") -> XuiFormPage:
+    """A FASTPATH XUI detail page -> its write form's flat field map."""
+    action, block = _xui_form_block(html, page)
+    fields, _cbs = _xui_inputs(block)
+    hidden = {n: fields.pop(n) for n in _XUI_HIDDEN_NAMES if n in fields}
+    return XuiFormPage(
+        action=action,
+        hidden=hidden,
+        buttons=_xui_buttons(block),
+        fields={k: unescape(v) for k, v in fields.items()},
+    )
+
+
+# The addressing-method values these pages use, mapped to the shared IpMode.
+# ``None`` on the gsm72xx ipConfiguration page is FASTPATH's name for "no
+# dynamic protocol", i.e. a manually-configured static address (its enum is
+# ``["None","Bootp","DHCP"]``); ``Disable``/``Enable`` are the M4300
+# mgmtVlanIpv4Configuration radio, whose own metadata spells them out as
+# ``xew_1_5_3_Disable = "Manual"`` / ``xew_1_5_3_Enable = "DHCP"``. Anything
+# else is left UNKNOWN rather than guessed at.
+_XUI_IP_MODE = {
+    "none": IpMode.STATIC,
+    "manual": IpMode.STATIC,
+    "disable": IpMode.STATIC,
+    "dhcp": IpMode.DHCP,
+    "enable": IpMode.DHCP,
+    "bootp": IpMode.DHCP,
+}
+
+
+def parse_xui_mgmt_ip(
+    html: str,
+    *,
+    address_field: str,
+    netmask_field: str,
+    gateway_field: str,
+    mode_field: str,
+    page: str = "XUI management-IP page",
+) -> MgmtIpConfig:
+    """A FASTPATH XUI management-IP page -> ``MgmtIpConfig`` (without base MAC).
+
+    Field names are passed in rather than assumed: the two Cheetah families put
+    the same four values under different names, and one of those names means
+    different things on two switches of the SAME family -- see
+    ``endpoints.XuiMgmtIpFields``. ``base_mac`` is left ``None`` here because
+    neither family's mgmt page carries the switch's BASE MAC (gsm7228ps's page
+    has no MAC row at all; the M4300's ``v_4_4_1`` is the management
+    interface's MAC, one off from the base MAC SNMP reports) -- the reader
+    merges it from ``sysinfo_path``.
+    """
+    fields, _cbs = _xui_inputs(_xui_form_block(html, page)[1])
+    missing = [
+        f
+        for f in (address_field, netmask_field, gateway_field)
+        if f not in fields
+    ]
+    if missing:
+        raise HttpUnexpectedPageError(
+            f"{page}: no {missing!r} field(s) -- wrong management-IP page for "
+            "this model?"
+        )
+    return MgmtIpConfig(
+        mode=_XUI_IP_MODE.get(
+            unescape(fields.get(mode_field, "")).strip().lower(), IpMode.UNKNOWN
+        ),
+        address=unescape(fields[address_field]).strip() or None,
+        netmask=unescape(fields[netmask_field]).strip() or None,
+        gateway=unescape(fields[gateway_field]).strip() or None,
+        base_mac=None,
+    )
+
+
+# GS110EMX port_settings.html rows: each ``<tr class="portID">`` carries its own
+# hidden PORT_NO/PHYSICAL_MODE/FLOW_CONTROL_MODE inputs, which the page's own
+# ``sendPortStatusForm()`` reads back before POSTing. Real hardware never closes
+# these rows with ``</tr>`` -- see _OPEN_ROW_RE, the same quirk the status
+# parser handles.
+_EMX_PORT_ROW_RE = re.compile(
+    r'<tr class="portID">(.*?)(?=<tr|</table>)', re.DOTALL | re.IGNORECASE
+)
+_EMX_HIDDEN_RE = re.compile(
+    r'<input[^>]*name="(\w+)"[^>]*value="([^"]*)"', re.IGNORECASE
+)
+
+
+def parse_gs110emx_port_form_fields(html: str) -> dict[int, dict[str, str]]:
+    """``{port: {field: value}}`` from ``port_settings.html``'s per-port rows.
+
+    Used to echo a port's CURRENT ``FLOW_CONTROL_MODE`` back on an admin-mode
+    apply, exactly as the page's JS does -- inventing a value there would
+    silently rewrite the port's flow control as a side effect of enabling it.
+    """
+    out: dict[int, dict[str, str]] = {}
+    for m in _EMX_PORT_ROW_RE.finditer(html):
+        fields = dict(_EMX_HIDDEN_RE.findall(m.group(1)))
+        port = _int(fields.get("PORT_NO", ""))
+        if port is not None:
+            out[port] = fields
+    if not out:
+        raise HttpUnexpectedPageError(
+            'port_settings.html: no <tr class="portID"> rows with a PORT_NO'
+        )
+    return out
 
 
 def parse_reboot_ok(html: str) -> bool:

@@ -23,7 +23,7 @@ import dataclasses
 import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs
 
 from ...protocols.http.crypt import merge_hash_md5
@@ -31,6 +31,7 @@ from ...protocols.http.endpoints import HtmlDialect, HttpModelSpec, LoginScheme
 from .. import (
     web,
     web_fastpath_vlan,
+    web_fastpath_xui,
     web_gs105pe,
     web_gs110emx,
     web_gs728tpp,
@@ -64,11 +65,28 @@ _PATH_FIELDS: tuple[str, ...] = tuple(
 )
 
 
+# The XUI write pages a managed model serves, plus their POST targets. On real
+# firmware every one of these pages GETs at ``<page>.html`` and POSTs to
+# ``<page>.html/a1`` (its second form's ACTION), so the mock must serve BOTH or
+# a faithful writer's apply would 404 against it while working on hardware.
+_XUI_WRITE_PATH_FIELDS = ("port_config_path", "poe_config_path", "mgmt_ip_path")
+
+
+def _xui_write_paths(spec: HttpModelSpec) -> dict[str, str]:
+    """``{"<page>.html/a1": "<page>.html"}`` for every XUI write page."""
+    return {
+        f"{value}/a1": value
+        for name in _XUI_WRITE_PATH_FIELDS
+        if (value := getattr(spec, name)) is not None
+    }
+
+
 def _known_paths(spec: HttpModelSpec) -> set[str]:
     """The set of paths ``spec`` actually serves (populated fields only)."""
-    return {
+    paths = {
         value for name in _PATH_FIELDS if (value := getattr(spec, name)) is not None
     }
+    return paths | set(_xui_write_paths(spec))
 
 
 def _parse_multipart(
@@ -302,6 +320,10 @@ class VirtualHttpFace:
                         fp := face._render_fastpath_vlan_page(path, {})
                     ) is not None:
                         page = fp
+                    elif (
+                        xw := face._render_fastpath_xui_page(path, {})
+                    ) is not None:
+                        page = xw
                     elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, {})
                     elif (gs105 := face._render_gs105pe_page(path, {})) is not None:
@@ -356,6 +378,10 @@ class VirtualHttpFace:
                         fp := face._render_fastpath_vlan_page(path, form)
                     ) is not None:
                         page = fp
+                    elif (
+                        xw := face._render_fastpath_xui_page(path, form)
+                    ) is not None:
+                        page = xw
                     elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, form)
                     elif (gs105 := face._render_gs105pe_page(path, form)) is not None:
@@ -409,6 +435,51 @@ class VirtualHttpFace:
             return web_gs105pe.render_vlan_membership(self.state, vid)
         return None
 
+    def _render_fastpath_xui_page(
+        self, path: str, form: dict[str, str]
+    ) -> str | None:
+        """Serve a managed model's XUI write page, applying the form first.
+
+        Covers ``portsConfiguration.html`` (set_port_enabled),
+        ``poeInterfaceConfiguration.html`` (set_poe / cycle_poe /
+        clear_poe_fault) and the model's management-IP page -- both the GET page
+        and its ``/a1`` POST target, which is where real firmware's second form
+        submits. ``None`` = not one of these, so the caller falls through.
+
+        The apply happens BEFORE the re-render and its refusal (``err_msg``) is
+        rendered onto the page as ``err_flag=1`` on a **200**, which is how these
+        pages report a rejection -- never an HTTP error status.
+        """
+        writes = _xui_write_paths(self.spec)
+        page_path = writes.get(path, path)
+        if page_path not in (
+            self.spec.port_config_path,
+            self.spec.poe_config_path,
+            self.spec.mgmt_ip_path,
+        ):
+            return None
+        dialect = self.spec.html_dialect
+        if dialect is HtmlDialect.M4300:
+            module: Any = web_m4300
+        elif dialect is HtmlDialect.S3300:
+            module = web_gsm7228ps
+        elif dialect is HtmlDialect.XE_FASTPATH:
+            module = web_gsm7252ps
+        else:
+            return None
+        if page_path == self.spec.mgmt_ip_path:
+            if self.spec.mgmt_ip_fields is None:
+                return None
+            err = web_fastpath_xui.apply_mgmt_ip(self.state, self.spec, form)
+            return web_fastpath_xui.render_mgmt_ip(
+                self.state, self.spec, err_msg=err
+            )
+        if page_path == self.spec.port_config_path:
+            err = module.apply_ports(self.state, form)
+            return module.render_ports(self.state, err_msg=err)
+        err = module.apply_poe(self.state, form)
+        return module.render_poe(self.state, err_msg=err)
+
     def _render_fastpath_vlan_page(
         self, path: str, form: dict[str, str]
     ) -> str | None:
@@ -458,6 +529,12 @@ class VirtualHttpFace:
             return web_m4300.render_mac_table(self.state)
         if path == self.spec.sysinfo_path:
             return web_m4300.render_sysinfo(self.state)
+        if self.spec.lldp_path and path == self.spec.lldp_path:
+            # lldpRemoteInventory.html is the SAME page (and the same XE cell
+            # grid, with 1/0/N ifNames) on the M4300s as on gsm7252ps -- proven
+            # live 2026-07-31 by parse_xe_lldp reading both switches' real pages
+            # equal to their SNMP lldpRemTable.
+            return web_gsm7252ps.render_lldp(self.state)
         if self.spec.poe_status_path and path == self.spec.poe_status_path:
             # The M4300-16X PoE page (poeInterfaceConfiguration.html) shares the
             # gsm7252ps XE cell layout -- both FASTPATH -- so reuse that
@@ -543,6 +620,12 @@ class VirtualHttpFace:
         if path == self.spec.stats_path:
             return web_gs110emx.render_interface_stats(self.state, self._token)
         if path == self.spec.dashboard_path:
+            # Same URL for read and write on this model. An apply POST (ACTION=
+            # apply) is answered with the firmware's bare ``SUCCESS`` body, NOT a
+            # re-rendered page -- reproducing that is what lets the library's
+            # ``_check_gs110emx_apply`` be exercised without hardware.
+            if form.get("ACTION") == "apply":
+                return web_gs110emx.apply_port_settings(self.state, form)
             return web_gs110emx.render_port_settings(self.state, self._token)
         if path == self.spec.pvid_path:
             return web_gs110emx.render_pvid(self.state, self._token)

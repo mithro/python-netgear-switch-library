@@ -33,11 +33,16 @@ if TYPE_CHECKING:
 
 # The gsm7252ps XE renderers whose page shape the S3300 shares byte-for-byte
 # (the reader keys off the ifindex/port-number columns, not the port ifName).
-render_ports = _xe.render_ports
 render_port_statistics = _xe.render_port_statistics
 render_pvids = _xe.render_pvids
-render_poe = _xe.render_poe
 render_lldp = _xe.render_lldp
+
+# The S3300's per-row selection checkboxes, from the LIVE 10.1.5.11 pages: they
+# are NOT the gsm7252ps spellings even though the grid is otherwise identical.
+#   portsConfiguration        -> 1.<row>.52.gecb10
+#   poeInterfaceConfiguration -> 1.<row>.48.gecb164
+_PORTS_CHECKBOX = "gecb10"
+_POE_CHECKBOX = "gecb164"
 
 
 def _s3300_iface(port: int) -> str:
@@ -49,6 +54,34 @@ def _s3300_iface(port: int) -> str:
     if 49 <= port <= 52:
         return f"1/xg{port}"
     return "c1"
+
+
+def render_ports(state: VirtualSwitchState, *, err_msg: str = "") -> str:
+    """``/portsConfiguration.html`` in the Smart firmware's spelling.
+
+    Same XE grid as gsm7252ps, but the Port cell is ``1/g12``/``1/xg49``, not
+    ``1/0/12`` -- live-confirmed on 10.1.5.11. It used to be aliased straight to
+    the gsm7252ps renderer, which made the mock print ``1/0/N`` here and hid the
+    fact that a writer locating its row by ifName has to handle BOTH spellings.
+    """
+    return _xe.render_ports(
+        state, err_msg=err_msg, iface=_s3300_iface, checkbox=_PORTS_CHECKBOX
+    )
+
+
+def apply_ports(state: VirtualSwitchState, form: dict[str, str]) -> str:
+    return _xe.apply_ports(state, form, checkbox=_PORTS_CHECKBOX)
+
+
+def render_poe(state: VirtualSwitchState, *, err_msg: str = "") -> str:
+    """``/poeInterfaceConfiguration.html`` in the Smart firmware's spelling."""
+    return _xe.render_poe(
+        state, err_msg=err_msg, iface=_s3300_iface, checkbox=_POE_CHECKBOX
+    )
+
+
+def apply_poe(state: VirtualSwitchState, form: dict[str, str]) -> str:
+    return _xe.apply_poe(state, form, checkbox=_POE_CHECKBOX)
 
 
 def render_vlans(state: VirtualSwitchState) -> str:

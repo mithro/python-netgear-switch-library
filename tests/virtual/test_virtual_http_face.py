@@ -288,8 +288,14 @@ def test_xe_face_serves_every_read_op_from_state(xe_face) -> None:
             mgmt = reader.get_mgmt_ip()
             assert mgmt.address == state.mgmt.address
             assert mgmt.base_mac == "E0:91:F5:0C:D6:DB"
-            # the page has no DHCP indicator: never guessed from the state
-            assert mgmt.mode is IpMode.UNKNOWN
+            # Read from ipConfiguration.html (live-discovered 2026-07-30), which
+            # DOES carry the gateway and the addressing method -- the sysInfo
+            # page this used to read carries neither, which is why mode was
+            # UNKNOWN and gateway None here before.
+            assert mgmt.gateway == state.mgmt.gateway
+            assert mgmt.mode is (
+                IpMode.DHCP if state.mgmt.mode == "dhcp" else IpMode.STATIC
+            )
 
             # The HTTP sysInfo sensor set is the real web-UI one (temperatures
             # + fan/PSU health), DIFFERENT from this device's SNMP set (fan RPM
@@ -541,7 +547,7 @@ def test_s3300_face_serves_grounded_reads_matching_snmp_capture(s3300_face) -> N
     sysInfo has no live fan/temp table -- SNMP only)."""
     from netgear_switch.errors import UnsupportedCapabilityError
 
-    _f, port, _state = s3300_face
+    _f, port, state = s3300_face
     cap = _S3300_CAPTURE
     client = HttpClient(f"127.0.0.1:{port}", "password", _GSM7228PS_SPEC)
     try:
@@ -597,10 +603,17 @@ def test_s3300_face_serves_grounded_reads_matching_snmp_capture(s3300_face) -> N
         }
         assert "08:BD:43:6B:B8:D8" not in {m for m, _p, _v in macs}
 
-        # mgmt-IP over HTTP is base-MAC only (SNMP is authoritative for address)
+        # mgmt-IP over HTTP is NO LONGER base-MAC only. Live 2026-07-30 on
+        # 10.1.5.11 corrected the old "the S3300's mgmt IP is unreachable over
+        # HTTP" claim: /ipConfiguration.html serves the address, mask, gateway
+        # and method, and only the base MAC still comes from sysInfo.
         mgmt = reader.get_mgmt_ip()
-        assert mgmt.mode is IpMode.UNKNOWN
-        assert mgmt.address is None
+        assert mgmt.address == state.mgmt.address
+        assert mgmt.netmask == state.mgmt.netmask
+        assert mgmt.gateway == state.mgmt.gateway
+        assert mgmt.mode is (
+            IpMode.DHCP if state.mgmt.mode == "dhcp" else IpMode.STATIC
+        )
         assert mgmt.base_mac == cap["mgmt_ip"]["base_mac"] == "08:BD:43:6B:B8:D8"
 
         # sensors -- unsupported over HTTP (no live fan/temp table); SNMP only

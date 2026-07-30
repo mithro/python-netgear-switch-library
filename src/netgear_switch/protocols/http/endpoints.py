@@ -18,11 +18,13 @@ flows are grounded in captured prior art or still
   SAME Cheetah XE grid as the sibling ``gsm7252ps`` and are GROUNDED in real
   captures of the live switch (``tests/fixtures/http/gsm7228ps_*.html``);
   ports/stats/PVIDs/VLANs/PoE/LLDP reuse the ``parse_xe_*`` parsers, while the
-  MAC table (shifted columns, escaped ``1/gN`` port names), mgmt-IP (base MAC
-  only) and sensors (unsupported over HTTP) get S3300-specific handling -- see
+  MAC table (shifted columns, escaped ``1/gN`` port names) and sensors
+  (unsupported over HTTP) get S3300-specific handling -- see
   ``HtmlDialect.S3300``. ``reads_verified`` is ``True`` (HTTP cross-verified vs
-  SNMP on 10.1.5.11); SNMP remains authoritative for the mgmt address and the
-  full sensor set.
+  SNMP on 10.1.5.11); SNMP remains authoritative for the full sensor set. Its
+  management IP is NOT "unreachable over HTTP" as this file once claimed --
+  ``/ipConfiguration.html`` serves it, and more of it than SNMP does (see
+  ``mgmt_ip_path`` below).
 - ``gs110emx`` (Plus EMx / Gambit): GROUNDED in real captures from a physical
   GS110EMX (``tests/fixtures/http/gs110emx_*.html``). The scheme is
   ``merge_hash_md5(password, rand)`` (identical function to ``gs305ep``) POSTed
@@ -118,11 +120,12 @@ class HtmlDialect(enum.Enum):
     # pages differ and get their own handling. (1) The basicAddressTable columns
     # are SHIFTED (VLAN in v_1_2_2, not v_1_2_1) and the port ifName is
     # HTML-entity-escaped in the Smart firmware's "1/gN"/"1/xgN" form
-    # (parse_s3300_macs). (2) Its statically-reachable sysInfo exposes only the
-    # Base MAC Address -- the IPv4 mgmt address/netmask live on a JS-menu-only
-    # page unreachable here -- so get_mgmt_ip returns base-MAC-only
-    # (parse_s3300_mgmt) and SNMP stays authoritative for the address. (3) That
-    # sysInfo carries no live fan/temp sensor table, so get_sensors is
+    # (parse_s3300_macs). (2) Its sysInfo exposes only the Base MAC Address, so
+    # that is all get_mgmt_ip takes from it (parse_s3300_mgmt); the IPv4
+    # address/netmask/gateway/method come from /ipConfiguration.html instead.
+    # This used to say those "live on a JS-menu-only page unreachable here" --
+    # WRONG, and corrected live 2026-07-30 (see the _GSM7228PS spec below).
+    # (3) That sysInfo carries no live fan/temp sensor table, so get_sensors is
     # unsupported over HTTP (SNMP is the only source). LIVE-verified on the real
     # S3300-52X (10.1.5.11), cross-checked vs SNMP.
     S3300 = "s3300"
@@ -135,6 +138,62 @@ class HtmlDialect(enum.Enum):
     # parse.parse_goahead_*. Structured XML, NOT the HTML-scraping the other
     # dialects do.
     GOAHEAD_XML = "goahead_xml"
+
+
+@dataclass(frozen=True)
+class XuiMgmtIpFields:
+    """Which fields of a FASTPATH XUI management-IP page carry what.
+
+    Deliberately PER MODEL, never shared by dialect. The two Cheetah families
+    put the same information on different pages under different names, and one
+    page name that looks shared is not:
+
+    * gsm7252ps / gsm7228ps: ``/ipConfiguration.html`` -- address ``v_1_1_1``,
+      mask ``v_1_2_1``, gateway ``v_1_3_1``, protocol ``v_1_18_1`` (the hidden
+      twin of the visible radio, which is ``v_1_8_1`` on gsm7252ps but
+      ``v_1_4_1`` on gsm7228ps -- the same name means different things on the
+      two boxes, so only the hidden one is used).
+    * m4300-24x / m4300-16x: ``/v1/mgmtVlanIpv4Configuration.html`` -- address
+      ``v_1_6_1``, mask ``v_1_7_1``, gateway ``v_1_71_1``, DHCP/static
+      ``v_1_5_3`` (``Enable`` = DHCP, ``Disable`` = Manual, per the page's own
+      ``xeData["xew_1_5_3_Enable"] = "DHCP"``). Their ``/v1/ipConfiguration.html``
+      exists and answers 200, but it is the SERVICE-PORT interface and reads
+      ``0.0.0.0/0.0.0.0`` on both SKUs (live 2026-07-30) -- reading mgmt-IP from
+      it would report the switch as unaddressed.
+    * gsm7252ps/gsm7228ps 404 on ``/mgmtVlanIpv4Configuration.html`` (live
+      2026-07-30), which is exactly why this is not one shared constant.
+    """
+
+    address: str
+    netmask: str
+    gateway: str
+    # The field carrying the addressing METHOD, plus the two values it takes.
+    mode: str
+    static_value: str
+    dhcp_value: str
+    # The page's APPLY button field (``v_3_1_1`` on both families). Its VALUE is
+    # read off the page, since the label differs (``APPLY`` vs ``Apply``).
+    apply_button: str
+
+
+_GSM72XX_MGMT_IP_FIELDS = XuiMgmtIpFields(
+    address="v_1_1_1",
+    netmask="v_1_2_1",
+    gateway="v_1_3_1",
+    mode="v_1_18_1",
+    static_value="None",  # allWebEnums e_v_1_18_1 = ["None","Bootp","DHCP"]
+    dhcp_value="DHCP",
+    apply_button="v_3_1_1",
+)
+_M4300_MGMT_IP_FIELDS = XuiMgmtIpFields(
+    address="v_1_6_1",
+    netmask="v_1_7_1",
+    gateway="v_1_71_1",
+    mode="v_1_5_3",
+    static_value="Disable",  # xew_1_5_3_Disable = "Manual"
+    dhcp_value="Enable",  # xew_1_5_3_Enable = "DHCP"
+    apply_button="v_3_1_1",
+)
 
 
 @dataclass(frozen=True)
@@ -245,6 +304,19 @@ class HttpModelSpec:
     # 80/443. The M4300-16X-PoE serves its Cheetah UI on 49152; the facade forms
     # the host as ``<ip>:<web_port>`` when this is set.
     web_port: int | None = None
+    # The per-port ADMIN-MODE page (``set_port_enabled``). On every FASTPATH
+    # model this is the same ``portsConfiguration.html`` the reader scrapes for
+    # port status, but it is a SEPARATE field on purpose: "the page I read
+    # status from" and "the page I write admin mode to" are different questions,
+    # and a model whose write page moves (or whose write form has to be
+    # discovered separately, as on the Plus CGIs) must be able to say so without
+    # dragging its read path along. ``None`` = not discovered for this model,
+    # and ``set_port_enabled`` says which model and which page it is missing.
+    port_config_path: str | None = None
+    # Which fields of ``mgmt_ip_path`` carry address/mask/gateway/method, for a
+    # model whose mgmt-IP page is a FASTPATH XUI form. ``None`` for the Plus/
+    # GoAhead models, whose mgmt-IP pages are a different shape entirely.
+    mgmt_ip_fields: XuiMgmtIpFields | None = None
 
 
 # The managed (FASTPATH/Cheetah) "VLAN Membership" page, shared by every managed
@@ -270,6 +342,18 @@ _FASTPATH_VLAN_MEMBERSHIP = "/switching/dot1q/vlan_port_cfg.html"
 _FASTPATH_VLAN_MEMBERSHIP_RW = "/switching/dot1q/vlan_port_cfg_rw.html"
 _M4300_VLAN_MEMBERSHIP = f"/v1{_FASTPATH_VLAN_MEMBERSHIP}"
 _M4300_VLAN_MEMBERSHIP_RW = f"/v1{_FASTPATH_VLAN_MEMBERSHIP_RW}"
+
+# The FASTPATH XUI write pages. Every one of these was fetched live on all four
+# managed switches on 2026-07-30 and answered 200 with the expected <TITLE>; the
+# ``/v1`` prefix is the M4300s' and is applied per model below, never assumed.
+#
+# The mgmt-IP page is where the two families genuinely diverge, so there is NO
+# shared constant for it -- see XuiMgmtIpFields' docstring for the measured
+# 404s/0.0.0.0s that make one impossible.
+_FASTPATH_PORT_CONFIG = "/portsConfiguration.html"
+_FASTPATH_POE_CONFIG = "/poeInterfaceConfiguration.html"
+_GSM72XX_MGMT_IP = "/ipConfiguration.html"
+_M4300_MGMT_IP = "/v1/mgmtVlanIpv4Configuration.html"
 
 
 # GROUNDED: py_netgear_plus/models.py GS30xSeries/GS30xEPxSeries
@@ -330,6 +414,11 @@ _GS110EMX = HttpModelSpec(
     cookie_name="",  # unused: token session (see session_token_field)
     needs_rand=True,
     dashboard_path="/iss/specific/port_settings.html",
+    # Same page, but a genuinely different write mechanism from the FASTPATH
+    # grid: it has no admin column, so an admin change is its "Physical Mode"
+    # select posted as PORT_CTRL_MODE (see forms.gs110emx_port_admin_form).
+    # LIVE-VERIFIED 2026-07-31 on 10.1.5.25.
+    port_config_path="/iss/specific/port_settings.html",
     stats_path="/iss/specific/interface_stats.html",
     sysinfo_path="/iss/specific/sysInfo.html",
     poe_config_path=None,
@@ -337,8 +426,21 @@ _GS110EMX = HttpModelSpec(
     vlan_config_path="/iss/specific/Cf8021q.html",
     vlan_membership_path="/iss/specific/vlanMembership.html",
     pvid_path="/iss/specific/vlan_pvidsetting.html",
-    reboot_path=None,  # never captured -- not guessed
-    logout_path=None,  # never captured -- not guessed
+    # LIVE-DISCOVERED 2026-07-31 on 10.1.5.25, the same way the FASTPATH VLAN
+    # page was found -- by harvesting the firmware's OWN page literals out of
+    # /homepage.html + /frame.js + /function.js + /script.js (39 of them) rather
+    # than guessing URLs. Both confirmed by fetching them:
+    #     GET /iss/specific/sys_reload.html -> 200, <title>Device Restart</title>
+    #     GET /iss/specific/logout.html     -> 200, and it really does end the
+    #                                          session (every later read then
+    #                                          returned the 298-byte login page)
+    # That same harvest is ALSO the evidence for what stays None below: the 39
+    # literals contain no PoE, LLDP or MAC/FDB page at all, and the plausible
+    # names probed on top of that (poe.html, poe_config.html, lldp.html,
+    # lldp_neighbors.html, mac_table.html, fdb.html, address_table.html) each
+    # answered HTTP 404 with the firmware's 649-byte not-found body.
+    reboot_path="/iss/specific/sys_reload.html",
+    logout_path="/iss/specific/logout.html",
     is_epx_poe=False,
     reads_verified=True,
     session_token_field="Gambit",
@@ -371,11 +473,25 @@ _GSM7228PS = HttpModelSpec(
     cookie_name="SID",
     needs_rand=False,
     dashboard_path="/portsConfiguration.html",
+    port_config_path=_FASTPATH_PORT_CONFIG,
     stats_path="/portStatistics.html",
     sysinfo_path="/base/system/management/sysInfo.html",
+    # LIVE-DISCOVERED 2026-07-30 on the real S3300-52X (10.1.5.11), correcting
+    # the note this spec used to carry ("the IPv4 mgmt address lives on a
+    # JS-menu-only page unreachable here"). It is NOT unreachable:
+    #     GET /ipConfiguration.html -> HTTP 200, 8859 bytes,
+    #     <TITLE>NetGear - IPv4 Network Interface Configuration</TITLE>
+    #     v_1_1_1="10.1.5.11" v_1_2_1="255.255.255.0" v_1_3_1="10.1.5.1"
+    #     v_1_18_1="DHCP"
+    # which is the switch's real management address, gateway and method -- more
+    # than SNMP reports. (Its sibling page ``/mgmtVlanIpv4Configuration.html``
+    # 404s here; that one is M4300-only.) The base MAC still comes from sysInfo,
+    # which is the only page that carries it on this model.
+    mgmt_ip_path=_GSM72XX_MGMT_IP,
+    mgmt_ip_fields=_GSM72XX_MGMT_IP_FIELDS,
     mac_table_path="/basicAddressTable.html",
     lldp_path="/lldpRemoteInventory.html",
-    poe_config_path=None,
+    poe_config_path="/poeInterfaceConfiguration.html",
     poe_status_path="/poeInterfaceConfiguration.html",
     vlan_config_path="/vlanStatus.html",
     # LIVE-DISCOVERED 2026-07-30 on the real S3300-52X (10.1.5.11) -- see
@@ -491,9 +607,50 @@ _M4300 = HttpModelSpec(
     needs_rand=False,
     needs_referer=True,
     dashboard_path="/v1/portsConfiguration.html",
+    port_config_path=f"/v1{_FASTPATH_PORT_CONFIG}",
     stats_path="/v1/portStatistics.html",
     sysinfo_path="/v1/base/system/management/sysInfo.html",
+    # LIVE-MEASURED 2026-07-30 on BOTH M4300 SKUs (10.1.5.13 and
+    # 10.1.5.20:49152). The management address is on the MANAGEMENT-VLAN page,
+    # not the network-interface page:
+    #     GET /v1/ipConfiguration.html            -> 200, v_1_1_1="0.0.0.0"
+    #                                                    v_1_2_1="0.0.0.0"
+    #                                                    v_1_3_1="0.0.0.0"
+    #     GET /v1/mgmtVlanIpv4Configuration.html  -> 200, v_1_6_1="10.1.5.13"
+    #                                                    v_1_7_1="255.255.255.0"
+    #                                                    v_1_71_1="10.1.5.1"
+    # i.e. ipConfiguration describes the (unused) service port. Reading mgmt-IP
+    # from it would have reported both switches as 0.0.0.0. The base MAC still
+    # comes from sysInfo -- this page's ``v_4_4_1`` is the management
+    # INTERFACE's MAC (8C:3B:AD:6B:BB:E3), one off from the switch's base MAC
+    # (…:E0), so using it would break parity with SNMP's
+    # dot1dBaseBridgeAddress.
+    mgmt_ip_path=_M4300_MGMT_IP,
+    mgmt_ip_fields=_M4300_MGMT_IP_FIELDS,
     mac_table_path="/v1/basicAddressTable.html",
+    # CORRECTION, live 2026-07-31 on BOTH SKUs. This spec used to say the M4300
+    # web UI "exposes only LLDP-MED remote data (medRemoteDevInfo.html), which
+    # carries no chassis/port-id neighbour table", and get_lldp raised. That was
+    # absence of evidence: the real neighbour page is the SAME
+    # ``lldpRemoteInventory.html`` the XE models use, and it was found the same
+    # way the VLAN page was -- by reading the firmware's own nav tree
+    # (``GET /v1/base/js/ng_sideNav.js``, 463 page literals) instead of guessing.
+    #     GET /v1/lldpRemoteInventory.html -> 200, 26425 bytes,
+    #     <TITLE>NETGEAR -  LLDP Remote Device Inventory</TITLE>, 11 rows
+    # and parse_xe_lldp reads it EXACTLY equal to SNMP's lldpRemTable on both
+    # switches (11/11 neighbours on the -24X, 4/4 on the -16X: same local port,
+    # remote sysName and chassis id for every entry).
+    lldp_path="/v1/lldpRemoteInventory.html",
+    # LIVE-MEASURED 2026-07-30 on the M4300-24X (10.1.5.13): this SKU has NO
+    # PoE, and the proof is a 200 rather than a 404 --
+    #     GET /v1/poeInterfaceConfiguration.html -> HTTP 200, 28152 bytes,
+    #     <TITLE>NETGEAR -  PoE Port Configuration</TITLE>, the full button set
+    #     (Refresh / Power Cycle Port(s) / Cancel / Apply) and ZERO <TR p="...">
+    #     rows.
+    # The page is present and correct; the switch simply has no PSE ports. The
+    # 16X below serves the same URL with 16 rows. Left None here so every PoE op
+    # raises UnsupportedCapabilityError naming this model rather than POSTing
+    # into a table that cannot contain the port.
     poe_config_path=None,
     poe_status_path=None,
     vlan_config_path="/v1/vlanStatus.html",
@@ -546,7 +703,11 @@ _M4300_16X = dataclasses.replace(
     # poeInterfaceConfiguration.html under /v1/. Its cell format is byte-identical
     # to the gsm7252ps XE page, so _parse_poe routes the M4300 dialect through
     # parse_xe_poe (16 PSE rows, live-verified == pethPsePortTable).
-    poe_status_path="/v1/poeInterfaceConfiguration.html",
+    poe_status_path=f"/v1{_FASTPATH_POE_CONFIG}",
+    # Same page, and it WRITES: live-proven 2026-07-30 on 10.1.5.20:49152 by
+    # setting port 1/0/15's Port Priority Low -> High -> Low through this form
+    # and reading each change back (err_flag=0 both times).
+    poe_config_path=f"/v1{_FASTPATH_POE_CONFIG}",
     secure=True,
     web_port=49152,
 )
@@ -572,9 +733,10 @@ _M4300_16X = dataclasses.replace(
 #
 # The READ pages live at the ROOT prefix -- not /base/ and not /v1/ -- and are
 # GROUNDED in real captures of that switch (tests/fixtures/http/gsm7252ps_*.
-# html), including the sysInfo page that serves BOTH get_sensors and
-# get_mgmt_ip. Their HTML is the XE_FASTPATH dialect (see HtmlDialect), NOT
-# the M4300's: the M4300 parsers return zero rows on these pages.
+# html), including the sysInfo page that serves get_sensors (get_mgmt_ip moved
+# to ipConfiguration.html -- see mgmt_ip_path below). Their HTML is the
+# XE_FASTPATH dialect (see HtmlDialect), NOT the M4300's: the M4300 parsers
+# return zero rows on these pages.
 #
 # reads_verified is True: the HTTP reader was cross-verified against SNMP on
 # the live switch (10.1.5.22) -- see the reads_verified=True line below. Every
@@ -593,12 +755,39 @@ _GSM7252PS = HttpModelSpec(
     cookie_name="SID",
     needs_rand=False,
     dashboard_path="/portsConfiguration.html",
+    port_config_path=_FASTPATH_PORT_CONFIG,
     stats_path="/portStatistics.html",
     sysinfo_path="/base/system/management/sysInfo.html",
+    # LIVE 2026-07-30 (10.1.5.22): ipConfiguration.html reports the mgmt address,
+    # mask, gateway AND the addressing method (v_1_18_1="DHCP"), which the
+    # sysInfo page this used to read does not -- sysInfo carries no gateway and
+    # no DHCP/static indicator, so get_mgmt_ip reported IpMode.UNKNOWN and
+    # gateway=None where SNMP has both. (mgmtVlanIpv4Configuration.html, the
+    # M4300's page, 404s here.)
+    mgmt_ip_path=_GSM72XX_MGMT_IP,
+    mgmt_ip_fields=_GSM72XX_MGMT_IP_FIELDS,
     mac_table_path="/basicAddressTable.html",
     lldp_path="/lldpRemoteInventory.html",
-    poe_config_path=None,  # never captured -- not guessed
-    poe_status_path="/poeInterfaceConfiguration.html",
+    # NOT set, and this one is measured rather than merely uncaptured: this
+    # switch's poeInterfaceConfiguration form REFUSES every write. Live
+    # 2026-07-30 on 10.1.5.22, ports 1/0/34 and 1/0/36 (both link-down and
+    # undescribed), the page answers HTTP 200 with err_flag=1 and
+    #     Error! Failed to Set 'Admin <br/> Mode' with 'Enable'
+    #     Error! Failed to Set 'Port <br/> Priority' with 'Low'
+    #     ... one line per read-write column ...
+    #     Error! Failed to Set 'Port Reset' with 'Reset'
+    # even for a body that changes NOTHING (every value echoed back as
+    # rendered), and the read-back confirms nothing changed. It is not the wire
+    # shape: the byte-identical builder applies cleanly on the sibling
+    # gsm7228ps (Port Priority Low->High->Low, verified) and on m4300-16x, and
+    # THIS switch accepts portsConfiguration writes through the same builder in
+    # the same session. It is not a device limitation either: the switch's own
+    # CLI performs `poe` and `poe reset` on 1/0/34 with no error. So the PoE
+    # WEB form is refused on this firmware while the CLI and SNMP paths work --
+    # left None so every PoE write op raises naming this model, instead of
+    # POSTing a body the switch will silently answer 200 to.
+    poe_config_path=None,
+    poe_status_path=_FASTPATH_POE_CONFIG,
     vlan_config_path="/vlanStatus.html",
     # LIVE-DISCOVERED 2026-07-30 on the real GSM7252PS (10.1.5.22) -- see
     # _FASTPATH_VLAN_MEMBERSHIP for how (and after which 404s). GET returned

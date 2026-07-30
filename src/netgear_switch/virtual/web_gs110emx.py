@@ -87,6 +87,10 @@ def render_port_settings(state: VirtualSwitchState, token: str) -> str:
         _t.PORT_SETTINGS_ROW.replace("__PORT__", str(port))
         .replace("__DESC__", sim.description or sim.name or "")
         .replace("__LINK__", "Up" if sim.link else "Down")
+        # The mode cell IS the admin state on this model (its Physical Mode
+        # select's only "off" option is Disable) -- see parse_gs110emx_port_status.
+        .replace("__MODE__", "Auto" if sim.admin else "Disable")
+        .replace("__PHYSMODE__", "1" if sim.admin else "6")
         .replace(
             "__SPEED__",
             _speed_mbps_to_text(sim.speed) if sim.link else "No Speed",
@@ -98,6 +102,36 @@ def render_port_settings(state: VirtualSwitchState, token: str) -> str:
         + rows
         + _t.PORT_SETTINGS_SUFFIX
     )
+
+
+# The GS110EMX's PORT_CTRL_MODE wire values (from the firmware's own
+# function.js: PHYSICAL_MODE 1 "Auto" -> 1, PHYSICAL_MODE 6 "Disable" -> 3).
+_EMX_CTRL_MODE_DISABLE = "3"
+
+
+def apply_port_settings(state: VirtualSwitchState, form: dict[str, str]) -> str:
+    """Apply a ``port_settings.html`` POST; returns the page's reply BODY.
+
+    The real page answers an AJAX apply with a bare ``SUCCESS`` (its own JS
+    checks ``resText != "SUCCESS"``), not a re-rendered page. ``PORT_NO`` is the
+    SEMICOLON-TERMINATED selected-port list its ``saveSelectedPorts()`` builds
+    (``"3;"``), and a body that sends a bare number selects nothing and applies
+    nothing -- reproduced here, because that is exactly the mistake that a
+    lenient mock would have hidden (it was caught on real hardware instead).
+    """
+    if form.get("ACTION") != "apply":
+        return "SUCCESS"
+    raw = form.get("PORT_NO", "")
+    if not raw.endswith(";"):
+        return "SUCCESS"  # nothing selected -- the switch applies nothing
+    enabled = form.get("PORT_CTRL_MODE") != _EMX_CTRL_MODE_DISABLE
+    for part in raw.split(";"):
+        if not part.strip().isdigit():
+            continue
+        port = int(part)
+        if port in state.ports:
+            state.ports[port].admin = enabled
+    return "SUCCESS"
 
 
 def render_pvid(state: VirtualSwitchState, token: str) -> str:

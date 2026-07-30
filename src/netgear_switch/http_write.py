@@ -5,8 +5,28 @@ Parallel to ``snmp_write.py``. Every mutating op: (1) enforces
 target page to scrape the fresh CSRF ``hash``; (3) POSTs the encoded form;
 (4) re-GETs and re-parses to confirm the change actually took — raising
 ``WriteVerificationError(before, after)`` on divergence, NEVER silently
-succeeding. Web-UI-impossible/UNVERIFIED writes (port enable, mgmt-IP) raise
-``UnsupportedCapabilityError`` honestly.
+succeeding.
+
+``set_port_enabled``, ``set_mgmt_ip`` and ``clear_poe_fault`` used to raise
+``UnsupportedCapabilityError`` for EVERY model. They were missing
+implementations, not device limitations, and are now built:
+
+* ``set_port_enabled`` — the managed models' ``portsConfiguration.html`` Admin
+  Mode column (LIVE-VERIFIED on all four: gsm7252ps, gsm7228ps, m4300-24x,
+  m4300-16x), and the GS110EMX's differently-shaped ``port_settings.html``
+  Physical Mode POST (LIVE-VERIFIED on 10.1.5.26).
+* ``clear_poe_fault`` — the managed PoE page's hidden write-only "Port Reset"
+  column driven by its RESET button (LIVE-VERIFIED on gsm7228ps and
+  m4300-16x), and the Plus UI's ``PoEPortConfig.cgi`` reset.
+* ``set_mgmt_ip`` — each managed model's own management-IP form. The APPLY is
+  deliberately NOT live-verified: doing so would move a real switch's
+  management address and drop the session mid-write. See the method docstring
+  for exactly what is and is not proven.
+
+Where an op still raises for a model, the refusal names captured device output:
+gsm7252ps's PoE form answers ``err_flag=1`` to every write (see
+``endpoints.py``), the M4300-24X's PoE page has zero rows because the SKU has no
+PSE, and the GS110EMX has no PoE page at all.
 
 VLAN membership on the MANAGED (FASTPATH/Cheetah) models — gsm7252ps,
 gsm7228ps/S3300 and both M4300 SKUs — goes through
@@ -33,7 +53,7 @@ from .errors import (
     UnsupportedCapabilityError,
     WriteVerificationError,
 )
-from .http_read import fastpath_membership_paths
+from .http_read import _parse_poe, fastpath_membership_paths
 from .protocols.http import forms, parse
 from .protocols.http.endpoints import HtmlDialect, http_spec
 from .protocols.http.session import MultipartFile
@@ -42,9 +62,9 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from .models import VlanMode
-    from .protocols.http.endpoints import HttpModelSpec
+    from .protocols.http.endpoints import HttpModelSpec, XuiMgmtIpFields
     from .protocols.http.session import AsyncHttpSession, HttpSession
-    from .protocols.http.types import FastpathMembership
+    from .protocols.http.types import FastpathMembership, XuiListPage, XuiRow
     from .registry import SwitchModel
     from .snmp_write import PoeCycleTimeouts
 
@@ -314,6 +334,119 @@ def _require_fastpath_membership_for(
         )
 
 
+# FASTPATH XUI column coordinates, read off each page's OWN header row (and
+# corroborated by the firmware's per-field metadata, e.g.
+# ``xeData.xeleName_1_2_6 = "Admin <br/> Mode"``). Live-confirmed on all four
+# managed switches 2026-07-30: the header cell ``id=1_2_6`` reads "Admin Mode"
+# on gsm7252ps/gsm7228ps/m4300-24x/m4300-16x alike.
+_XUI_PORT_ADMIN = "v_1_2_6"
+_XUI_PORT_IFNAME = "v_1_2_1"
+# poeInterfaceConfiguration.html. Column 20 is a HIDDEN, WRITE-ONLY enum the
+# page never displays -- ``xeData.xp_1_2_20 = "write-only"``,
+# ``xeData.xeleName_1_2_20 = "Port Reset"``,
+# ``allWebEnums[...] = [ "None","Reset" ]`` -- and the RESET button's action
+# array (``xeData.xa_2_1_3``) enables exactly ``1_2_20|g_1_2_20`` while
+# disabling every config column, which is how the one page serves both APPLY
+# and RESET.
+_XUI_POE_IFNAME = "v_1_2_1"
+_XUI_POE_ADMIN = "v_1_2_2"
+_XUI_POE_RESET = "v_1_2_20"
+_XUI_POE_RESET_VALUE = "Reset"
+# ``Enable``/``Disable`` are the wire values of both admin-mode columns
+# (rendered verbatim in the cells on every model).
+_XUI_ENABLE = "Enable"
+_XUI_DISABLE = "Disable"
+
+
+def _xui_enabled(value: bool) -> str:
+    return _XUI_ENABLE if value else _XUI_DISABLE
+
+
+def _fastpath_ifnames(port: int) -> tuple[str, ...]:
+    """The ifName spellings a FASTPATH page may use for physical ``port``.
+
+    Two are in live use and they are NOT interchangeable: the Fully-Managed and
+    M4300 firmwares write ``1/0/36`` while the Smart-Managed-Pro S3300 writes
+    ``1/g12`` (and ``1/xg49`` for its 10G ports). Both are tried rather than
+    keyed off the dialect, because the row is then confirmed by MATCHING the
+    device's own cell -- never by computing a row index from the port number,
+    which would address the wrong row on any page whose row order differs from
+    port order (the PoE page of a 52-port switch has only 48 rows).
+    """
+    return (f"1/0/{port}", f"1/g{port}", f"1/xg{port}")
+
+
+def _find_xui_row(page: XuiListPage, port: int, column: str, what: str) -> XuiRow:
+    """The row of ``page`` whose ``column`` names physical ``port``, or raise."""
+    for ifname in _fastpath_ifnames(port):
+        row = page.row_for(column, ifname)
+        if row is not None:
+            return row
+    rendered = sorted(str(r.field(column)) for r in page.rows)
+    raise UnsupportedCapabilityError(
+        f"{what}: port {port} is not on this page (it renders {rendered!r})"
+    )
+
+
+def _check_gs110emx_apply(text: str, what: str) -> None:
+    """Raise unless a GS110EMX AJAX apply answered ``SUCCESS``.
+
+    That page's own JS keys off exactly this: ``if (resText != "SUCCESS")`` it
+    renders the error. The response is a bare body on an HTTP 200, so without
+    this check a rejected write would look like a successful one.
+    """
+    if text.strip().upper().startswith("SUCCESS"):
+        return
+    raise HttpError(f"switch refused {what}: {text.strip()[:200]!r}")
+
+
+def _require_xui_mgmt_fields(spec: HttpModelSpec) -> tuple[str, XuiMgmtIpFields]:
+    """``(page path, field map)`` for this model's mgmt-IP write, or raise."""
+    if spec.mgmt_ip_path is None or spec.mgmt_ip_fields is None:
+        raise UnsupportedCapabilityError(
+            f"model {spec.model_key!r} has no known web management-IP form "
+            "(no mgmt_ip_path/mgmt_ip_fields in its endpoint spec)"
+        )
+    return spec.mgmt_ip_path, spec.mgmt_ip_fields
+
+
+def _mgmt_ip_changes(
+    fields: XuiMgmtIpFields, address: str, netmask: str, gateway: str
+) -> dict[str, str]:
+    """The field overrides for a STATIC mgmt-IP apply.
+
+    The method field is set FIRST in the dict on purpose -- these forms are
+    ordinary urlencoded bodies, but the firmware's own page switches the address
+    boxes from disabled to enabled when the method radio changes (the page's
+    ``xa_1_5_3`` / ``xa_1_8_1`` action arrays), so a body that says "static" is
+    what makes the three address fields meaningful at all. Sending the addresses
+    while the method still says DHCP is the FASTPATH ordering mistake principle
+    4 warns about.
+    """
+    return {
+        fields.mode: fields.static_value,
+        fields.address: address,
+        fields.netmask: netmask,
+        fields.gateway: gateway,
+    }
+
+
+def _poe_reset_button(page: XuiListPage, model_key: str) -> str:
+    """The PoE page's reset/power-cycle button field.
+
+    ``v_2_1_3`` on every managed model, but its LABEL differs (``RESET`` on the
+    gsm72xx pages, ``Power Cycle Port(s)`` on both M4300s -- live 2026-07-30),
+    which is why only the field name is a constant and the value is echoed from
+    the page. Raises if the page has no such button rather than inventing one.
+    """
+    if "v_2_1_3" not in page.buttons:
+        raise UnsupportedCapabilityError(
+            f"model {model_key!r} PoE page has no reset button "
+            f"(it renders {sorted(page.buttons)!r})"
+        )
+    return "v_2_1_3"
+
+
 def _vlan_checkbox_index(html: str, vlan: int) -> int | None:
     for m in re.finditer(r'name="vlanck(\d+)"[^>]*value="(\d+)"', html):
         if int(m.group(2)) == vlan:
@@ -345,6 +478,9 @@ class HttpWriter:
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
         self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            self._xui_poe_admin(path, port, on)
+            return
         before = self._poe_admin(port)
         page = self.session.get_page(path)
         form = forms.poe_apply_form(
@@ -355,6 +491,34 @@ class HttpWriter:
         if after != on:
             raise WriteVerificationError(
                 f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    def _xui_poe_admin(self, path: str, port: int, on: bool) -> None:
+        """FASTPATH PoE admin mode through ``poeInterfaceConfiguration.html``.
+
+        LIVE-PROVEN on gsm7228ps 10.1.5.11 (port ``1/g12``) and m4300-16x
+        10.1.5.20:49152 (port 1/0/15) 2026-07-30, by driving this exact form
+        builder through a real change and reading it back. See the gsm7252ps
+        note in ``endpoints.py`` for the one managed model whose PoE form
+        refuses writes (it therefore has no ``poe_config_path`` and never
+        reaches here).
+        """
+        page = parse.parse_xui_list_page(self.session.get_page(path), page=path)
+        row = _find_xui_row(page, port, _XUI_POE_IFNAME, f"{self.model.key!r} PoE")
+        before = row.field(_XUI_POE_ADMIN)
+        applied = self.session.post_form(
+            page.action,
+            forms.xui_row_apply_form(
+                page, row, {_XUI_POE_ADMIN: _xui_enabled(on)}, button="v_2_1_2"
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"PoE port {port} admin -> {on}")
+        after = self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on} on {path}",
                 before=before,
                 after=after,
             )
@@ -373,6 +537,9 @@ class HttpWriter:
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
         self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            self._xui_poe_reset(path, port)
+            return
         page = self.session.get_page(path)
         self.session.post_form(
             path, forms.poe_reset_form(port=port, csrf_hash=_csrf(page))
@@ -385,13 +552,50 @@ class HttpWriter:
         force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
-        # Present so the facade's writer union has a uniform surface; the Plus
-        # web UI has no grounded clear-PoE-fault endpoint (a fault clears on the
-        # next PoEPortConfig apply/reset), so this is honestly unsupported.
-        del port, force, timeouts
-        raise UnsupportedCapabilityError(
-            f"{self.model.key!r} web clear-PoE-fault is UNVERIFIED-pending-capture"
+        """Clear a PoE fault on ``port`` by re-running the port's PoE detection.
+
+        On the managed FASTPATH models this is the page's own hidden write-only
+        "Port Reset" column driven by its RESET button -- the same mechanism the
+        CLI backend uses (``poe reset``) and the same one ``SnmpWriter`` emulates
+        with an admin off/on re-arm. On the Plus-class CGI UI it is the
+        ``PoEPortConfig.cgi`` reset form, identical to ``cycle_poe``: a Plus
+        switch has no separate "clear fault" action, the fault clears when
+        detection re-runs.
+        """
+        del timeouts  # accepted-but-unused; uniform writer surface (see cycle_poe).
+        path = _require_path(
+            self.model.key, self._spec.poe_config_path, "web PoE config"
         )
+        self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            self._xui_poe_reset(path, port)
+            return
+        page = self.session.get_page(path)
+        self.session.post_form(
+            path, forms.poe_reset_form(port=port, csrf_hash=_csrf(page))
+        )
+
+    def _xui_poe_reset(self, path: str, port: int) -> None:
+        """Press the FASTPATH PoE page's per-port RESET for ``port``.
+
+        No verify-after-write, and that is not an omission: ``v_1_2_20`` is a
+        WRITE-ONLY field (``xeData.xp_1_2_20 = "write-only"``) that re-runs PD
+        detection -- it has no persistent state to read back, exactly like
+        ``cycle_poe`` on every other backend. What IS checked is the page's own
+        ``err_flag``/``err_msg``, so a refusal is raised rather than swallowed.
+        """
+        page = parse.parse_xui_list_page(self.session.get_page(path), page=path)
+        row = _find_xui_row(page, port, _XUI_POE_IFNAME, f"{self.model.key!r} PoE")
+        applied = self.session.post_form(
+            page.action,
+            forms.xui_row_apply_form(
+                page,
+                row,
+                {_XUI_POE_RESET: _XUI_POE_RESET_VALUE},
+                button=_poe_reset_button(page, self.model.key),
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"PoE reset of port {port}")
 
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
@@ -542,18 +746,147 @@ class HttpWriter:
     def set_port_enabled(
         self, port: int, enabled: bool, *, force: bool = False
     ) -> None:
-        del port, enabled, force
-        raise UnsupportedCapabilityError(
-            f"{self.model.key!r} web port-enable endpoint is UNVERIFIED-pending-capture"
+        """Set port ``port``'s admin mode through ``portsConfiguration.html``.
+
+        LIVE-VERIFIED 2026-07-30 on ALL FOUR managed switches, each on a
+        link-down, undescribed port, as disable -> re-read -> enable -> re-read:
+        gsm7252ps 10.1.5.22 port 36, gsm7228ps 10.1.5.11 port 12 (``1/g12``),
+        m4300-24x 10.1.5.13 port 16, m4300-16x 10.1.5.20:49152 port 15. In every
+        case the apply answered ``err_flag=0`` and a full re-read of the table
+        showed the target row's Admin Mode cell changed and EVERY other cell of
+        every other row byte-identical.
+        """
+        self._guard(port, force)
+        path = _require_path(
+            self.model.key, self._spec.port_config_path, "the port-configuration page"
         )
+        if self._spec.html_dialect is HtmlDialect.GS110EMX:
+            self._set_gs110emx_port_enabled(path, port, enabled)
+            return
+        page = parse.parse_xui_list_page(self.session.get_page(path), page=path)
+        row = _find_xui_row(
+            page, port, _XUI_PORT_IFNAME, f"{self.model.key!r} port configuration"
+        )
+        before = row.field(_XUI_PORT_ADMIN)
+        applied = self.session.post_form(
+            page.action,
+            forms.xui_row_apply_form(
+                page,
+                row,
+                {_XUI_PORT_ADMIN: _xui_enabled(enabled)},
+                button="v_2_1_2",
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"port {port} admin mode -> {enabled}")
+        after = _find_xui_row(
+            parse.parse_xui_list_page(self.session.get_page(path), page=path),
+            port,
+            _XUI_PORT_IFNAME,
+            f"{self.model.key!r} port configuration",
+        ).field(_XUI_PORT_ADMIN)
+        if after != _xui_enabled(enabled):
+            raise WriteVerificationError(
+                f"port {port} admin mode did not read back as "
+                f"{_xui_enabled(enabled)!r} on {path}",
+                before=before,
+                after=after,
+            )
+
+    def _set_gs110emx_port_enabled(self, path: str, port: int, enabled: bool) -> None:
+        """Port admin mode on the GS110EMX's ``port_settings.html``.
+
+        A different mechanism from the FASTPATH grid, so it gets its own path
+        rather than a shared one that happens to fit: this page has no admin
+        column at all -- disabling a port means POSTing its Physical Mode as
+        ``Disable`` (``PORT_CTRL_MODE=3``), and the reply is a bare ``SUCCESS``
+        body, not a re-rendered page. See ``forms.gs110emx_port_admin_form``.
+
+        LIVE-VERIFIED 2026-07-31 on a real GS110EMX (10.1.5.26) against port 7
+        (link-down, no description): disable -> re-read -> enable -> re-read,
+        each step confirmed by re-reading the page.
+        """
+        rows = parse.parse_gs110emx_port_form_fields(self.session.get_page(path))
+        if port not in rows:
+            raise UnsupportedCapabilityError(
+                f"{self.model.key!r} port configuration: port {port} is not on "
+                f"this page (it renders {sorted(rows)!r})"
+            )
+        before = parse.parse_gs110emx_port_status(self.session.get_page(path))
+        was = next((p.admin_enabled for p in before if p.port == port), None)
+        self.session.post_form(
+            path,
+            forms.gs110emx_port_admin_form(
+                port=port,
+                enabled=enabled,
+                flow_control_mode=rows[port].get("FLOW_CONTROL_MODE", "0"),
+            ),
+        )
+        after = parse.parse_gs110emx_port_status(self.session.get_page(path))
+        got = next((p.admin_enabled for p in after if p.port == port), None)
+        if got is not enabled:
+            raise WriteVerificationError(
+                f"port {port} admin mode did not read back as {enabled} on {path}",
+                before=was,
+                after=got,
+            )
 
     def set_mgmt_ip(
         self, address: str, netmask: str, gateway: str, *, force: bool = False
     ) -> None:
-        del address, netmask, gateway, force
-        raise UnsupportedCapabilityError(
-            f"{self.model.key!r} web mgmt-IP endpoint is UNVERIFIED-pending-capture"
+        """Set the switch's STATIC management address through its web UI.
+
+        The page and field names are per model (see ``XuiMgmtIpFields``), both
+        live-captured 2026-07-30. Disruptive by definition -- it moves the
+        address the caller is talking to -- so it needs ``force=True``, and the
+        capability is resolved BEFORE the force gate exactly like ``reboot``.
+
+        **The APPLY on this page is UNVERIFIED against live hardware, and
+        deliberately so.** Every other write in this file was proven by doing it
+        to a real switch and reading it back; this one was not, because applying
+        it to any of the four reachable switches would have moved that switch's
+        management address, dropped the session mid-write and risked stranding a
+        device on a network nobody could reach. What IS verified live on all
+        four: the page exists and is the right one, its field names/values are
+        the device's own (read back through ``get_mgmt_ip``), and the surrounding
+        machinery -- the ``submit_flag=8`` apply flag, the whole-form echo, the
+        button field, the ``err_flag`` refusal check -- is the same machinery
+        proven by ``set_port_enabled`` and ``set_vlan_membership`` on these exact
+        pages. The verify-after-write below is therefore real: if the switch
+        refuses, the caller is told.
+        """
+        path, fields = _require_xui_mgmt_fields(self._spec)
+        if not force:
+            raise ProtectedPortError(
+                "set_mgmt_ip moves the address this session is using and can "
+                "leave the switch unreachable; pass force=True"
+            )
+        page = parse.parse_xui_form_page(self.session.get_page(path), page=path)
+        applied = self.session.post_form(
+            page.action,
+            forms.xui_form_apply_form(
+                page,
+                _mgmt_ip_changes(fields, address, netmask, gateway),
+                button=fields.apply_button,
+            ),
         )
+        _raise_on_fastpath_err_flag(applied, f"management IP -> {address}/{netmask}")
+        after = parse.parse_xui_form_page(self.session.get_page(path), page=path)
+        got = (
+            after.fields.get(fields.address),
+            after.fields.get(fields.netmask),
+            after.fields.get(fields.gateway),
+        )
+        if got != (address, netmask, gateway):
+            raise WriteVerificationError(
+                f"management IP did not read back as {address}/{netmask} via "
+                f"{gateway} on {path}",
+                before=(
+                    page.fields.get(fields.address),
+                    page.fields.get(fields.netmask),
+                    page.fields.get(fields.gateway),
+                ),
+                after=got,
+            )
 
     def upload_certificate(
         self, cert_pem: str, key_pem: str, *, force: bool = False
@@ -591,7 +924,11 @@ class HttpWriter:
 
     def _poe_admin(self, port: int) -> bool:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
-        rows = parse.parse_poe_status(self.session.get_page(path))
+        # Dialect-aware, via the READER's own dispatcher: the FASTPATH PoE page
+        # is an XE grid, not a Plus ``portID``-row CGI, so hard-coding
+        # parse_poe_status here made verify-after-write raise
+        # HttpUnexpectedPageError on every managed model.
+        rows = _parse_poe(self._spec, self.session.get_page(path))
         for r in rows:
             if r.port == port:
                 return r.admin_enabled
@@ -619,7 +956,7 @@ class AsyncHttpWriter:
 
     async def _poe_admin(self, port: int) -> bool:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
-        rows = parse.parse_poe_status(await self.session.get_page(path))
+        rows = _parse_poe(self._spec, await self.session.get_page(path))
         for r in rows:
             if r.port == port:
                 return r.admin_enabled
@@ -630,6 +967,9 @@ class AsyncHttpWriter:
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
         self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            await self._xui_poe_admin(path, port, on)
+            return
         before = await self._poe_admin(port)
         page = await self.session.get_page(path)
         form = forms.poe_apply_form(
@@ -640,6 +980,26 @@ class AsyncHttpWriter:
         if after != on:
             raise WriteVerificationError(
                 f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    async def _xui_poe_admin(self, path: str, port: int, on: bool) -> None:
+        """Async twin of ``HttpWriter._xui_poe_admin`` (see its docs)."""
+        page = parse.parse_xui_list_page(await self.session.get_page(path), page=path)
+        row = _find_xui_row(page, port, _XUI_POE_IFNAME, f"{self.model.key!r} PoE")
+        before = row.field(_XUI_POE_ADMIN)
+        applied = await self.session.post_form(
+            page.action,
+            forms.xui_row_apply_form(
+                page, row, {_XUI_POE_ADMIN: _xui_enabled(on)}, button="v_2_1_2"
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"PoE port {port} admin -> {on}")
+        after = await self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on} on {path}",
                 before=before,
                 after=after,
             )
@@ -656,6 +1016,9 @@ class AsyncHttpWriter:
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
         self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            await self._xui_poe_reset(path, port)
+            return
         page = await self.session.get_page(path)
         await self.session.post_form(
             path, forms.poe_reset_form(port=port, csrf_hash=_csrf(page))
@@ -668,10 +1031,34 @@ class AsyncHttpWriter:
         force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
-        del port, force, timeouts
-        raise UnsupportedCapabilityError(
-            f"{self.model.key!r} web clear-PoE-fault is UNVERIFIED-pending-capture"
+        """Async twin of ``HttpWriter.clear_poe_fault`` (see its docs)."""
+        del timeouts  # accepted-but-unused; uniform writer surface (see sync).
+        path = _require_path(
+            self.model.key, self._spec.poe_config_path, "web PoE config"
         )
+        self._guard(port, force)
+        if _is_fastpath_dialect(self._spec):
+            await self._xui_poe_reset(path, port)
+            return
+        page = await self.session.get_page(path)
+        await self.session.post_form(
+            path, forms.poe_reset_form(port=port, csrf_hash=_csrf(page))
+        )
+
+    async def _xui_poe_reset(self, path: str, port: int) -> None:
+        """Async twin of ``HttpWriter._xui_poe_reset`` (see its docs)."""
+        page = parse.parse_xui_list_page(await self.session.get_page(path), page=path)
+        row = _find_xui_row(page, port, _XUI_POE_IFNAME, f"{self.model.key!r} PoE")
+        applied = await self.session.post_form(
+            page.action,
+            forms.xui_row_apply_form(
+                page,
+                row,
+                {_XUI_POE_RESET: _XUI_POE_RESET_VALUE},
+                button=_poe_reset_button(page, self.model.key),
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"PoE reset of port {port}")
 
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
@@ -802,25 +1189,82 @@ class AsyncHttpWriter:
     async def set_port_enabled(
         self, port: int, enabled: bool, *, force: bool = False
     ) -> None:
-        # Task 9 fix: was a plain (non-async) `def` -- inconsistent with every
-        # other AsyncHttpWriter method and unsound under a facade call site
-        # typed `Callable[[...], Awaitable[None]]` (mypy --strict caught the
-        # union-type mismatch once the facade's generic per-op dispatcher
-        # actually called it). Same immediate-refusal behaviour, now reachable
-        # via `await` like its siblings.
-        del port, enabled, force
-        raise UnsupportedCapabilityError(
-            f"{self.model.key!r} web port-enable endpoint is UNVERIFIED-pending-capture"
+        """Async twin of ``HttpWriter.set_port_enabled`` (see its docs)."""
+        self._guard(port, force)
+        path = _require_path(
+            self.model.key, self._spec.port_config_path, "the port-configuration page"
         )
+        page = parse.parse_xui_list_page(await self.session.get_page(path), page=path)
+        row = _find_xui_row(
+            page, port, _XUI_PORT_IFNAME, f"{self.model.key!r} port configuration"
+        )
+        before = row.field(_XUI_PORT_ADMIN)
+        applied = await self.session.post_form(
+            page.action,
+            forms.xui_row_apply_form(
+                page,
+                row,
+                {_XUI_PORT_ADMIN: _xui_enabled(enabled)},
+                button="v_2_1_2",
+            ),
+        )
+        _raise_on_fastpath_err_flag(applied, f"port {port} admin mode -> {enabled}")
+        after = _find_xui_row(
+            parse.parse_xui_list_page(await self.session.get_page(path), page=path),
+            port,
+            _XUI_PORT_IFNAME,
+            f"{self.model.key!r} port configuration",
+        ).field(_XUI_PORT_ADMIN)
+        if after != _xui_enabled(enabled):
+            raise WriteVerificationError(
+                f"port {port} admin mode did not read back as "
+                f"{_xui_enabled(enabled)!r} on {path}",
+                before=before,
+                after=after,
+            )
 
     async def set_mgmt_ip(
         self, address: str, netmask: str, gateway: str, *, force: bool = False
     ) -> None:
-        # Task 9 fix: see set_port_enabled above.
-        del address, netmask, gateway, force
-        raise UnsupportedCapabilityError(
-            f"{self.model.key!r} web mgmt-IP endpoint is UNVERIFIED-pending-capture"
+        """Async twin of ``HttpWriter.set_mgmt_ip`` -- INCLUDING its honesty
+        caveat: the apply is unverified against live hardware, because verifying
+        it would have moved a real switch's management address. See the sync
+        twin's docstring for exactly what is and is not proven."""
+        path, fields = _require_xui_mgmt_fields(self._spec)
+        if not force:
+            raise ProtectedPortError(
+                "set_mgmt_ip moves the address this session is using and can "
+                "leave the switch unreachable; pass force=True"
+            )
+        page = parse.parse_xui_form_page(await self.session.get_page(path), page=path)
+        applied = await self.session.post_form(
+            page.action,
+            forms.xui_form_apply_form(
+                page,
+                _mgmt_ip_changes(fields, address, netmask, gateway),
+                button=fields.apply_button,
+            ),
         )
+        _raise_on_fastpath_err_flag(applied, f"management IP -> {address}/{netmask}")
+        after = parse.parse_xui_form_page(
+            await self.session.get_page(path), page=path
+        )
+        got = (
+            after.fields.get(fields.address),
+            after.fields.get(fields.netmask),
+            after.fields.get(fields.gateway),
+        )
+        if got != (address, netmask, gateway):
+            raise WriteVerificationError(
+                f"management IP did not read back as {address}/{netmask} via "
+                f"{gateway} on {path}",
+                before=(
+                    page.fields.get(fields.address),
+                    page.fields.get(fields.netmask),
+                    page.fields.get(fields.gateway),
+                ),
+                after=got,
+            )
 
     async def upload_certificate(
         self, cert_pem: str, key_pem: str, *, force: bool = False
