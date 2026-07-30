@@ -7,24 +7,35 @@ records the ``show`` command each read op issues plus the session-setup commands
 * ``captured`` -- True only for a model with a REAL captured CLI transcript
   backing its parsers: ``gsm7252ps`` (see ``tests/fixtures/cli/gsm7252ps_*.txt``),
   ``m4300-24x`` (``tests/fixtures/cli/m4300_24x_*.txt``, captured live from
-  10.1.5.13 on 2026-07-29) and ``m4300-16x`` (``tests/fixtures/cli/m4300_16x_*.txt``,
-  captured live from 10.1.5.20 on 2026-07-29). The gsm7228ps runs the identical
-  FASTPATH firmware CLI, so the command set and parsers carry over -- but no
-  transcript was captured from that SKU, so ``captured`` is False and its CLI
-  surface is INHERITED-not-captured, marked exactly like the M4300-16X HTTP spec.
+  10.1.5.13 on 2026-07-29), ``m4300-16x`` (``tests/fixtures/cli/m4300_16x_*.txt``,
+  captured live from 10.1.5.20 on 2026-07-29) and ``gsm7228ps`` (the S3300-52X;
+  ``tests/fixtures/cli/gsm7228ps_*.txt``, captured live from 10.1.5.11 on
+  2026-07-30 over telnet on port 60000).
 * ``reads_verified`` -- True for gsm7252ps (live CLI-vs-SNMP cross-verified on
-  10.1.5.22), m4300-24x (live CLI-verified on 10.1.5.13, 2026-07-29) and
-  m4300-16x (live CLI-verified on 10.1.5.20, 2026-07-29: ports/PVIDs/VLANs/MACs/
-  LLDP/sensors/stats/mgmt-IP AND PoE all correct). False for the gsm7228ps SKU:
-  it shares the same grounded FASTPATH parsers but has NOT been live-checked on
-  that model, so the facade refuses to dispatch a read to its CLI backend until
-  someone cross-verifies it against that hardware (mirroring the HTTP backend's
-  ``reads_verified`` gate). The parsers and the mock CLI face are fully exercised
-  in tests regardless of this flag.
+  10.1.5.22), m4300-24x (live CLI-verified on 10.1.5.13, 2026-07-29), m4300-16x
+  (live CLI-verified on 10.1.5.20, 2026-07-29: ports/PVIDs/VLANs/MACs/LLDP/
+  sensors/stats/mgmt-IP AND PoE all correct) and gsm7228ps (live telnet CLI
+  captured on 10.1.5.11, 2026-07-30, and cross-verified against that model's SNMP
+  capture ``tests/fixtures/captures/gsm7228ps.json``).
 
 FASTPATH's ``show`` grammar is nearly identical across the Fully Managed
-(M4300/GSM7252PS) and Smart Managed Pro (GSM7228PS/S3300) lines, but the newer
-M4300 firmware (12.0.13.8) renamed two commands -- see ``_M4300_OVERRIDES``.
+(M4300/GSM7252PS) and Smart Managed Pro (GSM7228PS/S3300) lines, but the exact
+command set varies by firmware image:
+
+* the newer M4300 firmware (12.0.13.8) renamed two commands -- see
+  ``_M4300_OVERRIDES``;
+* the Smart-firmware S3300 (gsm7228ps) rejects ``show vlan brief`` ("Invalid
+  input") but accepts the bare ``show vlan`` (like the M4300s) while KEEPING the
+  older ``show network`` (unlike the M4300s' ``show ip management``) -- see
+  ``_GSM7228PS``.
+
+Physical-port naming also differs: the Fully Managed line prints ``1/0/N`` while
+the Smart-firmware S3300 prints ``1/gN`` (1-48) and ``1/xgN`` (uplinks 49-52).
+Both are resolved by ``protocols.cli.parse._phys_port``.
+
+Transports: SSH is the default network CLI transport, but a model may carry a
+non-standard telnet port via ``CliModelSpec.telnet_port`` (the S3300's telnet CLI
+listens on 60000, not 23) for models that expose TELNET but not SSH.
 """
 
 from __future__ import annotations
@@ -51,6 +62,11 @@ class CliModelSpec:
     model_key: str
     captured: bool
     reads_verified: bool
+    # TCP port the telnet CLI transport dials for this model. Standard telnet is
+    # 23, but the S3300-52X (gsm7228ps) FASTPATH telnet CLI listens on 60000.
+    # Only consulted when a model's TELNET transport is built (see
+    # ``_dispatch.build_sync_cli_client``); the SSH/console transports ignore it.
+    telnet_port: int = 23
     # Session setup, run once after the shell opens.
     enable_cmd: str = "enable"
     paging_off_cmd: str = "terminal length 0"
@@ -105,13 +121,25 @@ _M4300_24X = CliModelSpec(
 _M4300_16X = CliModelSpec(
     model_key="m4300-16x", captured=True, reads_verified=True, **_M4300_OVERRIDES
 )
-# NB: gsm7228ps (the S3300-52X) has NO CLI spec. Live-verified 2026-07-30 that
-# the switch exposes no functional CLI: SSH is absent (no config page, port 22
-# unopenable) and Telnet, though enabled in config and surviving a reboot with
-# no access-profile active, never listens on port 23. Its registry entry
-# therefore declares no CLI backend, so this spec would be unreachable anyway.
+# gsm7228ps (the S3300-52X): real captured telnet transcript (10.1.5.11, port
+# 60000, tests/fixtures/cli/gsm7228ps_*.txt). reads_verified=True: live telnet
+# CLI captured 2026-07-30 and cross-verified against the model's SNMP capture.
+# This SKU's Smart firmware needs the bare "show vlan" (the M4300-style override;
+# "show vlan brief" is "Invalid input" here) but keeps the older "show network"
+# (NOT the M4300's "show ip management"), so it takes exactly one of the two
+# _M4300_OVERRIDES. Its telnet CLI listens on 60000, not 23 (SSH is genuinely
+# absent -- no listener on any port; the registry declares TELNET but not SSH).
+_GSM7228PS = CliModelSpec(
+    model_key="gsm7228ps",
+    captured=True,
+    reads_verified=True,
+    telnet_port=60000,
+    vlan_brief_cmd="show vlan",
+    network_cmd="show network",
+)
+
 _SPECS: dict[str, CliModelSpec] = {
-    s.model_key: s for s in (_GSM7252PS, _M4300_24X, _M4300_16X)
+    s.model_key: s for s in (_GSM7252PS, _M4300_24X, _M4300_16X, _GSM7228PS)
 }
 
 CLI_SPECS: Mapping[str, CliModelSpec] = MappingProxyType(_SPECS)
