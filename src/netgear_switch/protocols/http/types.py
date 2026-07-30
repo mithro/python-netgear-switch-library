@@ -122,6 +122,19 @@ class XuiListPage:
     that drops it (live 2026-07-30 on 10.1.5.20:49152: the identical body with
     the token returned 200 and applied). Data cells (``v_*``) are deliberately
     NOT included -- an apply must mention only the row it is changing.
+
+    ``nav`` is the page's list-NAVIGATION block: the ``v_*`` fields the firmware
+    renders in its ``class=deftestme`` navigation rows above and below the table
+    (the "Go To Port" bar), which scope the list -- e.g. ``v_1_1_1`` =
+    ``"1"``/``v_1_3_1`` = ``"1"`` (``xc="url-list"``, ``xeleName="Port Group
+    Index"``, both aliased by the page's own
+    ``xeData["xalias_urlListUnit"] = "1_1_1|1_3_1|3_1_1|3_4_1"``) plus the
+    interface-type filter ``v_1_1_2`` = ``"^Physical$"``. They are ENABLED hidden
+    inputs, so a browser submits them on every apply -- and on the GSM7252PS PoE
+    page the firmware REQUIRES one of the ``urlListUnit`` aliases to resolve the
+    row at all (see ``forms.xui_row_apply_form``). Kept separate from ``rows``
+    and from the ``v_g_*`` global "apply to all" row, neither of which belongs in
+    a one-row apply.
     """
 
     action: str
@@ -129,6 +142,7 @@ class XuiListPage:
     buttons: Mapping[str, str]
     rows: tuple[XuiRow, ...]
     tokens: Mapping[str, str] = MappingProxyType({})
+    nav: Mapping[str, str] = MappingProxyType({})
 
     def row_for(self, column: str, value: str) -> XuiRow | None:
         """The row whose ``column`` renders ``value`` (e.g. the ifName cell)."""

@@ -817,25 +817,26 @@ _GSM7252PS = HttpModelSpec(
     mgmt_ip_fields=_GSM72XX_MGMT_IP_FIELDS,
     mac_table_path="/basicAddressTable.html",
     lldp_path="/lldpRemoteInventory.html",
-    # NOT set, and this one is measured rather than merely uncaptured: this
-    # switch's poeInterfaceConfiguration form REFUSES every write. Live
-    # 2026-07-30 on 10.1.5.22, ports 1/0/34 and 1/0/36 (both link-down and
-    # undescribed), the page answers HTTP 200 with err_flag=1 and
-    #     Error! Failed to Set 'Admin <br/> Mode' with 'Enable'
-    #     Error! Failed to Set 'Port <br/> Priority' with 'Low'
-    #     ... one line per read-write column ...
-    #     Error! Failed to Set 'Port Reset' with 'Reset'
-    # even for a body that changes NOTHING (every value echoed back as
-    # rendered), and the read-back confirms nothing changed. It is not the wire
-    # shape: the byte-identical builder applies cleanly on the sibling
-    # gsm7228ps (Port Priority Low->High->Low, verified) and on m4300-16x, and
-    # THIS switch accepts portsConfiguration writes through the same builder in
-    # the same session. It is not a device limitation either: the switch's own
-    # CLI performs `poe` and `poe reset` on 1/0/34 with no error. So the PoE
-    # WEB form is refused on this firmware while the CLI and SNMP paths work --
-    # left None so every PoE write op raises naming this model, instead of
-    # POSTing a body the switch will silently answer 200 to.
-    poe_config_path=None,
+    # LIVE-VERIFIED 2026-07-31 on 10.1.5.22, port 1/0/35 (link-down, undescribed,
+    # PoE "Searching"): set_poe Enable->Disable->Enable, each apply answering
+    # err_flag=0 and each state read back off the page.
+    #
+    # This entry was previously None with a note claiming the form "REFUSES every
+    # write" -- it does not, and the refusal was ours. The page answered HTTP 200
+    # + err_flag=1 with one "Error! Failed to Set '<column>' with '<value>'" line
+    # per read-write column (Admin Mode, Port Priority, Power Limit Type, Power
+    # Limit, Detection Type, Timer Schedule, Port Reset), even for a body that
+    # changed nothing, because the POST omitted the page's own list-scope field.
+    # This firmware's PoE rows carry NO hidden Unit key column, unlike
+    # gsm7228ps's and both M4300s' (which render ``v_1_2_21``, ``xk_1_2_21=1``,
+    # ``xeleName="Unit"``) -- so the row is not self-identifying here and the
+    # firmware takes the list scope from the page-level ``urlListUnit`` field
+    # instead. Adding ``v_1_1_1`` alone, or its alias ``v_1_3_1`` alone, made the
+    # byte-identical write succeed; adding only the ``v_1_1_2`` type filter did
+    # not. That is why the same builder worked on the siblings and on this
+    # switch's own portsConfiguration page: only this page needs the scope field.
+    # See ``XuiListPage.nav`` / ``forms.xui_row_apply_form``.
+    poe_config_path=_FASTPATH_POE_CONFIG,
     poe_status_path=_FASTPATH_POE_CONFIG,
     vlan_config_path="/vlanStatus.html",
     # LIVE-DISCOVERED 2026-07-30 on the real GSM7252PS (10.1.5.22) -- see

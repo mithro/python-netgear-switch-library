@@ -43,11 +43,12 @@ _SEEDS = {
     "m4300-24x": seed_m4300_24x,
     "m4300-16x": seed_m4300_16x,
 }
-# The managed models whose PoE FORM accepts writes. gsm7252ps is deliberately
-# absent: its poeInterfaceConfiguration form REFUSES every write on real
-# hardware (captured err_flag=1 evidence in endpoints.py), and m4300-24x has no
-# PoE at all.
-POE_WRITABLE = ("gsm7228ps", "m4300-16x")
+# The managed models whose PoE FORM accepts writes -- all of them except
+# m4300-24x, which has no PoE hardware at all. gsm7252ps used to be excluded on
+# the (wrong) grounds that its page "refuses every write"; the refusal was a
+# missing list-unit field in OUR body, fixed and live-verified 2026-07-31 on
+# 10.1.5.22 port 1/0/35.
+POE_WRITABLE = ("gsm7252ps", "gsm7228ps", "m4300-16x")
 
 
 def _fixture(name: str) -> str:
@@ -243,20 +244,136 @@ def test_set_poe_round_trip_over_http(poe_managed) -> None:
     assert {p.port: p.admin_enabled for p in reader.get_poe()}[port] is True
 
 
-def test_gsm7252ps_poe_writes_are_refused_with_captured_proof(xe) -> None:
-    """gsm7252ps's PoE FORM refuses every write on real hardware -- proven by a
-    200 + err_flag=1 for a body that changes NOTHING, while the SAME builder
-    applies on gsm7228ps and m4300-16x and while THIS switch accepts
-    portsConfiguration writes in the same session. Its spec therefore has no
-    poe_config_path and every PoE write op raises, naming the model."""
-    writer = xe.writer()
-    for call in (
-        lambda: writer.set_poe(1, on=False),
-        lambda: writer.clear_poe_fault(1),
-        lambda: writer.cycle_poe(1),
-    ):
-        with pytest.raises(UnsupportedCapabilityError, match="web PoE config"):
-            call()
+def _poe_page(live: _Live) -> parse.XuiListPage:
+    assert live.spec.poe_config_path is not None
+    return parse.parse_xui_list_page(live.client.get_page(live.spec.poe_config_path))
+
+
+def test_xui_pages_expose_their_list_navigation_block(managed) -> None:
+    """Every XUI list page carries a ``urlListUnit`` field in its ``deftestme``
+    navigation rows, and the parser must surface it -- it is what scopes an
+    apply. Real captures of all four switches put ``v_1_1_1``/``v_1_3_1`` there
+    (aliased by the page's own
+    ``xeData["xalias_urlListUnit"] = "1_1_1|1_3_1|3_1_1|3_4_1"``)."""
+    nav = managed.ports_page().nav
+    assert nav["v_1_1_1"] == "1"
+    assert nav["v_1_3_1"] == "1"
+    # The global "apply to all rows" row is NOT navigation: echoing its empty
+    # cells back is itself refused on hardware.
+    assert not any(name.startswith("v_g_") for name in nav)
+
+
+def test_poe_apply_carries_the_pages_list_unit(poe_managed) -> None:
+    """The body the writer POSTs must contain the page's own list-unit field.
+
+    This is the whole gsm7252ps bug: without it, 10.1.5.22 answered HTTP 200 +
+    err_flag=1 with one 'Failed to Set' line per read-write column, even for a
+    body that changed nothing."""
+    page = _poe_page(poe_managed)
+    body = forms.xui_row_apply_form(
+        page, page.rows[0], {"v_1_2_2": "Disable"}, button="v_2_1_2"
+    )
+    assert body["v_1_1_1"] == "1"
+    assert body["v_1_3_1"] == "1"
+
+
+def test_gsm7252ps_poe_refuses_an_apply_with_no_list_unit(xe) -> None:
+    """The mock reproduces the REFUSAL, not just the success.
+
+    Live 2026-07-31 on 10.1.5.22 port 1/0/35: the same body without
+    ``v_1_1_1``/``v_1_3_1`` came back err_flag=1 listing every read-write column
+    it carried, and the port did not change. A writer that regressed the nav
+    block must fail here rather than quietly stop working against hardware."""
+    page = _poe_page(xe)
+    row = page.rows[0]
+    before = xe.state.poe[min(xe.state.poe)].admin
+    body = forms.xui_row_apply_form(
+        page, row, {"v_1_2_2": "Disable"}, button="v_2_1_2", omit=("v_1_2_20",)
+    )
+    for name in ("v_1_1_1", "v_1_3_1"):
+        del body[name]
+    html = xe.client.post_form(page.action, body)
+    assert parse.parse_fastpath_err(html) == (
+        "Error! Failed to Set 'Admin <br/> Mode' with 'Disable'"
+    )
+    assert xe.state.poe[min(xe.state.poe)].admin is before  # nothing changed
+
+
+def test_gsm7252ps_poe_refusal_names_every_rw_column_in_the_body(xe) -> None:
+    """The refusal lists one line per read-write column PRESENT in the body --
+    which is how the Port Reset column was identified as a separate offender:
+    dropping ``v_1_2_20`` removed exactly its line (live, 10.1.5.22)."""
+    page = _poe_page(xe)
+    body = forms.xui_row_apply_form(
+        page, page.rows[0], {"v_1_2_2": "Disable"}, button="v_2_1_2"
+    )
+    for name in ("v_1_1_1", "v_1_3_1"):
+        del body[name]
+    err = parse.parse_fastpath_err(xe.client.post_form(page.action, body))
+    assert err is not None
+    assert err.splitlines() == [
+        "Error! Failed to Set 'Admin <br/> Mode' with 'Disable'",
+        "Error! Failed to Set 'Port Reset' with 'Reset'",
+    ]
+
+
+def test_siblings_accept_a_poe_apply_with_no_list_unit() -> None:
+    """The counter-example, encoded so the mock cannot over-correct: gsm7228ps
+    and m4300-16x render a per-row hidden ``v_1_2_21`` "Unit" key, so their rows
+    are self-identifying and the apply lands with no page-level unit at all
+    (live 2026-07-30 on 10.1.5.11 and 10.1.5.20:49152)."""
+    for key in ("gsm7228ps", "m4300-16x"):
+        live = _Live(key)
+        try:
+            page = _poe_page(live)
+            body = forms.xui_row_apply_form(
+                page,
+                page.rows[0],
+                {"v_1_2_2": "Disable"},
+                button="v_2_1_2",
+                omit=("v_1_2_20",),
+            )
+            for name in ("v_1_1_1", "v_1_3_1"):
+                del body[name]
+            html = live.client.post_form(page.action, body)
+            assert parse.parse_fastpath_err(html) is None, key
+            assert live.state.poe[min(live.state.poe)].admin is False, key
+        finally:
+            live.close()
+
+
+def test_poe_apply_does_not_carry_the_write_only_reset_column(poe_managed) -> None:
+    """APPLY's own shed list (``xeData.xa_2_1_2[14] = "1_2_20|g_1_2_20"``)
+    disables the write-only Port Reset action, so a browser never submits it on
+    an apply -- an apply must not double as a power cycle."""
+    page = _poe_page(poe_managed)
+    row = page.rows[0]
+    body = forms.xui_row_apply_form(
+        page,
+        row,
+        {"v_1_2_2": "Disable"},
+        button="v_2_1_2",
+        omit=("v_1_2_20",),
+    )
+    assert row.prefix + "v_1_2_20" in row.fields  # the page DOES render it
+    assert row.prefix + "v_1_2_20" not in body
+
+
+def test_poe_reset_does_not_carry_the_config_columns(poe_managed) -> None:
+    """RESET's shed list disables ``1_2_2..1_2_18`` (``1_2_19`` too on the
+    gsm7228ps/M4300 pages), so a power cycle must not rewrite Admin Mode."""
+    page = _poe_page(poe_managed)
+    row = page.rows[0]
+    body = forms.xui_row_apply_form(
+        page,
+        row,
+        {"v_1_2_20": "Reset"},
+        button="v_2_1_3",
+        omit=tuple(f"v_1_2_{n}" for n in range(2, 20)),
+    )
+    assert body[row.prefix + "v_1_2_20"] == "Reset"
+    assert row.prefix + "v_1_2_2" not in body
+    assert body[row.prefix + "v_1_2_1"] == row.field("v_1_2_1")  # key kept
 
 
 def test_m4300_24x_has_no_poe_page_at_all() -> None:

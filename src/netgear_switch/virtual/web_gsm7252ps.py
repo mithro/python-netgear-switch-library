@@ -124,7 +124,7 @@ def render_ports(
         body += xui.row(inst, cells, checkbox=checkbox)
     return xui.page(
         path,
-        f"<table>\n{body}</table>\n",
+        f"{xui.nav_rows()}<table>\n{body}</table>\n",
         buttons={"2_1_1": "CANCEL", "2_1_2": "APPLY"},
         err_msg=err_msg,
         title="NetGear - Port Configuration",
@@ -311,7 +311,7 @@ def render_poe(
         body += xui.row(inst, cells, checkbox=checkbox)
     return xui.page(
         path,
-        f"<table>\n{body}</table>\n",
+        f"{xui.nav_rows()}<table>\n{body}</table>\n",
         buttons={
             # LIVE: the M4300s label this button "Power Cycle Port(s)" while the
             # gsm72xx pages label it "RESET" -- so the label is a parameter, and
@@ -325,11 +325,41 @@ def render_poe(
     )
 
 
+# This page's read-write columns, in the order the firmware reports failures
+# for them, mapped to the ``xeleName`` it prints. Only the columns this mock
+# actually renders are listed -- inventing the rest would put words in the
+# device's mouth. Captured verbatim from 10.1.5.22 (firmware 10.0.1.6) on
+# 2026-07-31; the real switch's full list also carries 'Port <br/> Priority',
+# 'Power <br/> Limit <br/> Type', 'Power <br/> Limit <br/> (mW)',
+# 'Detection <br/> Type' and 'Timer <br/> Schedule' between these two.
+_POE_RW_COLUMNS = (("v_1_2_2", "Admin <br/> Mode"), ("v_1_2_20", "Port Reset"))
+
+
+def _no_list_unit_refusal(form: dict[str, str], prefix: str) -> str:
+    """The refusal a real GSM7252PS answers when the POST omits the list unit.
+
+    LIVE 2026-07-31, 10.1.5.22 port 1/0/35: an apply whose body carried the row,
+    its checkbox and the redirection block but NEITHER ``v_1_1_1`` nor
+    ``v_1_3_1`` came back HTTP **200** with ``err_flag=1`` and one
+    ``Error! Failed to Set '<xeleName>' with '<value>'`` line per read-write
+    column IN THE BODY -- even though the body changed nothing. Dropping
+    ``v_1_2_20`` from that same body removed exactly its 'Port Reset' line, which
+    is how the per-column shape was established.
+    """
+    lines = [
+        f"Error! Failed to Set '{label}' with '{form[prefix + column]}'"
+        for column, label in _POE_RW_COLUMNS
+        if prefix + column in form
+    ]
+    return "\r\n".join(lines)
+
+
 def apply_poe(
     state: VirtualSwitchState,
     form: dict[str, str],
     *,
     checkbox: str = _POE_CHECKBOX,
+    unit_required: bool = True,
 ) -> str:
     """Apply a poeInterfaceConfiguration POST; returns the firmware ``err_msg``.
 
@@ -338,12 +368,24 @@ def apply_poe(
     write-only ``v_1_2_20`` column and re-runs detection -- which on a port with
     no PD attached lands back in ``Searching`` and on one that had faulted
     clears the fault. Only CHECKED rows are touched.
+
+    ``unit_required`` reproduces a MEASURED per-firmware difference, not a
+    guess. The GSM7252PS PoE rows carry no hidden Unit key column, so its
+    firmware takes the list scope from the page's ``urlListUnit`` field and
+    refuses the whole row without it (default ``True`` -- this is that model's
+    renderer). The gsm7228ps and both M4300 PoE pages DO render a per-row
+    ``v_1_2_21`` "Unit" key and accepted the same body with no page-level unit at
+    all (live 2026-07-30 on 10.1.5.11 and 10.1.5.20:49152), so those renderers
+    pass ``False``. Encoding the counter-example matters as much as the rule:
+    without it the mock could not tell a writer that over-corrected.
     """
     if not xui.is_apply(form):
         return ""
     ports = [p for p, _ in sorted(state.poe.items())]
     button = xui.pressed(form, ("v_2_1_3", "v_2_1_2"))
     for prefix in xui.checked_rows(form, checkbox):
+        if unit_required and not xui.has_list_unit(form):
+            return _no_list_unit_refusal(form, prefix)
         row0 = int(prefix.split(".")[1])
         if row0 >= len(ports):
             continue

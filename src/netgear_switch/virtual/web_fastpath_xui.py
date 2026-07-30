@@ -61,6 +61,49 @@ def row(inst: str, cells: str, *, checkbox: str = "gecb5") -> str:
     )
 
 
+# The page's list-NAVIGATION block, above and below the table -- the "Go To
+# Port" bars real firmware emits as ``<TR ... class=deftestme>``. Its ``v_*``
+# fields SCOPE the list: ``v_1_1_1``/``v_1_3_1`` are the two aliases of the
+# page's ``urlListUnit`` ("Port Group Index", ``xc="url-list"``,
+# ``xeData["xalias_urlListUnit"] = "1_1_1|1_3_1|3_1_1|3_4_1"``) and ``v_1_1_2``
+# is the interface-type filter. They are ENABLED hidden inputs, so a browser
+# submits them on every apply.
+#
+# Rendered by the mock because their ABSENCE is what a real switch refuses on
+# (see ``unit_required`` in ``apply_poe``): a page that never showed them could
+# not reproduce that refusal, and the writer bug that omitted them would keep
+# passing here forever.
+LIST_UNIT_FIELDS = ("v_1_1_1", "v_1_3_1")
+LIST_TYPE_FILTER = "v_1_1_2"
+
+
+def nav_rows(unit: str = "1", *, type_filter: str = "^Physical$") -> str:
+    """The page's two ``class=deftestme`` list-navigation rows."""
+    return (
+        "<TR id=1_1 class=deftestme>\n"
+        '<TD class=defright id=1_1_1><INPUT xid=1_1_1 TYPE=hidden '
+        f'NAME=v_1_1_1 VALUE="{unit}"></TD>\n'
+        '<TD id=1_1_2 style="display:none"><INPUT xid=1_1_2 TYPE=hidden '
+        f'NAME={LIST_TYPE_FILTER} VALUE="{type_filter}"></TD>\n'
+        '<td id="1_1_null"><INPUT type="text" '
+        'id="inputBox_interface_1_1_null" name="inputBox_interface_1_1_null" '
+        'SIZE="10" MAXLENGTH="10" VALUE=""></td>\n'
+        "</TR>\n"
+        "<TR id=1_3 class=deftestme>\n"
+        '<TD class=defright id=1_3_1><INPUT xid=1_3_1 TYPE=hidden '
+        f'NAME=v_1_3_1 VALUE="{unit}"></TD>\n'
+        '<td id="1_3_null"><INPUT type="text" '
+        'id="inputBox_interface_1_3_null" name="inputBox_interface_1_3_null" '
+        'SIZE="10" MAXLENGTH="10" VALUE=""></td>\n'
+        "</TR>\n"
+    )
+
+
+def has_list_unit(form: Mapping[str, str]) -> bool:
+    """Whether this POST carries one of the page's ``urlListUnit`` aliases."""
+    return any(form.get(name) for name in LIST_UNIT_FIELDS)
+
+
 def _hidden(name: str, value: str) -> str:
     return f'<INPUT TYPE="hidden" NAME="{name}" XC=hidden VALUE="{value}">\n'
 

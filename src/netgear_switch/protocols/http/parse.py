@@ -2074,6 +2074,31 @@ _XUI_BUTTONS_DIV_RE = re.compile(
 # and whose absence it answers with 403; matched by name rather than by "not a
 # v_* field" so a future data field cannot be swept in by accident.
 _XUI_TOKEN_RE = re.compile(r"^CSRFToken$", re.IGNORECASE)
+# The page's list-NAVIGATION rows -- the "Go To Port" bars the firmware emits
+# above and below the table, marked ``class=deftestme``. Their ``v_*`` fields
+# scope the list (unit / interface-type filter) and a browser submits them on
+# every apply; the GSM7252PS PoE page REFUSES a write without one (see
+# ``XuiListPage.nav`` and ``forms.xui_row_apply_form``).
+#
+# Structural, not a name whitelist, and that is measured rather than assumed:
+# across every captured XUI list page of all four managed models
+# (gsm7252ps/gsm7228ps/m4300-24x/m4300-16x -- ports, PoE, PVID, statistics, MAC
+# table, LLDP, VLAN status), the set of page-level ``v_*`` fields is EXACTLY the
+# set inside these rows, with nothing left over. The names themselves are not
+# portable: the PoE/ports/PVID pages use ``v_1_1_1``/``v_1_1_2``/``v_1_3_1``, the
+# statistics pages ``v_1_2_1``/``v_1_2_2``/``v_1_3_1``, and the MAC tables
+# ``v_1_1_1``/``v_1_5_*``/``v_1_3_4``.
+_XUI_NAV_ROW_RE = re.compile(
+    r"<TR\b[^>]*\bclass=[\"']?deftestme[\"']?[^>]*>(.*?)</TR>",
+    re.IGNORECASE | re.DOTALL,
+)
+# A page-level (unprefixed) data field name: ``v_1_1_1``. Deliberately excludes
+# the global "apply to all rows" row's ``v_g_1_2_*`` twins -- echoing those back
+# is itself refused (live 2026-07-30 on gsm7252ps 10.1.5.22: a PoE apply that
+# carried them answered err_flag=1 "Error! Failed to Set 'Timer <br/> Schedule'
+# with ''", because the global row's cells render EMPTY and the firmware tries to
+# apply them to every port).
+_XUI_PAGE_FIELD_RE = re.compile(r"^v_\d+_\d+_\d+$")
 
 
 def _xui_form_block(html: str, page: str) -> tuple[str, str]:
@@ -2184,6 +2209,16 @@ def parse_xui_list_page(html: str, *, page: str = "XUI list page") -> XuiListPag
             )
         )
     form_fields, _cbs = _xui_inputs(_XUI_ROW_RE.sub("", block))
+    nav: dict[str, str] = {}
+    for m in _XUI_NAV_ROW_RE.finditer(block):
+        row_fields, _ = _xui_inputs(m.group(1))
+        nav.update(
+            {
+                n: unescape(v)
+                for n, v in row_fields.items()
+                if _XUI_PAGE_FIELD_RE.match(n)
+            }
+        )
     return XuiListPage(
         action=action,
         hidden={n: form_fields[n] for n in _XUI_HIDDEN_NAMES if n in form_fields},
@@ -2194,6 +2229,7 @@ def parse_xui_list_page(html: str, *, page: str = "XUI list page") -> XuiListPag
             for n, v in form_fields.items()
             if _XUI_TOKEN_RE.match(n)
         },
+        nav=nav,
     )
 
 

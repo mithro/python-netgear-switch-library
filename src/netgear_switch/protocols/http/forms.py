@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from ...models import VlanMode
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Collection, Mapping
 
     from .types import FastpathMembership, XuiFormPage, XuiListPage, XuiRow
 
@@ -124,27 +124,49 @@ def xui_row_apply_form(
     changes: Mapping[str, str],
     *,
     button: str,
+    omit: Collection[str] = (),
 ) -> dict[str, str]:
     """The POST body that applies ``changes`` to exactly ONE row of an XUI list.
 
     Only that row's fields are sent (plus its ``gecb`` checkbox, the page's
-    ``tokens``, the form's redirection block and the clicked button). That is
-    deliberately NARROWER than a browser, which submits every row's hidden
-    inputs and lets the firmware apply only the checked ones -- and it is
-    narrower for a safety reason, not a convenience one: a body that never
-    mentions the other 51 ports cannot change them even if a firmware ignored
-    the checkboxes. LIVE-PROVEN on all four managed switches 2026-07-30: after
-    this exact body, re-reading the whole table showed the target row's cell
-    changed and EVERY other cell of every other row byte-identical.
+    ``tokens``, its list-navigation block, the form's redirection block and the
+    clicked button). That is deliberately NARROWER than a browser, which submits
+    every row's hidden inputs and lets the firmware apply only the checked ones
+    -- and it is narrower for a safety reason, not a convenience one: a body that
+    never mentions the other 51 ports cannot change them even if a firmware
+    ignored the checkboxes. LIVE-PROVEN on all four managed switches 2026-07-30:
+    after this exact body, re-reading the whole table showed the target row's
+    cell changed and EVERY other cell of every other row byte-identical.
+
+    ``page.nav`` IS sent, and that is not decoration -- it is the difference
+    between a write that lands and one the firmware refuses. LIVE 2026-07-30/31
+    on gsm7252ps 10.1.5.22, port 1/0/35 (link-down, undescribed), the PoE apply
+    answered HTTP 200 + ``err_flag=1`` with one
+    ``Error! Failed to Set '<column>' with '<value>'`` line per read-write column
+    -- even for a body that changed nothing -- until the page's own
+    ``urlListUnit`` field rode along. Adding ``v_1_1_1`` alone, or ``v_1_3_1``
+    alone (the page aliases them: ``xeData["xalias_urlListUnit"] =
+    "1_1_1|1_3_1|3_1_1|3_4_1"``), made the identical write succeed; adding only
+    the ``v_1_1_2`` type filter did NOT. See ``XuiListPage.nav``.
 
     ``changes`` is keyed by bare column (``"v_1_2_6"``); the row's own
     ``<unit>.<row0>.<count>.`` prefix is prepended here so a caller can never
     address the wrong row. A column the row does not render raises rather than
     being silently added -- that would be writing a field the device never
     offered.
+
+    ``omit`` drops the named bare columns from this row's echoed fields, for the
+    columns the clicked BUTTON disables. These pages carry per-button shed lists
+    in their own metadata -- ``xeData.xa_<button>[14]`` is the "disable" set, and
+    ``xuiShed(2, ...)`` sets ``disabled=true`` on each, so a browser never
+    submits them for that button. A column the row does not render is ignored
+    (models differ in which columns exist), because ``omit`` says "do not send
+    this", not "this must be here".
     """
     body = dict(page.tokens)
-    body.update(row.fields)
+    body.update(page.nav)
+    dropped = {row.prefix + column for column in omit}
+    body.update({k: v for k, v in row.fields.items() if k not in dropped})
     for column, value in changes.items():
         name = row.prefix + column
         if name not in row.fields:
