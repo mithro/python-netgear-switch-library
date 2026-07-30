@@ -1,0 +1,20 @@
+Temp (C)....................................... 40
+Temperature traps range: 0 to 90 degrees (Celsius)
+
+Temperature Sensors:
+Unit     Sensor  Description       Temp (C)    State           Max_Temp (C)
+----     ------  ----------------  ----------  --------------  --------------
+1        1       Thermal Diode 2   40          Normal          40
+
+Fans:
+Unit Fan Description    Type      Speed         Duty level    State
+---- --- -------------- --------- ------------- ------------- --------------
+1    1   FAN-1          Fixed     4945          28%           Operational
+1    2   FAN-2          Fixed     5357          28%           Operational
+1    3   FAN-3          Fixed     5378          28%           Operational
+
+Power Modules:
+Unit     Power supply   Description        Type          State
+----     ------------   ----------------   ----------    --------------
+1        1              AC-1               Fixed         Operational
+1        2              RPS4000            Removable     Not powered

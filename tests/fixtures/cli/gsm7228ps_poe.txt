@@ -1,0 +1,52 @@
+        High     Max                      Output  Output
+Intf    Power   Power     Class   Power   Current Voltage      Status            Fault
+                 (mW)              (mW)     (mA)   (V)                           Status
+------ ------- -------- -------- -------  ------- -------  ----------------- -----------------
+1/g1     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g2     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g3     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g4     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g5     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g6     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g7     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g8     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g9     Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g10    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g11    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g12    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g13    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g14    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g15    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g16    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g17    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g18    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g19    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g20    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g21    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g22    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g23    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g24    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g25    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g26    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g27    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g28    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g29    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g30    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g31    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g32    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g33    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g34    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g35    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g36    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g37    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g38    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g39    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g40    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g41    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g42    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g43    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g44    Yes   30000    4        400       9       53      Delivering Power   No Error
+1/g45    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g46    Yes   30000    0        0         0       0       Delivering Power   No Error
+1/g47    Yes   30000    Unknown  0         0       0       Searching          No Error
+1/g48    Yes   30000    0        700       14      53      Delivering Power   No Error

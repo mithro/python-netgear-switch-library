@@ -1,0 +1,10 @@
+Switch: 1
+
+System Description............................. S3300-52X-PoE+ ProSAFE 48-Port Gigabit Stackable Smart Switch with PoE+ and 4 10G uplinks
+Machine Model.................................. S3300-52X-PoE+
+Serial Number.................................. 3TS153758001F
+Burned In MAC Address.......................... 08:BD:43:6B:B8:D8
+Software Version............................... 6.6.4.26
+Bootcode Version............................... B1.0.0.12
+Current Time................................... Jul 30 06:17:27 2026 (UTC+0:00)
+Current SNTP Sync Status....................... Success

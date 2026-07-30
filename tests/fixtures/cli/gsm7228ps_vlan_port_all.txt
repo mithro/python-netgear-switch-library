@@ -1,0 +1,82 @@
+          Port       Port                  Ingress    Ingress
+          VLAN ID    VLAN ID  Acceptable   Filtering  Filtering         Default
+Interface Configured Current  Frame Types  Configured Current   GVRP    Priority
+--------- ---------- -------- ------------ ---------- --------- ------- --------
+1/g1      21         21       Admit All    Disable    Disable   Disable 0
+1/g2      21         21       Admit All    Disable    Disable   Disable 0
+1/g3      21         21       Admit All    Disable    Disable   Disable 0
+1/g4      21         21       Admit All    Disable    Disable   Disable 0
+1/g5      21         21       Admit All    Disable    Disable   Disable 0
+1/g6      21         21       Admit All    Disable    Disable   Disable 0
+1/g7      21         21       Admit All    Disable    Disable   Disable 0
+1/g8      21         21       Admit All    Disable    Disable   Disable 0
+1/g9      21         21       Admit All    Disable    Disable   Disable 0
+1/g10     21         21       Admit All    Disable    Disable   Disable 0
+1/g11     21         21       Admit All    Disable    Disable   Disable 0
+1/g12     21         21       Admit All    Disable    Disable   Disable 0
+1/g13     21         21       Admit All    Disable    Disable   Disable 0
+1/g14     21         21       Admit All    Disable    Disable   Disable 0
+1/g15     21         21       Admit All    Disable    Disable   Disable 0
+1/g16     21         21       Admit All    Disable    Disable   Disable 0
+1/g17     21         21       Admit All    Disable    Disable   Disable 0
+1/g18     21         21       Admit All    Disable    Disable   Disable 0
+1/g19     21         21       Admit All    Disable    Disable   Disable 0
+1/g20     21         21       Admit All    Disable    Disable   Disable 0
+1/g21     21         21       Admit All    Disable    Disable   Disable 0
+1/g22     21         21       Admit All    Disable    Disable   Disable 0
+1/g23     21         21       Admit All    Disable    Disable   Disable 0
+1/g24     21         21       Admit All    Disable    Disable   Disable 0
+1/g25     21         21       Admit All    Disable    Disable   Disable 0
+1/g26     21         21       Admit All    Disable    Disable   Disable 0
+1/g27     21         21       Admit All    Disable    Disable   Disable 0
+1/g28     21         21       Admit All    Disable    Disable   Disable 0
+1/g29     21         21       Admit All    Disable    Disable   Disable 0
+1/g30     21         21       Admit All    Disable    Disable   Disable 0
+1/g31     21         21       Admit All    Disable    Disable   Disable 0
+1/g32     21         21       Admit All    Disable    Disable   Disable 0
+1/g33     21         21       Admit All    Disable    Disable   Disable 0
+1/g34     21         21       Admit All    Disable    Disable   Disable 0
+1/g35     21         21       Admit All    Disable    Disable   Disable 0
+1/g36     21         21       Admit All    Disable    Disable   Disable 0
+1/g37     21         21       Admit All    Disable    Disable   Disable 0
+1/g38     21         21       Admit All    Disable    Disable   Disable 0
+1/g39     21         21       Admit All    Disable    Disable   Disable 0
+1/g40     21         21       Admit All    Disable    Disable   Disable 0
+1/g41     5          5        Admit All    Disable    Disable   Disable 0
+1/g42     21         21       Admit All    Disable    Disable   Disable 0
+1/g43     21         21       Admit All    Disable    Disable   Disable 0
+1/g44     21         21       Admit All    Disable    Disable   Disable 0
+1/g45     21         21       Admit All    Disable    Disable   Disable 0
+1/g46     21         21       Admit All    Disable    Disable   Disable 0
+1/g47     21         21       Admit All    Disable    Disable   Disable 0
+1/g48     121        121      Admit All    Disable    Disable   Disable 0
+1/xg49    1          1        Admit All    Disable    Disable   Disable 0
+1/xg50    1          1        Admit All    Disable    Disable   Disable 0
+1/xg51    1          1        Admit All    Disable    Disable   Disable 0
+1/xg52    1          1        Admit All    Disable    Disable   Disable 0
+lag 1     1          1        Admit All    Disable    Disable   Disable 0
+lag 2     1          1        Admit All    Disable    Disable   Disable 0
+lag 3     1          1        Admit All    Disable    Disable   Disable 0
+lag 4     1          1        Admit All    Disable    Disable   Disable 0
+lag 5     1          1        Admit All    Disable    Disable   Disable 0
+lag 6     1          1        Admit All    Disable    Disable   Disable 0
+lag 7     1          1        Admit All    Disable    Disable   Disable 0
+lag 8     1          1        Admit All    Disable    Disable   Disable 0
+lag 9     1          1        Admit All    Disable    Disable   Disable 0
+lag 10    1          1        Admit All    Disable    Disable   Disable 0
+lag 11    1          1        Admit All    Disable    Disable   Disable 0
+lag 12    1          1        Admit All    Disable    Disable   Disable 0
+lag 13    1          1        Admit All    Disable    Disable   Disable 0
+lag 14    1          1        Admit All    Disable    Disable   Disable 0
+lag 15    1          1        Admit All    Disable    Disable   Disable 0
+lag 16    1          1        Admit All    Disable    Disable   Disable 0
+lag 17    1          1        Admit All    Disable    Disable   Disable 0
+lag 18    1          1        Admit All    Disable    Disable   Disable 0
+lag 19    1          1        Admit All    Disable    Disable   Disable 0
+lag 20    1          1        Admit All    Disable    Disable   Disable 0
+lag 21    1          1        Admit All    Disable    Disable   Disable 0
+lag 22    1          1        Admit All    Disable    Disable   Disable 0
+lag 23    1          1        Admit All    Disable    Disable   Disable 0
+lag 24    1          1        Admit All    Disable    Disable   Disable 0
+lag 25    1          1        Admit All    Disable    Disable   Disable 0
+lag 26    1          1        Admit All    Disable    Disable   Disable 0
