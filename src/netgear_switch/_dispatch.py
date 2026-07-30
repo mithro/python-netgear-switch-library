@@ -32,6 +32,45 @@ BACKEND_NOT_IMPLEMENTED = (
 )
 
 
+def resolve_backend(
+    model: SwitchModel,
+    requested: Backend | None,
+    preference: tuple[Backend, ...],
+) -> Backend:
+    """Pick THE ONE backend an op will run on -- no silent substitution.
+
+    Shared by ``SyncSwitch``/``AsyncSwitch`` so both facades resolve identically.
+
+    * ``requested`` given: that exact backend, or ``UnsupportedCapabilityError``
+      if the model does not have it. The caller asked for a protocol; getting a
+      different one back would make any claim about that protocol worthless
+      (the concrete bug this replaced: ``HttpReader.get_vlans`` returning empty
+      ``untagged_ports`` went unnoticed for months because the facade quietly
+      answered from SNMP instead).
+    * ``requested`` None: the FIRST backend in ``preference`` the model declares.
+      Deterministic and independent of the op -- the facade never probes one
+      backend, catches its refusal and tries the next.
+
+    Note this resolves a backend the MODEL has, not one that necessarily
+    implements the op: an op the resolved backend cannot serve raises rather
+    than being re-routed. That is the point.
+    """
+    if requested is not None:
+        if requested not in model.backends:
+            have = ", ".join(sorted(b.name for b in model.backends))
+            raise UnsupportedCapabilityError(
+                f"model {model.key!r} has no {requested.name} backend "
+                f"(it has: {have})"
+            )
+        return requested
+    for backend in preference:
+        if backend in model.backends:
+            return backend
+    raise UnsupportedCapabilityError(
+        f"model {model.key!r} declares no backend this library can dispatch to"
+    )
+
+
 def require_snmp_backend(model: SwitchModel) -> None:
     """Raise unless the model exposes an SNMP read backend."""
     if Backend.SNMP not in model.backends:
@@ -176,6 +215,23 @@ def cli_reads_supported(model: SwitchModel) -> bool:
         return False
     spec = CLI_SPECS.get(model.key)
     return spec is not None and spec.reads_verified
+
+
+def cli_writes_supported(model: SwitchModel) -> bool:
+    """True once a model's CLI WRITE path is live-verified (``writes_verified``).
+
+    Requires ``reads_verified`` too, and not incidentally: every CLI write
+    verifies itself by reading back through ``CliReader``, so a model whose CLI
+    reads are not trusted cannot honestly verify a CLI write either. All four
+    FASTPATH CLI models are verified (see ``CliModelSpec.writes_verified`` for
+    the per-model live-run evidence).
+    """
+    from .protocols.cli.commands import CLI_SPECS
+
+    if not cli_reads_supported(model):
+        return False
+    spec = CLI_SPECS.get(model.key)
+    return spec is not None and spec.writes_verified
 
 
 def build_sync_cli_client(

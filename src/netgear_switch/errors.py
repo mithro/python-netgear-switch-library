@@ -40,6 +40,20 @@ class WriteVerificationError(NetgearSwitchError):
         self.after = after
 
 
+class CliCommandError(NetgearSwitchError):
+    """A FASTPATH CLI command was REJECTED by the device, or a write
+    precondition failed before any command was sent.
+
+    The CLI analogue of ``protocols.snmp.client.SnmpError`` for the write path:
+    FASTPATH answers an accepted configuration command with EMPTY output, so any
+    text back (``% Invalid input``, ``ERROR: ...``) means the command did not
+    apply. Distinct from ``WriteVerificationError``, which means the commands
+    WERE accepted but the switch did not read back the intended state, and from
+    ``transport.cli.session.CliTransportError``, which means the connection /
+    prompt framing itself failed.
+    """
+
+
 class HttpError(NetgearSwitchError):
     """An HTTP web-UI transport operation failed (connect, HTTP status, page shape)."""
 

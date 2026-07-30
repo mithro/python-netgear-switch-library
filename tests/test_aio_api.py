@@ -78,11 +78,10 @@ def test_get_macs_on_plus_model_raises_no_mac_table() -> None:
 
 
 def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> None:
-    # snapshot() is backend-tolerant: macs/lldp/sensors are ops NEITHER NSDP
-    # NOR HTTP can serve on gs305ep, so they aggregate as empty instead of
-    # raising. poe is an NSDP gap that HTTP DOES serve (Task 9 per-op
-    # routing), so with an HTTP client available it populates too, instead of
-    # skipping as it did before HTTP was wired.
+    # Mirror of the sync test: snapshot() describes ONE backend and tolerates
+    # that backend's gaps (macs/lldp/sensors AND poe are all things NSDP cannot
+    # serve on gs305ep). poe is NOT filled in from HTTP behind the caller's back
+    # any more -- see test_gs305ep_poe_needs_an_explicit_http_backend.
     from netgear_switch.protocols.nsdp.protocol import NSDPPacket, Op, Tag
 
     class FakeAsyncNsdp:
@@ -119,8 +118,7 @@ def test_snapshot_on_plus_model_uses_nsdp_and_skips_unsupported_sections() -> No
     assert data.macs == ()
     assert data.lldp == ()
     assert data.sensors == ()
-    assert len(data.poe) == 1
-    assert data.poe[0].power_mw == 12800
+    assert data.poe == ()  # NSDP has no PoE status; nothing substitutes for it
 
 
 def test_from_config_builds_facade_without_touching_network() -> None:
@@ -654,14 +652,16 @@ def test_async_switch_plus_set_pvid_over_nsdp() -> None:
     asyncio.run(_run())
 
 
-# --- Task 9: per-op three-way backend routing (SNMP > NSDP > HTTP) ---------
+# --- explicit backend selection: NO silent protocol substitution ------------
 
 
-def test_gs305ep_poe_routes_to_http_ports_stay_nsdp() -> None:
-    # Async mirror of the sync test: PoE is an NSDP gap → served by HTTP; the
-    # facade must fall through NSDP (raises UnsupportedCapabilityError for
-    # get_poe) to HTTP.
-    from netgear_switch.registry import get_model
+def test_gs305ep_poe_needs_an_explicit_http_backend() -> None:
+    # Async mirror of the sync test: PoE is a genuine NSDP gap, NSDP is this
+    # model's default backend, so the op RAISES (naming NSDP and pointing at
+    # HTTP) instead of quietly answering over a protocol the caller did not ask
+    # for. Requesting HTTP explicitly works.
+    from netgear_switch.errors import UnsupportedCapabilityError
+    from netgear_switch.registry import Backend, get_model
 
     class _AsyncHttpSess:
         async def login(self) -> None: ...
@@ -686,11 +686,37 @@ def test_gs305ep_poe_routes_to_http_ports_stay_nsdp() -> None:
             nsdp_password="x",
             http_client=_AsyncHttpSess(),
         )
-        poe = await sw.get_poe()
+        with pytest.raises(UnsupportedCapabilityError) as exc:
+            await sw.get_poe()
+        assert "NSDP" in str(exc.value)
+        assert "HTTP" in str(exc.value)
+        poe = await sw.get_poe(backend=Backend.HTTP)
         assert poe[0].port == 1
-        assert poe[0].power_mw == 12800  # came from HTTP, proving fallback
+        assert poe[0].power_mw == 12800
 
     asyncio.run(_run())
+
+
+def test_async_requested_backend_is_never_substituted() -> None:
+    from netgear_switch.errors import UnsupportedCapabilityError
+    from netgear_switch.registry import Backend, get_model
+
+    async def _run() -> None:
+        sw = AsyncSwitch(get_model("gs305ep"), "sw.example", nsdp_client=object())
+        with pytest.raises(UnsupportedCapabilityError) as exc:
+            await sw.get_ports(backend=Backend.SNMP)
+        assert "no SNMP backend" in str(exc.value)
+
+    asyncio.run(_run())
+
+
+def test_async_default_backend_resolution_is_deterministic() -> None:
+    from netgear_switch.registry import Backend, get_model
+
+    assert AsyncSwitch(get_model("gs305ep"), "h").resolve_backend() is Backend.NSDP
+    assert AsyncSwitch(get_model("gsm7252ps"), "h").resolve_backend() is Backend.SNMP
+    sw = AsyncSwitch(get_model("gsm7252ps"), "h")
+    assert sw.resolve_backend(Backend.HTTP) is Backend.HTTP
 
 
 def test_gsm7228ps_http_reads_grounded_and_join_dispatch() -> None:
@@ -766,7 +792,10 @@ def test_http_client_closed_after_http_routed_op(
             nsdp_password="x",
             http_password="secret",
         ) as sw:
-            poe = await sw.get_poe()
+            from netgear_switch.registry import Backend
+
+            # Explicit HTTP: PoE over the web UI is asked for, never substituted.
+            poe = await sw.get_poe(backend=Backend.HTTP)
             assert poe[0].port == 1
             assert spy.closed is False  # still in use inside `async with`
         assert spy.closed is True  # torn down on async-context-manager exit
@@ -804,7 +833,9 @@ def test_injected_http_client_is_never_closed_by_facade() -> None:
             nsdp_password="x",
             http_client=_AsyncHttpSess(),
         ) as sw:
-            await sw.get_poe()
+            from netgear_switch.registry import Backend
+
+            await sw.get_poe(backend=Backend.HTTP)
 
     asyncio.run(_run())
 

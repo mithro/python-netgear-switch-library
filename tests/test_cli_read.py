@@ -197,17 +197,19 @@ def test_plus_models_have_no_cli_backend() -> None:
 # --- facade gate: CLI reads/writes refused while reads_verified is False -----
 
 
-def test_sync_facade_builds_cli_reader_but_refuses_cli_write() -> None:
+def test_sync_facade_builds_cli_reader_and_cli_writer() -> None:
+    from netgear_switch.cli_write import CliWriter
     from netgear_switch.sync_api import SyncSwitch
 
-    # gsm7228ps (S3300-52X) is now a reads_verified telnet CLI model, so the
-    # facade BUILDS a (lazy) CLI reader for its telnet backend rather than
-    # refusing. There is still no CLI writer in this slice, so a CLI write is
-    # honestly unsupported (SNMP remains the write path).
+    # gsm7228ps (S3300-52X) is a reads_verified telnet CLI model, so the facade
+    # BUILDS a (lazy) CLI reader for its telnet backend rather than refusing --
+    # and, since the CLI VLAN write backend landed, a (lazy) CliWriter too. Both
+    # are gated on the SAME reads_verified flag: a CLI write verifies itself by
+    # reading back through CliReader, so unverified reads mean unverifiable
+    # writes. Neither construction touches the wire (see _LazyCliSession).
     sw = SyncSwitch(get_model("gsm7228ps"), "10.0.0.1")
     assert isinstance(sw._reader_for(Backend.TELNET), CliReader)
-    with pytest.raises(UnsupportedCapabilityError):
-        sw._writer_for(Backend.TELNET)
+    assert isinstance(sw._writer_for(Backend.TELNET), CliWriter)
 
 
 def test_sync_facade_build_cli_client_picks_telnet_for_gsm7228ps() -> None:

@@ -13,6 +13,7 @@ from ._dispatch import (
     http_reads_supported,
     require_http_backend,
     require_mac_table,
+    resolve_backend,
 )
 from .errors import CredentialError, ProtectedPortError, UnsupportedCapabilityError
 from .http_read import AsyncHttpReader
@@ -27,19 +28,18 @@ from .snmp_write import AsyncSnmpWriter, PoeCycleTimeouts
 _DEFAULT_POE_TIMEOUTS = PoeCycleTimeouts()
 
 _R = TypeVar("_R")
-# Per-op backend preference: try SNMP, then NSDP, then HTTP; the first backend
-# whose reader/writer serves an op wins. HTTP joins this fallback only when a
-# higher-priority backend's reader/writer CONSTRUCTION raises
-# UnsupportedCapabilityError, or the op method itself explicitly raises it
-# (e.g. NSDP's get_macs/get_lldp/get_sensors/get_poe -- see nsdp_read.py's
-# "_NO_*" constants). NSDP's get_stats/get_mgmt_ip are NOT such ops: they
-# always return a (possibly sparse) result rather than raising
-# UnsupportedCapabilityError, so for a {NSDP, HTTP} model (e.g. gs110emx)
-# those two ops are ALWAYS served by NSDP through this facade -- their real
-# HTTP implementations in http_read.py are unreachable here; only a
-# directly-constructed AsyncHttpReader ever exercises them. Do not read this
-# preference order as "HTTP only fills gaps" more broadly than that.
-_BACKEND_PREFERENCE = (Backend.SNMP, Backend.NSDP, Backend.HTTP, Backend.SSH)
+# DEFAULT backend resolution order, used ONLY when the caller does not name a
+# backend -- identical to sync_api._BACKEND_PREFERENCE, and with the same NO
+# SILENT FALLBACK contract: exactly one backend runs and an op it cannot serve
+# raises instead of being re-routed. See sync_api for the full rationale.
+_BACKEND_PREFERENCE = (
+    Backend.SNMP,
+    Backend.NSDP,
+    Backend.HTTP,
+    Backend.SSH,
+    Backend.TELNET,
+    Backend.CONSOLE,
+)
 
 
 class _Unset:
@@ -137,9 +137,12 @@ class AsyncSwitch:
         http_password: str | None = None,
         http_password_resolver: Callable[[], str | None] | None = None,
         protected_ports: frozenset[int] = frozenset(),
+        backend: Backend | None = None,
     ) -> None:
         self.model = model
         self.host = host
+        # Default backend for every op on this facade -- see SyncSwitch.
+        self.backend = backend
         self._snmp_community = snmp_community
         self._snmp_client = snmp_client
         self._snmp_write_community = snmp_write_community
@@ -331,92 +334,112 @@ class AsyncSwitch:
                 protected_ports=self.protected_ports,
             )
         else:  # a CLI backend (SSH/telnet/console)
-            # No CLI writer exists (reads-only slice), and CLI is synchronous
-            # anyway -- SNMP remains the write path for every FASTPATH model.
+            # A CLI VLAN write backend DOES exist (cli_write.CliWriter, wired
+            # into SyncSwitch), but only synchronously: all three CLI transports
+            # (paramiko SSH, telnetlib, pyserial console) are blocking and have
+            # no async twin, so the async facade has no CLI backend at all --
+            # exactly like async CLI reads and upload_certificate_scp. Honest
+            # UnsupportedCapabilityError naming the real reason; SNMP remains the
+            # async write path for every FASTPATH model.
             raise UnsupportedCapabilityError(
-                f"model {self.model.key!r} has no CLI write backend"
+                f"model {self.model.key!r} CLI writes are not available via the "
+                "async facade (the CLI transports are synchronous) -- use "
+                "SyncSwitch for CLI writes"
             )
         self._writer_cache[backend] = writer
         return writer
+
+    def resolve_backend(self, backend: Backend | None = None) -> Backend:
+        """Async twin of ``SyncSwitch.resolve_backend`` -- see there."""
+        return resolve_backend(self.model, backend or self.backend, _BACKEND_PREFERENCE)
+
+    def _cannot_serve(
+        self,
+        chosen: Backend,
+        requested: Backend | None,
+        exc: UnsupportedCapabilityError,
+    ) -> UnsupportedCapabilityError:
+        """Async twin of ``SyncSwitch._cannot_serve`` -- see there."""
+        if requested is None:
+            others = sorted(b.name for b in self.model.backends if b is not chosen)
+            hint = (
+                f"; pass backend=Backend.<{'|'.join(others)}> to use another backend"
+                if others
+                else ""
+            )
+            return UnsupportedCapabilityError(
+                f"model {self.model.key!r}: the default backend {chosen.name} "
+                f"cannot serve this operation: {exc}{hint}"
+            )
+        return UnsupportedCapabilityError(
+            f"model {self.model.key!r}: the requested backend {chosen.name} "
+            f"cannot serve this operation: {exc}"
+        )
 
     async def _read(
         self,
         op: Callable[
             [AsyncSnmpReader | AsyncNsdpReader | AsyncHttpReader], Awaitable[_R]
         ],
+        backend: Backend | None,
     ) -> _R:
-        last: UnsupportedCapabilityError | None = None
-        for backend in _BACKEND_PREFERENCE:
-            if backend not in self.model.backends:
-                continue
-            try:
-                reader = self._reader_for(backend)
-            except UnsupportedCapabilityError as exc:
-                last = exc
-                continue
-            try:
-                return await op(reader)
-            except UnsupportedCapabilityError as exc:
-                last = exc
-        if last is not None:
-            raise last
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r} has no backend supporting this operation"
-        )
+        # ONE backend, no fallback -- see sync_api._read.
+        requested = backend or self.backend
+        chosen = self.resolve_backend(requested)
+        reader = self._reader_for(chosen)
+        try:
+            return await op(reader)
+        except UnsupportedCapabilityError as exc:
+            raise self._cannot_serve(chosen, requested, exc) from exc
 
     async def _write(
         self,
         op: Callable[
             [AsyncSnmpWriter | AsyncNsdpWriter | AsyncHttpWriter], Awaitable[None]
         ],
+        backend: Backend | None,
     ) -> None:
-        last: UnsupportedCapabilityError | None = None
-        for backend in _BACKEND_PREFERENCE:
-            if backend not in self.model.backends:
-                continue
-            try:
-                writer = self._writer_for(backend)
-            except UnsupportedCapabilityError as exc:
-                last = exc
-                continue
-            try:
-                await op(writer)
-                return
-            except UnsupportedCapabilityError as exc:
-                last = exc
-        if last is not None:
-            raise last
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r} has no backend supporting this operation"
-        )
+        requested = backend or self.backend
+        chosen = self.resolve_backend(requested)
+        writer = self._writer_for(chosen)
+        try:
+            await op(writer)
+        except UnsupportedCapabilityError as exc:
+            raise self._cannot_serve(chosen, requested, exc) from exc
 
-    async def get_ports(self) -> list[PortStatus]:
-        return await self._read(lambda r: r.get_ports())
+    # Every read/write op takes an optional keyword-only ``backend`` -- see the
+    # equivalent note on SyncSwitch: one backend runs, named or defaulted, and an
+    # op it cannot serve raises instead of being silently re-routed.
 
-    async def get_stats(self) -> list[PortStats]:
-        return await self._read(lambda r: r.get_stats())
+    async def get_ports(self, *, backend: Backend | None = None) -> list[PortStatus]:
+        return await self._read(lambda r: r.get_ports(), backend)
 
-    async def get_vlans(self) -> list[VLANInfo]:
-        return await self._read(lambda r: r.get_vlans())
+    async def get_stats(self, *, backend: Backend | None = None) -> list[PortStats]:
+        return await self._read(lambda r: r.get_stats(), backend)
 
-    async def get_pvids(self) -> list[tuple[int, int]]:
-        return await self._read(lambda r: r.get_pvids())
+    async def get_vlans(self, *, backend: Backend | None = None) -> list[VLANInfo]:
+        return await self._read(lambda r: r.get_vlans(), backend)
 
-    async def get_lldp(self) -> list[LLDPNeighbor]:
-        return await self._read(lambda r: r.get_lldp())
+    async def get_pvids(
+        self, *, backend: Backend | None = None
+    ) -> list[tuple[int, int]]:
+        return await self._read(lambda r: r.get_pvids(), backend)
 
-    async def get_macs(self) -> list[MacEntry]:
+    async def get_lldp(self, *, backend: Backend | None = None) -> list[LLDPNeighbor]:
+        return await self._read(lambda r: r.get_lldp(), backend)
+
+    async def get_macs(self, *, backend: Backend | None = None) -> list[MacEntry]:
         require_mac_table(self.model)
-        return await self._read(lambda r: r.get_macs())
+        return await self._read(lambda r: r.get_macs(), backend)
 
-    async def get_poe(self) -> list[PoEStatus]:
-        return await self._read(lambda r: r.get_poe())
+    async def get_poe(self, *, backend: Backend | None = None) -> list[PoEStatus]:
+        return await self._read(lambda r: r.get_poe(), backend)
 
-    async def get_sensors(self) -> list[Sensor]:
-        return await self._read(lambda r: r.get_sensors())
+    async def get_sensors(self, *, backend: Backend | None = None) -> list[Sensor]:
+        return await self._read(lambda r: r.get_sensors(), backend)
 
-    async def get_mgmt_ip(self) -> MgmtIpConfig:
-        return await self._read(lambda r: r.get_mgmt_ip())
+    async def get_mgmt_ip(self, *, backend: Backend | None = None) -> MgmtIpConfig:
+        return await self._read(lambda r: r.get_mgmt_ip(), backend)
 
     async def nsdp_device(self) -> NsdpDevice:
         """Async twin of ``SyncSwitch.nsdp_device`` -- see there."""
@@ -431,11 +454,10 @@ class AsyncSwitch:
             client = build_async_snmp_client(self.host, self._snmp_community)
         return await async_read_system_info(client)
 
-    async def snapshot(self) -> SwitchData:
-        """Aggregate every read op, routing each field to the first backend
-        that supports it (SNMP > NSDP > HTTP). A field NO backend can serve
-        degrades to ()/None; a field a backend DOES serve stays populated
-        (gs305ep: ports/stats/vlans/pvids/mgmt via NSDP, poe via HTTP)."""
+    async def snapshot(self, *, backend: Backend | None = None) -> SwitchData:
+        """Async twin of ``SyncSwitch.snapshot``: every read op over ONE backend
+        (named, or this model's default), with a field that backend cannot serve
+        degrading to ()/None rather than being re-read over another protocol."""
 
         async def _opt(
             op: Callable[
@@ -444,12 +466,14 @@ class AsyncSwitch:
             ],
         ) -> tuple[Any, ...]:
             try:
-                return tuple(await self._read(op))
+                return tuple(await self._read(op, backend))
             except UnsupportedCapabilityError:
                 return ()
 
         try:
-            mgmt: MgmtIpConfig | None = await self._read(lambda r: r.get_mgmt_ip())
+            mgmt: MgmtIpConfig | None = await self._read(
+                lambda r: r.get_mgmt_ip(), backend
+            )
         except UnsupportedCapabilityError:
             mgmt = None
 
@@ -498,42 +522,78 @@ class AsyncSwitch:
         self._resolved_nsdp_password = resolved
         return resolved
 
-    async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
-        await self._write(lambda w: w.set_poe(port, on, force=force))
+    async def set_poe(
+        self,
+        port: int,
+        on: bool,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        await self._write(lambda w: w.set_poe(port, on, force=force), backend)
 
     async def set_port_enabled(
-        self, port: int, enabled: bool, *, force: bool = False
-    ) -> None:
-        await self._write(lambda w: w.set_port_enabled(port, enabled, force=force))
-
-    async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
-        await self._write(lambda w: w.set_pvid(port, vlan, force=force))
-
-    async def set_vlan_membership(
-        self, vlan: int, port: int, mode: VlanMode, *, force: bool = False
+        self,
+        port: int,
+        enabled: bool,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
     ) -> None:
         await self._write(
-            lambda w: w.set_vlan_membership(vlan, port, mode, force=force)
+            lambda w: w.set_port_enabled(port, enabled, force=force), backend
         )
 
-    async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
-        await self._write(lambda w: w.create_vlan(vlan, name, force=force))
+    async def set_pvid(
+        self,
+        port: int,
+        vlan: int,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        await self._write(lambda w: w.set_pvid(port, vlan, force=force), backend)
 
-    async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
-        # SAFETY RAIL: mirrors SyncSwitch.delete_vlan (see its docstring).
-        # HttpWriter.delete_vlan does NOT itself guard protected member ports,
-        # and NsdpWriter.delete_vlan ALWAYS raises UnsupportedCapabilityError
-        # (NSDP has no VLAN lifecycle ops), so any {NSDP, HTTP} model falls
-        # straight through to HTTP -- guard here so every backend gets the
-        # same protected-port safety rail.
-        await self._guard_vlan_delete_members(vlan, force=force)
-        await self._write(lambda w: w.delete_vlan(vlan, force=force))
+    async def set_vlan_membership(
+        self,
+        vlan: int,
+        port: int,
+        mode: VlanMode,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        await self._write(
+            lambda w: w.set_vlan_membership(vlan, port, mode, force=force), backend
+        )
 
-    async def _guard_vlan_delete_members(self, vlan: int, *, force: bool) -> None:
+    async def create_vlan(
+        self,
+        vlan: int,
+        name: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        await self._write(lambda w: w.create_vlan(vlan, name, force=force), backend)
+
+    async def delete_vlan(
+        self, vlan: int, *, force: bool = False, backend: Backend | None = None
+    ) -> None:
+        # SAFETY RAIL: mirrors SyncSwitch.delete_vlan (see its docstring) --
+        # neither the HTTP nor the NSDP writer guards protected member ports for
+        # a VLAN delete, so the facade does it for every backend, reading over
+        # the SAME backend the delete will use.
+        await self._guard_vlan_delete_members(vlan, force=force, backend=backend)
+        await self._write(lambda w: w.delete_vlan(vlan, force=force), backend)
+
+    async def _guard_vlan_delete_members(
+        self, vlan: int, *, force: bool, backend: Backend | None
+    ) -> None:
         if force:
             return
         try:
-            vlans = await self._read(lambda r: r.get_vlans())
+            vlans = await self._read(lambda r: r.get_vlans(), backend)
         except UnsupportedCapabilityError:
             return
         for v in vlans:
@@ -552,8 +612,11 @@ class AsyncSwitch:
         *,
         force: bool = False,
         timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+        backend: Backend | None = None,
     ) -> None:
-        await self._write(lambda w: w.cycle_poe(port, force=force, timeouts=timeouts))
+        await self._write(
+            lambda w: w.cycle_poe(port, force=force, timeouts=timeouts), backend
+        )
 
     async def clear_poe_fault(
         self,
@@ -561,16 +624,23 @@ class AsyncSwitch:
         *,
         force: bool = False,
         timeouts: PoeCycleTimeouts = _DEFAULT_POE_TIMEOUTS,
+        backend: Backend | None = None,
     ) -> None:
         await self._write(
-            lambda w: w.clear_poe_fault(port, force=force, timeouts=timeouts)
+            lambda w: w.clear_poe_fault(port, force=force, timeouts=timeouts), backend
         )
 
     async def set_mgmt_ip(
-        self, address: str, netmask: str, gateway: str, *, force: bool = False
+        self,
+        address: str,
+        netmask: str,
+        gateway: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
     ) -> None:
         await self._write(
-            lambda w: w.set_mgmt_ip(address, netmask, gateway, force=force)
+            lambda w: w.set_mgmt_ip(address, netmask, gateway, force=force), backend
         )
 
     def _cert_writer(self) -> AsyncHttpWriter:

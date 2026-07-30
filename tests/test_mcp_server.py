@@ -259,6 +259,10 @@ _NOT_MCP_EXPOSED = {
     "post_form",
     "close",
     "from_config",
+    # Introspection, not an operation: "which backend would an op with this
+    # argument run on?". Every real op instead takes an optional `backend`
+    # argument (exposing THAT over MCP is a separate, open follow-up).
+    "resolve_backend",
 }
 # SyncSwitch method -> MCP tool name, where the two differ.
 _RENAMED = {"nsdp_device": "get_device"}
