@@ -99,9 +99,47 @@ def test_mac_table_unsupported_on_plus() -> None:
         reader.get_lldp()
 
 
-def test_gsm7228ps_unverified_model_read_refused() -> None:
+def _gsm7228ps_pages() -> dict[str, str]:
+    return {
+        "/portsConfiguration.html": (
+            _FIX / "gsm7228ps_portsConfiguration.html"
+        ).read_text(),
+        "/portStatistics.html": (_FIX / "gsm7228ps_portStatistics.html").read_text(),
+        "/poeInterfaceConfiguration.html": (
+            _FIX / "gsm7228ps_poeInterfaceConfiguration.html"
+        ).read_text(),
+        "/vlanStatus.html": (_FIX / "gsm7228ps_vlanStatus.html").read_text(),
+        "/portPvidConfiguration.html": (
+            _FIX / "gsm7228ps_portPvidConfiguration.html"
+        ).read_text(),
+        "/basicAddressTable.html": (
+            _FIX / "gsm7228ps_basicAddressTable.html"
+        ).read_text(),
+        "/lldpRemoteInventory.html": (
+            _FIX / "gsm7228ps_lldpRemoteInventory.html"
+        ).read_text(),
+        "/base/system/management/sysInfo.html": (
+            _FIX / "gsm7228ps_sysInfo.html"
+        ).read_text(),
+    }
+
+
+def test_gsm7228ps_reads_are_grounded_not_refused() -> None:
+    # gsm7228ps (S3300-52X) GRADUATED: its reads are grounded in real captures
+    # (tests/fixtures/http/gsm7228ps_*.html) and cross-verified vs SNMP, so the
+    # spec ships reads_verified=True and constructing a reader must succeed --
+    # the same graduation gsm7252ps made. Ports/PVIDs/PoE/VLANs/LLDP/MACs are
+    # served; mgmt-IP is base-MAC only; sensors raise (SNMP-only on this model).
+    reader = HttpReader(_FakeSession(_gsm7228ps_pages()), get_model("gsm7228ps"))
+    assert {p.port for p in reader.get_ports()} == set(range(1, 53))
+    assert len(reader.get_poe()) == 48
+    assert {v.vlan_id for v in reader.get_vlans()} == {1, 5, 21, 121, 4089}
+    assert len(reader.get_macs()) == 17  # base MAC on CPU "c1" is skipped
+    mgmt = reader.get_mgmt_ip()
+    assert mgmt.address is None
+    assert mgmt.base_mac == "08:BD:43:6B:B8:D8"
     with pytest.raises(UnsupportedCapabilityError):
-        HttpReader(_FakeSession({}), get_model("gsm7228ps"))
+        reader.get_sensors()  # S3300 sysInfo has no live fan/temp table
 
 
 def _gs110emx_pages() -> dict[str, str]:
@@ -492,13 +530,27 @@ def _gsm7252ps_pages() -> dict[str, str]:
 
 
 def test_http_reader_refuses_unverified_model() -> None:
-    """The reads_verified gate: a model whose HTTP reads are NOT verified
-    (gsm7228ps -- CHEETAH_FORM login proven, but no read pages captured and no
-    cross-verify) must refuse to construct an HttpReader rather than serve
-    unverified scrapes. gsm7252ps used to sit here; it graduated once its reads
-    were live cross-verified (see test_gsm7252ps_every_read_op_is_served_over_http)."""
-    with pytest.raises(UnsupportedCapabilityError):
-        HttpReader(_FakeSession({}), get_model("gsm7228ps"))
+    """The reads_verified gate: a model whose HTTP reads are NOT verified must
+    refuse to construct an HttpReader rather than serve unverified scrapes.
+
+    Both gsm7252ps and gsm7228ps used to sit here and have since GRADUATED
+    (their shipped specs are reads_verified=True after live cross-verify), so no
+    shipped model is unverified anymore. The gate is exercised by temporarily
+    flipping a real model's spec to reads_verified=False -- proving the honesty
+    gate still fires when a spec says its reads are unverified."""
+    import dataclasses
+
+    from netgear_switch.protocols.http import endpoints
+
+    original = endpoints._SPECS["gsm7228ps"]
+    endpoints._SPECS["gsm7228ps"] = dataclasses.replace(
+        original, reads_verified=False
+    )
+    try:
+        with pytest.raises(UnsupportedCapabilityError):
+            HttpReader(_FakeSession({}), get_model("gsm7228ps"))
+    finally:
+        endpoints._SPECS["gsm7228ps"] = original
 
 
 def test_gsm7252ps_every_read_op_is_served_over_http() -> None:

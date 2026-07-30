@@ -96,6 +96,20 @@ def _is_xe_fastpath_dialect(spec: HttpModelSpec) -> bool:
     return spec.html_dialect is HtmlDialect.XE_FASTPATH
 
 
+def _is_s3300_dialect(spec: HttpModelSpec) -> bool:
+    from .protocols.http.endpoints import HtmlDialect
+
+    return spec.html_dialect is HtmlDialect.S3300
+
+
+def _uses_xe_grid(spec: HttpModelSpec) -> bool:
+    """True for the models that share the XE_FASTPATH cell grid for
+    ports/stats/PVIDs/VLANs/PoE/LLDP: gsm7252ps (XE_FASTPATH) and the S3300-52X
+    (gsm7228ps), whose MAC/mgmt/sensor pages diverge but whose six other reads
+    are byte-identical -- see ``parse_s3300_*`` and ``HtmlDialect.S3300``."""
+    return _is_xe_fastpath_dialect(spec) or _is_s3300_dialect(spec)
+
+
 def _is_goahead_dialect(spec: HttpModelSpec) -> bool:
     from .protocols.http.endpoints import HtmlDialect
 
@@ -107,12 +121,17 @@ def _has_inline_vlan_egress(spec: HttpModelSpec) -> bool:
     egress list INLINE (M4300 vlanStatus.html and the XE one), so there is no
     per-VLAN membership POST to make -- and requiring
     ``vlan_membership_path`` for them would wrongly raise."""
-    return _is_m4300_dialect(spec) or _is_xe_fastpath_dialect(spec)
+    return _is_m4300_dialect(spec) or _uses_xe_grid(spec)
 
 
 def _parse_vlans(spec: HttpModelSpec, html: str) -> list[VLANInfo]:
-    """Dispatch an inline-egress VLAN page to its dialect's parser."""
-    if _is_xe_fastpath_dialect(spec):
+    """Dispatch an inline-egress VLAN page to its dialect's parser. The S3300
+    shares the XE page shape but names egress ports ``1/gN``/``1/xgN``, which
+    the XE (``1/0/N``-only) member expander reads as empty -- so it needs its
+    own parser (see ``parse_s3300_vlans``)."""
+    if _is_s3300_dialect(spec):
+        return parse.parse_s3300_vlans(html)
+    if _uses_xe_grid(spec):
         return parse.parse_xe_vlans(html)
     return parse.parse_m4300_vlans(html)
 
@@ -123,6 +142,8 @@ def _parse_macs(spec: HttpModelSpec, html: str) -> list[MacEntry]:
     partial FDB -- see the parsers' docstrings."""
     if _is_goahead_dialect(spec):
         return parse.parse_goahead_macs(html)
+    if _is_s3300_dialect(spec):
+        return parse.parse_s3300_macs(html)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_macs(html)
     return parse.parse_m4300_macs(html)
@@ -134,7 +155,7 @@ def _parse_poe(spec: HttpModelSpec, html: str) -> list[PoEStatus]:
     vs gs305ep's ``getPoePortStatus.cgi`` portID rows."""
     if _is_goahead_dialect(spec):
         return parse.parse_goahead_poe(html)
-    if _is_xe_fastpath_dialect(spec) or _is_m4300_dialect(spec):
+    if _uses_xe_grid(spec) or _is_m4300_dialect(spec):
         return parse.parse_xe_poe(html)
     return parse.parse_poe_status(html)
 
@@ -158,7 +179,11 @@ def _parse_sensors(spec: HttpModelSpec, html: str) -> list[Sensor]:
 def _supports_sensors(spec: HttpModelSpec) -> bool:
     """Only the FASTPATH / GoAhead dialects have a sysInfo page carrying box
     sensors; a Plus model's sysInfo (gs110emx/gs105pe) has none, so
-    ``get_sensors`` raises rather than returning an empty list."""
+    ``get_sensors`` raises rather than returning an empty list. The S3300
+    (gsm7228ps) is deliberately NOT listed even though it has a sysinfo_path:
+    its sysInfo carries no live fan/temp sensor table (only a base MAC and a
+    temperature-trap threshold), so sensors over HTTP are unsupported and SNMP
+    is the only source -- see ``HtmlDialect.S3300``."""
     return (
         _is_m4300_dialect(spec)
         or _is_xe_fastpath_dialect(spec)
@@ -177,7 +202,7 @@ def _parse_stats(spec: HttpModelSpec, html: str) -> list[PortStats]:
         return parse.parse_gs105pe_stats(html)
     if _is_m4300_dialect(spec):
         return parse.parse_m4300_stats(html)
-    if _is_xe_fastpath_dialect(spec):
+    if _uses_xe_grid(spec):
         return parse.parse_xe_stats(html)
     return parse.parse_port_stats(html)
 
@@ -191,7 +216,7 @@ def _parse_ports(spec: HttpModelSpec, html: str) -> list[PortStatus]:
         return parse.parse_gs105pe_port_status(html)
     if _is_m4300_dialect(spec):
         return parse.parse_m4300_port_status(html)
-    if _is_xe_fastpath_dialect(spec):
+    if _uses_xe_grid(spec):
         return parse.parse_xe_port_status(html)
     if _is_goahead_dialect(spec):
         return parse.parse_goahead_ports(html)
@@ -207,7 +232,7 @@ def _parse_pvids(spec: HttpModelSpec, html: str) -> list[tuple[int, int]]:
         return parse.parse_gs105pe_pvids(html)
     if _is_m4300_dialect(spec):
         return parse.parse_m4300_pvids(html)
-    if _is_xe_fastpath_dialect(spec):
+    if _uses_xe_grid(spec):
         return parse.parse_xe_pvids(html)
     if _is_goahead_dialect(spec):
         return parse.parse_goahead_pvids(html)
@@ -320,6 +345,10 @@ def _mgmt_ip(spec: HttpModelSpec, page: str) -> MgmtIpConfig:
     gateway, no base MAC); the Plus models go through ``HttpSysInfo``."""
     if _is_goahead_dialect(spec):
         return parse.parse_goahead_mgmt_ip(page)
+    if _is_s3300_dialect(spec):
+        # S3300 sysInfo exposes only the base MAC (no IPv4 address); SNMP is
+        # authoritative for the mgmt address -- see parse_s3300_mgmt.
+        return parse.parse_s3300_mgmt(page)
     if _is_xe_fastpath_dialect(spec):
         return parse.parse_xe_mgmt_ip(page)
     if _is_m4300_dialect(spec):

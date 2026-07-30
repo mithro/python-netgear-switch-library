@@ -12,12 +12,17 @@ flows are grounded in captured prior art or still
   ``merge`` hash scheme observed on GS105PE; ``8021qCf.cgi`` /
   ``8021qMembe.cgi`` / ``portPVID.cgi`` field shapes and wire codes). Both
   ``scheme_verified`` and ``reads_verified`` are ``True``.
-- ``gsm7228ps`` (Smart Managed Pro / S3300): the plaintext cheetah login form
-  is GROUNDED in ``certbot-hook-netgear-switches/netgear-updater.py``
-  (``S3300Updater``), so ``scheme_verified`` is ``True``. SNMP is the
-  preferred read/write path for this model; no web-UI read/write flow has
-  been captured, so ``reads_verified`` is ``False`` and the reader/writer
-  refuse rather than fabricate.
+- ``gsm7228ps`` (Smart Managed Pro / S3300-52X): the plaintext cheetah login
+  form is GROUNDED in ``certbot-hook-netgear-switches/netgear-updater.py``
+  (``S3300Updater``), so ``scheme_verified`` is ``True``. Its read pages are the
+  SAME Cheetah XE grid as the sibling ``gsm7252ps`` and are GROUNDED in real
+  captures of the live switch (``tests/fixtures/http/gsm7228ps_*.html``);
+  ports/stats/PVIDs/VLANs/PoE/LLDP reuse the ``parse_xe_*`` parsers, while the
+  MAC table (shifted columns, escaped ``1/gN`` port names), mgmt-IP (base MAC
+  only) and sensors (unsupported over HTTP) get S3300-specific handling -- see
+  ``HtmlDialect.S3300``. ``reads_verified`` is ``True`` (HTTP cross-verified vs
+  SNMP on 10.1.5.11); SNMP remains authoritative for the mgmt address and the
+  full sensor set.
 - ``gs110emx`` (Plus EMx / Gambit): GROUNDED in real captures from a physical
   GS110EMX (``tests/fixtures/http/gs110emx_*.html``). The scheme is
   ``merge_hash_md5(password, rand)`` (identical function to ``gs305ep``) POSTed
@@ -108,6 +113,19 @@ class HtmlDialect(enum.Enum):
     # a FASTPATH/XE trait -- but it is so far VALIDATED ONLY against gsm7252ps
     # captures; another XE model's column maps must be re-checked, not assumed.
     XE_FASTPATH = "xe_fastpath"
+    # S3300-52X-PoE+ (Smart Managed Pro, gsm7228ps): the SAME Cheetah XE grid as
+    # gsm7252ps for ports/stats/PVIDs/VLANs/PoE/LLDP (parse_xe_*), but three
+    # pages differ and get their own handling. (1) The basicAddressTable columns
+    # are SHIFTED (VLAN in v_1_2_2, not v_1_2_1) and the port ifName is
+    # HTML-entity-escaped in the Smart firmware's "1/gN"/"1/xgN" form
+    # (parse_s3300_macs). (2) Its statically-reachable sysInfo exposes only the
+    # Base MAC Address -- the IPv4 mgmt address/netmask live on a JS-menu-only
+    # page unreachable here -- so get_mgmt_ip returns base-MAC-only
+    # (parse_s3300_mgmt) and SNMP stays authoritative for the address. (3) That
+    # sysInfo carries no live fan/temp sensor table, so get_sensors is
+    # unsupported over HTTP (SNMP is the only source). LIVE-verified on the real
+    # S3300-52X (10.1.5.11), cross-checked vs SNMP.
+    S3300 = "s3300"
     # GS728TPP GoAhead ``wcd`` XML API (real captures, tmp/gs728tpp_ground_truth
     # .json): every read is a ``GET <sess>/wcd?{file=/path/X.xml}{Object}..``
     # whose response is a template of ``BIND=`` placeholders followed by a
@@ -293,28 +311,44 @@ _GS110EMX = HttpModelSpec(
 
 # Login is GROUNDED: certbot-hook-netgear-switches/netgear-updater.py
 # S3300Updater posts plaintext pwd= to /base/cheetah_login.html and reads
-# back a SID cookie. SNMP is the preferred read/write path for this model;
-# no web-UI read/write flow has been captured, so reads/writes are
-# UNVERIFIED-pending-capture and only login + reboot/logout are populated.
+# back a SID cookie. The read pages are the SAME Cheetah XE grid as the sibling
+# gsm7252ps (uname=admin + plaintext pwd -> SID cookie, root-prefix pages), and
+# were LIVE-VERIFIED on the real S3300-52X (10.1.5.11, 2026-07-30): ports/
+# stats/PVIDs/VLANs/PoE/LLDP parse with the shared parse_xe_* parsers and equal
+# SNMP (ports=52, vlans=5, pvids=52, poe=48, stats=52, lldp=2). Three reads use
+# S3300-specific handling (HtmlDialect.S3300): the MAC table has shifted columns
+# and escaped 1/gN port names (parse_s3300_macs -> 17 physical entries; SNMP
+# additionally reports the switch's own base MAC on the CPU ifIndex, an entry
+# the FDB parsers skip on every FASTPATH model), mgmt-IP exposes only the base
+# MAC over HTTP (parse_s3300_mgmt; SNMP is authoritative for the address), and
+# sensors are unsupported over HTTP (sysInfo has no live fan/temp table -- SNMP
+# only). reads_verified=True. HTTPS cert upload is unchanged (grounded in
+# S3300Updater.upload_certificate).
 _GSM7228PS = HttpModelSpec(
     model_key="gsm7228ps",
     scheme=LoginScheme.CHEETAH_FORM,
     scheme_verified=True,
     login_path="/base/cheetah_login.html",
     password_field="pwd",
+    username_field="uname",
+    username="admin",
     cookie_name="SID",
     needs_rand=False,
-    dashboard_path=None,
-    stats_path=None,
+    dashboard_path="/portsConfiguration.html",
+    stats_path="/portStatistics.html",
+    sysinfo_path="/base/system/management/sysInfo.html",
+    mac_table_path="/basicAddressTable.html",
+    lldp_path="/lldpRemoteInventory.html",
     poe_config_path=None,
-    poe_status_path=None,
-    vlan_config_path=None,
-    vlan_membership_path=None,
-    pvid_path=None,
+    poe_status_path="/poeInterfaceConfiguration.html",
+    vlan_config_path="/vlanStatus.html",
+    vlan_membership_path=None,  # vlanStatus carries the egress list inline
+    pvid_path="/portPvidConfiguration.html",
     reboot_path=None,
     logout_path=None,
     is_epx_poe=False,
-    reads_verified=False,
+    reads_verified=True,
+    html_dialect=HtmlDialect.S3300,
     # HTTPS SSL-cert upload IS grounded even though reads are not: copied
     # field-for-field from S3300Updater.upload_certificate (netgear-updater.py
     # lines ~648-678). The file field is ``.v_1_3_1_handle`` (a combined

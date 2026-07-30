@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -627,3 +628,158 @@ def test_goahead_rejects_wrong_page_and_dtd() -> None:
     )
     with pytest.raises(HttpUnexpectedPageError):
         parse.parse_goahead_ports(evil)
+
+
+# --- S3300-52X-PoE+ (gsm7228ps): real captures of the live switch 10.1.5.11 ---
+# (tests/fixtures/http/gsm7228ps_*.html). Expected values are cross-checked
+# against that same switch's SNMP capture (tests/fixtures/captures/gsm7228ps
+# .json) -- the cross-backend parity the project requires. The S3300 shares the
+# gsm7252ps XE cell grid for ports/stats/PVIDs/PoE/LLDP, but its MAC table
+# (shifted columns, escaped 1/gN names), VLAN membership (1/gN/1/xgN egress
+# names) and sysInfo (base MAC only) need S3300-specific handling.
+_CAPTURES = Path(__file__).parent.parent.parent / "fixtures" / "captures"
+
+
+def _s3300_capture() -> dict:
+    return json.loads((_CAPTURES / "gsm7228ps.json").read_text())["snapshot"]
+
+
+def test_expand_s3300_port_list_ranges_and_lags() -> None:
+    # 1/gN / 1/xgN by trailing port number; a range may mix the two prefixes;
+    # lag N is never expanded into physical ports.
+    assert parse._expand_s3300_port_list("1/g41, 1/xg49 - 1/xg52") == frozenset(
+        {41, 49, 50, 51, 52}
+    )
+    assert parse._expand_s3300_port_list("1/g48 - 1/xg52") == frozenset(
+        {48, 49, 50, 51, 52}
+    )
+    assert parse._expand_s3300_port_list(
+        "1/xg49 - 1/xg52, lag 1 - lag 26"
+    ) == frozenset({49, 50, 51, 52})
+    assert parse._expand_s3300_port_list("") == frozenset()
+
+
+def test_parse_s3300_macs_matches_capture_physical_entries() -> None:
+    # The S3300 MAC table shifts VLAN into v_1_2_2 and escapes the port ifName
+    # (1&#x2F;xg51). parse_s3300_macs returns the PHYSICAL entries: the switch's
+    # own base MAC is learned on the CPU interface ("c1", status "Management"),
+    # which is skipped exactly as parse_xe_macs skips the base MAC on gsm7252ps.
+    # SNMP additionally reports that base MAC on the CPU ifIndex (313), so the
+    # HTTP FDB is the capture's FDB minus that one management entry.
+    macs = parse.parse_s3300_macs(_read("gsm7228ps_basicAddressTable.html"))
+    got = {(m.mac, m.port, m.vlan_id) for m in macs}
+    cap = _s3300_capture()["macs"]
+    physical = {(m["mac"], m["port"], m["vlan_id"]) for m in cap if m["port"] <= 52}
+    assert got == physical
+    assert len(macs) == 17  # 18 capture entries minus the CPU base-MAC row
+    # every entry was learned on the single uplink 1/xg51 (ifIndex 51)
+    assert {m.port for m in macs} == {51}
+    # the switch's own base MAC (08:BD:43:6B:B8:D8, on "c1") is NOT in the HTTP FDB
+    assert "08:BD:43:6B:B8:D8" not in {m.mac for m in macs}
+
+
+def test_parse_s3300_macs_rejects_a_truncated_page() -> None:
+    html = _read("gsm7228ps_basicAddressTable.html").replace(
+        'NAME=v_1_1_1 VALUE="18"', 'NAME=v_1_1_1 VALUE="9000"'
+    )
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_s3300_macs(html)
+
+
+def test_parse_s3300_mgmt_is_base_mac_only() -> None:
+    # The statically-reachable S3300 sysInfo exposes only the Base MAC Address;
+    # the IPv4 mgmt address lives on a JS-only page, so HTTP mgmt-IP is base-MAC
+    # only (SNMP is authoritative for the address -- see the capture).
+    mgmt = parse.parse_s3300_mgmt(_read("gsm7228ps_sysInfo.html"))
+    assert mgmt.mode is IpMode.UNKNOWN
+    assert mgmt.address is None
+    assert mgmt.netmask is None
+    assert mgmt.gateway is None
+    assert (
+        mgmt.base_mac
+        == _s3300_capture()["mgmt_ip"]["base_mac"]
+        == "08:BD:43:6B:B8:D8"
+    )
+
+
+def test_parse_s3300_mgmt_rejects_a_page_without_base_mac() -> None:
+    with pytest.raises(HttpUnexpectedPageError):
+        parse.parse_s3300_mgmt("<html><body>no mac here</body></html>")
+
+
+def test_parse_s3300_vlans_membership_matches_capture() -> None:
+    # The XE 1/0/N-only expander reads the S3300's 1/gN/1/xgN egress names as
+    # empty; parse_s3300_vlans expands them. Physical member ports then match
+    # the SNMP capture exactly (SNMP additionally lists lag ifIndexes 314-339 on
+    # VLAN 1, which the web UI renders as "lag N" and both backends omit as
+    # non-physical).
+    vlans = {
+        v.vlan_id: v
+        for v in parse.parse_s3300_vlans(_read("gsm7228ps_vlanStatus.html"))
+    }
+    cap = {v["vlan_id"]: v for v in _s3300_capture()["vlans"]}
+    assert set(vlans) == set(cap) == {1, 5, 21, 121, 4089}
+    for vid, v in vlans.items():
+        want = {p for p in cap[vid]["member_ports"] if p <= 52}
+        assert set(v.member_ports) == want, vid
+    assert vlans[5].name == "net"
+    assert vlans[121].name == "t-fpgas"
+    # the page does not distinguish tagged from untagged -> both empty, unguessed
+    assert vlans[5].tagged_ports == frozenset()
+    assert vlans[5].untagged_ports == frozenset()
+
+
+def test_s3300_shares_xe_parsers_for_ports_stats_pvids_poe_lldp() -> None:
+    # The six non-divergent reads use the existing XE parsers unchanged; the
+    # port NUMBERS match the SNMP capture value-for-value.
+    cap = _s3300_capture()
+    ports = {
+        p.port: p
+        for p in parse.parse_xe_port_status(_read("gsm7228ps_portsConfiguration.html"))
+    }
+    assert set(ports) == set(range(1, 53))
+    for cp in cap["ports"]:
+        assert ports[cp["port"]].link_up is cp["link_up"]
+        assert ports[cp["port"]].speed_mbps == cp["speed_mbps"]
+        assert ports[cp["port"]].admin_enabled is cp["admin_enabled"]
+
+    pvids = dict(parse.parse_xe_pvids(_read("gsm7228ps_portPvidConfiguration.html")))
+    assert pvids == {p[0]: p[1] for p in cap["pvids"]}
+
+    poe = {
+        p.port: p
+        for p in parse.parse_xe_poe(_read("gsm7228ps_poeInterfaceConfiguration.html"))
+    }
+    assert set(poe) == {p["port"] for p in cap["poe"]}
+    for cp in cap["poe"]:
+        assert poe[cp["port"]].admin_enabled is cp["admin_enabled"]
+        assert poe[cp["port"]].power_mw == cp["power_mw"]
+        # A port actually DELIVERING power (power_mw > 0) is stably "delivering"
+        # in both backends. The detect STATE of a 0 W port is transient
+        # (searching/fault/detecting), and the HTTP page vs the SNMP walk were
+        # captured moments apart, so two 0 W ports (42, 46) legitimately differ
+        # -- capture-timing volatility, not a parse disagreement -- so detect is
+        # cross-checked only where power is actually flowing.
+        if cp["power_mw"] > 0:
+            assert poe[cp["port"]].detect.value == cp["detect"] == "delivering"
+
+    stats = {
+        s.port: s
+        for s in parse.parse_xe_stats(_read("gsm7228ps_portStatistics.html"))
+    }
+    # Per-port packet counters are live MONOTONIC counters; the HTTP page fetch
+    # and the SNMP walk were moments apart, so the active uplink ports (49/51)
+    # legitimately differ. Only the port SET and the counter shape are
+    # cross-checked (counters are not parity-pinned, like MACs/LLDP).
+    assert set(stats) == {s["port"] for s in cap["stats"]} == set(range(1, 53))
+    assert all(s.rx_packets is not None and s.tx_packets is not None
+               for s in stats.values())
+
+    lldp = {
+        n.local_port: n
+        for n in parse.parse_xe_lldp(_read("gsm7228ps_lldpRemoteInventory.html"))
+    }
+    assert set(lldp) == {n["local_port"] for n in cap["lldp"]}
+    for cn in cap["lldp"]:
+        assert lldp[cn["local_port"]].remote_sys_name == cn["remote_sys_name"]
+        assert lldp[cn["local_port"]].remote_chassis_id == cn["remote_chassis_id"]

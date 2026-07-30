@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ElementTree
 from html import unescape
+from typing import TYPE_CHECKING
 
 from ...errors import HttpUnexpectedPageError
 from ...models import (
@@ -50,6 +51,9 @@ from ...models import (
     VlanMode,
 )
 from .types import HttpSysInfo
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _ROW_RE = re.compile(r'<tr\s+class="portID">(.*?)</tr>', re.DOTALL | re.IGNORECASE)
 # GS110EMX interface_stats.html: real hardware NEVER closes a
@@ -1062,19 +1066,41 @@ _XE_VLAN_TYPE = "1_1_3"
 _XE_VLAN_MEMBERS = "1_1_4"
 
 
-def parse_xe_vlans(html: str) -> list[VLANInfo]:
-    """GSM7252PS ``vlanStatus.html`` -> VLANs with their egress member ports.
+def _expand_s3300_port_list(raw: str) -> frozenset[int]:
+    """S3300-52X egress list -> the set of PHYSICAL port numbers.
 
-    The Member Ports cell uses the same FASTPATH egress-list syntax the M4300
-    does (``"1/0/46 - 1/0/47, 1/0/49, lag 1, lag 2"``), so ``_expand_port_list``
-    is shared -- including its refusal to expand ``lag N`` into physical ports.
-    A VLAN with an EMPTY member cell is real (VLANs 7/21/89 on the captured
-    switch have no members, which that device's SNMP capture confirms), so an
-    empty set is reported rather than treated as a parse failure.
+    Real format (captured): ``"1/g1 - 1/g40, 1/g42 - 1/g47, 1/xg49 - 1/xg52,
+    lag 1 - lag 26"``, and a range may even MIX the two physical prefixes
+    (``"1/g48 - 1/xg52"``). Only the trailing port number identifies the port
+    (``1/gN`` -> N, ``1/xgN`` -> N), so the Smart-firmware ``1/x?gN`` ifName is
+    matched instead of the ``1/0/N`` the gsm7252ps/M4300 pages use. ``lag N`` is
+    a link-aggregation group, NOT a physical port, and is skipped -- expanding
+    ``lag 1 - lag 26`` would invent 26 phantom ports (the same refusal
+    ``_expand_port_list`` makes)."""
+    ports: set[int] = set()
+    for part in raw.split(","):
+        ends = _XE_SMART_IFACE_RE.findall(part)
+        if not ends:
+            continue  # "lag N" and any other non-physical interface
+        if "-" in part and len(ends) == 2:
+            p1, p2 = int(ends[0]), int(ends[1])
+            if p1 <= p2:
+                ports.update(range(p1, p2 + 1))
+                continue
+        ports.update(int(p) for p in ends)
+    return frozenset(ports)
 
-    Like the M4300's, this page does NOT distinguish tagged from untagged, so
-    ``tagged_ports``/``untagged_ports`` stay EMPTY rather than guessed.
-    """
+
+def _xe_vlan_rows(
+    html: str, expand: Callable[[str], frozenset[int]]
+) -> list[VLANInfo]:
+    """Shared body of the XE/S3300 vlanStatus parsers: one VLANInfo per row,
+    differing only in how the Member Ports cell is expanded (``expand``).
+
+    A VLAN with an EMPTY member cell is real (VLANs with no members exist on the
+    captured switches, which SNMP confirms), so an empty set is reported rather
+    than treated as a parse failure. Neither page distinguishes tagged from
+    untagged, so those stay EMPTY rather than guessed."""
     rows = [
         r
         for r in parse_xe_rows(html)
@@ -1089,7 +1115,7 @@ def parse_xe_vlans(html: str) -> list[VLANInfo]:
             VLANInfo(
                 vlan_id=vid,
                 name=r.get(_XE_VLAN_NAME) or None,
-                member_ports=_expand_port_list(r[_XE_VLAN_MEMBERS]),
+                member_ports=expand(r[_XE_VLAN_MEMBERS]),
                 tagged_ports=frozenset(),
                 untagged_ports=frozenset(),
             )
@@ -1097,6 +1123,29 @@ def parse_xe_vlans(html: str) -> list[VLANInfo]:
     if not out:
         raise HttpUnexpectedPageError("vlanStatus.html: no XE VLAN row could be parsed")
     return out
+
+
+def parse_xe_vlans(html: str) -> list[VLANInfo]:
+    """GSM7252PS ``vlanStatus.html`` -> VLANs with their egress member ports.
+
+    The Member Ports cell uses the same FASTPATH egress-list syntax the M4300
+    does (``"1/0/46 - 1/0/47, 1/0/49, lag 1, lag 2"``), so ``_expand_port_list``
+    is shared -- including its refusal to expand ``lag N`` into physical ports.
+    """
+    return _xe_vlan_rows(html, _expand_port_list)
+
+
+def parse_s3300_vlans(html: str) -> list[VLANInfo]:
+    """S3300-52X ``vlanStatus.html`` -> VLANs with their egress member ports.
+
+    The page shape is the sibling gsm7252ps XE ``vlanStatus`` exactly, but the
+    Member Ports cell uses the Smart firmware's ``1/gN``/``1/xgN`` ifNames (and
+    ranges that may mix them, ``"1/g48 - 1/xg52"``), which the ``1/0/N``-only
+    ``_expand_port_list`` reads as EMPTY. ``_expand_s3300_port_list`` expands
+    them by trailing port number, still skipping ``lag N``. As on the sibling,
+    tagged/untagged are left empty (the page does not distinguish them).
+    """
+    return _xe_vlan_rows(html, _expand_s3300_port_list)
 
 
 # basicAddressTable.html column map, from the capture's own header row:
@@ -1158,6 +1207,91 @@ def parse_xe_macs(html: str) -> list[MacEntry]:
             "FDB rather than a silently truncated page."
         )
     return out
+
+
+# S3300-52X basicAddressTable.html column map. The Smart-Managed-Pro firmware
+# SHIFTS the columns relative to the gsm7252ps XE page: VLAN is v_1_2_2 (not
+# v_1_2_1), MAC is v_1_2_3, and the port ifName is v_1_2_4 -- the last rendered
+# HTML-entity-escaped, e.g. "1&#x2F;xg51" (&#x2F; = /). parse_xe_rows already
+# html-unescapes each cell, so the port reads back as "1/xg51" for
+# _xe_port_from_iface. (v_1_2_1 is a control-char index, v_1_2_5 the status.)
+_S3300_MAC_VLAN = "1_2_2"
+_S3300_MAC_ADDR = "1_2_3"
+_S3300_MAC_PORT = "1_2_4"
+
+
+def parse_s3300_macs(html: str) -> list[MacEntry]:
+    """S3300-52X ``basicAddressTable.html`` -> the MAC/FDB table.
+
+    Same XE grid as gsm7252ps but with the columns SHIFTED (see the map above)
+    and port names in the Smart firmware's ``1/gN``/``1/xgN`` form. As on the
+    gsm7252ps and M4300 parsers, an entry whose port is not a physical
+    interface is SKIPPED rather than mis-attributed: the switch's OWN base MAC
+    is learned on the CPU interface (rendered ``c1``, status "Management"),
+    which ``_xe_port_from_iface`` does not resolve to a physical port. SNMP
+    reports that same base MAC on the CPU ifIndex, so the HTTP FDB (physical
+    entries only) differs from the SNMP FDB by exactly that one management
+    entry -- the same base-MAC omission ``parse_xe_macs`` makes.
+
+    Refuses a paginated (truncated) table rather than returning a partial FDB,
+    exactly like the sibling parsers.
+    """
+    rows = [
+        r
+        for r in parse_xe_rows(html)
+        if _S3300_MAC_ADDR in r and _S3300_MAC_PORT in r
+    ]
+    if not rows:
+        raise HttpUnexpectedPageError(
+            "basicAddressTable.html: no S3300 MAC rows "
+            f"(no v_{_S3300_MAC_ADDR} address cells) found"
+        )
+    out: list[MacEntry] = []
+    for r in rows:
+        mac = r[_S3300_MAC_ADDR].strip().upper()
+        if not _MAC_TEXT_RE.fullmatch(mac):
+            continue
+        port = _xe_port_from_iface(r[_S3300_MAC_PORT])
+        if port is None:
+            continue  # CPU/management interface ("c1"): not a physical port
+        out.append(
+            MacEntry(mac=mac, port=port, vlan_id=_int(r.get(_S3300_MAC_VLAN, "")))
+        )
+    total = _XE_MAC_TOTAL_RE.search(html)
+    if total is not None and int(total.group(1)) > len(rows):
+        raise HttpUnexpectedPageError(
+            f"basicAddressTable.html: the switch reports {total.group(1)} FDB "
+            f"entries but this page renders only {len(rows)} -- the web UI "
+            "paginates the MAC table. Use the SNMP backend for the complete "
+            "FDB rather than a silently truncated page."
+        )
+    return out
+
+
+def parse_s3300_mgmt(html: str) -> MgmtIpConfig:
+    """S3300-52X ``sysInfo.html`` -> base MAC ONLY (no IPv4 address).
+
+    The S3300 Smart-Managed-Pro UI's statically-reachable sysInfo page exposes
+    the switch's ``Base MAC Address`` (a labelled cell, ``aid="1_16_1_right"``)
+    but NOT the IPv4 management address/netmask -- those live on a JS-menu-only
+    page this backend cannot reach. So mgmt-IP over HTTP returns ``UNKNOWN``
+    mode with address/netmask/gateway ``None`` and only ``base_mac`` populated;
+    SNMP is authoritative for the S3300's management address (see
+    ``tests/fixtures/captures/gsm7228ps.json``). The base MAC is uppercased to
+    match the SNMP/NSDP backends' dot1dBaseBridgeAddress formatting.
+    """
+    m = re.search(r"Base MAC Address</td>\s*<td[^>]*>\s*([0-9A-Fa-f:]{17})", html)
+    if m is None:
+        raise HttpUnexpectedPageError(
+            "sysInfo.html: no Base MAC Address cell found"
+        )
+    return MgmtIpConfig(
+        mode=IpMode.UNKNOWN,
+        address=None,
+        netmask=None,
+        gateway=None,
+        base_mac=m.group(1).upper(),
+    )
 
 
 # poeInterfaceConfiguration.html column map, from the capture's own header row:
