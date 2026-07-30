@@ -522,7 +522,13 @@ class VirtualHttpFace:
         _filename, content = files[file_field]
         with self._lock:
             self.state.uploaded_cert = content.decode("latin-1")
-        return 200, "<html><body>File transfer in progress</body></html>"
+        # Real S3300 firmware renders this exact success marker (live-captured on
+        # 10.1.5.11); the library's _check_multipart_cert_response keys off it, so
+        # the mock must emit it too or a faithful upload would look rejected.
+        return 200, (
+            "<html><body>SSL PEM Server Certificate file download through HTTP "
+            "is completed successfully.</body></html>"
+        )
 
     def _login_response(self, form: dict[str, str]) -> str:
         field = self.spec.password_field

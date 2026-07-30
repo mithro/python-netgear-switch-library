@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from netgear_switch.errors import (
+    HttpError,
     ProtectedPortError,
     UnsupportedCapabilityError,
     WriteVerificationError,
@@ -464,7 +465,11 @@ class _CertSpySession:
         self, path: str, data: dict[str, str], file: MultipartFile
     ) -> str:
         self.calls.append((path, dict(data), file))
-        return "<html><body>File transfer in progress</body></html>"
+        # Real S3300 success marker (upload_certificate now verifies it).
+        return (
+            "<html><body>SSL PEM Server Certificate file download through HTTP "
+            "is completed successfully.</body></html>"
+        )
 
 
 class _AsyncCertSpySession(_CertSpySession):
@@ -475,7 +480,11 @@ class _AsyncCertSpySession(_CertSpySession):
         self, path: str, data: dict[str, str], file: MultipartFile
     ) -> str:
         self.calls.append((path, dict(data), file))
-        return "<html><body>File transfer in progress</body></html>"
+        # Real S3300 success marker (upload_certificate now verifies it).
+        return (
+            "<html><body>SSL PEM Server Certificate file download through HTTP "
+            "is completed successfully.</body></html>"
+        )
 
 
 def test_upload_certificate_drives_grounded_multipart_post() -> None:
@@ -491,6 +500,21 @@ def test_upload_certificate_drives_grounded_multipart_post() -> None:
     assert file.content_type == "application/octet-stream"
     # Combined cert+key PEM, exactly as S3300Updater builds it.
     assert file.content == f"{_CERT_PEM.rstrip(chr(10))}\n{_KEY_PEM}".encode()
+
+
+def test_upload_certificate_raises_when_switch_rejects() -> None:
+    # The S3300 returns HTTP 200 even on a rejected cert -- the real outcome is
+    # in the page body. upload_certificate must SURFACE a non-success body, never
+    # silently swallow it (the certbot hook checks the same marker).
+    class _RejectSession(_CertSpySession):
+        def post_multipart(
+            self, path: str, data: dict[str, str], file: MultipartFile
+        ) -> str:
+            return "<html><body>Error: invalid certificate file</body></html>"
+
+    writer = HttpWriter(_RejectSession(), get_model("gsm7228ps"))
+    with pytest.raises(HttpError, match="not accepted"):
+        writer.upload_certificate(_CERT_PEM, _KEY_PEM, force=True)
 
 
 def test_upload_certificate_requires_force() -> None:

@@ -193,6 +193,26 @@ _UPLOAD_STATUS_RE = re.compile(r"<statusCode>(\d+)</statusCode>")
 _UPLOAD_STATUS_STRING_RE = re.compile(r"<statusString>([^<]*)</statusString>")
 
 
+def _check_multipart_cert_response(text: str) -> None:
+    """Raise ``HttpError`` unless an S3300 multipart cert-upload response
+    reports success.
+
+    The S3300 http_file_download page returns HTTP 200 even on a rejected
+    certificate -- the real outcome is in the page BODY (mirrors the certbot
+    hook's own check, live-confirmed on 10.1.5.11: a good upload renders
+    "SSL PEM Server Certificate file download through HTTP is completed
+    successfully"). Anything else (an error string, or the marker missing
+    entirely) is surfaced rather than silently swallowed, so a bad cert/key or
+    a wrong-endpoint POST can never look like success.
+    """
+    low = text.lower()
+    if "completed successfully" in low:
+        return
+    err = re.search(r"(error[^<>\n]{0,80})", text, re.IGNORECASE)
+    reason = err.group(1).strip() if err else "no 'completed successfully' marker"
+    raise HttpError(f"S3300 SSL-certificate upload was not accepted: {reason}")
+
+
 def _check_goahead_upload_response(text: str) -> None:
     """Raise ``HttpError`` if a GoAhead cert-upload response is not success.
 
@@ -439,7 +459,9 @@ class HttpWriter:
                 "SSL-certificate upload replaces the switch's running "
                 "certificate and is disruptive; pass force=True"
             )
-        self.session.post_multipart(path, fields, payload)
+        _check_multipart_cert_response(
+            self.session.post_multipart(path, fields, payload)
+        )
 
     def _poe_admin(self, port: int) -> bool:
         path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
@@ -655,4 +677,6 @@ class AsyncHttpWriter:
                 "SSL-certificate upload replaces the switch's running "
                 "certificate and is disruptive; pass force=True"
             )
-        await self.session.post_multipart(path, fields, payload)
+        _check_multipart_cert_response(
+            await self.session.post_multipart(path, fields, payload)
+        )
