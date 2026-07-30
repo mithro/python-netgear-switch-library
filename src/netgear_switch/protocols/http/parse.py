@@ -880,12 +880,24 @@ def parse_xe_rows(html: str) -> list[dict[str, str]]:
     return list(rows.values())
 
 
+# The S3300-52X (Smart Managed Pro firmware) names physical ports "1/gN"
+# (1-48) and 10G uplinks "1/xgN" (49-52) instead of the M4300/GSM7252PS
+# fully-managed "1/0/N" -- same Cheetah XE grid, different ifName text. The
+# trailing integer IS the port number (verified against SNMP on 10.1.5.11).
+_XE_SMART_IFACE_RE = re.compile(r"1/x?g(\d+)")
+
+
 def _xe_port_from_iface(text: str) -> int | None:
-    """``"1/0/7"`` -> 7. Only a full ``unit/slot/port`` name yields a port;
+    """``"1/0/7"`` -> 7 (M4300/GSM7252PS), ``"1/g7"``/``"1/xg49"`` -> 7/49
+    (S3300-52X Smart firmware). Only a full physical-port name yields a port;
     ``lag 3``/``vlan 5``/``0/15/1``-style service interfaces are handled by the
     callers that need them (see ``parse_xe_macs``)."""
-    m = _FASTPATH_IFACE_RE.fullmatch(text.strip())
-    return int(m.group(3)) if m else None
+    t = text.strip()
+    m = _FASTPATH_IFACE_RE.fullmatch(t)
+    if m:
+        return int(m.group(3))
+    m = _XE_SMART_IFACE_RE.fullmatch(t)
+    return int(m.group(1)) if m else None
 
 
 # portsConfiguration.html column map, from the capture's own header row:

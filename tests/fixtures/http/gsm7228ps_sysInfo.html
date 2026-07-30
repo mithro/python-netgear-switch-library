@@ -1,0 +1,498 @@
+
+
+
+
+<!DOCTYPE html>
+<html>
+
+<HEAD>
+   <meta http-equiv="X-UA-Compatible" content="IE=edge">
+<LINK REL=stylesheet HREF="/base/style.css" TYPE="text/css">
+<link rel=stylesheet href="/base/nanoscroller.css" TYPE="text/css">
+<META http-equiv="Pragma" content="no-cache">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=iso-8859-1"> <!-- Style Sheet link and Meta data     -->
+   <TITLE>NETGEAR S3300-52X-PoE+</TITLE>    <!-- Cheetah Page Title     -->
+   <script type="text/javascript" src="/base/js/jquery-3.5.1.min.js"></script>
+   <script type='text/javascript' src='/base/js/jquery-ui-1.12.1.min.js'></script>
+
+
+<link type="text/css" href="/base/nanoscroller.css" rel="stylesheet">
+<link type="text/css" href="/base/jquery-ui-1.12.1.custom.min.css" rel="stylesheet">
+<link type="text/css" href="/base/help.css" rel="stylesheet">
+<script type="text/javascript" src="/base/js/xui_enhancements.js"></script>
+<script type="text/javascript" src="/base/js/ng_help.js"></script>
+<script type="text/javascript" src="/base/js/jquery.nanoscroller.min.js"></script>
+<script  src="/base/js/rollover.js" type="text/javascript"></script>
+<script  src="/base/js/browser.js" type="text/javascript"></script>
+
+<script type="text/javascript"> Progres = new Image(248,22); Progres.src = '/base/images/progressbar.gif'; Facet = new Image(176,56); Facet.src = '/base/images/Pop-Up-Window-Facet-Graphic.png';</script>
+
+<script src="/base/js/jquery-3.5.1.min.js" type="text/javascript"><script type="text/javascript" src="/base/js/xui_enhancements.js"></script>
+<script type='text/javascript' language='JavaScript'>
+function DisplayErrorMsg()
+{
+    alert(document.forms[0].err_msg.value);
+}
+function CheckError()
+{
+   if (document.forms[0].err_flag.value == 1) 
+   {
+      DisplayErrorMsg();
+   }
+}
+
+
+function performClientValidationsAndSubmit() 
+{
+  var logintimeout_ele = document.getElementsByName('sysLoginTmout')[0];
+  var logintimeout_val = "";
+  var logintimeout_val_org = "";
+  var min_val = 0;
+  var max_val = 160;
+  if (logintimeout_ele != null) 
+  {
+    logintimeout_val_org = logintimeout_ele.value;
+    logintimeout_val = parseInt(logintimeout_ele.value);
+    if (logintimeout_val != null) 
+    {
+      if ((logintimeout_val >= min_val) && (logintimeout_val <= max_val)) 
+      {
+        return true;
+      }
+    }
+  }
+  alert('Error: Value ('+ logintimeout_val_org + ') is out of range for Serial Port Login Timeout (minutes). The valid range is ' + min_val + ' to ' + max_val + '.');
+  return false;
+}
+
+</script>
+
+
+
+<script type="text/javascript" src="/base/js/jquery-3.5.1.min.js"></script>
+<script type="text/javascript" src="/base/js/xui_enhancements.js"></script>
+
+<script>
+  function TablesDecorate()
+  {
+    $("#deviceStatus").tableAutoDecorator().css("border-bottom", "1px solid #E7E5E4");
+    $("#FanStatus").tableAutoDecorator().css("border-bottom", "1px solid #E7E5E4");
+
+    $("#tempStatus").tableAutoDecorator().css("border-bottom", "1px solid #E7E5E4");
+    $("#versions").tableAutoDecorator().css("border-bottom", "1px solid #E7E5E4");
+    $("#chassisFans").css("border-bottom", "1px solid #E7E5E4");
+    $("#chassisTemp").css("border-bottom", "1px solid #E7E5E4");
+    $(".tableStyle tr:last-child td").css("border-bottom", "0 none");
+    $("#powerSupp").css("border-bottom", "1px solid #E7E5E4");
+    
+
+
+  }
+</script>
+
+   
+
+</head>
+
+
+<body onload="verifyParentWindow(); CheckError(); TablesDecorate();" class="margin0px">
+
+
+<FORM method="post" ACTION="/base/system/management/sysInfo.html">
+
+    <div class="mainBody mainContainer">
+    <table class="detailsAreaContainer">
+
+
+<!---------------------- Cloud Management Configuartion---------------------->
+
+<!---------------------- End of Cloud Application Status ---------------------->
+
+
+
+<!---------------------- General System Information  ---------------------->
+      <tr>
+        <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('System Information','systemInformation')</script></td>
+            </tr>
+            <tr>
+              <td></td>
+              <td class="paddingsubSectionBodyNone"><table class="tableStyle tableBodyStyle" xhdr="0" aid="1">
+                <tr>
+
+                    <td class="defaultFontBold spacer40Percent defLeft font10Bold" aid="1_1_1_left" >Product Name</td>
+                    <td class="defaultFont spacer58Percent font10 " aid="1_1_1_right" >
+
+                    S3300-52X-PoE+ ProSAFE 48-Port Gigabit Stackable Smart Switch with PoE+ and 4 10G uplinks
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold" aid="1_2_1_left">System Name</td>
+
+                    <td class="paddingTop4 "  aid="1_2_1_right" nowrap><INPUT class="input" type="TEXT" name="sysName" onmousedown="enableImage()" onKeyPress="enableImage()" aid="sysName" SIZE="32" MAXLENGTH="255" VALUE="sw-netgear-s3300-1">
+                    </td>
+
+                  </tr>
+                  <tr>
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold" aid="1_3_1_left" >System Location</td>
+
+                    <td class="paddingTop4 "  aid="1_3_1_right" nowrap><INPUT class="input" type="TEXT" name="sysLocation" onmousedown="enableImage()" onKeyPress="enableImage()" aid="sysLocation" SIZE="32" MAXLENGTH="255" VALUE="">
+                    </td>
+
+                  </tr>
+                  <tr>
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold" aid="1_4_1_left" >System Contact</td>
+
+                    <td class="paddingTop4 "  aid="1_4_1_right" ><INPUT class="input" type="TEXT" name="sysContact" onmousedown="enableImage()" onKeyPress="enableImage()" aid="sysContact" SIZE="32" MAXLENGTH="255" VALUE="">
+                    </td>
+
+                  </tr>
+
+ <!-- ID=USMWEB_IF_CHEETAH_SMART -->
+
+                <tr>
+                  <td class="defaultFontBold paddingTop4 defLeft font10Bold" aid="1_10_1_left" >Serial Number</td>
+                  <td class="defaultFont paddingTop4 font10 " aid="1_10_1_right" >3TS153758001F
+                  </td>
+                </tr>
+
+                <tr>
+                  <td class="defaultFontBold paddingTop4 defLeft font10Bold" aid="1_11_1_left" >System Object OID</td>
+                  <td class="defaultFont   paddingTop4 font10 " aid="1_11_1_right" >1.3.6.1.4.1.4526.100.10.19
+                  </td>
+                </tr>
+
+ <!-- ID=USMWEB_IF_CHEETAH_SMART -->
+                 <tr>
+
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold"  aid="1_12_1_left" >Date & Time</td>
+
+                    <td class="defaultFont   paddingTop4 font10 " aid="1_12_1_right" >Jul 30 03:54:02 2026 (UTC+0:00)
+                    </td>
+                  </tr>
+
+
+                  <tr>
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold" aid="1_13_1_left" >System Up Time</td>
+                    <td class="defaultFont paddingTop4 font10" aid="1_13_1_right">
+                      0 days 1 hours 48 mins 21 secs
+                    </td>
+                  </tr>
+ <!-- ID=USMWEB_IF_CHEETAH_SMART -->
+
+
+
+                  <tr>
+
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold" aid="1_16_1_left" >Base MAC Address</td>
+
+                    <td class="defaultFont   paddingTop4 font10 " aid="1_16_1_right" >08:BD:43:6B:B8:D8
+                    </td>
+                  </tr>
+
+
+
+
+
+                 <tr>
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold">Temp(C)</td>
+                    <td class="defaultFont   paddingTop4 font10">38
+                    </td>
+                 </tr>
+                 <tr>
+                    <td class="defaultFontBold paddingTop4 defLeft font10Bold">Temperature traps range</td>
+                    <td class="defaultFont   paddingTop4 font10"> 0 to 90 degrees (Celsius)
+                    </td>
+                 </tr>
+
+
+              </table></td>
+              <td class="subSectionBodyDotRight"></td>
+            </tr>
+            <tr>
+
+              <td  colspan="3" class="spacerHeight27">&nbsp;</td>
+
+            </tr>
+        </table></td>
+      </tr>
+<!---------------------- End of General System Information  ---------------------->
+      <tr class="detailsAreaContainer">
+        <td class="spacerHeight21"></td>
+      </tr>
+<!---------------------- Backplane ---------------------->
+ <!-- ID=USMWEB_IF_CHASSIS_PLATFORM -->
+<!---------------------- Temperature Sensors ---------------------->
+
+
+    <tr class="detailsAreaContainer">
+          <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('Temperature Sensors', 'chassisTemp')</script></td>
+            </tr>
+            <tr>
+             <td class="subSectionBodyDot">&nbsp;</td>
+             <td class="spacer100Percent paddingsubSectionBodyWide"><table class="tableStyle tableBodyStyle" id='chassisTemp'>
+               <tr class="white10Bold">
+
+                 <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Unit ID</td>
+
+
+                 <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Sensor</td>
+                 <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Description</td>
+
+                 <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Temp(C)</td>
+                 <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">State</td>
+                 <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent"> Max Temp (C)</td>
+               </tr>
+
+<tr><TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">Thermal Diode 2</TD>
+<TD class ="messageTableWhiteBorder font10">38</TD>
+<TD class ="messageTableWhiteBorder font10">Normal</TD>
+<TD class ="messageTableWhiteBorder font10 subSectionBodyDotRight">40</TD></tr>
+
+           </table></td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+      </tr>
+      <tr class="detailsAreaContainer">
+        <td class="spacerHeight21"></td>
+      </tr>
+
+<!---------------------- End of Temperature Sensors ---------------------->
+
+<!---------------------- Fans ---------------------->
+
+      <tr class="detailsAreaContainer">
+          <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('Fans', 'chassisFans')</script></td>
+            </tr>
+            <tr>
+             <td class="subSectionBodyDot">&nbsp;</td> 
+             <td class="spacer100Percent paddingsubSectionBodyWide"><table class="tableStyle tableBodyStyle" id='chassisFans'>
+              <tr class="white10Bold">
+
+
+                <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Slot</td>
+
+                <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">FAN</td>
+                <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Description</td>
+                <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Type</td>
+                <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Speed</td>
+                <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Duty level(%)</td>
+                <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">State</td>
+
+            </tr>
+
+<tr><TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">FAN-1</TD>
+<TD class ="messageTableWhiteBorder font10">Fixed</TD>
+<TD class ="messageTableWhiteBorder font10">5133</TD>
+<TD class ="messageTableWhiteBorder font10">28</TD>
+<TD class ="messageTableWhiteBorder font10 subSectionBodyDotRight">Operational</TD></tr>
+<tr><TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">2</TD>
+<TD class ="messageTableWhiteBorder font10">FAN-2</TD>
+<TD class ="messageTableWhiteBorder font10">Fixed</TD>
+<TD class ="messageTableWhiteBorder font10">5192</TD>
+<TD class ="messageTableWhiteBorder font10">28</TD>
+<TD class ="messageTableWhiteBorder font10 subSectionBodyDotRight">Operational</TD></tr>
+<tr><TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">3</TD>
+<TD class ="messageTableWhiteBorder font10">FAN-3</TD>
+<TD class ="messageTableWhiteBorder font10">Fixed</TD>
+<TD class ="messageTableWhiteBorder font10">5252</TD>
+<TD class ="messageTableWhiteBorder font10">28</TD>
+<TD class ="messageTableWhiteBorder font10 subSectionBodyDotRight">Operational</TD></tr>
+
+
+            </tr>
+            </table></td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+      </tr>
+      <tr class="detailsAreaContainer">
+        <td class="spacerHeight21"></td>
+      </tr>
+
+<!---------------------- End of Funs ---------------------->
+
+
+<!---------------------- Power supplies ---------------------->
+      <tr class="detailsAreaContainer">
+          <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr('Power supplies', 'powerSupplies')</script></td>
+            </tr>
+            <tr>
+             <td class="subSectionBodyDot">&nbsp;</td>
+             <td class="spacer100Percent paddingsubSectionBodyWide"><table class="tableStyle tableBodyStyle" id='powerSupp'>
+              <tr class="white10Bold">
+
+               <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Unit</td>
+
+               <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Power supply</td>
+               <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Description</td>
+               <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">Type</td>
+               <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder spacer15Percent">State</td>
+            </tr>
+
+<tr><TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">AC-1</TD>
+<TD class ="messageTableWhiteBorder font10">Fixed</TD>
+<TD class ="messageTableWhiteBorder font10 subSectionBodyDotRight">Operational</TD></tr><tr><TD class ="messageTableWhiteBorder font10">1</TD>
+<TD class ="messageTableWhiteBorder font10">2</TD>
+<TD class ="messageTableWhiteBorder font10">RPS4000</TD>
+<TD class ="messageTableWhiteBorder font10">Removable</TD>
+<TD class ="messageTableWhiteBorder font10 subSectionBodyDotRight">Not powered</TD></tr>
+
+           </tr>
+           </table></td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+      </tr>
+      <tr>
+        <td colspan="3" class="subSectionBottom">&nbsp;</td>
+      </tr>
+      </table></td>
+      </tr>
+<!---------------------- End of Power supplies ---------------------->
+      <tr class="detailsAreaContainer">
+        <td class="spacerHeight21"></td>
+      </tr>
+ <!-- USMWEB_IF_CHEETAH_SMART -->
+ <!-- USMWEB_IF_CHASSIS_SMART_PLATFORM -->
+
+<!---------------------- Versions ---------------------->
+      <tr class="detailsAreaContainer">
+
+        <td><table class="tableStyle" id="version_status">
+            <tr>
+              <td colspan="3"><script>tbhdr('Versions','versions')</script></td>
+            </tr>
+        <tr>
+        <td class="subSectionBodyDot"></td>
+        <td class="spacer100Percent paddingsubSectionBodyWide"><table class="tableStyle tableBodyStyle"  id='versions'>
+        <tr class="white10Bold">
+
+        <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder fontTableTitle paddingTableHeader spacer20Percent">Unit No.</td>
+
+        <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder fontTableTitle paddingTableHeader spacer20Percent">Model Name</td>
+        <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder fontTableTitle paddingTableHeader spacer20Percent">Boot Version</td>
+        <td class="messageTableHeaderBorder messageTableHeaderVerticalBorder fontTableTitle paddingTableHeader spacer20Percent">Software Version</td>
+      </tr>
+             
+         <tr><td class="messageTableWhiteBorder defaultFont" aid="1_1_1">1</td>
+<td class="messageTableWhiteBorder defaultFont" aid="1_2_1">S3300-52X-PoE+</td>
+<td class="messageTableWhiteBorder defaultFont" aid="1_3_1">B1.0.0.12</td>
+<td class="messageTableWhiteBorder defaultFont" aid="1_4_1">6.6.4.26</td></tr>
+
+      
+<!---------------------- End of Versions ---------------------->
+ <!-- ID=USMWEB_IF_CHEETAH_SMART -->
+    </table>
+    </div>
+    </div>
+    </td>
+    <td class="subSectionBodyDotRight"></td>
+    </tr>
+    <tr>
+      <td colspan="3" class="subSectionBottom">&nbsp;</td>
+    </tr>
+    </table></td>
+<!---------------------- End of Device Status ---------------------->
+  </tr>
+</table></div>
+<script>
+
+  var str;
+
+
+
+  str=CreateEditblBtns('Apply','submitform()','btn_Apply');
+
+
+  str+=CreateEditblBtns('Cancel','onCancel()','btn_Cancel');
+  str+=CreateEditblBtns('Refresh','refreshform()','btn_Refresh', '', 'on');
+
+
+  PaintButtons(str);
+
+</script>
+
+  <INPUT TYPE="hidden" NAME="err_flag" SIZE="16" MAXLENGTH="15" VALUE="0">
+  <INPUT TYPE="hidden" NAME="err_msg" SIZE="256" MAXLENGTH="512" VALUE="">
+  <INPUT TYPE="hidden" id="submt" NAME="submt" SIZE="16" MAXLENGTH="15" VALUE="">
+  <INPUT TYPE="hidden" id="cncel" NAME="cncel" SIZE="16" MAXLENGTH="15" VALUE="">
+  <INPUT TYPE="hidden" NAME="cloudMode" id="cloudMode" SIZE="16" MAXLENGTH="15" VALUE="">
+
+  <INPUT TYPE="hidden" id="refrsh" NAME="refrsh" SIZE="16" MAXLENGTH="15" VALUE="">
+  <INPUT TYPE="hidden" id="submit_flag" NAME="submit_flag" SIZE="16" MAXLENGTH="15" VALUE="">
+</FORM>
+<script>
+var tables = [['FanStatus', 0], ['tempStatus', 1], ['versions', 1], ['chassisTemp', 1], ['chassisFans', 1], ['powerSupp', 1], ['deviceStatus', 0]];
+for (var t = 0; t < tables.length; t++)
+{
+  var table = document.getElementById(tables[t][0]);
+  if (!table) continue;
+  var rows = table.rows.length;
+  var className, classname2;
+  var pair = true;
+  var shift = 1;
+
+  for (; shift < rows; shift++)
+  {
+    var cells = table.rows[shift].cells.length;
+    pair = !pair;
+
+    if (pair == true)
+    {
+      classname2 = 'messageTableGreyBorder defaultFont font10';
+    }
+    else
+    {
+      classname2 = 'messageTableWhiteBorder defaultFont font10';
+    }
+
+    for (var c = 0; c < cells; c++)
+    {
+      if (c == 0)
+      {
+        if (pair == true)
+        {
+          className = 'messageTableGreyBorder defaultFontBold font10Bold';
+        }
+        else
+        {
+          className = 'messageTableWhiteBorder defaultFontBold font10Bold';
+        }
+      }
+      else
+      {
+        className = classname2;
+      }
+      table.rows[shift].cells[c].className = className;
+    }
+  }
+}
+</script>
+
+
+
+
+
+
+</body></html>

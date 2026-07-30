@@ -15,6 +15,21 @@ def _read(name: str) -> str:
     return (_FIX / name).read_text()
 
 
+def test_xe_port_from_iface_handles_fastpath_and_s3300_naming() -> None:
+    # M4300/GSM7252PS fully-managed "unit/slot/port" naming.
+    assert parse._xe_port_from_iface("1/0/7") == 7
+    assert parse._xe_port_from_iface("1/0/52") == 52
+    # S3300-52X Smart-firmware naming: 1/gN physical (1-48), 1/xgN uplinks
+    # (49-52) -- the trailing integer is the port (verified vs SNMP on .11).
+    assert parse._xe_port_from_iface("1/g1") == 1
+    assert parse._xe_port_from_iface("1/g48") == 48
+    assert parse._xe_port_from_iface("1/xg49") == 49
+    assert parse._xe_port_from_iface("1/xg52") == 52
+    # Non-physical / service interfaces still yield None (not a physical port).
+    assert parse._xe_port_from_iface("lag 3") is None
+    assert parse._xe_port_from_iface("vlan 5") is None
+
+
 def test_parse_login_rand_and_hash() -> None:
     html = _read("gs305ep_login.html")
     assert parse.parse_login_rand(html) == "9917"
