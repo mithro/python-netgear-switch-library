@@ -15,7 +15,7 @@ from netgear_switch.registry import MODELS
 
 from . import capture, safety
 from . import format as fmt
-from .context import EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
+from .context import EXIT_ERROR, EXIT_OK, EXIT_USAGE, CliContext, exit_code_for
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -336,6 +336,69 @@ def _cmd_capture(
     return EXIT_OK
 
 
+def _cmd_serve(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    """Run one or more in-repo mock switches as a blocking, standalone daemon.
+
+    Builds a ``VirtualSwitch`` per requested model, wires SIGINT/SIGTERM to a
+    clean shutdown, then hands off to ``virtual.server.serve_forever`` which
+    prints where each switch is reachable and blocks until interrupted.
+    """
+    import signal
+    import threading
+
+    from netgear_switch.errors import UnknownModelError
+    from netgear_switch.virtual.server import VirtualSwitch, serve_forever
+
+    del get_switch  # a mock daemon builds VirtualSwitches, not a client SyncSwitch
+
+    model_keys = list(MODELS) if args.all else list(args.models or [])
+    if not model_keys:
+        print("error: give one or more --model KEY, or --all", file=ctx.err)
+        return EXIT_USAGE
+    if (args.port or args.http_port) and len(model_keys) > 1:
+        print(
+            "error: --port/--http-port pin a single listener; they cannot be "
+            "shared across multiple served models",
+            file=ctx.err,
+        )
+        return EXIT_USAGE
+
+    switches: list[VirtualSwitch] = []
+    for key in model_keys:
+        try:
+            switches.append(
+                VirtualSwitch(
+                    key,
+                    community=args.serve_community,
+                    http_password=args.http_password,
+                    host=args.serve_host,
+                    port=args.port,
+                    http_port=args.http_port,
+                )
+            )
+        except UnknownModelError as exc:
+            print(f"error: {exc}", file=ctx.err)
+            return EXIT_USAGE
+
+    stop = threading.Event()
+
+    def _request_stop(_signum: int, _frame: object) -> None:
+        stop.set()
+
+    old_handlers = {
+        signal.SIGINT: signal.signal(signal.SIGINT, _request_stop),
+        signal.SIGTERM: signal.signal(signal.SIGTERM, _request_stop),
+    }
+    try:
+        served = serve_forever(switches, out=ctx.out, stop=stop)
+    finally:
+        for signum, handler in old_handlers.items():
+            signal.signal(signum, handler)
+    return EXIT_OK if served else EXIT_ERROR
+
+
 def build_parser() -> argparse.ArgumentParser:
     gp = _global_parser()
     parser = argparse.ArgumentParser(
@@ -442,6 +505,67 @@ def build_parser() -> argparse.ArgumentParser:
         help="record only the state snapshot (skip the live raw protocol walk)",
     )
     cap.set_defaults(func=_cmd_capture)
+
+    # `serve` runs the in-repo mock switches as standalone daemons. It does NOT
+    # inherit `child_gp`: it needs its own repeatable `--model` (append) and its
+    # own `--host`/`--community`, which would collide with the shared single-
+    # value global flags of the same name. `--json`/`--verbose` still work when
+    # given before the subcommand (they live on the top-level parser).
+    serve = sub.add_parser(
+        "serve",
+        help="run the in-repo mock/virtual switches as standalone daemons",
+        description=(
+            "Serve one or more in-repo mock switches on real sockets so an "
+            "external tool can point at them when hardware is unavailable. "
+            "Prints each switch's bound port(s), SNMP community and HTTP "
+            "password, then blocks until interrupted (SIGINT/SIGTERM)."
+        ),
+    )
+    serve.add_argument(
+        "--model",
+        dest="models",
+        metavar="KEY",
+        action="append",
+        help="model key to serve (repeatable); e.g. --model gsm7228ps",
+    )
+    serve.add_argument(
+        "--all", action="store_true", help="serve every registered model"
+    )
+    serve.add_argument(
+        "--host",
+        dest="serve_host",
+        metavar="IP",
+        default="127.0.0.1",
+        help="bind address (default 127.0.0.1; use 0.0.0.0 to expose off-host)",
+    )
+    serve.add_argument(
+        "--community",
+        dest="serve_community",
+        metavar="STR",
+        default="public",
+        help="SNMP community the mock accepts (default: public)",
+    )
+    serve.add_argument(
+        "--http-password",
+        metavar="STR",
+        default="password",
+        help="HTTP admin password the mock accepts (default: password)",
+    )
+    serve.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        metavar="N",
+        help="pin the SNMP/NSDP UDP port (default 0 = ephemeral; single model only)",
+    )
+    serve.add_argument(
+        "--http-port",
+        type=int,
+        default=0,
+        metavar="N",
+        help="pin the HTTP TCP port (default 0 = ephemeral; single model only)",
+    )
+    serve.set_defaults(func=_cmd_serve)
 
     return parser
 

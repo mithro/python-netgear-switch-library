@@ -55,6 +55,55 @@ This project is a **rolling release**: the version is derived from git
 (`0.0.postN` / `X.Y.postN`), and every merge to `main` publishes a new version
 to PyPI and the apt repo. There are no tags or manual version bumps.
 
+## Mock switch daemons (`ngsw serve`)
+
+The library ships in-repo virtual/mock switches. `ngsw serve` runs them as
+standalone, long-lived daemons on real sockets, so an external tool or library
+can point at a mock when real hardware is unavailable (CI, local development,
+demos).
+
+```sh
+# Serve one model (ephemeral ports), or several, or every registered model:
+ngsw serve --model gsm7228ps
+ngsw serve --model gsm7228ps --model gs305ep
+ngsw serve --all
+```
+
+For each switch that comes up it prints the model, bind host, the actual bound
+port(s) (SNMP/NSDP over UDP, HTTP over TCP), and the SNMP community and HTTP
+password it accepts, then blocks until interrupted (`Ctrl-C` / `SIGTERM`), at
+which point every switch is stopped cleanly:
+
+```text
+[gsm7228ps] host=127.0.0.1
+    SNMP udp/36540
+    HTTP tcp/42629
+    community='public' http_password='password'
+serving 1 mock switch(es); press Ctrl-C to stop
+```
+
+Point any tool at the printed port. For example, with the mock above serving
+SNMP on UDP `36540`:
+
+```sh
+snmpwalk -v2c -c public 127.0.0.1:36540 1.3.6.1.2.1.1
+# ...or the library's own CLI against the same mock:
+ngsw --host 127.0.0.1 --model gsm7228ps --community public ports   # + your transport wiring
+```
+
+Options:
+
+- `--model KEY` — model to serve; repeatable. `--all` serves every registered
+  model (see `ngsw models`).
+- `--host IP` — bind address (default `127.0.0.1`). Pass `0.0.0.0` to expose the
+  mock to other hosts on the network.
+- `--community STR` / `--http-password STR` — credentials the mock accepts
+  (defaults `public` / `password`).
+- `--port N` / `--http-port N` — pin the SNMP/NSDP UDP port and the HTTP TCP
+  port instead of using ephemeral ones. Because a pinned port is a single
+  listener, these are only allowed when serving exactly one model; otherwise
+  leave them unset and read the printed ephemeral ports.
+
 ## Development
 
 ```sh

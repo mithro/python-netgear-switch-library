@@ -66,10 +66,14 @@ class VirtualHttpFace:
         host: str = "127.0.0.1",
         password: str = "password",
         rand: str = "1234",
+        port: int = 0,
     ) -> None:
         self.state = state
         self.spec = spec
         self.host = host
+        # Requested bind port (0 = ephemeral); the bound port is returned by
+        # ``start()`` and read off ``server.server_address``.
+        self.port = port
         self.password = password
         self.rand = rand
         self._known_paths = _known_paths(spec)
@@ -135,7 +139,7 @@ class VirtualHttpFace:
                     page = web.render_page(face.state, face.spec, path, form)
                 self._send(page)
 
-        server = ThreadingHTTPServer((self.host, 0), Handler)
+        server = ThreadingHTTPServer((self.host, self.port), Handler)
         self._server = server
         self._thread = threading.Thread(
             target=server.serve_forever, name="virtual-http-face", daemon=True
