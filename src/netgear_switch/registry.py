@@ -299,9 +299,24 @@ _MODELS: dict[str, SwitchModel] = {
 
 MODELS: Mapping[str, SwitchModel] = MappingProxyType(_MODELS)
 
+# Alternate model-name keys that resolve to the same canonical SwitchModel via
+# get_model(). "s3300" <-> "gsm7228ps": the model registered under the canonical
+# key "gsm7228ps" is really the S3300-52X-PoE+ (its real firmware sysDescr and
+# marketing name are "S3300-52X"; GSM7228PS is the ProSAFE part-number family),
+# so both names must resolve to it -- inventories, the CLI's --model, and any
+# caller may use either. Aliases are deliberately NOT added to MODELS, which
+# stays a canonical one-key-per-model listing (what tests, the MCP model list
+# and CLI iterate); they are resolved only on lookup.
+MODEL_ALIASES: Mapping[str, str] = MappingProxyType(
+    {
+        "s3300": "gsm7228ps",
+    }
+)
+
 
 def get_model(key: str) -> SwitchModel:
+    canonical = MODEL_ALIASES.get(key, key)
     try:
-        return _MODELS[key]
+        return _MODELS[canonical]
     except KeyError:
         raise UnknownModelError(f"unknown switch model: {key!r}") from None

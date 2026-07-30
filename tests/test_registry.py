@@ -1,7 +1,13 @@
 import pytest
 
 from netgear_switch.errors import UnknownModelError
-from netgear_switch.registry import MODELS, Backend, SwitchClass, get_model
+from netgear_switch.registry import (
+    MODEL_ALIASES,
+    MODELS,
+    Backend,
+    SwitchClass,
+    get_model,
+)
 
 _VERIFIED_KEYS = (
     "m4300-24x", "m4300-16x", "gsm7252ps", "gs110emx", "gs305ep",
@@ -42,6 +48,22 @@ def test_plus_switch_no_snmp_no_mac_table():
 def test_unknown_model_raises():
     with pytest.raises(UnknownModelError):
         get_model("nonesuch")
+
+
+def test_s3300_and_gsm7228ps_are_aliases_for_each_other():
+    # The model registered as "gsm7228ps" is really the S3300-52X-PoE+; both
+    # names must resolve to the exact same SwitchModel (inventories/CLI use
+    # either). get_model("s3300") returns the canonical gsm7228ps model.
+    assert MODEL_ALIASES["s3300"] == "gsm7228ps"
+    assert get_model("s3300") is get_model("gsm7228ps")
+    assert get_model("s3300").key == "gsm7228ps"
+
+
+def test_aliases_are_not_listed_as_separate_models():
+    # MODELS stays a canonical one-key-per-model listing -- aliases resolve on
+    # lookup but must NOT appear as extra entries (else CLI/MCP double-count).
+    for alias in MODEL_ALIASES:
+        assert alias not in MODELS, alias
 
 
 def test_verified_defaults_true_for_existing_models():
