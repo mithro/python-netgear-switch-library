@@ -1,0 +1,1763 @@
+{
+ "model": "gsm7228ps",
+ "host": "10.1.5.11",
+ "snapshot": {
+  "model": "gsm7228ps",
+  "host": "10.1.5.11",
+  "ports": [
+   {
+    "port": 1,
+    "name": "1/g1",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 2,
+    "name": "1/g2",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 3,
+    "name": "1/g3",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 4,
+    "name": "1/g4",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 5,
+    "name": "1/g5",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 6,
+    "name": "1/g6",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 7,
+    "name": "1/g7",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 8,
+    "name": "1/g8",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 9,
+    "name": "1/g9",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 10,
+    "name": "1/g10",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 11,
+    "name": "1/g11",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 12,
+    "name": "1/g12",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 13,
+    "name": "1/g13",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 14,
+    "name": "1/g14",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 15,
+    "name": "1/g15",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 16,
+    "name": "1/g16",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 17,
+    "name": "1/g17",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 18,
+    "name": "1/g18",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 19,
+    "name": "1/g19",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 20,
+    "name": "1/g20",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 21,
+    "name": "1/g21",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 22,
+    "name": "1/g22",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 23,
+    "name": "1/g23",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 24,
+    "name": "1/g24",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 25,
+    "name": "1/g25",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 26,
+    "name": "1/g26",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 27,
+    "name": "1/g27",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 28,
+    "name": "1/g28",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 29,
+    "name": "1/g29",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 30,
+    "name": "1/g30",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 31,
+    "name": "1/g31",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 32,
+    "name": "1/g32",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 33,
+    "name": "1/g33",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 34,
+    "name": "1/g34",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 35,
+    "name": "1/g35",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 36,
+    "name": "1/g36",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 37,
+    "name": "1/g37",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 38,
+    "name": "1/g38",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "class0?"
+   },
+   {
+    "port": 39,
+    "name": "1/g39",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 40,
+    "name": "1/g40",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "class0?"
+   },
+   {
+    "port": 41,
+    "name": "1/g41",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "eth-local.tweed"
+   },
+   {
+    "port": 42,
+    "name": "1/g42",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "bmc.tweed"
+   },
+   {
+    "port": 43,
+    "name": "1/g43",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 44,
+    "name": "1/g44",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   },
+   {
+    "port": 45,
+    "name": "1/g45",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "eth0.hifive-unmatched-2"
+   },
+   {
+    "port": 46,
+    "name": "1/g46",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "eth0.hifive-unmatched-1"
+   },
+   {
+    "port": 47,
+    "name": "1/g47",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "eth0.rpi-sdr-rtlsdr-v3"
+   },
+   {
+    "port": 48,
+    "name": "1/g48",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "eth0.rpiz-serial"
+   },
+   {
+    "port": 49,
+    "name": "1/xg49",
+    "admin_enabled": true,
+    "link_up": true,
+    "speed_mbps": 1000,
+    "description": null
+   },
+   {
+    "port": 50,
+    "name": "1/xg50",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": "cisco-shed"
+   },
+   {
+    "port": 51,
+    "name": "1/xg51",
+    "admin_enabled": true,
+    "link_up": true,
+    "speed_mbps": 10000,
+    "description": null
+   },
+   {
+    "port": 52,
+    "name": "1/xg52",
+    "admin_enabled": true,
+    "link_up": false,
+    "speed_mbps": null,
+    "description": null
+   }
+  ],
+  "poe": [
+   {
+    "port": 1,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 2,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 3,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 4,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 5,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 6,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 7,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 8,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 9,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 10,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 11,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 12,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 13,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 14,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 15,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 16,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 17,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 18,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 19,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 20,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 21,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 22,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 23,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 24,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 25,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 26,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 27,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 28,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 29,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 30,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 31,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 32,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 33,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 34,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 35,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 36,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 37,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 38,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 39,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 40,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 41,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 42,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 43,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 44,
+    "admin_enabled": true,
+    "detect": "delivering",
+    "power_mw": 400
+   },
+   {
+    "port": 45,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 46,
+    "admin_enabled": true,
+    "detect": "fault",
+    "power_mw": 0
+   },
+   {
+    "port": 47,
+    "admin_enabled": true,
+    "detect": "searching",
+    "power_mw": 0
+   },
+   {
+    "port": 48,
+    "admin_enabled": true,
+    "detect": "delivering",
+    "power_mw": 700
+   }
+  ],
+  "vlans": [
+   {
+    "vlan_id": 1,
+    "name": "Default",
+    "member_ports": [
+     49,
+     50,
+     51,
+     52,
+     314,
+     315,
+     316,
+     317,
+     318,
+     319,
+     320,
+     321,
+     322,
+     323,
+     324,
+     325,
+     326,
+     327,
+     328,
+     329,
+     330,
+     331,
+     332,
+     333,
+     334,
+     335,
+     336,
+     337,
+     338,
+     339
+    ],
+    "tagged_ports": [],
+    "untagged_ports": [
+     49,
+     50,
+     51,
+     52,
+     314,
+     315,
+     316,
+     317,
+     318,
+     319,
+     320,
+     321,
+     322,
+     323,
+     324,
+     325,
+     326,
+     327,
+     328,
+     329,
+     330,
+     331,
+     332,
+     333,
+     334,
+     335,
+     336,
+     337,
+     338,
+     339
+    ]
+   },
+   {
+    "vlan_id": 5,
+    "name": "net",
+    "member_ports": [
+     41,
+     49,
+     50,
+     51,
+     52
+    ],
+    "tagged_ports": [
+     49,
+     50,
+     51,
+     52
+    ],
+    "untagged_ports": [
+     41
+    ]
+   },
+   {
+    "vlan_id": 21,
+    "name": "fpgas",
+    "member_ports": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47
+    ],
+    "tagged_ports": [],
+    "untagged_ports": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25,
+     26,
+     27,
+     28,
+     29,
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36,
+     37,
+     38,
+     39,
+     40,
+     42,
+     43,
+     44,
+     45,
+     46,
+     47
+    ]
+   },
+   {
+    "vlan_id": 121,
+    "name": "t-fpgas",
+    "member_ports": [
+     48,
+     49,
+     50,
+     51,
+     52
+    ],
+    "tagged_ports": [
+     49,
+     50,
+     51,
+     52
+    ],
+    "untagged_ports": [
+     48
+    ]
+   },
+   {
+    "vlan_id": 4089,
+    "name": "Auto-Video",
+    "member_ports": [],
+    "tagged_ports": [],
+    "untagged_ports": []
+   }
+  ],
+  "pvids": [
+   [
+    1,
+    21
+   ],
+   [
+    2,
+    21
+   ],
+   [
+    3,
+    21
+   ],
+   [
+    4,
+    21
+   ],
+   [
+    5,
+    21
+   ],
+   [
+    6,
+    21
+   ],
+   [
+    7,
+    21
+   ],
+   [
+    8,
+    21
+   ],
+   [
+    9,
+    21
+   ],
+   [
+    10,
+    21
+   ],
+   [
+    11,
+    21
+   ],
+   [
+    12,
+    21
+   ],
+   [
+    13,
+    21
+   ],
+   [
+    14,
+    21
+   ],
+   [
+    15,
+    21
+   ],
+   [
+    16,
+    21
+   ],
+   [
+    17,
+    21
+   ],
+   [
+    18,
+    21
+   ],
+   [
+    19,
+    21
+   ],
+   [
+    20,
+    21
+   ],
+   [
+    21,
+    21
+   ],
+   [
+    22,
+    21
+   ],
+   [
+    23,
+    21
+   ],
+   [
+    24,
+    21
+   ],
+   [
+    25,
+    21
+   ],
+   [
+    26,
+    21
+   ],
+   [
+    27,
+    21
+   ],
+   [
+    28,
+    21
+   ],
+   [
+    29,
+    21
+   ],
+   [
+    30,
+    21
+   ],
+   [
+    31,
+    21
+   ],
+   [
+    32,
+    21
+   ],
+   [
+    33,
+    21
+   ],
+   [
+    34,
+    21
+   ],
+   [
+    35,
+    21
+   ],
+   [
+    36,
+    21
+   ],
+   [
+    37,
+    21
+   ],
+   [
+    38,
+    21
+   ],
+   [
+    39,
+    21
+   ],
+   [
+    40,
+    21
+   ],
+   [
+    41,
+    5
+   ],
+   [
+    42,
+    21
+   ],
+   [
+    43,
+    21
+   ],
+   [
+    44,
+    21
+   ],
+   [
+    45,
+    21
+   ],
+   [
+    46,
+    21
+   ],
+   [
+    47,
+    21
+   ],
+   [
+    48,
+    121
+   ],
+   [
+    49,
+    1
+   ],
+   [
+    50,
+    1
+   ],
+   [
+    51,
+    1
+   ],
+   [
+    52,
+    1
+   ]
+  ],
+  "lldp": [
+   {
+    "local_port": 49,
+    "remote_sys_name": "sw-netgear-gsm7252ps-s1.welland.mithis.com",
+    "remote_port_desc": "spare.ex-cisco",
+    "remote_chassis_id": "E0:91:F5:0C:D6:DB",
+    "remote_port_id": "1/0/48"
+   },
+   {
+    "local_port": 51,
+    "remote_sys_name": "sw-netgear-gsm7252ps-s2.welland.mithis.com",
+    "remote_port_desc": "1/0/50",
+    "remote_chassis_id": "E0:91:F5:0C:D5:C7",
+    "remote_port_id": "1/0/50"
+   }
+  ],
+  "macs": [
+   {
+    "mac": "02:00:0A:01:05:01",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "02:00:0A:01:21:01",
+    "port": 51,
+    "vlan_id": 121
+   },
+   {
+    "mac": "0C:C4:7A:1B:D9:C7",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "1C:34:DA:42:E8:8C",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "1C:34:DA:42:E8:8D",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "44:A5:6E:60:C5:B6",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "44:A5:6E:60:C5:B6",
+    "port": 51,
+    "vlan_id": 121
+   },
+   {
+    "mac": "8C:3B:AD:69:1C:3B",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "8C:3B:AD:6B:BB:E3",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "AC:1F:6B:AA:50:53",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "BC:A5:11:B8:EC:F1",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "BC:A5:11:B8:EC:F1",
+    "port": 51,
+    "vlan_id": 121
+   },
+   {
+    "mac": "BC:A5:11:B8:ED:42",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "BC:A5:11:B8:ED:42",
+    "port": 51,
+    "vlan_id": 121
+   },
+   {
+    "mac": "E0:91:F5:0C:D5:C7",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "E0:91:F5:0C:D5:C9",
+    "port": 51,
+    "vlan_id": 1
+   },
+   {
+    "mac": "E0:91:F5:0C:D6:DB",
+    "port": 51,
+    "vlan_id": 5
+   },
+   {
+    "mac": "08:BD:43:6B:B8:D8",
+    "port": 313,
+    "vlan_id": 5
+   }
+  ],
+  "sensors": [
+   {
+    "name": "fan0",
+    "kind": "fan",
+    "value": 4963.0,
+    "unit": "RPM"
+   },
+   {
+    "name": "fan1",
+    "kind": "fan",
+    "value": 5212.0,
+    "unit": "RPM"
+   },
+   {
+    "name": "fan2",
+    "kind": "fan",
+    "value": 5294.0,
+    "unit": "RPM"
+   },
+   {
+    "name": "power0",
+    "kind": "power",
+    "value": 38.0,
+    "unit": "W"
+   },
+   {
+    "name": "temperature1",
+    "kind": "temperature",
+    "value": 38.0,
+    "unit": "C"
+   }
+  ],
+  "stats": [
+   {
+    "port": 1,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 2,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 3,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 4,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 5,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 6,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 7,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 8,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 9,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 10,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 11,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 12,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 13,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 14,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 15,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 16,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 17,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 18,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 19,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 20,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 21,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 22,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 23,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 24,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 25,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 26,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 27,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 28,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 29,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 30,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 31,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 32,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 33,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 34,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 35,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 36,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 37,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 38,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 39,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 40,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 41,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 42,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 43,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 44,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 45,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 46,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 47,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 48,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 49,
+    "rx_bytes": 492931,
+    "tx_bytes": 9048,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 50,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 51,
+    "rx_bytes": 5493036,
+    "tx_bytes": 5451371,
+    "rx_packets": 49697,
+    "tx_packets": 49690,
+    "rx_errors": 0,
+    "tx_errors": 0
+   },
+   {
+    "port": 52,
+    "rx_bytes": 0,
+    "tx_bytes": 0,
+    "rx_packets": 0,
+    "tx_packets": 0,
+    "rx_errors": 0,
+    "tx_errors": 0
+   }
+  ],
+  "mgmt_ip": {
+   "mode": "unknown",
+   "address": "10.1.5.11",
+   "netmask": "255.255.255.0",
+   "gateway": null,
+   "base_mac": "08:BD:43:6B:B8:D8"
+  }
+ },
+ "note": "Trimmed real-hardware capture (S3300-52X-PoE+ @10.1.5.11, sysObjectID 1.3.6.1.4.1.4526.100.10.19) for mock seeding + parity tests. MACs/LLDP/stats are volatile point-in-time facts, not pinned by parity."
+}
