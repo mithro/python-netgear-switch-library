@@ -29,6 +29,16 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
 from .aio_api import AsyncSwitch, async_detect_model
+from .capabilities import (
+    OPERATIONS,
+    Capability,
+    Operation,
+    OperationKind,
+    Support,
+    backends_for,
+    matrix,
+    support,
+)
 from .config import (
     SwitchConfig,
     ensure_secure_file,
@@ -141,6 +151,15 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "SwitchModel",
     "MODELS",
     "get_model",
+    # capabilities (which model can do what, over which backend)
+    "Support",
+    "Operation",
+    "OperationKind",
+    "Capability",
+    "OPERATIONS",
+    "support",
+    "matrix",
+    "backends_for",
     # config
     "SwitchConfig",
     "resolve_secret",
