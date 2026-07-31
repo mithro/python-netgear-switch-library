@@ -201,14 +201,14 @@ class VlanMembershipPageSim:
 
     Live measurements:
 
-    ==========  =====  ========  ====  =============  ====  ======
-    model       slots  lag_slot  grid  trailing_comma csrf  escape
-    ==========  =====  ========  ====  =============  ====  ======
-    gsm7252ps     116         3  gif             no     no      no
-    gsm7228ps      78         3  png             no     no     yes
-    m4300-24x     152        13  png            yes     no     yes
-    m4300-16x     144        13  png            yes    yes     yes
-    ==========  =====  ========  ====  =============  ====  ======
+    ==========  =====  ========  ====  ==============  ====  ======
+    model       slots  lag_slot  grid  trailing_comma  csrf  escape
+    ==========  =====  ========  ====  ==============  ====  ======
+    gsm7252ps     116         3  gif               no    no      no
+    gsm7228ps      78         3  png               no    no     yes
+    m4300-24x     152        13  png              yes    no     yes
+    m4300-16x     144        13  png              yes   yes     yes
+    ==========  =====  ========  ====  ==============  ====  ======
 
     ``slots`` = physical ports first, then the LAG pseudo-interfaces (so
     ``slots - port_count`` LAGs: 64 / 26 / 128 / 128). ``lag_slot`` is the middle
