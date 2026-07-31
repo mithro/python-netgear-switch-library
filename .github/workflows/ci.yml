@@ -46,3 +46,31 @@ jobs:
 
       - name: Tests + coverage gate (>= 90)
         run: uv run pytest
+
+  docs:
+    # The published documentation generates its model/backend support tables
+    # from the library itself and links every file reference to the file, so a
+    # stale table or a renamed file is a build failure rather than a page that
+    # quietly misleads. Warnings are errors here exactly as they are on Read
+    # the Docs (see .readthedocs.yaml's fail_on_warning).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # full history so hatch-vcs can derive the version
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Sync the docs extra
+        run: uv sync --extra docs
+
+      - name: Build the documentation (warnings are errors)
+        run: uv run sphinx-build -W --keep-going -b html docs docs/_build/html
+
+      - name: Upload the built documentation
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: docs/_build/html
+          retention-days: 7
