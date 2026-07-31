@@ -212,10 +212,12 @@ def _phys_port(iface: str) -> int | None:
 def parse_version(text: str, models: Mapping[str, SwitchModel]) -> DetectedModel:
     """``show version`` -> ``DetectedModel``.
 
-    Column/label map (``gsm7252ps_show_version.txt``):
-      System Description  -> the sysDescr-equivalent string matched against the
-                             registry (contains the model name "GSM7252PS").
-      Machine Model       -> fallback match token if the description is absent.
+    Column/label map (``gsm7252ps_show_version.txt``)::
+
+        System Description  -> the sysDescr-equivalent string matched against the
+                               registry (contains the model name "GSM7252PS").
+        Machine Model       -> fallback match token if the description is absent.
+
     ``sys_object_id`` is always ``None`` (the CLI exposes no sysObjectID).
     Model matching reuses the SNMP backend's exact whole-word matcher so CLI and
     SNMP identify a switch identically.
@@ -545,6 +547,7 @@ def parse_environment(text: str) -> list[Sensor]:
     """``show environment`` -> box sensors.
 
     Emits, in order:
+
     * one ``kind="temperature"`` (``unit="C"``) Sensor per Temperature Sensors
       row -- name from the Description column (CPU/System/MAC-A/MAC-B), value the
       ``Temp (C)`` column.
@@ -610,12 +613,14 @@ def parse_environment(text: str) -> list[Sensor]:
 def parse_mgmt_ip(text: str) -> MgmtIpConfig:
     """``show network`` -> ``MgmtIpConfig``.
 
-    Label map (``gsm7252ps_show_network.txt`` / ``m4300_24x_show_ip_management``):
-      IP Address              -> address
-      Subnet Mask             -> netmask
-      Default Gateway         -> gateway
-      Burned In MAC Address   -> base_mac (uppercased, as the other backends do)
-      Configured IPv4 Protocol-> mode (DHCP -> DHCP, else STATIC)
+    Label map (``gsm7252ps_show_network.txt`` / ``m4300_24x_show_ip_management``)::
+
+        IP Address              -> address
+        Subnet Mask             -> netmask
+        Default Gateway         -> gateway
+        Burned In MAC Address   -> base_mac (uppercased, as the other backends do)
+        Configured IPv4 Protocol-> mode (DHCP -> DHCP, else STATIC)
+
     ``show network`` labels the mode "Configured IPv4 Protocol"; M4300 12.0's
     ``show ip management`` labels it "Method" instead -- accept either.
     """

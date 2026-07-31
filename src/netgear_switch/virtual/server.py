@@ -196,7 +196,8 @@ def serve_forever(
 
     Blocks on ``stop.wait()`` (a fresh ``Event`` is created if none is passed —
     in that case only a ``KeyboardInterrupt`` unblocks it) until signalled, then
-    ``stop()``s every switch it started, in reverse order, even on exception.
+    calls ``stop()`` on every switch it started, in reverse order, even on
+    exception.
     Returns the number of switches successfully served (0 means nothing bound,
     and the function returns immediately without blocking).
 

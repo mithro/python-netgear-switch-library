@@ -1,0 +1,32 @@
+# Read the Docs build configuration.
+# https://docs.readthedocs.io/en/stable/config-file/v2.html
+version: 2
+
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+  jobs:
+    post_checkout:
+      # This project's version is derived from git by hatch-vcs (see
+      # pyproject.toml's [tool.hatch.version]). Read the Docs makes a SHALLOW
+      # clone with no tags, which makes that derivation fail the build. Fetch
+      # the full history + tags so the version the docs display is the real
+      # one. `|| true` keeps a build working if the clone is already complete.
+      - git fetch --unshallow || true
+      - git fetch --tags || true
+
+sphinx:
+  configuration: docs/conf.py
+  # A warning here means a broken cross-reference, a missing document, or a
+  # documented file path that no longer exists (see docs/_ext/filelinks.py).
+  # All three are documentation bugs, so they fail the build rather than
+  # shipping a page that quietly lies.
+  fail_on_warning: true
+
+python:
+  install:
+    - method: pip
+      path: .
+      extra_requirements:
+        - docs

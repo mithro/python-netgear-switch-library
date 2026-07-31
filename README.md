@@ -3,6 +3,11 @@
 Query and control all your Netgear switches — SNMP (managed), NSDP and HTTP
 web-UI (Plus) — behind one model-driven Python API and the `ngsw` CLI.
 
+**Documentation: <https://python-netgear-switch-library.readthedocs.io/>** — API
+reference, the complete `ngsw` CLI reference, the virtual-switch guide (how to
+test your own tools against a mock), and generated
+[model × protocol and model × functionality support tables](https://python-netgear-switch-library.readthedocs.io/en/latest/models/support.html).
+
 Status: **early development.** See `docs/superpowers/specs/` for the design and
 `docs/superpowers/plans/` for the implementation plans.
 
@@ -104,12 +109,24 @@ Options:
   listener, these are only allowed when serving exactly one model; otherwise
   leave them unset and read the printed ephemeral ports.
 
+Full details, including worked examples of testing an external tool against a
+mock, are in the [virtual switch
+guide](https://python-netgear-switch-library.readthedocs.io/en/latest/fake/).
+
 ## Development
 
 ```sh
 uv sync --all-extras
 uv run pytest
 uv run ruff check
+uv run mypy
+```
+
+Build the documentation (warnings are errors, as on Read the Docs):
+
+```sh
+uv sync --extra docs
+make -C docs html
 ```
 
 ## License

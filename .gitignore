@@ -23,6 +23,10 @@ htmlcov/
 # hatch-vcs writes this at build/editable-install time; it is derived from git.
 /src/netgear_switch/_version.py
 
+# Sphinx build output (docs/Makefile's BUILDDIR). Read the Docs builds from a
+# clean checkout; a local `make -C docs html` writes here.
+/docs/_build/
+
 # Debian build byproducts (dpkg-buildpackage writes to the parent dir; local
 # builds may drop these in-tree).
 /built-debs/
