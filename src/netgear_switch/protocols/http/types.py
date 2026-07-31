@@ -6,7 +6,7 @@ in ``models.py``, until/unless a second backend needs the same shape).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -141,8 +141,15 @@ class XuiListPage:
     hidden: Mapping[str, str]
     buttons: Mapping[str, str]
     rows: tuple[XuiRow, ...]
-    tokens: Mapping[str, str] = MappingProxyType({})
-    nav: Mapping[str, str] = MappingProxyType({})
+    # default_factory, NOT a bare ``MappingProxyType({})`` default, because that
+    # breaks on Python 3.11 -- the floor this project supports (CI caught it on
+    # 3.11 while 3.12 and 3.13 passed). ``dataclasses`` uses "the default's CLASS
+    # is unhashable" as its proxy for mutability, and ``mappingproxy`` only
+    # gained a class-level ``__hash__`` in 3.12; on 3.11 it has none, so the
+    # field is rejected as a mutable default. Matches the pattern already used by
+    # ``HttpModelSpec.cert_upload_form_fields``.
+    tokens: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    nav: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
 
     def row_for(self, column: str, value: str) -> XuiRow | None:
         """The row whose ``column`` renders ``value`` (e.g. the ifName cell)."""
