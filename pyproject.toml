@@ -37,6 +37,23 @@ ssh = ["paramiko>=2.12,<3", "pyserial>=3.5"]
 testing = ["pysnmp>=7.0", "mcp>=1.2"]
 # MCP server (ngsw-mcp): exposes the read/write API as MCP tools over stdio.
 mcp = ["mcp>=1.2"]
+# Documentation build (docs/, published to Read the Docs). This extra pulls in
+# EVERY optional runtime dependency as well as Sphinx itself, because autodoc
+# imports each module it documents: skipping e.g. `mcp` would silently drop the
+# MCP server's API page rather than fail, which is exactly the kind of quiet
+# gap the docs are meant to close. paramiko/pyserial are only imported inside
+# methods, but are installed anyway so the CLI transports document cleanly.
+docs = [
+    "sphinx>=8.1",
+    "furo>=2024.8.6",
+    "sphinx-argparse>=0.5",
+    "sphinx-copybutton>=0.5.2",
+    "pysnmp>=7.0",
+    "httpx>=0.27",
+    "mcp>=1.2",
+    "paramiko>=2.12,<3",
+    "pyserial>=3.5",
+]
 
 [project.scripts]
 ngsw = "netgear_switch.cli.main:main"

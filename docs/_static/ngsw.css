@@ -1,0 +1,27 @@
+/* Generated support tables are wide by nature -- one column per switch model.
+   Let them scroll inside their own box rather than stretch the page. */
+table.ngsw-support-table {
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+table.ngsw-support-table td,
+table.ngsw-support-table th {
+  vertical-align: top;
+}
+
+/* The "why not" column carries full sentences; let it wrap. */
+table.ngsw-support-table td:last-child {
+  white-space: normal;
+  min-width: 20rem;
+}
+
+/* Links produced by docs/_ext/filelinks.py: a file path that is also a link.
+   Keep the monospace look, add the underline links normally get. */
+a.repofile code,
+a.repofile tt {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
