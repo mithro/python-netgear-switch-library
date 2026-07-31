@@ -26,11 +26,17 @@ Configuring a client
      }
    }
 
-Every tool resolves its target switch through the **same path the CLI uses** —
-either a named switch from a TOML inventory (``switch=`` plus ``config=`` or
-``$NGSW_INVENTORY``), or an ad-hoc ``host=`` and ``model=`` pair, with
-credentials layered from arguments, environment and inventory. See
+Every tool resolves its target switch through the **same resolver the CLI uses**
+— either a named switch from a TOML inventory (``switch=`` plus ``config=``, or
+``$NGSW_INVENTORY`` for the path), or an ad-hoc ``host=`` and ``model=`` pair,
+with credentials layered from arguments, environment and inventory. See
 :doc:`guide/configuration`.
+
+.. note::
+
+   ``$NGSW_INVENTORY`` is an MCP-server convenience — an MCP client has no
+   command line to pass ``--config`` on. The ``ngsw`` CLI requires ``--config``
+   explicitly.
 
 Read tools
 ----------
@@ -116,10 +122,16 @@ result rather than an exception or, worse, plausible-looking data:
 
 .. code-block:: json
 
-   {"unsupported": true, "error": "model 'gs110emx': the default backend NSDP cannot serve this operation: NSDP has no PoE status tag ..."}
+   {
+     "unsupported": true,
+     "op": "get_poe",
+     "detail": "model 'gs110emx': the default backend NSDP cannot serve this operation: NSDP has no PoE status tag ..."
+   }
 
-That carries through the library's rule: nothing is fabricated, and nothing is
-quietly answered over a different protocol.
+Any other library error becomes ``{"error": "...", "op": "..."}``, so the client
+sees a clean message rather than a stack trace. Both carry the library's rule
+through: nothing is fabricated, and nothing is quietly answered over a different
+protocol.
 
 Implementation
 --------------

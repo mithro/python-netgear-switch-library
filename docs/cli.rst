@@ -16,9 +16,9 @@ Selecting a switch
 
 Two ways, and exactly one of them is needed:
 
-**From an inventory** — ``--switch NAME``, with ``--config`` or
-``$NGSW_INVENTORY`` naming the file. Credentials and protected ports come with
-it. See :doc:`guide/configuration`.
+**From an inventory** — ``--switch NAME`` together with ``--config
+<inventory.toml>``; ``--switch`` without ``--config`` is an error. Credentials
+and protected ports come with the entry. See :doc:`guide/configuration`.
 
 **Ad hoc** — ``--host HOST --model KEY`` together, with credentials from flags,
 environment variables, or an interactive prompt.

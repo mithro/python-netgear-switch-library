@@ -126,15 +126,16 @@ From the CLI
 .. code-block:: sh
 
    ngsw --config /etc/ngsw/inventory.toml --switch core ports
-   export NGSW_INVENTORY=/etc/ngsw/inventory.toml
-   ngsw --switch core ports
+
+``--switch`` requires ``--config``; the CLI has no environment variable for the
+inventory path. (The MCP server does — see :doc:`../mcp`.)
 
 Credential precedence is **command-line flag → environment variable → inventory
 → interactive prompt**, implemented in ``src/netgear_switch/cli/resolve.py``:
 
 .. list-table::
    :header-rows: 1
-   :widths: 30 30 40
+   :widths: 34 32 34
 
    * - Credential
      - Flag
@@ -148,9 +149,6 @@ Credential precedence is **command-line flag → environment variable → invent
    * - Web UI / NSDP password
      - ``--http-password``
      - —
-   * - Inventory path
-     - ``--config``
-     - ``NGSW_INVENTORY``
 
 The prompt is only reached for a backend that actually needs the secret: a
 Plus switch reached over NSDP is never asked for an SNMP community.

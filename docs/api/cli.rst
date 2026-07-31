@@ -5,6 +5,9 @@ The modules behind the ``ngsw`` entry point. The user-facing reference is
 :doc:`../cli`; this documents the implementation, which is worth reading if you
 are embedding ``ngsw``'s switch resolution or its write gates in your own tool.
 
+.. automodule:: netgear_switch.cli
+   :no-members:
+
 Entry point
 -----------
 

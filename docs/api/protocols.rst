@@ -6,6 +6,9 @@ and the parsers over their output. No sockets and no I/O — which is why almost
 all of it is testable against captured bytes, and why the measurement notes for
 each device behaviour live here in the source.
 
+.. automodule:: netgear_switch.protocols
+   :no-members:
+
 SNMP
 ----
 

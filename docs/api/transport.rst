@@ -8,6 +8,9 @@ them — and equally against a mock.
 These are also the classes you construct by hand to point the library at a
 :doc:`virtual switch <../fake/testing>`.
 
+.. automodule:: netgear_switch.transport
+   :no-members:
+
 Synchronous
 -----------
 
