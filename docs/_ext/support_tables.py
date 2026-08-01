@@ -341,9 +341,7 @@ class BackendModelTable(_GeneratedTable):
         rows = []
         for key in _models_with(backends):
             model = MODELS[key]
-            reached = ", ".join(
-                b.name for b in backends_for(model) if b in backends
-            )
+            reached = ", ".join(b.name for b in backends_for(model) if b in backends)
             rows.append(
                 [
                     # Absolute doc path: this table is included from
@@ -382,9 +380,7 @@ class BackendOperationTable(_GeneratedTable):
         for op in (*READ_OPERATIONS, *WRITE_OPERATIONS):
             cells = []
             for key in keys:
-                backend = next(
-                    (b for b in backends_for(key) if b in backends), None
-                )
+                backend = next((b for b in backends_for(key) if b in backends), None)
                 if backend is None:  # pragma: no cover - filtered by _models_with
                     cells.append(_NO)
                     continue
@@ -450,9 +446,7 @@ class ModelFacts(_GeneratedTable):
                     ]
                 )
         if aliases:
-            rows.append(
-                ["Aliases", ", ".join(f"``{a}``" for a in aliases)]
-            )
+            rows.append(["Aliases", ", ".join(f"``{a}``" for a in aliases)])
         rows.append(
             [
                 "MAC/FDB table",
@@ -495,6 +489,71 @@ class ModelPhoto(_GeneratedTable):
 
 #: Models whose photo slot was empty during this build; reported at the end.
 MISSING_PHOTOS: set[str] = set()
+
+
+class ModelDiagram(_GeneratedTable):
+    """A schematic port map for one model, drawn from the registry.
+
+    Not a photograph and not a faceplate: it shows the ports *as this library
+    addresses them*, which is the thing a caller actually needs when deciding
+    what to pass as ``port=``. Generated from ``port_count`` and
+    ``poe_port_count``, so it cannot drift from the registry -- and so it never
+    asserts a physical arrangement nobody measured.
+    """
+
+    required_arguments = 1
+
+    _COLS = 26
+    _BOX = 26
+    _GAP = 4
+
+    def body(self) -> str:
+        model = get_model(self.arguments[0])
+        total, poe = model.port_count, model.poe_port_count
+        step = self._BOX + self._GAP
+        rows = (total + self._COLS - 1) // self._COLS
+        width = min(total, self._COLS) * step + self._GAP
+        height = rows * step + self._GAP + 22
+
+        parts = [
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
+            f'role="img" aria-label="Port map: {total} ports, {poe} with PoE" '
+            'style="max-width:100%;height:auto">'
+        ]
+        for index in range(total):
+            port = index + 1
+            col, row = index % self._COLS, index // self._COLS
+            x = self._GAP + col * step
+            y = self._GAP + row * step
+            # PoE ports come first on every model in this registry; anything
+            # beyond that count is drawn as a plain (usually uplink) port.
+            fill = "#2b6cb0" if port <= poe else "#a0aec0"
+            parts.append(
+                f'<rect x="{x}" y="{y}" width="{self._BOX}" height="{self._BOX}" '
+                f'rx="3" fill="{fill}"/>'
+                f'<text x="{x + self._BOX / 2}" y="{y + self._BOX / 2 + 4}" '
+                'font-size="10" text-anchor="middle" fill="#fff" '
+                f'font-family="monospace">{port}</text>'
+            )
+        legend_y = rows * step + self._GAP + 14
+        parts.append(
+            f'<rect x="4" y="{legend_y - 9}" width="11" height="11" rx="2" '
+            'fill="#2b6cb0"/>'
+            f'<text x="20" y="{legend_y}" font-size="11" fill="currentColor">'
+            f"PoE ({poe})</text>"
+            f'<rect x="86" y="{legend_y - 9}" width="11" height="11" rx="2" '
+            'fill="#a0aec0"/>'
+            f'<text x="102" y="{legend_y}" font-size="11" fill="currentColor">'
+            f"no PoE ({total - poe})</text>"
+        )
+        parts.append("</svg>")
+        svg = "".join(parts)
+        return (
+            ".. raw:: html\n\n"
+            f'   <figure class="ngsw-port-map">{svg}'
+            "<figcaption>Port map as the library addresses these ports — "
+            "schematic, not a faceplate layout.</figcaption></figure>\n"
+        )
 
 
 class UnverifiedNote(_GeneratedTable):
@@ -543,6 +602,7 @@ def setup(app: Sphinx) -> dict[str, Any]:
     app.add_directive("ngsw-model-support", ModelSupportTable)
     app.add_directive("ngsw-model-facts", ModelFacts)
     app.add_directive("ngsw-model-photo", ModelPhoto)
+    app.add_directive("ngsw-model-diagram", ModelDiagram)
     app.add_directive("ngsw-backend-models", BackendModelTable)
     app.add_directive("ngsw-backend-operations", BackendOperationTable)
     app.add_directive("ngsw-support-gaps", SupportGaps)

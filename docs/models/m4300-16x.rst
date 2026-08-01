@@ -3,6 +3,8 @@ M4300-16X
 
 .. ngsw-model-photo:: m4300-16x
 
+.. ngsw-model-diagram:: m4300-16x
+
 The XSM4316, a Fully Managed 10G switch with PoE on all 16 ports, running
 FASTPATH **12.0.19.15** — a different firmware from its M4300-24X sibling, which
 is exactly why its behaviour was measured rather than inherited.

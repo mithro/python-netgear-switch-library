@@ -3,6 +3,8 @@ GSM7252PS
 
 .. ngsw-model-photo:: gsm7252ps
 
+.. ngsw-model-diagram:: gsm7252ps
+
 A 52-port Fully Managed stackable switch, 48 of them PoE. The model with the
 widest verified backend coverage in this fleet — SNMP, the XE FASTPATH web UI
 and the CLI are all cross-verified against each other — and the one the

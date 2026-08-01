@@ -3,6 +3,8 @@ GS110EMX
 
 .. ngsw-model-photo:: gs110emx
 
+.. ngsw-model-diagram:: gs110emx
+
 A 10-port Plus switch with multi-gigabit uplinks and no PoE. Like every Plus
 model it has **no SNMP agent**: it is managed over NSDP and its web UI.
 

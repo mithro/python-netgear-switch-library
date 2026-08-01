@@ -3,6 +3,8 @@ S3300-52X-PoE+
 
 .. ngsw-model-photo:: gsm7228ps
 
+.. ngsw-model-diagram:: gsm7228ps
+
 A 52-port Smart Managed Pro switch with 48 PoE ports — despite the
 ``GSM7228PS`` part-number family suggesting 28. The registry key is
 ``gsm7228ps``; ``s3300`` is an alias resolving to the same record, because the

@@ -3,6 +3,8 @@ GS105PE
 
 .. ngsw-model-photo:: gs105pe
 
+.. ngsw-model-diagram:: gs105pe
+
 A 5-port "Smart Plus" switch (Gen-2 Broadcom BCM53125) — a genuinely distinct
 SKU from the GS305EP, not a rebadge. No SNMP; NSDP and the web UI.
 

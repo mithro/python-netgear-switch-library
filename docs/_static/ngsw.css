@@ -25,3 +25,14 @@ a.repofile tt {
   text-decoration: underline;
   text-decoration-style: dotted;
 }
+
+/* Generated port maps (docs/_ext/support_tables.py's ngsw-model-diagram). */
+figure.ngsw-port-map {
+  margin: 1rem 0 1.5rem;
+  text-align: center;
+}
+figure.ngsw-port-map figcaption {
+  font-size: 0.85em;
+  opacity: 0.75;
+  margin-top: 0.4rem;
+}

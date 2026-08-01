@@ -3,6 +3,8 @@ M4300-24X
 
 .. ngsw-model-photo:: m4300-24x
 
+.. ngsw-model-diagram:: m4300-24x
+
 The XSM4324CS, a Fully Managed 10G aggregation switch running FASTPATH
 12.0.13.8. Reachable over SNMP, the Cheetah ``/v1`` web UI, and the FASTPATH
 CLI on SSH or telnet.

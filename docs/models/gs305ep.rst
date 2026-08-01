@@ -3,6 +3,8 @@ GS305EP
 
 .. ngsw-model-photo:: gs305ep
 
+.. ngsw-model-diagram:: gs305ep
+
 A 5-port Plus switch with PoE on 4 ports. No SNMP; managed over NSDP and the
 web UI.
 

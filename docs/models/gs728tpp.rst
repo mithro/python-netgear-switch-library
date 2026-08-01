@@ -3,6 +3,8 @@ GS728TPP
 
 .. ngsw-model-photo:: gs728tpp
 
+.. ngsw-model-diagram:: gs728tpp
+
 A 28-port Smart Managed Pro switch with 24 PoE+ ports. The most unusual entry in
 the registry: its SNMP agent implements **no Netgear vendor OIDs at all**, and
 its web UI is an XML API rather than scraped HTML.
