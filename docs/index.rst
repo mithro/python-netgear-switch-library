@@ -33,17 +33,44 @@ model-driven Python API, the ``ngsw`` command-line tool, and an MCP server.
 
    Bug reports are especially welcome, and especially useful.
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import SyncSwitch, Backend
+   .. tab-item:: Sync
+      :sync: sync
 
-   switch = SyncSwitch(host="10.1.5.22", model="gsm7252ps", community="public")
+      .. code-block:: python
 
-   for port in switch.get_ports():
-       print(port.port, port.link_up, port.speed_mbps)
+         from netgear_switch import Backend, SyncSwitch, get_model
 
-   # Read the same VLANs over the web UI instead. Same types, same values.
-   vlans = switch.get_vlans(backend=Backend.HTTP)
+         switch = SyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22", snmp_community="public"
+         )
+
+         for port in switch.get_ports():
+             print(port.port, port.link_up, port.speed_mbps)
+
+         # The same VLANs over the web UI instead. Same types, same values.
+         vlans = switch.get_vlans(backend=Backend.HTTP)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import AsyncSwitch, Backend, get_model
+
+         switch = AsyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22", snmp_community="public"
+         )
+
+         for port in await switch.get_ports():
+             print(port.port, port.link_up, port.speed_mbps)
+
+         # The same VLANs over the web UI instead. Same types, same values.
+         vlans = await switch.get_vlans(backend=Backend.HTTP)
+
+Every example on this site is shown both ways — pick one and the whole page
+follows.
 
 What this library gives you
 ---------------------------

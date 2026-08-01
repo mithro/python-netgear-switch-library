@@ -116,14 +116,40 @@ them. See :doc:`../guide/writing`.
 Using the CLI backend
 ---------------------
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import Backend, SyncSwitch, get_model
+   .. tab-item:: Sync
+      :sync: sync
 
-   switch = SyncSwitch(
-       get_model("gsm7252ps"), host="10.1.5.22", http_password="...",
-   )
-   vlans = switch.get_vlans(backend=Backend.SSH)
+      .. code-block:: python
+
+         from netgear_switch import Backend, SyncSwitch, get_model
+
+         switch = SyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22", http_password="...",
+         )
+         vlans = switch.get_vlans(backend=Backend.SSH)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         # There is no async CLI backend. All three CLI transports are
+         # synchronous, so AsyncSwitch refuses SSH/TELNET/CONSOLE outright:
+         #
+         #   UnsupportedCapabilityError: model 'gsm7252ps' CLI reads are not
+         #   available via the async facade (CLI is synchronous ...)
+         #
+         # Use SyncSwitch for the CLI backend, or run it in an executor:
+         import asyncio
+
+         from netgear_switch import Backend, SyncSwitch, get_model
+
+         switch = SyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22", http_password="...",
+         )
+         vlans = await asyncio.to_thread(switch.get_vlans, backend=Backend.SSH)
 
 The CLI password defaults to the web-admin password and the username to
 ``admin``. The session is **lazy**: it is not opened until a command is actually
@@ -134,16 +160,38 @@ than a spurious `CredentialError` for a password it was never going to use.
 Pass your own session with ``cli_client=`` to use the serial console, to reuse a
 connection, or to point at the mock:
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch.virtual.server import VirtualSwitch
+   .. tab-item:: Sync
+      :sync: sync
 
-   with VirtualSwitch(model="gsm7252ps") as mock:
-       switch = SyncSwitch(
-           get_model("gsm7252ps"), host="127.0.0.1",
-           cli_client=mock.cli_session(),
-       )
-       print(switch.get_vlans(backend=Backend.SSH))
+      .. code-block:: python
+
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         with VirtualSwitch(model="gsm7252ps") as mock:
+             switch = SyncSwitch(
+                 get_model("gsm7252ps"), host="127.0.0.1",
+                 cli_client=mock.cli_session(),
+             )
+             print(switch.get_vlans(backend=Backend.SSH))
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         with VirtualSwitch(model="gsm7252ps") as mock:
+             switch = AsyncSwitch(
+                 get_model("gsm7252ps"), host="127.0.0.1",
+                 cli_client=mock.cli_session(),
+             )
+             try:
+                 print(await switch.get_vlans(backend=Backend.SSH))
+             finally:
+                 await switch.aclose()
 
 API
 ---

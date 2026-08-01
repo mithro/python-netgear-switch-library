@@ -57,14 +57,35 @@ mismatch raises `WriteVerificationError`. A switch that accepts a SET and
 silently discards it — which does happen, see below — is caught rather than
 reported as success.
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import VlanMode, WriteVerificationError
+   .. tab-item:: Sync
+      :sync: sync
 
-   try:
-       switch.set_vlan_membership(4001, port=7, mode=VlanMode.TAGGED, force=True)
-   except WriteVerificationError as exc:
-       print("the switch did not do what it said it did:", exc)
+      .. code-block:: python
+
+         from netgear_switch import VlanMode, WriteVerificationError
+
+         try:
+             switch.set_vlan_membership(
+                 4001, port=7, mode=VlanMode.TAGGED, force=True
+             )
+         except WriteVerificationError as exc:
+             print("the switch did not do what it said it did:", exc)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import VlanMode, WriteVerificationError
+
+         try:
+             await switch.set_vlan_membership(
+                 4001, port=7, mode=VlanMode.TAGGED, force=True
+             )
+         except WriteVerificationError as exc:
+             print("the switch did not do what it said it did:", exc)
 
 Writes are model-specific in ways that matter
 ---------------------------------------------
@@ -102,18 +123,39 @@ Certificates
 
 Two mechanisms, and the right one depends on the model:
 
-.. code-block:: python
+.. tab-set::
 
-   # Web-UI multipart upload (S3300 / gsm7228ps, GS728TPP):
-   switch.upload_certificate(cert_pem, key_pem, force=True)
+   .. tab-item:: Sync
+      :sync: sync
 
-   # FASTPATH copy scp:// (M4300, GSM7252PS):
-   switch.upload_certificate_scp(
-       scp_source="user@stage.example",
-       scp_password="...",
-       remote_dir="/srv/certs",
-       chain=True,
-   )
+      .. code-block:: python
+
+         # Web-UI multipart upload (S3300 / gsm7228ps, GS728TPP):
+         switch.upload_certificate(cert_pem, key_pem, force=True)
+
+         # FASTPATH copy scp:// (M4300, GSM7252PS):
+         switch.upload_certificate_scp(
+             scp_source="user@stage.example",
+             scp_password="...",
+             remote_dir="/srv/certs",
+             chain=True,
+         )
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         # Web-UI multipart upload (S3300 / gsm7228ps, GS728TPP):
+         await switch.upload_certificate(cert_pem, key_pem, force=True)
+
+         # FASTPATH copy scp:// (M4300, GSM7252PS):
+         await switch.upload_certificate_scp(
+             scp_source="user@stage.example",
+             scp_password="...",
+             remote_dir="/srv/certs",
+             chain=True,
+         )
 
 Calling ``upload_certificate`` on a model whose mechanism is SCP raises
 `NotImplementedError` — deliberately, not `UnsupportedCapabilityError` — naming

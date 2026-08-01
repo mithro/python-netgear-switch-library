@@ -54,21 +54,53 @@ Testing code that uses this library
 Inject a client pointed at the mock. Everything above the transport — dispatch,
 parsing, model rules — is the same code that runs against hardware.
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import SyncSwitch, get_model
-   from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
-   from netgear_switch.virtual.server import VirtualSwitch
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         from netgear_switch import SyncSwitch, get_model
+         from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+         from netgear_switch.virtual.server import VirtualSwitch
 
 
-   def test_reports_link_state() -> None:
-       with VirtualSwitch(model="gsm7252ps") as mock:
-           switch = SyncSwitch(
-               get_model("gsm7252ps"),
-               host=mock.host,
-               snmp_client=NetsnmpCliClient(f"{mock.host}:{mock.port}", "public"),
-           )
-           assert switch.get_ports()[0].link_up
+         def test_reports_link_state() -> None:
+             with VirtualSwitch(model="gsm7252ps") as mock:
+                 switch = SyncSwitch(
+                     get_model("gsm7252ps"),
+                     host=mock.host,
+                     snmp_client=NetsnmpCliClient(
+                         f"{mock.host}:{mock.port}", "public"
+                     ),
+                 )
+                 assert switch.get_ports()[0].link_up
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         import pytest
+
+         from netgear_switch import AsyncSwitch, get_model
+         from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
+         from netgear_switch.virtual.server import VirtualSwitch
+
+
+         @pytest.mark.asyncio
+         async def test_reports_link_state() -> None:
+             with VirtualSwitch(model="gsm7252ps") as mock:
+                 switch = AsyncSwitch(
+                     get_model("gsm7252ps"),
+                     host=mock.host,
+                     snmp_client=PysnmpClient(mock.host, "public", port=mock.port),
+                 )
+                 try:
+                     assert (await switch.get_ports())[0].link_up
+                 finally:
+                     await switch.aclose()
 
 .. code-block:: text
 
@@ -84,14 +116,19 @@ Every backend takes an injected client:
    * - Backend
      - Constructor argument
    * - SNMP
-     - ``snmp_client=NetsnmpCliClient(f"{host}:{port}", community)``, and
-       ``snmp_write_client=`` for writes
+     - sync: ``snmp_client=NetsnmpCliClient(f"{host}:{port}", community)``;
+       async: ``snmp_client=PysnmpClient(host, community, port=mock.port)``.
+       Add ``snmp_write_client=`` for writes.
    * - NSDP
-     - ``nsdp_client=UdpNsdpClient(host, client_port=0, server_port=mock.port)``
+     - sync: ``nsdp_client=UdpNsdpClient(host, client_port=0, server_port=mock.port)``;
+       async: the same arguments to ``AsyncUdpNsdpClient``.
    * - HTTP
-     - ``http_client=HttpClient(f"{host}:{http_port}", password, http_spec(model))``
+     - sync: ``http_client=HttpClient(f"{host}:{http_port}", password, http_spec(model))``;
+       async: the same arguments to ``AsyncHttpClient``.
    * - CLI
-     - ``cli_client=mock.cli_session()``
+     - ``cli_client=mock.cli_session()`` — **synchronous only**. The CLI
+       transports block, so :py:class:`~netgear_switch.AsyncSwitch` has no CLI
+       backend and takes no ``cli_client``.
 
 All four at once
 ----------------
@@ -274,7 +311,7 @@ with the wrong model:
            host=mock.host,
            snmp_client=NetsnmpCliClient(f"{mock.host}:{mock.port}", "public"),
        )
-       print(switch.identify())
+       print(switch.identify())          # await switch.identify() on AsyncSwitch
 
 .. code-block:: text
 

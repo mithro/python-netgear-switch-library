@@ -4,29 +4,73 @@ Quickstart
 Everything in the first section runs without a switch: the library ships
 faithful mock switches, and the example points at one.
 
+.. tip::
+
+   Every example below appears in **synchronous** and **asynchronous** form.
+   Choosing one switches every example on the page, and the choice is
+   remembered as you move around the site.
+   :py:class:`~netgear_switch.SyncSwitch` and
+   :py:class:`~netgear_switch.AsyncSwitch` expose the same operations with the
+   same arguments; only the transports differ.
+
 Talk to a mock in-process
 -------------------------
 
-`netgear_switch.virtual.server.VirtualSwitch` binds real sockets, so `SyncSwitch`
-reaches it exactly the way it reaches hardware — same transport, same parsers,
-same code path. Only the address differs.
+:py:class:`~netgear_switch.virtual.server.VirtualSwitch` binds real sockets, so
+the facade reaches it exactly the way it reaches hardware — same transport, same
+parsers, same code path. Only the address differs.
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import SyncSwitch, get_model
-   from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
-   from netgear_switch.virtual.server import VirtualSwitch
+   .. tab-item:: Sync
+      :sync: sync
 
-   with VirtualSwitch(model="gsm7252ps") as mock:
-       switch = SyncSwitch(
-           get_model("gsm7252ps"),
-           host=mock.host,
-           # The mock binds an ephemeral port; net-snmp takes it as host:port.
-           snmp_client=NetsnmpCliClient(f"{mock.host}:{mock.port}", "public"),
-       )
-       for port in switch.get_ports()[:4]:
-           print(port.port, port.link_up, port.speed_mbps)
-       print(switch.get_mgmt_ip())
+      .. code-block:: python
+
+         from netgear_switch import SyncSwitch, get_model
+         from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         with VirtualSwitch(model="gsm7252ps") as mock:
+             switch = SyncSwitch(
+                 get_model("gsm7252ps"),
+                 host=mock.host,
+                 # The mock binds an ephemeral port; net-snmp takes it as host:port.
+                 snmp_client=NetsnmpCliClient(f"{mock.host}:{mock.port}", "public"),
+             )
+             for port in switch.get_ports()[:4]:
+                 print(port.port, port.link_up, port.speed_mbps)
+             print(switch.get_mgmt_ip())
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         import asyncio
+
+         from netgear_switch import AsyncSwitch, get_model
+         from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         async def main() -> None:
+             with VirtualSwitch(model="gsm7252ps") as mock:
+                 switch = AsyncSwitch(
+                     get_model("gsm7252ps"),
+                     host=mock.host,
+                     # pysnmp takes the mock's ephemeral port as a keyword.
+                     snmp_client=PysnmpClient(mock.host, "public", port=mock.port),
+                 )
+                 try:
+                     for port in (await switch.get_ports())[:4]:
+                         print(port.port, port.link_up, port.speed_mbps)
+                     print(await switch.get_mgmt_ip())
+                 finally:
+                     await switch.aclose()
+
+         asyncio.run(main())
+
+Either way:
 
 .. code-block:: text
 
@@ -44,28 +88,65 @@ the switch at 10.1.5.22, not from invented values. See :doc:`../fake/index`.
 Talk to a real switch
 ---------------------
 
-The first argument is a `SwitchModel`, which `get_model` resolves from a
-registry key (``ngsw models`` lists them all):
+The first argument is a :py:class:`~netgear_switch.SwitchModel`, which
+:py:func:`~netgear_switch.get_model` resolves from a registry key (``ngsw
+models`` lists them all).
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import SyncSwitch, get_model
+   .. tab-item:: Sync
+      :sync: sync
 
-   switch = SyncSwitch(
-       get_model("gsm7252ps"), host="10.1.5.22", snmp_community="public"
-   )
+      .. code-block:: python
 
-   for vlan in switch.get_vlans():
-       print(vlan.vlan_id, vlan.name, sorted(vlan.untagged_ports))
+         from netgear_switch import SyncSwitch, get_model
+
+         switch = SyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22", snmp_community="public"
+         )
+
+         for vlan in switch.get_vlans():
+             print(vlan.vlan_id, vlan.name, sorted(vlan.untagged_ports))
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import AsyncSwitch, get_model
+
+         switch = AsyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22", snmp_community="public"
+         )
+         try:
+             for vlan in await switch.get_vlans():
+                 print(vlan.vlan_id, vlan.name, sorted(vlan.untagged_ports))
+         finally:
+             await switch.aclose()
 
 If you do not know the model, ask the switch:
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import detect_model
+   .. tab-item:: Sync
+      :sync: sync
 
-   detected = detect_model("10.1.5.22", community="public")
-   print(detected.key, detected.sys_descr)
+      .. code-block:: python
+
+         from netgear_switch import detect_model
+
+         detected = detect_model("10.1.5.22", community="public")
+         print(detected.key, detected.sys_descr)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import async_detect_model
+
+         detected = await async_detect_model("10.1.5.22", community="public")
+         print(detected.key, detected.sys_descr)
 
 For anything beyond a one-off, put the host and its credentials in an
 inventory file instead of in code — see :doc:`configuration`.
@@ -77,13 +158,32 @@ Every read and write takes an optional ``backend=``. Name one and that protocol
 runs; leave it out and the model's default is used. Neither case ever falls
 back to another protocol — see :doc:`concepts`.
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import Backend
+   .. tab-item:: Sync
+      :sync: sync
 
-   over_snmp = switch.get_vlans(backend=Backend.SNMP)
-   over_web = switch.get_vlans(backend=Backend.HTTP)
-   over_cli = switch.get_vlans(backend=Backend.SSH)
+      .. code-block:: python
+
+         from netgear_switch import Backend
+
+         over_snmp = switch.get_vlans(backend=Backend.SNMP)
+         over_web = switch.get_vlans(backend=Backend.HTTP)
+         over_cli = switch.get_vlans(backend=Backend.SSH)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import Backend
+
+         over_snmp = await switch.get_vlans(backend=Backend.SNMP)
+         over_web = await switch.get_vlans(backend=Backend.HTTP)
+
+         # No CLI here: the CLI transports are blocking, so the async facade
+         # has no SSH/telnet/console backend. Use SyncSwitch, or:
+         #   await asyncio.to_thread(sync_switch.get_vlans, backend=Backend.SSH)
 
 That the three agree is asserted, not assumed —
 ``tests/test_cross_backend_equivalence.py`` compares them for every model with
@@ -96,9 +196,9 @@ tests pin them explicitly rather than papering over them.
 Ask before you act
 ------------------
 
-`netgear_switch.capabilities` answers "can this model do this, over that?"
-without touching the switch. It is the same data that generates
-:doc:`../models/support`.
+:py:mod:`netgear_switch.capabilities` answers "can this model do this, over
+that?" without touching the switch. It is the same data that generates
+:doc:`../models/support`, and it is a plain function — there is nothing to await.
 
 .. code-block:: python
 
@@ -122,16 +222,75 @@ Write something
 Disruptive operations require ``force=True``, and every write reads back to
 confirm it landed:
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import VlanMode
+   .. tab-item:: Sync
+      :sync: sync
 
-   switch.create_vlan(4001, "throwaway", force=True)
-   switch.set_vlan_membership(4001, port=7, mode=VlanMode.UNTAGGED, force=True)
-   switch.set_pvid(7, 4001, force=True)
+      .. code-block:: python
+
+         from netgear_switch import VlanMode
+
+         switch.create_vlan(4001, "throwaway", force=True)
+         switch.set_vlan_membership(4001, port=7, mode=VlanMode.UNTAGGED, force=True)
+         switch.set_pvid(7, 4001, force=True)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import VlanMode
+
+         await switch.create_vlan(4001, "throwaway", force=True)
+         await switch.set_vlan_membership(
+             4001, port=7, mode=VlanMode.UNTAGGED, force=True
+         )
+         await switch.set_pvid(7, 4001, force=True)
 
 See :doc:`writing` for the safety rails, for what a refusal means, and for the
 rules this project follows when testing writes against live hardware.
+
+Sweep a fleet
+-------------
+
+Where the two APIs genuinely differ is concurrency: the async facade can talk to
+a whole inventory at once.
+
+.. tab-set::
+
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         from netgear_switch import SyncSwitch, get_model
+
+         for host in ("10.1.5.22", "10.1.5.13", "10.1.5.11"):
+             switch = SyncSwitch(
+                 get_model("gsm7252ps"), host=host, snmp_community="public"
+             )
+             snap = switch.snapshot()
+             print(snap.host, len(snap.ports), len(snap.vlans))
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         import asyncio
+
+         from netgear_switch import AsyncSwitch, get_model
+
+         switches = [
+             AsyncSwitch(get_model("gsm7252ps"), host=h, snmp_community="public")
+             for h in ("10.1.5.22", "10.1.5.13", "10.1.5.11")
+         ]
+         try:
+             for snap in await asyncio.gather(*(s.snapshot() for s in switches)):
+                 print(snap.host, len(snap.ports), len(snap.vlans))
+         finally:
+             await asyncio.gather(*(s.aclose() for s in switches))
 
 From the command line
 ---------------------
@@ -143,27 +302,6 @@ From the command line
    ngsw --host 10.1.5.22 --model gsm7252ps --backend http vlans
 
 The complete reference is :doc:`../cli`.
-
-Asynchronously
---------------
-
-`AsyncSwitch` mirrors `SyncSwitch` method for method:
-
-.. code-block:: python
-
-   import asyncio
-   from netgear_switch import AsyncSwitch, get_model
-
-   async def main() -> None:
-       switch = AsyncSwitch(
-           get_model("gsm7252ps"), host="10.1.5.22", snmp_community="public"
-       )
-       try:
-           print(await switch.get_ports())
-       finally:
-           await switch.aclose()
-
-   asyncio.run(main())
 
 Where to go next
 ----------------

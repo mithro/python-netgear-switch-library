@@ -25,10 +25,23 @@ Measured behaviour
 hardware, and PoE status and configuration are available — but only over the web
 UI. NSDP has no PoE tag at all, so:
 
-.. code-block:: python
+.. tab-set::
 
-   switch.get_poe()                      # UnsupportedCapabilityError: NSDP has no PoE tag
-   switch.get_poe(backend=Backend.HTTP)  # works
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         switch.get_poe()                      # UnsupportedCapabilityError
+         switch.get_poe(backend=Backend.HTTP)  # works
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         await switch.get_poe()                      # UnsupportedCapabilityError
+         await switch.get_poe(backend=Backend.HTTP)  # works
 
 The default backend for a Plus switch is NSDP, so the first call resolves there
 and refuses rather than quietly answering over HTTP. The error names the

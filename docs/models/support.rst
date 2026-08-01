@@ -20,6 +20,14 @@ The same answers are available at runtime:
    for capability in matrix():
        ...
 
+.. important::
+
+   These tables describe :py:class:`~netgear_switch.SyncSwitch`. The SNMP, NSDP
+   and HTTP entries hold for :py:class:`~netgear_switch.AsyncSwitch` too, but
+   **the CLI columns do not**: all three CLI transports are blocking, so the
+   async facade has no CLI backend and refuses SSH, telnet and console outright.
+   See :doc:`../guide/concepts`.
+
 Protocol support
 ----------------
 

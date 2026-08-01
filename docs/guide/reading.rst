@@ -76,11 +76,25 @@ Two special reads
 the model the facade was constructed with. That is the point: use it to confirm
 or discover a model when you only have a host and a community.
 
-.. code-block:: python
+.. tab-set::
 
-   detected = switch.identify()
-   if detected.matched and detected.key != switch.model.key:
-       raise SystemExit(f"{switch.host} is really a {detected.key}")
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         detected = switch.identify()
+         if detected.matched and detected.key != switch.model.key:
+             raise SystemExit(f"{switch.host} is really a {detected.key}")
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         detected = await switch.identify()
+         if detected.matched and detected.key != switch.model.key:
+             raise SystemExit(f"{switch.host} is really a {detected.key}")
 
 Matching prefers ``sysObjectID`` — an unambiguous product identifier that can
 distinguish SKUs whose ``sysDescr`` text is identical — and falls back to
@@ -97,23 +111,52 @@ Snapshots
 `SyncSwitch.snapshot` runs every read over **one** backend and returns a
 `SwitchData`:
 
-.. code-block:: python
+.. tab-set::
 
-   snap = switch.snapshot()
-   print(snap.model, snap.host, len(snap.ports), len(snap.vlans))
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         snap = switch.snapshot()
+         print(snap.model, snap.host, len(snap.ports), len(snap.vlans))
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         snap = await switch.snapshot()
+         print(snap.model, snap.host, len(snap.ports), len(snap.vlans))
 
 Fields that backend cannot serve degrade to ``()`` or ``None``. They are *not*
 re-read over another protocol — so a snapshot describes what one protocol
 really reports, rather than a blend of several. To compare protocols, take two
 snapshots:
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import Backend
+   .. tab-item:: Sync
+      :sync: sync
 
-   over_snmp = switch.snapshot(backend=Backend.SNMP)
-   over_web = switch.snapshot(backend=Backend.HTTP)
-   assert over_snmp.vlans == over_web.vlans
+      .. code-block:: python
+
+         from netgear_switch import Backend
+
+         over_snmp = switch.snapshot(backend=Backend.SNMP)
+         over_web = switch.snapshot(backend=Backend.HTTP)
+         assert over_snmp.vlans == over_web.vlans
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import Backend
+
+         over_snmp = await switch.snapshot(backend=Backend.SNMP)
+         over_web = await switch.snapshot(backend=Backend.HTTP)
+         assert over_snmp.vlans == over_web.vlans
 
 This is exactly what the cross-backend equivalence tests do; see
 ``tests/test_cross_backend_equivalence.py``.
@@ -126,44 +169,90 @@ This is exactly what the cross-backend equivalence tests do; see
    *why* a field is empty, call the operation directly, or ask
    `netgear_switch.capabilities.support`.
 
-Reading asynchronously
-----------------------
+Reading a fleet
+---------------
 
-.. code-block:: python
+This is where the two APIs stop being interchangeable: the asynchronous facade
+reads every switch at once, the synchronous one reads them in turn.
 
-   import asyncio
-   from netgear_switch import AsyncSwitch, get_model
+.. tab-set::
 
-   async def sweep(hosts: list[str]) -> None:
-       switches = [
-           AsyncSwitch(get_model("gsm7252ps"), host=h, snmp_community="public")
-           for h in hosts
-       ]
-       try:
-           for snap in await asyncio.gather(*(s.snapshot() for s in switches)):
-               print(snap.host, len(snap.ports))
-       finally:
-           await asyncio.gather(*(s.aclose() for s in switches))
+   .. tab-item:: Sync
+      :sync: sync
 
-`AsyncSwitch` requires the ``[async]`` extra for SNMP (:pypi:`pysnmp`) and
-``[http]`` for web-UI backends.
+      .. code-block:: python
+
+         from netgear_switch import SyncSwitch, get_model
+
+         def sweep(hosts: list[str]) -> None:
+             for host in hosts:
+                 switch = SyncSwitch(
+                     get_model("gsm7252ps"), host=host, snmp_community="public"
+                 )
+                 snap = switch.snapshot()
+                 print(snap.host, len(snap.ports))
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         import asyncio
+
+         from netgear_switch import AsyncSwitch, get_model
+
+         async def sweep(hosts: list[str]) -> None:
+             switches = [
+                 AsyncSwitch(get_model("gsm7252ps"), host=h, snmp_community="public")
+                 for h in hosts
+             ]
+             try:
+                 for snap in await asyncio.gather(*(s.snapshot() for s in switches)):
+                     print(snap.host, len(snap.ports))
+             finally:
+                 await asyncio.gather(*(s.aclose() for s in switches))
+
+:py:class:`~netgear_switch.AsyncSwitch` requires the ``[async]`` extra for SNMP
+(:pypi:`pysnmp`) and ``[http]`` for web-UI backends.
 
 Handling refusals
 -----------------
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import Backend, UnsupportedCapabilityError, support
+   .. tab-item:: Sync
+      :sync: sync
 
-   # Ask first — no network traffic:
-   if support(switch.model, Backend.SNMP, "get_sensors").supported:
-       print(switch.get_sensors(backend=Backend.SNMP))
+      .. code-block:: python
 
-   # Or act and handle the refusal, which names the backend that refused:
-   try:
-       switch.get_poe()
-   except UnsupportedCapabilityError as exc:
-       print(exc)
+         from netgear_switch import Backend, UnsupportedCapabilityError, support
+
+         # Ask first — no network traffic:
+         if support(switch.model, Backend.SNMP, "get_sensors").supported:
+             print(switch.get_sensors(backend=Backend.SNMP))
+
+         # Or act and handle the refusal, which names the backend that refused:
+         try:
+             switch.get_poe()
+         except UnsupportedCapabilityError as exc:
+             print(exc)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import Backend, UnsupportedCapabilityError, support
+
+         # support() is a plain function — the question needs no switch and no await.
+         if support(switch.model, Backend.SNMP, "get_sensors").supported:
+             print(await switch.get_sensors(backend=Backend.SNMP))
+
+         # Or act and handle the refusal, which names the backend that refused:
+         try:
+             await switch.get_poe()
+         except UnsupportedCapabilityError as exc:
+             print(exc)
 
 Capturing what a switch says
 ----------------------------

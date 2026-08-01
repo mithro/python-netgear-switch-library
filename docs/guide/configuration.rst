@@ -107,14 +107,34 @@ port status over SNMP never runs your password command.
 Using an inventory
 ------------------
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import SyncSwitch, load_inventory
+   .. tab-item:: Sync
+      :sync: sync
 
-   inventory = load_inventory("/etc/ngsw/inventory.toml")
-   switch = SyncSwitch.from_config(inventory["core"])
+      .. code-block:: python
 
-   print(switch.get_ports())
+         from netgear_switch import SyncSwitch, load_inventory
+
+         inventory = load_inventory("/etc/ngsw/inventory.toml")
+         switch = SyncSwitch.from_config(inventory["core"])
+
+         print(switch.get_ports())
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import AsyncSwitch, load_inventory
+
+         # load_inventory is plain file I/O — the same call either way.
+         inventory = load_inventory("/etc/ngsw/inventory.toml")
+         switch = AsyncSwitch.from_config(inventory["core"])
+         try:
+             print(await switch.get_ports())
+         finally:
+             await switch.aclose()
 
 `SwitchConfig.snmp_write_community` and `SwitchConfig.http_password` resolve
 their specs on demand and take an explicit ``env=`` mapping, which makes them
@@ -160,14 +180,31 @@ Protected ports
 that names a port checks it and raises `ProtectedPortError` unless
 ``force=True``:
 
-.. code-block:: python
+.. tab-set::
 
-   switch = SyncSwitch(
-       get_model("gsm7252ps"), host="10.1.5.22",
-       protected_ports=frozenset({49, 50, 51, 52}),
-   )
-   switch.set_port_enabled(49, False)               # ProtectedPortError
-   switch.set_port_enabled(49, False, force=True)   # proceeds
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         switch = SyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22",
+             protected_ports=frozenset({49, 50, 51, 52}),
+         )
+         switch.set_port_enabled(49, False)              # ProtectedPortError
+         switch.set_port_enabled(49, False, force=True)  # proceeds
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         switch = AsyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22",
+             protected_ports=frozenset({49, 50, 51, 52}),
+         )
+         await switch.set_port_enabled(49, False)              # ProtectedPortError
+         await switch.set_port_enabled(49, False, force=True)  # proceeds
 
 It is the cheapest possible guard against disabling the uplink you are
 connected through.

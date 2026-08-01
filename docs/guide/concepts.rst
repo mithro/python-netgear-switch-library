@@ -64,10 +64,23 @@ gaps that remain.
 Dispatch: exactly one backend, every time
 -----------------------------------------
 
-.. code-block:: python
+.. tab-set::
 
-   switch.get_vlans()                        # the model's default backend
-   switch.get_vlans(backend=Backend.HTTP)    # exactly HTTP, or an error
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         switch.get_vlans()                      # the model's default backend
+         switch.get_vlans(backend=Backend.HTTP)  # exactly HTTP, or an error
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         await switch.get_vlans()                      # the model's default backend
+         await switch.get_vlans(backend=Backend.HTTP)  # exactly HTTP, or an error
 
 When you **name** a backend, that backend runs. If the model does not have it,
 you get `UnsupportedCapabilityError` immediately. If it has it but cannot serve
@@ -106,12 +119,27 @@ Choosing a default per facade
 
 Pass ``backend=`` to the constructor to change the default for every call:
 
-.. code-block:: python
+.. tab-set::
 
-   web_only = SyncSwitch(
-       get_model("gsm7252ps"), host="10.1.5.22",
-       http_password="...", backend=Backend.HTTP,
-   )
+   .. tab-item:: Sync
+      :sync: sync
+
+      .. code-block:: python
+
+         web_only = SyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22",
+             http_password="...", backend=Backend.HTTP,
+         )
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         web_only = AsyncSwitch(
+             get_model("gsm7252ps"), host="10.1.5.22",
+             http_password="...", backend=Backend.HTTP,
+         )
 
 Per-call ``backend=`` still overrides it.
 
@@ -175,8 +203,29 @@ see :doc:`../models/support`.
 Synchronous and asynchronous
 ----------------------------
 
-`SyncSwitch` and `AsyncSwitch` expose the same operations with the same
+:py:class:`~netgear_switch.SyncSwitch` and
+:py:class:`~netgear_switch.AsyncSwitch` expose the same operations with the same
 arguments and the same semantics. They share the model registry, the parsers and
 the backend-resolution seam in ``src/netgear_switch/_dispatch.py``; only the
 transports differ. ``tests/test_facade_equivalence.py`` asserts they stay in
 step.
+
+.. important::
+
+   **One backend is synchronous-only: the CLI.** All three CLI transports —
+   SSH, telnet and the serial console — are blocking, and none has an async
+   twin, so :py:class:`~netgear_switch.AsyncSwitch` has no CLI backend at all.
+   Asking for one raises rather than quietly blocking the event loop::
+
+      UnsupportedCapabilityError: model 'gsm7252ps' CLI reads are not available
+      via the async facade (CLI is synchronous ...)
+
+   That also rules out
+   :py:meth:`~netgear_switch.SyncSwitch.upload_certificate_scp` on the async
+   facade, since the operation is CLI-based by nature. Use
+   :py:class:`~netgear_switch.SyncSwitch` for those, or wrap the call in
+   :py:func:`asyncio.to_thread`.
+
+   **The support tables in** :doc:`../models/support` **describe the
+   synchronous facade.** Every SNMP, NSDP and HTTP entry holds for both; the CLI
+   columns apply to :py:class:`~netgear_switch.SyncSwitch` only.
