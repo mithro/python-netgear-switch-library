@@ -121,11 +121,13 @@ Verification status
 This project distinguishes what has been *measured* from what has been
 *assumed*, and the distinction is visible in the API.
 
-``SwitchModel.verified``
-    ``False`` marks a model registered from a specification sheet with no device
-    capture behind it — currently ``m7300`` and ``xs748t``. Standard-MIB reads
-    should work; vendor-specific reads are unverified. These models are labelled
-    in :doc:`../models/index` and never treated as evidence of anything.
+`SwitchModel.verified`
+    ``False`` marks a model registered from a specification sheet, with no
+    device of that kind ever reachable from this project. Such a model is
+    **excluded from every support table** — see :doc:`../models/index` —
+    because putting it in a matrix would assert per-backend behaviour nobody has
+    observed. It stays in the registry only so a caller can construct a facade
+    for it, and nothing here treats it as evidence of anything.
 
 ``HttpModelSpec.reads_verified``, ``CliModelSpec.reads_verified`` / ``writes_verified``
     Per-model, per-backend flags recording whether that backend's output has

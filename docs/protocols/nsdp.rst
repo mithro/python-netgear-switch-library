@@ -6,6 +6,16 @@ and one of only two ways to manage a Plus switch. It is undocumented by the
 vendor; everything here was established by capture and by measurement against
 live hardware.
 
+Switches that speak it
+----------------------
+
+.. ngsw-backend-models:: NSDP
+
+What it can do, per switch
+--------------------------
+
+.. ngsw-backend-operations:: NSDP
+
 The wire format
 ---------------
 

@@ -4,6 +4,16 @@ SNMP
 The richest backend, available on every Fully Managed and Smart Managed Pro
 model. Plus switches have no SNMP agent at all.
 
+Switches that speak it
+----------------------
+
+.. ngsw-backend-models:: SNMP
+
+What it can do, per switch
+--------------------------
+
+.. ngsw-backend-operations:: SNMP
+
 Transports
 ----------
 

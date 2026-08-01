@@ -3,6 +3,16 @@
 Query and control Netgear switches over SNMP, NSDP, the HTTP web UI and the CLI
 behind one model-driven API.
 
+.. warning::
+
+   **This library was written by an AI** -- every line of code, every test and
+   all of its documentation -- with a human directing and reviewing the work.
+   The device behaviour it encodes is measured against real hardware (captured
+   traffic and live runs, recorded with the host and firmware version observed),
+   and the support tables in the documentation are generated from the code. But
+   an AI is capable of confident, fluent error, and none of this has had
+   independent human review at scale. Verify what matters to you.
+
 Design principles (non-negotiable -- see ``CLAUDE.md`` at the repository root for
 the rationale and the real-world violation behind each one):
 

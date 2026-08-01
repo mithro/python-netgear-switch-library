@@ -9,6 +9,20 @@ It matters because it is sometimes the *only* reachable interface — through a
 firewall that permits nothing else — and because on Plus switches it is the only
 route to PoE control, which NSDP has no tag for.
 
+Switches that speak it
+----------------------
+
+.. ngsw-backend-models:: HTTP
+
+What it can do, per switch
+--------------------------
+
+Web UIs vary enormously: a ``—`` below means that model's firmware ships no page
+carrying the data, which is a real limit of the interface rather than a missing
+implementation here.
+
+.. ngsw-backend-operations:: HTTP
+
 Five login schemes
 ------------------
 

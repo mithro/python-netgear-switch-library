@@ -1,0 +1,60 @@
+M4300-16X
+=========
+
+.. ngsw-model-photo:: m4300-16x
+
+The XSM4316, a Fully Managed 10G switch with PoE on all 16 ports, running
+FASTPATH **12.0.19.15** — a different firmware from its M4300-24X sibling, which
+is exactly why its behaviour was measured rather than inherited.
+
+At a glance
+-----------
+
+.. ngsw-model-facts:: m4300-16x
+
+Live-verified at 10.1.5.20. Capture:
+``tests/fixtures/captures/m4300-16x.json``; seed:
+:py:func:`~netgear_switch.virtual.seed.seed_m4300_16x`.
+
+What works, over which protocol
+-------------------------------
+
+.. ngsw-model-support:: m4300-16x
+
+Measured behaviour
+------------------
+
+**The web UI is on HTTPS port 49152**, not port 80. Its
+:py:class:`~netgear_switch.protocols.http.endpoints.HttpModelSpec` carries both
+the port and the TLS flag, so :py:meth:`~netgear_switch.SyncSwitch.get_ports`
+with ``backend=Backend.HTTP`` reaches it without special handling by the caller.
+
+**Its firmware requires a ``Referer`` header on every POST.** The same body
+returns 403 without one and 200 with it — isolated live, and reproduced by the
+mock's HTTP face so the requirement cannot regress.
+
+**The VLAN-write dialect was settled by measurement, not by family.** This
+firmware *does* accept some Q-BRIDGE egress writes that the -24X refuses, so the
+inference from its sibling could not be trusted even though it happened to land
+on the right answer. An A/B/A on port 1/0/1, issuing byte-identical writes while
+flipping only that one port's mode, gave:
+
+.. code-block:: text
+
+   general → noError     access → commitFailed
+   general → noError     trunk  → noError
+   access  → commitFailed              general → noError
+
+``dot1qVlanStaticEgressPorts`` is writable only while **no interface on the
+switch** is in access mode — switch-wide, not per-VLAN. Since an untagged
+membership write is expressed *as* access mode, the standard dialect would
+disable itself on first use, so this SKU belongs on
+``fastpath_switchport`` after all — now for a reason rather than a guess. The
+full account is in :doc:`../guide/principles`.
+
+Protocols
+---------
+
+* :doc:`../protocols/snmp` — vendor subtree ``4526.10``.
+* :doc:`../protocols/http` — ``CHEETAH_V1`` over HTTPS on 49152.
+* :doc:`../protocols/cli` — SSH or telnet; SCP certificate deployment.

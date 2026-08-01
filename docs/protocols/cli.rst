@@ -2,8 +2,20 @@ FASTPATH CLI
 ============
 
 The switch's own command line, as an ordinary backend: ``show`` commands for
-reads, configuration-mode sequences for writes. Available on the four FASTPATH
-models — M4300-24X, M4300-16X, GSM7252PS and the S3300 (``gsm7228ps``).
+reads, configuration-mode sequences for writes.
+
+Switches that speak it
+----------------------
+
+.. ngsw-backend-models:: CLI
+
+Note the transport column: three of these offer SSH, and the S3300 is telnet
+only, on a non-standard port.
+
+What it can do, per switch
+--------------------------
+
+.. ngsw-backend-operations:: CLI
 
 Three transports, one command surface
 -------------------------------------

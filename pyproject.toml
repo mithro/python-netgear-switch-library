@@ -48,6 +48,7 @@ docs = [
     "furo>=2024.8.6",
     "sphinx-argparse>=0.5",
     "sphinx-copybutton>=0.5.2",
+    "sphinx-design>=0.6",
     "pysnmp>=7.0",
     "httpx>=0.27",
     "mcp>=1.2",

@@ -54,6 +54,9 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.extlinks",
     "sphinx_copybutton",
+    # Synchronised tab sets: every API example is shown in both synchronous and
+    # asynchronous form, and picking one switches every example on the page.
+    "sphinx_design",
     "sphinxarg.ext",
     # Local: see docs/_ext/.
     "filelinks",
@@ -135,6 +138,14 @@ html_theme_options = {
     "source_repository": f"{GITHUB_REPO}/",
     "source_branch": filelinks_ref,
     "source_directory": "docs/",
+    # Shown at the top of EVERY page. This library and this documentation were
+    # written by an AI; a reader deserves to know that before they trust a
+    # sentence of it, not only if they happen to land on the front page.
+    "announcement": (
+        "This library and its documentation were written by an AI. "
+        '<a href="/en/latest/#ai-generated">What that means, and what was '
+        "actually verified against hardware</a>."
+    ),
 }
 
 copybutton_prompt_text = r"\$ |>>> |\.\.\. "
