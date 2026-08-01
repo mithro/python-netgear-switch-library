@@ -279,14 +279,20 @@ class AsyncSwitch:
                 _LazyAsyncHttpSession(self._http_session), self.model
             )
         else:  # a CLI backend (SSH/telnet/console)
-            # CLI reads are reads_verified=False for every model (not yet
-            # cross-verified), AND the CLI transports are synchronous
-            # (paramiko/telnetlib/pyserial) with no async twin -- so the async
-            # facade never serves a CLI read. Honest UnsupportedCapabilityError
-            # either way; SNMP stays authoritative for every FASTPATH op.
+            # All three CLI transports are synchronous (paramiko / telnetlib /
+            # pyserial) and none has an async twin, so the async facade cannot
+            # serve a CLI read without blocking the event loop. Refuse honestly
+            # instead; SyncSwitch has the full CLI surface, and a caller who
+            # wants it from async code can wrap that in asyncio.to_thread.
+            #
+            # NOTE: this is now the ONLY reason. The message used to also cite
+            # reads_verified=False, which stopped being true once all four
+            # FASTPATH CLI specs were cross-verified -- saying it here made the
+            # error blame a gate that no longer applies.
             raise UnsupportedCapabilityError(
                 f"model {self.model.key!r} CLI reads are not available via the "
-                "async facade (CLI is synchronous + UNVERIFIED-pending cross-verify)"
+                "async facade: the CLI transports are synchronous -- use "
+                "SyncSwitch, or asyncio.to_thread"
             )
         self._reader_cache[backend] = reader
         return reader

@@ -22,8 +22,8 @@ The same answers are available at runtime:
 
 .. important::
 
-   These tables describe :py:class:`~netgear_switch.SyncSwitch`. The SNMP, NSDP
-   and HTTP entries hold for :py:class:`~netgear_switch.AsyncSwitch` too, but
+   These tables describe :py:class:`~netgear_switch.sync_api.SyncSwitch`. The SNMP, NSDP
+   and HTTP entries hold for :py:class:`~netgear_switch.aio_api.AsyncSwitch` too, but
    **the CLI columns do not**: all three CLI transports are blocking, so the
    async facade has no CLI backend and refuses SSH, telnet and console outright.
    See :doc:`../guide/concepts`.
@@ -31,8 +31,8 @@ The same answers are available at runtime:
 Protocol support
 ----------------
 
-Which backends each model exposes. This is `SwitchModel.backends`, and it is
-what `SyncSwitch.resolve_backend` will accept.
+Which backends each model exposes. This is :py:attr:`~netgear_switch.registry.SwitchModel.backends`, and it is
+what :py:obj:`~netgear_switch.sync_api.SyncSwitch.resolve_backend` will accept.
 
 .. ngsw-protocol-table::
 

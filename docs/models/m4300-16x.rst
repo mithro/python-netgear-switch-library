@@ -26,7 +26,7 @@ Measured behaviour
 
 **The web UI is on HTTPS port 49152**, not port 80. Its
 :py:class:`~netgear_switch.protocols.http.endpoints.HttpModelSpec` carries both
-the port and the TLS flag, so :py:meth:`~netgear_switch.SyncSwitch.get_ports`
+the port and the TLS flag, so :py:meth:`~netgear_switch.sync_api.SyncSwitch.get_ports`
 with ``backend=Backend.HTTP`` reaches it without special handling by the caller.
 
 **Its firmware requires a ``Referer`` header on every POST.** The same body

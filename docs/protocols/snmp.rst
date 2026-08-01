@@ -105,7 +105,7 @@ what makes the vendor-free model work at all.
 Model identification
 --------------------
 
-`detect_model` reads ``sysObjectID`` and ``sysDescr``. ``sysObjectID`` is
+:py:obj:`~netgear_switch.sync_api.detect_model` reads ``sysObjectID`` and ``sysDescr``. ``sysObjectID`` is
 preferred: it is an unambiguous product identifier, so it can separate SKUs
 whose ``sysDescr`` text is indistinguishable — the S3300-52X from the
 unregistered S3300-28X, for instance. The OID map holds only values proven by a
@@ -174,8 +174,8 @@ GS728TPP's vendor-OID mismatch.
 API
 ---
 
-* `netgear_switch.snmp_read` — `SnmpReader`, `AsyncSnmpReader`, `read_system_info`.
-* `netgear_switch.snmp_write` — `SnmpWriter`, `AsyncSnmpWriter`.
+* `netgear_switch.snmp_read` — :py:obj:`~netgear_switch.snmp_read.SnmpReader`, :py:obj:`~netgear_switch.snmp_read.AsyncSnmpReader`, :py:obj:`~netgear_switch.snmp_read.read_system_info`.
+* `netgear_switch.snmp_write` — :py:obj:`~netgear_switch.snmp_write.SnmpWriter`, :py:obj:`~netgear_switch.snmp_write.AsyncSnmpWriter`.
 * `netgear_switch.protocols.snmp.oids` — every OID this library uses, with the
   measurement notes attached.
 * `netgear_switch.protocols.snmp.parse` — pure parsers over walk output.

@@ -141,7 +141,7 @@ The FASTPATH CLI
 The CLI face is deliberately **in-process**: it implements the ``CliSession``
 protocol rather than binding an SSH or telnet listener, so there is no key
 exchange or terminal emulation to fight. It is reached through
-`VirtualSwitch.cli_session`, not over a socket, and so is not exposed by
+:py:obj:`~netgear_switch.virtual.server.VirtualSwitch.cli_session`, not over a socket, and so is not exposed by
 ``ngsw serve``. See :doc:`testing`.
 
 This library against a mock

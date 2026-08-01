@@ -27,7 +27,7 @@ Measured behaviour
 
 **Identified by sysObjectID, not sysDescr.** Its description text is
 indistinguishable from the unregistered S3300-28X, so matching on it would be a
-coin flip. :py:func:`~netgear_switch.detect_model` prefers the product OID
+coin flip. :py:func:`~netgear_switch.sync_api.detect_model` prefers the product OID
 ``4526.100.10.19`` — note that this is the product *identifier*, distinct from
 the ``4526.11`` vendor **data** subtree its sensors and PoE live under.
 Confusing the two is what made auto-detection fail on this switch.
@@ -46,7 +46,7 @@ untagged:
    one PDU  : egress=[1] untagged=[1]   ← untagged intent lost
    two PDUs : egress=[1] untagged=[]    ← correct, CLI confirms "Tagged"
 
-:py:attr:`~netgear_switch.SwitchModel.snmp_vlan_split_membership_writes` turns
+:py:attr:`~netgear_switch.registry.SwitchModel.snmp_vlan_split_membership_writes` turns
 the two-PDU sequence on for this model alone.
 
 **"The SNMP agent is dead" was a wrong credential.** This switch has no
@@ -55,7 +55,7 @@ agent silently *drops* an unauthorised request, so a wrong write community looks
 exactly like an unreachable host — reads had worked the whole time.
 
 **Certificate upload is an HTTP multipart form** here, not SCP — the opposite of
-its FASTPATH cousins. :py:meth:`~netgear_switch.SyncSwitch.upload_certificate`
+its FASTPATH cousins. :py:meth:`~netgear_switch.sync_api.SyncSwitch.upload_certificate`
 is the right call for this model.
 
 Protocols

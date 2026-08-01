@@ -75,8 +75,49 @@ exclude_patterns = [
 
 # Single backticks mean "a Python object", which is what most inline references
 # in this project are.
-default_role = "py:obj"
-nitpicky = False
+# Single backticks mean "literal", not "cross-reference". The library's
+# docstrings use them loosely for prose and shell fragments (`snmpget`,
+# `apt-get install -y snmp`, `type: ignore`), which a py:obj default role turns
+# into a flood of unresolvable references under nitpicky mode. Cross-references
+# in this documentation are always written with an explicit role, so nothing is
+# lost -- and filelinks still turns any literal naming a repository file into a
+# link to that file.
+default_role = "literal"
+
+# Every cross-reference must resolve, or the build fails. This is what keeps the
+# documentation actually hyperlinked: an unresolved `py:obj` renders as plain
+# text, so without this a whole page of API names can silently stop being links
+# -- which is exactly what happened when references were written as
+# `netgear_switch.SyncSwitch` (autodoc documents the class under its DEFINING
+# module, netgear_switch.sync_api, so the short path never resolved).
+nitpicky = True
+nitpick_ignore = [
+    # Base classes autodoc emits for our enums. They resolve through
+    # intersphinx, so these only matter for an offline build.
+    ("py:class", "enum.Enum"),
+    ("py:class", "enum.IntEnum"),
+]
+
+# Napoleon splits a docstring "Returns:"/"Attributes:" type on its first comma,
+# so a generic like ``tuple[NsdpPortStatus, ...]`` arrives as the fragment
+# ``'tuple[NsdpPortStatus``. These are mis-parses of a real annotation, not
+# broken links; the signatures autodoc renders from the actual type hints are
+# correct. Ignored by shape so a genuinely missing class still fails the build.
+nitpick_ignore_regex = [
+    ("py:class", r"^'?(?:tuple|list|dict|Mapping|Sequence|frozenset)\[.*"),
+    # A prose Attributes: entry whose type slot holds a sentence.
+    ("py:class", r"^The [A-Z].*"),
+]
+
+if os.environ.get("NGSW_DOCS_OFFLINE"):
+    # Standard-library targets that only resolve when intersphinx can fetch its
+    # inventory. Online (CI and Read the Docs) they link properly and stay
+    # strict; offline they would be noise.
+    nitpick_ignore += [
+        ("py:class", "argparse.ArgumentParser"),
+        ("py:func", "asyncio.to_thread"),
+        ("py:func", "importlib.import_module"),
+    ]
 maximum_signature_line_length = 88
 
 # -- Autodoc ------------------------------------------------------------------

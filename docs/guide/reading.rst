@@ -1,7 +1,7 @@
 Reading a switch
 ================
 
-Nine read operations, available on `SyncSwitch` and `AsyncSwitch` alike, each
+Nine read operations, available on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike, each
 taking an optional ``backend=``. All return frozen dataclasses from
 `netgear_switch.models`, identical whichever protocol produced them.
 
@@ -15,37 +15,37 @@ The operations
    * - Method
      - Returns
      - Notes
-   * - `SyncSwitch.get_ports`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_ports`
      - ``list[PortStatus]``
      - Port number, ``ifName``, admin state, link state, speed in Mbit/s, and
        the operator-set description (``ifAlias``) where the backend can read
        one.
-   * - `SyncSwitch.get_stats`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_stats`
      - ``list[PortStats]``
      - RX/TX bytes, packets and errors. Any counter a backend cannot read is
        ``None``, never zero.
-   * - `SyncSwitch.get_vlans`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_vlans`
      - ``list[VLANInfo]``
      - VLAN id, name, and three port sets: ``member_ports``, ``tagged_ports``,
        ``untagged_ports``.
-   * - `SyncSwitch.get_pvids`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_pvids`
      - ``list[tuple[int, int]]``
      - ``(port, vlan)`` pairs.
-   * - `SyncSwitch.get_lldp`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_lldp`
      - ``list[LLDPNeighbor]``
      - Local port plus the neighbour's system name, chassis id, port id and
        port description.
-   * - `SyncSwitch.get_macs`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_macs`
      - ``list[MacEntry]``
      - The forwarding table: MAC, port, VLAN.
-   * - `SyncSwitch.get_poe`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_poe`
      - ``list[PoEStatus]``
-     - Admin state, detection state (`PoEDetect`) and delivered milliwatts.
-   * - `SyncSwitch.get_sensors`
+     - Admin state, detection state (:py:obj:`~netgear_switch.models.PoEDetect`) and delivered milliwatts.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_sensors`
      - ``list[Sensor]``
      - Fan, PSU and temperature readings with their units.
-   * - `SyncSwitch.get_mgmt_ip`
-     - `MgmtIpConfig`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_mgmt_ip`
+     - :py:obj:`~netgear_switch.models.MgmtIpConfig`
      - Address, netmask, gateway, DHCP-or-static mode, and the switch's base
        MAC.
 
@@ -72,7 +72,7 @@ empty list. An empty list means the switch really reported nothing.
 Two special reads
 -----------------
 
-`SyncSwitch.identify` asks the switch what it actually is, over SNMP, ignoring
+:py:obj:`~netgear_switch.sync_api.SyncSwitch.identify` asks the switch what it actually is, over SNMP, ignoring
 the model the facade was constructed with. That is the point: use it to confirm
 or discover a model when you only have a host and a community.
 
@@ -100,7 +100,7 @@ Matching prefers ``sysObjectID`` — an unambiguous product identifier that can
 distinguish SKUs whose ``sysDescr`` text is identical — and falls back to
 ``sysDescr``. ``key`` is ``None`` when neither matched; it is never a guess.
 
-`SyncSwitch.nsdp_device` returns the complete raw NSDP device record for a Plus
+:py:obj:`~netgear_switch.sync_api.SyncSwitch.nsdp_device` returns the complete raw NSDP device record for a Plus
 switch: firmware, serial, DHCP mode, VLAN engine, port mirroring, IGMP snooping
 and the unconverted per-port fields. It is NSDP-only by nature and bypasses
 backend dispatch.
@@ -108,8 +108,8 @@ backend dispatch.
 Snapshots
 ---------
 
-`SyncSwitch.snapshot` runs every read over **one** backend and returns a
-`SwitchData`:
+:py:obj:`~netgear_switch.sync_api.SyncSwitch.snapshot` runs every read over **one** backend and returns a
+:py:obj:`~netgear_switch.models.SwitchData`:
 
 .. tab-set::
 
@@ -212,7 +212,7 @@ reads every switch at once, the synchronous one reads them in turn.
              finally:
                  await asyncio.gather(*(s.aclose() for s in switches))
 
-:py:class:`~netgear_switch.AsyncSwitch` requires the ``[async]`` extra for SNMP
+:py:class:`~netgear_switch.aio_api.AsyncSwitch` requires the ``[async]`` extra for SNMP
 (:pypi:`pysnmp`) and ``[http]`` for web-UI backends.
 
 Handling refusals

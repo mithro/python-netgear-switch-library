@@ -37,7 +37,7 @@ A pytest fixture
        finally:
            mock.stop()
 
-`VirtualSwitch` is also a context manager, which is usually enough:
+:py:obj:`~netgear_switch.virtual.server.VirtualSwitch` is also a context manager, which is usually enough:
 
 .. code-block:: python
 
@@ -127,7 +127,7 @@ Every backend takes an injected client:
        async: the same arguments to ``AsyncHttpClient``.
    * - CLI
      - ``cli_client=mock.cli_session()`` — **synchronous only**. The CLI
-       transports block, so :py:class:`~netgear_switch.AsyncSwitch` has no CLI
+       transports block, so :py:class:`~netgear_switch.aio_api.AsyncSwitch` has no CLI
        backend and takes no ``cli_client``.
 
 All four at once
@@ -136,31 +136,66 @@ All four at once
 One mock, one facade, three protocols — which is what makes cross-backend
 behaviour testable without hardware:
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import Backend, SyncSwitch, get_model
-   from netgear_switch.protocols.http.endpoints import http_spec
-   from netgear_switch.transport.http.client import HttpClient
-   from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
-   from netgear_switch.virtual.server import VirtualSwitch
+   .. tab-item:: Sync
+      :sync: sync
 
-   model = get_model("gsm7252ps")
-   with VirtualSwitch(model="gsm7252ps") as mock:
-       switch = SyncSwitch(
-           model,
-           host=mock.host,
-           snmp_client=NetsnmpCliClient(f"{mock.host}:{mock.port}", "public"),
-           http_client=HttpClient(
-               f"{mock.host}:{mock.http_port}", "password", http_spec(model)
-           ),
-           cli_client=mock.cli_session(),
-       )
-       snmp = switch.get_vlans(backend=Backend.SNMP)
-       http = switch.get_vlans(backend=Backend.HTTP)
-       cli = switch.get_vlans(backend=Backend.SSH)
+      .. code-block:: python
 
-       assert {v.vlan_id for v in snmp} == {v.vlan_id for v in http} \
-           == {v.vlan_id for v in cli}
+         from netgear_switch import Backend, SyncSwitch, get_model
+         from netgear_switch.protocols.http.endpoints import http_spec
+         from netgear_switch.transport.http.client import HttpClient
+         from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         model = get_model("gsm7252ps")
+         with VirtualSwitch(model="gsm7252ps") as mock:
+             switch = SyncSwitch(
+                 model,
+                 host=mock.host,
+                 snmp_client=NetsnmpCliClient(f"{mock.host}:{mock.port}", "public"),
+                 http_client=HttpClient(
+                     f"{mock.host}:{mock.http_port}", "password", http_spec(model)
+                 ),
+                 cli_client=mock.cli_session(),
+             )
+             snmp = switch.get_vlans(backend=Backend.SNMP)
+             http = switch.get_vlans(backend=Backend.HTTP)
+             cli = switch.get_vlans(backend=Backend.SSH)
+
+             assert {v.vlan_id for v in snmp} == {v.vlan_id for v in http} \
+                 == {v.vlan_id for v in cli}
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import AsyncSwitch, Backend, get_model
+         from netgear_switch.protocols.http.endpoints import http_spec
+         from netgear_switch.transport.aio.snmp_pysnmp import PysnmpClient
+         from netgear_switch.transport.http.client import AsyncHttpClient
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         model = get_model("gsm7252ps")
+         with VirtualSwitch(model="gsm7252ps") as mock:
+             switch = AsyncSwitch(
+                 model,
+                 host=mock.host,
+                 snmp_client=PysnmpClient(mock.host, "public", port=mock.port),
+                 http_client=AsyncHttpClient(
+                     f"{mock.host}:{mock.http_port}", "password", http_spec(model)
+                 ),
+                 # No cli_client: the async facade has no CLI backend.
+             )
+             try:
+                 snmp = await switch.get_vlans(backend=Backend.SNMP)
+                 http = await switch.get_vlans(backend=Backend.HTTP)
+
+                 assert {v.vlan_id for v in snmp} == {v.vlan_id for v in http}
+             finally:
+                 await switch.aclose()
 
 .. code-block:: text
 
@@ -197,24 +232,53 @@ Testing that your code handles refusals
 The most valuable thing a faithful mock gives you is the *failure* paths. The
 mock refuses exactly what the hardware refuses, with the same message:
 
-.. code-block:: python
+.. tab-set::
 
-   from netgear_switch import SyncSwitch, UnsupportedCapabilityError, get_model
-   from netgear_switch.transport.sync.nsdp_udp import UdpNsdpClient
-   from netgear_switch.virtual.server import VirtualSwitch
+   .. tab-item:: Sync
+      :sync: sync
 
-   with VirtualSwitch(model="gs110emx") as mock:
-       switch = SyncSwitch(
-           get_model("gs110emx"),
-           host=mock.host,
-           nsdp_client=UdpNsdpClient(
-               mock.host, client_port=0, server_port=mock.port, timeout=2.0
-           ),
-       )
-       try:
-           switch.get_poe()
-       except UnsupportedCapabilityError as exc:
-           print(exc)
+      .. code-block:: python
+
+         from netgear_switch import SyncSwitch, UnsupportedCapabilityError, get_model
+         from netgear_switch.transport.sync.nsdp_udp import UdpNsdpClient
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         with VirtualSwitch(model="gs110emx") as mock:
+             switch = SyncSwitch(
+                 get_model("gs110emx"),
+                 host=mock.host,
+                 nsdp_client=UdpNsdpClient(
+                     mock.host, client_port=0, server_port=mock.port, timeout=2.0
+                 ),
+             )
+             try:
+                 switch.get_poe()
+             except UnsupportedCapabilityError as exc:
+                 print(exc)
+
+   .. tab-item:: Async
+      :sync: async
+
+      .. code-block:: python
+
+         from netgear_switch import AsyncSwitch, UnsupportedCapabilityError, get_model
+         from netgear_switch.transport.aio.nsdp_udp import AsyncUdpNsdpClient
+         from netgear_switch.virtual.server import VirtualSwitch
+
+         with VirtualSwitch(model="gs110emx") as mock:
+             switch = AsyncSwitch(
+                 get_model("gs110emx"),
+                 host=mock.host,
+                 nsdp_client=AsyncUdpNsdpClient(
+                     mock.host, client_port=0, server_port=mock.port, timeout=2.0
+                 ),
+             )
+             try:
+                 await switch.get_poe()
+             except UnsupportedCapabilityError as exc:
+                 print(exc)
+             finally:
+                 await switch.aclose()
 
 .. code-block:: text
 
@@ -272,7 +336,7 @@ configuration:
 Crafting a scenario
 -------------------
 
-`VirtualSwitch.state` is an ordinary mutable dataclass. Edit it to produce the
+``VirtualSwitch.state`` is an ordinary mutable dataclass. Edit it to produce the
 condition you want to test — a dead link, a PoE fault, a full MAC table:
 
 .. code-block:: python

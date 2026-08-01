@@ -1,7 +1,7 @@
 Facades
 =======
 
-`SyncSwitch` and `AsyncSwitch` are the public entry points. They expose the same
+:py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` are the public entry points. They expose the same
 operations with the same arguments, and both resolve exactly one backend per
 call — see :doc:`../guide/concepts`.
 

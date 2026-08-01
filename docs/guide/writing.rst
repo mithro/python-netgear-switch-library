@@ -1,7 +1,7 @@
 Changing a switch
 =================
 
-Ten write operations, on `SyncSwitch` and `AsyncSwitch` alike. Each takes
+Ten write operations, on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike. Each takes
 ``force=`` and ``backend=``, each runs over exactly one protocol, and each
 reads back to confirm what it did.
 
@@ -14,26 +14,26 @@ The operations
 
    * - Method
      - What it does
-   * - `SyncSwitch.set_port_enabled`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_port_enabled`
      - Administratively bring a port up or down.
-   * - `SyncSwitch.set_poe`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_poe`
      - Enable or disable PoE on a port.
-   * - `SyncSwitch.cycle_poe`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.cycle_poe`
      - Power-cycle a PoE port: off, wait for the port to stop delivering, on,
        wait for it to deliver again.
-   * - `SyncSwitch.clear_poe_fault`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.clear_poe_fault`
      - Clear a latched PoE fault on a port.
-   * - `SyncSwitch.set_pvid`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_pvid`
      - Set a port's PVID (native VLAN).
-   * - `SyncSwitch.set_vlan_membership`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_vlan_membership`
      - Make a port ``UNTAGGED``, ``TAGGED`` or ``EXCLUDED`` on a VLAN.
-   * - `SyncSwitch.create_vlan`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.create_vlan`
      - Create a VLAN with a name.
-   * - `SyncSwitch.delete_vlan`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.delete_vlan`
      - Delete a VLAN.
-   * - `SyncSwitch.set_mgmt_ip`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_mgmt_ip`
      - Set the management address, netmask and gateway.
-   * - `SyncSwitch.upload_certificate` / `SyncSwitch.upload_certificate_scp`
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.upload_certificate` / :py:obj:`~netgear_switch.sync_api.SyncSwitch.upload_certificate_scp`
      - Install an HTTPS server certificate — over the web UI, or by FASTPATH
        ``copy scp://``.
 
@@ -46,14 +46,14 @@ in the calling code, so a write cannot happen by passing the wrong variable to a
 read.
 
 **2. Protected ports.** A port listed in the switch's ``protected_ports`` raises
-`ProtectedPortError` unless forced. ``delete_vlan`` extends this: before
+:py:obj:`~netgear_switch.errors.ProtectedPortError` unless forced. ``delete_vlan`` extends this: before
 deleting, the facade reads the VLAN's members **over the same backend** and
 refuses if any is protected — because two of the three write backends do not
 guard VLAN deletion themselves, and without this every backend would not be
 equally safe.
 
 **3. Read-back verification.** After the write lands, the value is read back. A
-mismatch raises `WriteVerificationError`. A switch that accepts a SET and
+mismatch raises :py:obj:`~netgear_switch.errors.WriteVerificationError`. A switch that accepts a SET and
 silently discards it — which does happen, see below — is caught rather than
 reported as success.
 
@@ -158,7 +158,7 @@ Two mechanisms, and the right one depends on the model:
          )
 
 Calling ``upload_certificate`` on a model whose mechanism is SCP raises
-`NotImplementedError` — deliberately, not `UnsupportedCapabilityError` — naming
+`NotImplementedError` — deliberately, not :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError` — naming
 the mechanism and pointing at the other method. The hardware can do it; that
 backend cannot.
 
@@ -174,7 +174,7 @@ have.
 Management IP
 -------------
 
-`SyncSwitch.set_mgmt_ip` is implemented and mock-verified on every backend that
+:py:obj:`~netgear_switch.sync_api.SyncSwitch.set_mgmt_ip` is implemented and mock-verified on every backend that
 has it, but note what it does: the address you are talking to changes
 mid-operation, so the connection issuing the write is dropped by definition.
 This project has deliberately never applied it to a live switch.

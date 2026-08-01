@@ -41,7 +41,7 @@ Three transports, one command surface
        automatically — it needs a device path, not a host — so construct it and
        pass it as ``cli_client=``.
 
-All three satisfy the ``CliSession`` protocol, so `CliReader` and `CliWriter`
+All three satisfy the ``CliSession`` protocol, so :py:obj:`~netgear_switch.cli_read.CliReader` and :py:obj:`~netgear_switch.cli_write.CliWriter`
 work unchanged across them, and equally against the mock CLI face.
 
 .. note::
@@ -96,7 +96,7 @@ Verification gates
 ``CliModelSpec.reads_verified`` and ``writes_verified`` gate live dispatch
 exactly as the HTTP flags do. ``writes_verified`` requires ``reads_verified``,
 and not incidentally: every CLI write confirms itself by reading back through
-`CliReader`, so a model whose CLI reads are not trusted cannot honestly verify a
+:py:obj:`~netgear_switch.cli_read.CliReader`, so a model whose CLI reads are not trusted cannot honestly verify a
 CLI write either.
 
 The readers themselves are *not* gated — they can always be constructed
@@ -106,7 +106,7 @@ Certificate deployment
 ----------------------
 
 The Fully Managed FASTPATH line takes an HTTPS certificate over SCP rather than
-an HTTP form. `SyncSwitch.upload_certificate_scp` runs the real sequence:
+an HTTP form. :py:obj:`~netgear_switch.sync_api.SyncSwitch.upload_certificate_scp` runs the real sequence:
 disable HTTPS, ``copy scp://<source> nvram:sslpem-server``, optionally the root
 chain, re-enable HTTPS to load it, save the configuration. No reboot.
 
@@ -154,8 +154,8 @@ Using the CLI backend
 The CLI password defaults to the web-admin password and the username to
 ``admin``. The session is **lazy**: it is not opened until a command is actually
 needed, so an operation the reader refuses outright — PoE on a switch with no
-PSE ports — raises `UnsupportedCapabilityError` without ever dialling, rather
-than a spurious `CredentialError` for a password it was never going to use.
+PSE ports — raises :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError` without ever dialling, rather
+than a spurious :py:obj:`~netgear_switch.errors.CredentialError` for a password it was never going to use.
 
 Pass your own session with ``cli_client=`` to use the serial console, to reuse a
 connection, or to point at the mock:
@@ -196,8 +196,8 @@ connection, or to point at the mock:
 API
 ---
 
-* `netgear_switch.cli_read` — `CliReader`.
-* `netgear_switch.cli_write` — `CliWriter` and the SCP certificate flow.
+* `netgear_switch.cli_read` — :py:obj:`~netgear_switch.cli_read.CliReader`.
+* `netgear_switch.cli_write` — :py:obj:`~netgear_switch.cli_write.CliWriter` and the SCP certificate flow.
 * `netgear_switch.protocols.cli.commands` — the per-model command specs.
 * `netgear_switch.protocols.cli.parse` — pure parsers over command output.
 * `netgear_switch.transport.cli.session` — the ``CliSession`` protocol.

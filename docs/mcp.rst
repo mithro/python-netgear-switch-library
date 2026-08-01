@@ -109,7 +109,7 @@ Choosing a backend
 Every read and write tool takes an optional ``backend`` argument
 (``snmp``/``nsdp``/``http``/``ssh``/``telnet``/``console``), with the same
 meaning as everywhere else: that protocol runs, or the call fails. An unknown
-name is a `ConfigError` rather than a silent default.
+name is a :py:obj:`~netgear_switch.errors.ConfigError` rather than a silent default.
 
 The two certificate-upload tools deliberately do **not** take one — their
 transport is intrinsic to the operation.

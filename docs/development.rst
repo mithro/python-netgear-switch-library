@@ -33,7 +33,7 @@ hardware, no network. Coverage is enforced at 90%.
      - That every backend of a model reports the same thing — the parity
        guarantee, checked rather than asserted in prose.
    * - ``tests/test_facade_equivalence.py``
-     - That `SyncSwitch` and `AsyncSwitch` stay in step.
+     - That :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` stay in step.
    * - ``tests/test_capabilities.py``
      - That the support tables in these docs match what the code actually does,
        by driving every operation for real.
@@ -96,7 +96,7 @@ The rules
 
 * **Never declare something unsupported to finish a task.** If you cannot
   implement it, say so plainly — naming the model, backend and operation — and
-  leave behind no `UnsupportedCapabilityError` that lacks captured device output
+  leave behind no :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError` that lacks captured device output
   as proof. An honest "not done, here's why" is wanted; a false "the hardware
   can't" is not.
 * **Implement across all backends and all models,** or state precisely which

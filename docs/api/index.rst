@@ -5,7 +5,7 @@ Complete reference for every module in the ``netgear_switch`` package,
 generated from the source.
 
 Most callers need only :doc:`core` (the data model, the registry, the
-capability oracle) and :doc:`facades` (`SyncSwitch` and `AsyncSwitch`).
+capability oracle) and :doc:`facades` (:py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch`).
 The rest is there for anyone reading the source, extending a backend, or
 building on the protocol layer directly.
 

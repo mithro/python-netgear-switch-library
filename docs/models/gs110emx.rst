@@ -42,7 +42,7 @@ tag sweep found and fixed.
 
 **Its web UI uses the Gambit session scheme**, and — unlike NSDP — it *does*
 expose port administrative enable, which is why
-:py:meth:`~netgear_switch.SyncSwitch.set_port_enabled` works over HTTP but not
+:py:meth:`~netgear_switch.sync_api.SyncSwitch.set_port_enabled` works over HTTP but not
 NSDP on this model.
 
 Protocols

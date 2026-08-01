@@ -32,7 +32,7 @@ in an HTTP stack, and vice versa.
      - Needed for
    * - ``[async]``
      - :pypi:`pysnmp`
-     - The asynchronous SNMP transport used by `AsyncSwitch`.
+     - The asynchronous SNMP transport used by :py:obj:`~netgear_switch.aio_api.AsyncSwitch`.
    * - ``[http]``
      - :pypi:`httpx`
      - Every web-UI backend, synchronous and asynchronous.

@@ -10,7 +10,7 @@ Models
 A switch model is a frozen `netgear_switch.registry.SwitchModel` record: its
 key, display name, class, port and PoE-port counts, the backends it exposes, its
 SNMP vendor OID subtree, and a few per-model protocol dialect flags. The whole
-registry lives in ``src/netgear_switch/registry.py``, and `get_model` resolves a
+registry lives in ``src/netgear_switch/registry.py``, and :py:obj:`~netgear_switch.registry.get_model` resolves a
 key (or an alias, such as ``s3300`` for ``gsm7228ps``) to the record.
 
 Models fall into three classes, which is what decides the protocols available:
@@ -83,11 +83,11 @@ Dispatch: exactly one backend, every time
          await switch.get_vlans(backend=Backend.HTTP)  # exactly HTTP, or an error
 
 When you **name** a backend, that backend runs. If the model does not have it,
-you get `UnsupportedCapabilityError` immediately. If it has it but cannot serve
-that operation, you get `UnsupportedCapabilityError` naming the backend you
+you get :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError` immediately. If it has it but cannot serve
+that operation, you get :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError` naming the backend you
 asked for.
 
-When you **do not** name one, `SyncSwitch.resolve_backend` picks the first
+When you **do not** name one, :py:obj:`~netgear_switch.sync_api.SyncSwitch.resolve_backend` picks the first
 backend the model declares, in the fixed order **SNMP → NSDP → HTTP → SSH →
 TELNET → CONSOLE**. The choice depends only on the model, never on the
 operation: the facade does not probe one backend, catch its refusal, and try
@@ -105,7 +105,8 @@ names the other backends you could pass:
 
    **The library will never answer over a protocol you did not get.** This was
    not always true, and the cost of the old behaviour is why the rule is
-   absolute. ``SyncSwitch`` used to loop over SNMP → NSDP → HTTP, silently
+   absolute. :py:class:`~netgear_switch.sync_api.SyncSwitch` used to loop over
+   SNMP → NSDP → HTTP, silently
    returning the next backend's answer when one raised. That hid a real defect
    for months — ``HttpReader.get_vlans`` returned no untagged ports at all on
    the managed switches, and nobody noticed because SNMP quietly answered
@@ -149,7 +150,7 @@ Verification status
 This project distinguishes what has been *measured* from what has been
 *assumed*, and the distinction is visible in the API.
 
-`SwitchModel.verified`
+:py:attr:`~netgear_switch.registry.SwitchModel.verified`
     ``False`` marks a model registered from a specification sheet, with no
     device of that kind ever reachable from this project. Such a model is
     **excluded from every support table** — see :doc:`../models/index` —
@@ -167,7 +168,7 @@ This project distinguishes what has been *measured* from what has been
 Errors
 ------
 
-All errors derive from `NetgearSwitchError`. The distinctions that matter:
+All errors derive from :py:obj:`~netgear_switch.errors.NetgearSwitchError`. The distinctions that matter:
 
 .. list-table::
    :header-rows: 1
@@ -175,36 +176,36 @@ All errors derive from `NetgearSwitchError`. The distinctions that matter:
 
    * - Error
      - Means
-   * - `UnsupportedCapabilityError`
+   * - :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError`
      - This backend genuinely cannot do this, for this model. Never "not
        implemented yet" — a missing implementation is a bug to fix, not a
        device limitation to document.
-   * - `CredentialError`
+   * - :py:obj:`~netgear_switch.errors.CredentialError`
      - A credential is missing or wrong. Note that an SNMP agent **silently
        drops** an unauthorised request, so a wrong write community looks exactly
        like an unreachable host.
-   * - `WriteVerificationError`
+   * - :py:obj:`~netgear_switch.errors.WriteVerificationError`
      - The write was sent and accepted, but reading back did not show the
        intended value.
-   * - `ProtectedPortError`
+   * - :py:obj:`~netgear_switch.errors.ProtectedPortError`
      - The port is in this switch's ``protected_ports`` set. Pass ``force=True``
        to override.
-   * - `HttpAuthError`, `HttpUnexpectedPageError`
+   * - :py:obj:`~netgear_switch.errors.HttpAuthError`, :py:obj:`~netgear_switch.errors.HttpUnexpectedPageError`
      - Web-UI login failed, or a page did not look like what the model's dialect
        expects (usually a session that expired).
-   * - `CliCommandError`
+   * - :py:obj:`~netgear_switch.errors.CliCommandError`
      - The switch's CLI rejected a command; the message carries what it said.
 
 `NotImplementedError` appears in exactly one place — certificate upload on a
 model whose real mechanism is known but not wired to that backend. It is
-deliberately *not* `UnsupportedCapabilityError`, because the hardware can do it;
+deliberately *not* :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError`, because the hardware can do it;
 see :doc:`../models/support`.
 
 Synchronous and asynchronous
 ----------------------------
 
-:py:class:`~netgear_switch.SyncSwitch` and
-:py:class:`~netgear_switch.AsyncSwitch` expose the same operations with the same
+:py:class:`~netgear_switch.sync_api.SyncSwitch` and
+:py:class:`~netgear_switch.aio_api.AsyncSwitch` expose the same operations with the same
 arguments and the same semantics. They share the model registry, the parsers and
 the backend-resolution seam in ``src/netgear_switch/_dispatch.py``; only the
 transports differ. ``tests/test_facade_equivalence.py`` asserts they stay in
@@ -214,18 +215,18 @@ step.
 
    **One backend is synchronous-only: the CLI.** All three CLI transports —
    SSH, telnet and the serial console — are blocking, and none has an async
-   twin, so :py:class:`~netgear_switch.AsyncSwitch` has no CLI backend at all.
+   twin, so :py:class:`~netgear_switch.aio_api.AsyncSwitch` has no CLI backend at all.
    Asking for one raises rather than quietly blocking the event loop::
 
       UnsupportedCapabilityError: model 'gsm7252ps' CLI reads are not available
       via the async facade (CLI is synchronous ...)
 
    That also rules out
-   :py:meth:`~netgear_switch.SyncSwitch.upload_certificate_scp` on the async
+   :py:meth:`~netgear_switch.sync_api.SyncSwitch.upload_certificate_scp` on the async
    facade, since the operation is CLI-based by nature. Use
-   :py:class:`~netgear_switch.SyncSwitch` for those, or wrap the call in
+   :py:class:`~netgear_switch.sync_api.SyncSwitch` for those, or wrap the call in
    :py:func:`asyncio.to_thread`.
 
    **The support tables in** :doc:`../models/support` **describe the
    synchronous facade.** Every SNMP, NSDP and HTTP entry holds for both; the CLI
-   columns apply to :py:class:`~netgear_switch.SyncSwitch` only.
+   columns apply to :py:class:`~netgear_switch.sync_api.SyncSwitch` only.

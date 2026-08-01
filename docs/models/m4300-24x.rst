@@ -25,22 +25,22 @@ Measured behaviour
 ------------------
 
 **No PoE at all.** This SKU has no PSE silicon, so
-:py:meth:`~netgear_switch.SyncSwitch.get_poe` and every PoE write are refused —
+:py:meth:`~netgear_switch.sync_api.SyncSwitch.get_poe` and every PoE write are refused —
 identically on SNMP, HTTP and the CLI, rather than SNMP returning an empty list
 from an empty ``pethPsePortTable`` while the other two raise. That consistency
-is deliberate; see :py:class:`~netgear_switch.Support`.
+is deliberate; see :py:class:`~netgear_switch.capabilities.Support`.
 
 **VLAN membership is written through the vendor switchport table**, not
 Q-BRIDGE. The standard static ``PortList`` columns here are read-only mirrors
 that answer ``commitFailed`` even when written with byte-identical content, and
 ``dot1qVlanStaticUntaggedPorts`` is worse than read-only: a SET returns
 ``noError`` and is then silently discarded. The registry records this as
-:py:attr:`~netgear_switch.SwitchModel.snmp_vlan_write` = ``fastpath_switchport``;
+:py:attr:`~netgear_switch.registry.SwitchModel.snmp_vlan_write` = ``fastpath_switchport``;
 :doc:`../protocols/snmp` has the full derivation.
 
 **The port count is nominal.** ``port_count`` is 28 because that value also
 sizes the VLAN and port bitmaps, but the device reports 24 physical ports.
-:py:meth:`~netgear_switch.SyncSwitch.get_stats` over the CLI iterates the ports
+:py:meth:`~netgear_switch.sync_api.SyncSwitch.get_stats` over the CLI iterates the ports
 the switch actually reports rather than trusting the registry, which is what
 stopped it fabricating counters for four ports that do not exist.
 
@@ -51,5 +51,5 @@ Protocols
 * :doc:`../protocols/http` — the ``CHEETAH_V1`` scheme: every page under
   ``/v1/``, a ``Referer`` header required as CSRF protection.
 * :doc:`../protocols/cli` — SSH or telnet; also the only route for
-  :py:meth:`~netgear_switch.SyncSwitch.upload_certificate_scp`, since this
+  :py:meth:`~netgear_switch.sync_api.SyncSwitch.upload_certificate_scp`, since this
   firmware takes a certificate by ``copy scp://`` rather than an HTTP form.

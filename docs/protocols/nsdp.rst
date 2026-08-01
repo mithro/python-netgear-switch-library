@@ -61,7 +61,7 @@ the sweep as their evidence.
 Port administrative enable is also refused, as unproven rather than absent: no
 tag has been shown to do it.
 
-`SyncSwitch.nsdp_device` returns the complete raw device record — firmware,
+:py:obj:`~netgear_switch.sync_api.SyncSwitch.nsdp_device` returns the complete raw device record — firmware,
 serial number, DHCP mode, VLAN engine, QoS engine, port mirroring, IGMP
 snooping, broadcast filtering, loop detection — including fields no other
 backend exposes, and with per-port values left unconverted.
@@ -128,9 +128,9 @@ inventing one.
 API
 ---
 
-* `netgear_switch.nsdp_read` — `NsdpReader`, `AsyncNsdpReader`.
-* `netgear_switch.nsdp_write` — `NsdpWriter`, `AsyncNsdpWriter`.
+* `netgear_switch.nsdp_read` — :py:obj:`~netgear_switch.nsdp_read.NsdpReader`, :py:obj:`~netgear_switch.nsdp_read.AsyncNsdpReader`.
+* `netgear_switch.nsdp_write` — :py:obj:`~netgear_switch.nsdp_write.NsdpWriter`, :py:obj:`~netgear_switch.nsdp_write.AsyncNsdpWriter`.
 * `netgear_switch.protocols.nsdp.protocol` — header, tags and error codes.
 * `netgear_switch.protocols.nsdp.auth` — v1 XOR and the v2 fold, with the full
   investigation record in the module docstring.
-* `netgear_switch.protocols.nsdp.types` — `NsdpDevice` and its components.
+* `netgear_switch.protocols.nsdp.types` — :py:obj:`~netgear_switch.protocols.nsdp.types.NsdpDevice` and its components.

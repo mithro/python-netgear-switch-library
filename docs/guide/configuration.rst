@@ -2,7 +2,7 @@ Inventories and credentials
 ===========================
 
 Hosts, models and credentials belong in an inventory file, not in your code or
-your shell history. `load_inventory` reads a TOML file into
+your shell history. :py:obj:`~netgear_switch.config.load_inventory` reads a TOML file into
 ``{name: SwitchConfig}``; the ``ngsw`` CLI and the MCP server both use it, via
 the same resolver.
 
@@ -70,7 +70,7 @@ Per switch:
 Secret specs
 ------------
 
-Any value marked "secret spec" above is resolved by `resolve_secret`, which
+Any value marked "secret spec" above is resolved by :py:obj:`~netgear_switch.config.resolve_secret`, which
 accepts three forms:
 
 .. list-table::
@@ -80,16 +80,16 @@ accepts three forms:
    * - Form
      - Behaviour
    * - ``${NAME}``
-     - Read environment variable ``NAME``. `CredentialError` if unset.
+     - Read environment variable ``NAME``. :py:obj:`~netgear_switch.errors.CredentialError` if unset.
    * - ``!command args``
      - Run the command (split with ``shlex``, no shell) and take its stdout,
-       stripped. A 10-second timeout; a non-zero exit raises `CredentialError`
+       stripped. A 10-second timeout; a non-zero exit raises :py:obj:`~netgear_switch.errors.CredentialError`
        with the command's stderr.
    * - anything else
      - The literal secret.
 
 Prefer the first two. **If any secret in the file is a literal, the file's
-permissions are checked** and `load_inventory` raises `ConfigError` unless the
+permissions are checked** and :py:obj:`~netgear_switch.config.load_inventory` raises :py:obj:`~netgear_switch.errors.ConfigError` unless the
 file is unreadable by group and other:
 
 .. code-block:: text
@@ -97,7 +97,7 @@ file is unreadable by group and other:
    ConfigError: inventory.toml has insecure permissions 0o644; chmod 600 it
    (contains a literal secret)
 
-That check is `ensure_secure_file`, and it only fires when a literal is present
+That check is :py:obj:`~netgear_switch.config.ensure_secure_file`, and it only fires when a literal is present
 — a file containing only ``${VAR}`` and ``!command`` specs needs no special
 mode.
 
@@ -136,7 +136,7 @@ Using an inventory
          finally:
              await switch.aclose()
 
-`SwitchConfig.snmp_write_community` and `SwitchConfig.http_password` resolve
+:py:attr:`~netgear_switch.config.SwitchConfig.snmp_write_community` and :py:attr:`~netgear_switch.config.SwitchConfig.http_password` resolve
 their specs on demand and take an explicit ``env=`` mapping, which makes them
 straightforward to test.
 
@@ -177,7 +177,7 @@ Protected ports
 ---------------
 
 ``protected_ports`` is enforced by the library, not just the CLI. Every write
-that names a port checks it and raises `ProtectedPortError` unless
+that names a port checks it and raises :py:obj:`~netgear_switch.errors.ProtectedPortError` unless
 ``force=True``:
 
 .. tab-set::

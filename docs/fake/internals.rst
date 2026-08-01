@@ -65,7 +65,7 @@ The faces
    * - ``faces/cli.py``
      - nothing
      - In-process: implements the ``CliSession`` protocol directly, so no SSH
-       or telnet server is needed. Reached via `VirtualSwitch.cli_session`.
+       or telnet server is needed. Reached via :py:obj:`~netgear_switch.virtual.server.VirtualSwitch.cli_session`.
 
 ``faces/mibview.py`` deserves a note. It builds a **sorted** OID view from the
 state so GETNEXT and GETBULK have real lexicographic-ordering semantics rather
@@ -93,8 +93,8 @@ From a real switch to a seed
 
    ngsw --switch core capture tmp/core.json
 
-`ngsw capture <cli.capture>` records the switch's full state via
-`SyncSwitch.snapshot`, and — given live access and a raw-walk callable — the
+:doc:`ngsw capture <../cli>` records the switch's full state via
+:py:obj:`~netgear_switch.sync_api.SyncSwitch.snapshot`, and — given live access and a raw-walk callable — the
 reference ``snmpbulkwalk`` output alongside it. The result is a JSON file used
 **for reference** when hand-authoring a seed. It is deliberately not loaded
 directly by the mock.
@@ -186,7 +186,8 @@ Where things live
    * - ``src/netgear_switch/virtual/seed.py``
      - One seed builder per model.
    * - ``src/netgear_switch/virtual/server.py``
-     - ``VirtualSwitch``, the seed map, and ``serve_forever``.
+     - :py:class:`~netgear_switch.virtual.server.VirtualSwitch`, the seed map,
+       and :py:func:`~netgear_switch.virtual.server.serve_forever`.
    * - ``src/netgear_switch/virtual/faces/``
      - The protocol faces.
    * - ``tests/fixtures/captures/``
@@ -194,4 +195,5 @@ Where things live
    * - ``tests/virtual/``
      - Tests of the mock itself.
    * - ``tests/conftest.py``
-     - The per-model ``VirtualSwitch`` fixtures this project uses.
+     - The per-model :py:class:`~netgear_switch.virtual.server.VirtualSwitch`
+       fixtures this project uses.

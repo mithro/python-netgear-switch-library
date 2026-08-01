@@ -99,7 +99,7 @@ Gotchas
 -------
 
 **Sessions expire, and a page you did not expect is the symptom.**
-`HttpUnexpectedPageError` almost always means the session went away and the
+:py:obj:`~netgear_switch.errors.HttpUnexpectedPageError` almost always means the session went away and the
 switch served a login page instead of the page requested.
 
 **Some models never log out.** Where a spec has no ``logout_path``, sessions are
@@ -116,8 +116,8 @@ rejected by the firmware in ways that look like a device limitation but are not:
 API
 ---
 
-* `netgear_switch.http_read` — `HttpReader`, `AsyncHttpReader`.
-* `netgear_switch.http_write` — `HttpWriter`, `AsyncHttpWriter`, and the
+* `netgear_switch.http_read` — :py:obj:`~netgear_switch.http_read.HttpReader`, :py:obj:`~netgear_switch.http_read.AsyncHttpReader`.
+* `netgear_switch.http_write` — :py:obj:`~netgear_switch.http_write.HttpWriter`, :py:obj:`~netgear_switch.http_write.AsyncHttpWriter`, and the
   certificate-upload flows.
 * `netgear_switch.protocols.http.endpoints` — every model's spec, with the
   capture that grounds it named in comments.

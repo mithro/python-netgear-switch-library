@@ -1,14 +1,14 @@
 Switch models
 =============
 
-Every model this library knows is a frozen :py:class:`~netgear_switch.SwitchModel`
+Every model this library knows is a frozen :py:class:`~netgear_switch.registry.SwitchModel`
 record in ``src/netgear_switch/registry.py``. The table below is generated from
 that registry at documentation build time, so it cannot drift from the code.
 
 .. ngsw-model-table::
 
 Every model listed above is backed by a real device capture or a live run
-against the hardware. :py:func:`~netgear_switch.get_model` resolves a key — or
+against the hardware. :py:func:`~netgear_switch.registry.get_model` resolves a key — or
 an alias, such as ``s3300`` — to the record; ``ngsw models`` prints the whole
 registry, including the entries below that these tables exclude.
 
@@ -73,4 +73,4 @@ A ``—`` cell is a genuine refusal with a stated reason, not an unimplemented
 feature. A ``?`` cell means the operation is implemented but gated off because
 that backend's output has not been cross-verified against live hardware; the
 facade refuses to dispatch rather than hand back unchecked data. The same
-verdicts are available in code from :py:func:`~netgear_switch.support`.
+verdicts are available in code from :py:func:`~netgear_switch.capabilities.support`.

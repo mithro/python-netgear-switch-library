@@ -399,7 +399,12 @@ class BackendOperationTable(_GeneratedTable):
                     seen[reason] = index
                     notes.append(reason)
                 cells.append(f"{_NO} [{label}-{index}]_")
-            rows.append([f":py:meth:`~netgear_switch.SyncSwitch.{op.name}`", *cells])
+            # The facade class is documented under its defining module, so a
+            # `netgear_switch.SyncSwitch.x` target does not resolve and would
+            # render as plain text rather than a link.
+            rows.append(
+                [f":py:meth:`~netgear_switch.sync_api.SyncSwitch.{op.name}`", *cells]
+            )
         table = _list_table("", ["Operation", *keys], rows)
         if not notes:
             return table

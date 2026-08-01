@@ -9,8 +9,8 @@ faithful mock switches, and the example points at one.
    Every example below appears in **synchronous** and **asynchronous** form.
    Choosing one switches every example on the page, and the choice is
    remembered as you move around the site.
-   :py:class:`~netgear_switch.SyncSwitch` and
-   :py:class:`~netgear_switch.AsyncSwitch` expose the same operations with the
+   :py:class:`~netgear_switch.sync_api.SyncSwitch` and
+   :py:class:`~netgear_switch.aio_api.AsyncSwitch` expose the same operations with the
    same arguments; only the transports differ.
 
 Talk to a mock in-process
@@ -88,8 +88,8 @@ the switch at 10.1.5.22, not from invented values. See :doc:`../fake/index`.
 Talk to a real switch
 ---------------------
 
-The first argument is a :py:class:`~netgear_switch.SwitchModel`, which
-:py:func:`~netgear_switch.get_model` resolves from a registry key (``ngsw
+The first argument is a :py:class:`~netgear_switch.registry.SwitchModel`, which
+:py:func:`~netgear_switch.registry.get_model` resolves from a registry key (``ngsw
 models`` lists them all).
 
 .. tab-set::
