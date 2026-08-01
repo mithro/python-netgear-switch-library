@@ -18,6 +18,10 @@ from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sphinx.application import Sphinx
 
 DOCS_DIR = Path(__file__).parent
 REPO_ROOT = DOCS_DIR.parent
@@ -135,3 +139,34 @@ html_theme_options = {
 
 copybutton_prompt_text = r"\$ |>>> |\.\.\. "
 copybutton_prompt_is_regexp = True
+
+
+# -- Build tweaks -------------------------------------------------------------
+
+
+def _force_serial_build(app: Sphinx) -> None:
+    """Read and write documents serially, whatever ``-j`` was passed.
+
+    Read the Docs always invokes Sphinx with ``-j auto``, and a parallel READ
+    requires every registered domain to implement ``merge_domaindata`` so the
+    workers' results can be combined. ``sphinx-argparse`` registers an
+    ``ArgParseDomain`` that does not, so a parallel build dies with::
+
+        NotImplementedError: merge_domaindata must be implemented in
+        <class 'sphinxarg.ext.ArgParseDomain'> to be able to do parallel builds!
+
+    Forcing ``parallel`` back to 1 here is a deliberate trade of build time for
+    a working build; it is the only knob available, since Read the Docs does not
+    expose the ``-j`` flag in ``.readthedocs.yaml``. Serial is ~5 minutes for
+    this project, well inside any build timeout. Remove this once
+    sphinx-argparse implements ``merge_domaindata``.
+
+    This is why the CI documentation job passes ``-j auto`` too (see
+    ``.github/workflows/ci.yml``): the gate must run the command Read the Docs
+    runs, or a failure like this one reaches production with CI still green.
+    """
+    app.parallel = 1
+
+
+def setup(app: Sphinx) -> None:
+    app.connect("builder-inited", _force_serial_build)
