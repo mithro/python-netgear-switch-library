@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        ServiceStatus,
         SwitchUser,
         SyslogConfig,
         VLANInfo,
@@ -104,6 +105,19 @@ class CliReader:
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         return parse.parse_mgmt_ip(self.session.run(self._spec.network_cmd))
+
+    def get_services(self) -> list[ServiceStatus]:
+        """Which management services are enabled, and on which ports.
+
+        Three commands, because the switch splits it that way -- and the telnet
+        one is ``show telnetcon``, not ``show telnet``. See
+        ``parse.parse_services`` for why that distinction matters.
+        """
+        return parse.parse_services(
+            self.session.run(self._spec.http_service_cmd),
+            self.session.run(self._spec.telnet_service_cmd),
+            self.session.run(self._spec.ssh_service_cmd),
+        )
 
     def get_users(self) -> list[SwitchUser]:
         """The switch's local login accounts, from ``show users``.

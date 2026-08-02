@@ -120,6 +120,23 @@ class MgmtIpConfig:
 
 
 @dataclass(frozen=True)
+class ServiceStatus:
+    """One management service the switch offers, and whether it is on.
+
+    Covers the four protocols an operator turns on or off to control how the
+    switch itself can be reached: ``http``, ``https``, ``telnet`` and ``ssh``.
+    """
+
+    #: One of ``http``, ``https``, ``telnet``, ``ssh``.
+    name: str
+    enabled: bool
+    #: The TCP port the service listens on, or ``None`` where the firmware does
+    #: not report one. Measured: gsm7252ps omits the ``SSH Port`` line that
+    #: m4300-24x prints, so this is genuinely absent rather than defaulted to 22.
+    port: int | None = None
+
+
+@dataclass(frozen=True)
 class SwitchUser:
     """One local login account on the switch."""
 

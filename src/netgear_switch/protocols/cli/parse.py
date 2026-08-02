@@ -42,6 +42,7 @@ from ...models import (
     PortStats,
     PortStatus,
     Sensor,
+    ServiceStatus,
     SwitchUser,
     SyslogConfig,
     SyslogServer,
@@ -607,6 +608,76 @@ def parse_environment(text: str) -> list[Sensor]:
             )
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# show ip http / show telnetcon / show ip ssh -> management services
+# ---------------------------------------------------------------------------
+
+
+def _enabled(text: str) -> bool:
+    """FASTPATH spells this two ways: "Enabled" and "Enable"."""
+    return text.strip().lower() in {"enabled", "enable", "yes"}
+
+
+def parse_services(
+    http_text: str, telnet_text: str, ssh_text: str
+) -> list[ServiceStatus]:
+    """The four management services, from the three commands that report them.
+
+    Captured 2026-08-02 from m4300-24x (10.1.5.13) and gsm7252ps (10.1.5.22).
+
+    ``show ip http`` carries BOTH the plain and secure web servers::
+
+        HTTP Mode (Unsecure)........................... Enabled
+        HTTP Port...................................... 80
+        HTTP Mode (Secure)............................. Enabled
+        Secure Port.................................... 443
+
+    ``show telnetcon`` -- NOT ``show telnet`` -- reports the INBOUND server::
+
+        Telnet Server Admin Mode....................... Enable
+        Telnet Server Port............................. 23
+
+    ``show telnet`` describes the switch as a telnet *client* ("Allow New
+    Outbound Telnet Sessions"), which says nothing about whether the server this
+    library's TELNET backend connects to is running. Reading it as the server
+    state would be wrong in the way that looks right.
+
+    ``show ip ssh`` reports SSH, and its field set differs by firmware: the
+    gsm7252ps prints no ``SSH Port`` line at all, so that port is honestly None
+    rather than assumed to be 22.
+    """
+    http = labelled_values(http_text)
+    telnet = labelled_values(telnet_text)
+    # `show ip ssh` writes its labels WITH a trailing colon before the dotted
+    # leader ("Administrative Mode: ......... Enabled"), unlike every other
+    # FASTPATH scalar command. Measured on both m4300-24x and gsm7252ps. Without
+    # stripping it the lookup misses and SSH reads as disabled on a switch whose
+    # own output says Enabled -- which is exactly what the first live run did.
+    ssh = {k.rstrip(":").strip(): v for k, v in labelled_values(ssh_text).items()}
+    return [
+        ServiceStatus(
+            name="http",
+            enabled=_enabled(http.get("HTTP Mode (Unsecure)", "")),
+            port=_int(http.get("HTTP Port", "")),
+        ),
+        ServiceStatus(
+            name="https",
+            enabled=_enabled(http.get("HTTP Mode (Secure)", "")),
+            port=_int(http.get("Secure Port", "")),
+        ),
+        ServiceStatus(
+            name="telnet",
+            enabled=_enabled(telnet.get("Telnet Server Admin Mode", "")),
+            port=_int(telnet.get("Telnet Server Port", "")),
+        ),
+        ServiceStatus(
+            name="ssh",
+            enabled=_enabled(ssh.get("Administrative Mode", "")),
+            port=_int(ssh.get("SSH Port", "")),
+        ),
+    ]
 
 
 # ---------------------------------------------------------------------------

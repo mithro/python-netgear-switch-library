@@ -106,6 +106,12 @@ class CliModelSpec:
     # Local login accounts. Present on both FASTPATH images measured; the
     # ACCESS-MODE vocabulary differs between them (see parse.parse_users).
     users_cmd: str = "show users"
+    # Management services. `show ip http` covers BOTH web servers; the inbound
+    # telnet server is `show telnetcon` and NOT `show telnet`, which reports
+    # the switch as an outbound telnet CLIENT (measured 2026-08-02).
+    http_service_cmd: str = "show ip http"
+    telnet_service_cmd: str = "show telnetcon"
+    ssh_service_cmd: str = "show ip ssh"
     # Remote logging. `show syslog` does NOT exist -- all three FASTPATH
     # switches answered "% Invalid input detected" on 2026-08-02.
     logging_cmd: str = "show logging"
