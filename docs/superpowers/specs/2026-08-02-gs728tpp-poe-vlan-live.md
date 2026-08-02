@@ -216,6 +216,19 @@ limitation, every documented mechanism was tried; all five answer
 | `dot1qVlanStaticName` alone (implicit row creation) | inconsistentValue |
 | `createAndGo(4)` + name + empty 126-byte egress PortList | inconsistentValue |
 
+A sixth possibility — that the switch auto-creates a VLAN when a port's PVID is
+set to an unknown id, as some firmware does — was tested and also eliminated:
+`dot1qPvid.17 := 4002` for a **non-existent** VLAN 4002 is **accepted**, reads
+back as 4002, and creates no VLAN.
+
+> **Flagged, not changed.** That means this switch will happily leave a port
+> with a PVID for a VLAN that does not exist, and the library does not stop it:
+> `set_vlan_membership` raises "VLAN N does not exist" as a precondition, but
+> `set_pvid` has no such check on any backend. Making them consistent is a
+> behaviour change affecting every model, and one I could not live-verify on
+> the other switches in this session — so it is recorded here for a decision
+> rather than done quietly.
+
 And it is neither a read-only table nor a rejected VLAN id. On the same switch,
 in the same session:
 
