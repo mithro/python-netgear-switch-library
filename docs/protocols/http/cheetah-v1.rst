@@ -1,9 +1,9 @@
 CHEETAH_V1 — the M4300 ``/v1`` UI
 =================================
 
-The M4300's web interface. It posts both a username and a password, and then
-guards every subsequent request with a ``Referer`` header rather than a CSRF
-token field.
+The M4300's web interface. Login posts both a username and a password, and every
+request afterwards is guarded by a ``Referer`` header rather than a CSRF token
+field.
 
 Switches
 --------
@@ -17,12 +17,12 @@ How the login works
 password-only login is rejected.
 
 **The CSRF defence is the Referer header.** Requests without a plausible
-``Referer`` are refused, which is why the spec carries ``needs_referer``. This
-is unusual enough that a client written against any of the other four schemes
-will fail here for reasons that look like an authentication problem.
+``Referer`` are refused, which is why the spec carries ``needs_referer``. A
+client written against any of the other four schemes fails here for reasons that
+look like an authentication problem.
 
-**The session id has a short life.** The RID the UI issues expires in about 60
-seconds of inactivity, so a long-running read sequence must expect to
+**The session id has a short life.** The RID the UI issues expires after about
+60 seconds of inactivity, so a long-running read sequence must expect to
 re-authenticate rather than assume one login covers the whole run.
 
 The two SKUs are not reached the same way
@@ -41,9 +41,9 @@ in this project before.
 A dead end worth recording
 --------------------------
 
-The M4300's read-page URLs cannot be recovered by reading its HTML: the server
-builds its menu dynamically, so static analysis of the login page yields
-nothing. The paths in the spec came from driving the live UI.
+Reading the M4300's HTML will not recover its read-page URLs: the server builds
+its menu dynamically, so static analysis of the login page yields nothing. The
+paths in the spec came from driving the live UI.
 
 Pages
 -----

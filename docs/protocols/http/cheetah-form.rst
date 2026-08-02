@@ -17,9 +17,9 @@ Two dialects on one login
 Cheetah XE page grid, so both reuse the ``parse_xe_*`` parsers for ports,
 statistics, PVIDs, VLANs, PoE and LLDP.
 
-They are separate dialects because two pages genuinely differ on the S3300: its
-MAC table has shifted columns and escaped ``1/gN`` port names, and its sensor
-page differs too. Everything else is shared.
+They are separate dialects because two pages on the S3300 genuinely differ: its
+MAC table, with shifted columns and escaped ``1/gN`` port names, and its sensor
+page. Everything else is shared.
 
 The XUI shape worth knowing
 ---------------------------
@@ -36,9 +36,9 @@ fields. This is where "the GSM7252PS refuses PoE writes over HTTP" came from —
 it was not firmware. The form needs a list-unit field (``v_1_1_1``) that the
 writer was not sending. With it, PoE writes apply cleanly.
 
-That is worth stating plainly because it is the exact failure mode this project
-treats as a bug in our code until proven otherwise: a missing field is rejected
-by the firmware in a way that looks indistinguishable from a device limitation.
+It is the exact failure mode this project treats as a bug in our own code until
+proven otherwise: the firmware rejects a missing field in a way that looks
+indistinguishable from a device limitation.
 
 Pages
 -----

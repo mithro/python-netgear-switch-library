@@ -23,9 +23,9 @@ What works, over which protocol
 Measured behaviour
 ------------------
 
-**This model is the clearest argument for naming a backend.** It has PoE
-hardware, and PoE status and configuration are available — but only over the web
-UI. NSDP has no PoE tag at all, so:
+**PoE is reachable over the web UI only.** The hardware is there, and both PoE
+status and configuration are available — but NSDP has no PoE tag at all, which
+makes this model the clearest argument for naming a backend:
 
 .. tab-set::
 
@@ -49,9 +49,9 @@ The default backend for a Plus switch is NSDP, so the first call resolves there
 and refuses rather than quietly answering over HTTP. The error names the
 alternative — see :doc:`../guide/concepts`.
 
-**Its web UI uses the ``MERGE_HASH_CGI`` scheme**: the login page carries a
-nonce, the password is hashed together with it, and the result is posted to a
-``.cgi`` endpoint. The same scheme as the GS105PE.
+**Its web UI uses the ``MERGE_HASH_CGI`` scheme**, the same one as the GS105PE:
+the login page carries a nonce, the password is hashed together with it, and the
+result is posted to a ``.cgi`` endpoint.
 
 **The management IP is readable over NSDP but not over its web UI**, which ships
 no page carrying it — one of the backend-parity gaps listed in

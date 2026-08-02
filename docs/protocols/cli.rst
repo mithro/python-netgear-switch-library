@@ -9,8 +9,8 @@ Switches that speak it
 
 .. ngsw-backend-models:: CLI
 
-Note the transport column: three of these offer SSH, and the S3300 is telnet
-only, on a non-standard port.
+The transport column is not uniform: three of these offer SSH, and the S3300 is
+telnet only, on a non-standard port.
 
 What it can do, per switch
 --------------------------
@@ -46,7 +46,7 @@ work unchanged across them, and equally against the mock CLI face.
 
 .. note::
 
-   ``Backend.CONSOLE`` is therefore not registered on any model: it is a
+   ``Backend.CONSOLE`` is therefore not registered on any model: it names a
    transport for the CLI backend, not a network-reachable backend of its own.
    Asking for it via ``backend=`` raises, and the support tables say why.
 
@@ -69,8 +69,8 @@ Commands per model
 Every command is a field on a ``CliModelSpec`` — the ``show`` command for each
 read, the configuration sequence for each write, and the interface-name template
 (``1/0/{port}``, with a separate template for uplink ports where a model needs
-one). Overriding one field is how a model that words a command differently is
-supported, without forking the reader.
+one). A model that words a command differently is supported by overriding that
+one field, with no fork of the reader.
 
 Reads map to ``show`` commands: port status, VLAN brief and per-VLAN detail,
 PVIDs, MAC address table, LLDP remote devices, PoE port info, environment, and
@@ -100,7 +100,7 @@ and not incidentally: every CLI write confirms itself by reading back through
 CLI write either.
 
 The readers themselves are *not* gated — they can always be constructed
-directly, which is what the mock tests do. It is the facade that refuses.
+directly, which is what the mock tests do. Only the facade refuses.
 
 Certificate deployment
 ----------------------
@@ -152,9 +152,9 @@ Using the CLI backend
          vlans = await asyncio.to_thread(switch.get_vlans, backend=Backend.SSH)
 
 The CLI password defaults to the web-admin password and the username to
-``admin``. The session is **lazy**: it is not opened until a command is actually
-needed, so an operation the reader refuses outright — PoE on a switch with no
-PSE ports — raises :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError` without ever dialling, rather
+``admin``. The session is **lazy**: nothing is opened until a command needs it,
+so an operation the reader refuses outright — PoE on a switch with no PSE
+ports — raises :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError` without ever dialling, rather
 than a spurious :py:obj:`~netgear_switch.errors.CredentialError` for a password it was never going to use.
 
 Pass your own session with ``cli_client=`` to use the serial console, to reuse a

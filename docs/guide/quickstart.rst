@@ -82,8 +82,8 @@ Either way:
                 netmask='255.255.255.0', gateway='10.1.5.1',
                 base_mac='E0:91:F5:0C:D6:DB')
 
-That output is a real GSM7252PS's data: the mock is seeded from a capture of
-the switch at 10.1.5.22, not from invented values. See :doc:`../fake/index`.
+That output is real GSM7252PS data: the mock is seeded from a capture of the
+switch at 10.1.5.22, not from invented values. See :doc:`../fake/index`.
 
 Talk to a real switch
 ---------------------
@@ -187,9 +187,9 @@ back to another protocol — see :doc:`concepts`.
 
 That the three agree is asserted, not assumed —
 ``tests/test_cross_backend_equivalence.py`` compares them for every model with
-more than one backend. They agree on the *physical* ports; SNMP additionally
-reports internal and link-aggregation interfaces that a web UI's port table does
-not list, and one model has a VLAN where SNMP shows configured members and the
+more than one backend. They agree on the *physical* ports; SNMP also reports
+internal and link-aggregation interfaces that a web UI's port table does not
+list, and one model has a VLAN where SNMP shows configured members and the
 web UI shows current ones. Both are real properties of the interfaces, and the
 tests pin them explicitly rather than papering over them.
 
@@ -198,7 +198,7 @@ Ask before you act
 
 :py:mod:`netgear_switch.capabilities` answers "can this model do this, over
 that?" without touching the switch. It is the same data that generates
-:doc:`../models/support`, and it is a plain function — there is nothing to await.
+:doc:`../models/support`, exposed as a plain function — nothing to await.
 
 .. code-block:: python
 
@@ -254,8 +254,8 @@ rules this project follows when testing writes against live hardware.
 Sweep a fleet
 -------------
 
-Where the two APIs genuinely differ is concurrency: the async facade can talk to
-a whole inventory at once.
+Concurrency is where the two APIs genuinely differ: the async facade talks to a
+whole inventory at once.
 
 .. tab-set::
 

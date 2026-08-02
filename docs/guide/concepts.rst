@@ -13,7 +13,8 @@ SNMP vendor OID subtree, and a few per-model protocol dialect flags. The whole
 registry lives in ``src/netgear_switch/registry.py``, and :py:obj:`~netgear_switch.registry.get_model` resolves a
 key (or an alias, such as ``s3300`` for ``gsm7228ps``) to the record.
 
-Models fall into three classes, which is what decides the protocols available:
+Models fall into three classes, and the class decides which protocols are
+available:
 
 Fully Managed (``FULLY_MANAGED``)
     M4300, GSM7252PS. Full SNMP with the Netgear ``4526.10`` vendor subtree, a
@@ -48,14 +49,15 @@ A backend is *the protocol an operation travels over*:
      - The Netgear Switch Discovery Protocol, over UDP. The only management
        protocol besides the web UI on Plus switches.
    * - ``HTTP``
-     - The switch's own web UI, scraped and driven as a browser would. Four
-       distinct login schemes and five HTML dialects across the fleet.
+     - The switch's own web UI, scraped and driven as a browser would.
+       |scheme-count| distinct login schemes and |dialect-count| page dialects
+       across the fleet.
    * - ``SSH`` / ``TELNET`` / ``CONSOLE``
      - The FASTPATH command line. One command surface reached over three
        transports; ``CONSOLE`` is a serial line rather than a network backend,
        so it is never registered on a model.
 
-The same nine read operations and ten write operations are implemented on every
+The same |read-count| read operations and |write-count| write operations are implemented on every
 backend a model has. That is deliberate: if SNMP writes are locked down on your
 network, or the web UI is the only port through a firewall, you can pick a
 different protocol and get the same answer. :doc:`../models/support` lists the
@@ -181,9 +183,9 @@ All errors derive from :py:obj:`~netgear_switch.errors.NetgearSwitchError`. The 
        implemented yet" — a missing implementation is a bug to fix, not a
        device limitation to document.
    * - :py:obj:`~netgear_switch.errors.CredentialError`
-     - A credential is missing or wrong. Note that an SNMP agent **silently
-       drops** an unauthorised request, so a wrong write community looks exactly
-       like an unreachable host.
+     - A credential is missing or wrong. An SNMP agent **silently drops** an
+       unauthorised request, so a wrong write community looks exactly like an
+       unreachable host.
    * - :py:obj:`~netgear_switch.errors.WriteVerificationError`
      - The write was sent and accepted, but reading back did not show the
        intended value.

@@ -65,7 +65,7 @@ Per switch:
    * - ``nsdp.interface``
      - no
      - Interface to send NSDP from, e.g. ``eth0``. NSDP is broadcast-based, so
-       on a multi-homed host this matters.
+       this matters on a multi-homed host.
 
 Secret specs
 ------------
@@ -176,7 +176,7 @@ Plus switch reached over NSDP is never asked for an SNMP community.
 Protected ports
 ---------------
 
-``protected_ports`` is enforced by the library, not just the CLI. Every write
+``protected_ports`` is enforced by the library, not only the CLI. Every write
 that names a port checks it and raises :py:obj:`~netgear_switch.errors.ProtectedPortError` unless
 ``force=True``:
 
@@ -206,5 +206,5 @@ that names a port checks it and raises :py:obj:`~netgear_switch.errors.Protected
          await switch.set_port_enabled(49, False)              # ProtectedPortError
          await switch.set_port_enabled(49, False, force=True)  # proceeds
 
-It is the cheapest possible guard against disabling the uplink you are
+That one list is the cheapest guard against disabling the uplink you are
 connected through.

@@ -5,9 +5,9 @@ M4300-16X
 
 .. ngsw-model-diagram:: m4300-16x
 
-The XSM4316, a Fully Managed 10G switch with PoE on all 16 ports, running
-FASTPATH **12.0.19.15** — a different firmware from its M4300-24X sibling, which
-is exactly why its behaviour was measured rather than inherited.
+The XSM4316: Fully Managed, 10G, PoE on all 16 ports, and running FASTPATH
+**12.0.19.15** — a different firmware from its M4300-24X sibling, which is
+exactly why its behaviour was measured rather than inherited.
 
 At a glance
 -----------
@@ -29,11 +29,12 @@ Measured behaviour
 **The web UI is on HTTPS port 49152**, not port 80. Its
 :py:class:`~netgear_switch.protocols.http.endpoints.HttpModelSpec` carries both
 the port and the TLS flag, so :py:meth:`~netgear_switch.sync_api.SyncSwitch.get_ports`
-with ``backend=Backend.HTTP`` reaches it without special handling by the caller.
+with ``backend=Backend.HTTP`` reaches it with no special handling from the
+caller.
 
 **Its firmware requires a ``Referer`` header on every POST.** The same body
-returns 403 without one and 200 with it — isolated live, and reproduced by the
-mock's HTTP face so the requirement cannot regress.
+returns 403 without one and 200 with it — a difference isolated live, then
+reproduced by the mock's HTTP face so the requirement cannot regress.
 
 **The VLAN-write dialect was settled by measurement, not by family.** This
 firmware *does* accept some Q-BRIDGE egress writes that the -24X refuses, so the
@@ -50,9 +51,9 @@ flipping only that one port's mode, gave:
 ``dot1qVlanStaticEgressPorts`` is writable only while **no interface on the
 switch** is in access mode — switch-wide, not per-VLAN. Since an untagged
 membership write is expressed *as* access mode, the standard dialect would
-disable itself on first use, so this SKU belongs on
-``fastpath_switchport`` after all — now for a reason rather than a guess. The
-full account is in :doc:`../guide/principles`.
+disable itself on first use. So this SKU belongs on ``fastpath_switchport``
+after all — now for a reason rather than a guess. The full account is in
+:doc:`../guide/principles`.
 
 Protocols
 ---------

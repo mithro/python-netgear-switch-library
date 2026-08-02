@@ -62,8 +62,8 @@ The net-snmp system dependency
 ------------------------------
 
 The **synchronous** SNMP transport shells out to the net-snmp command-line
-tools rather than binding a Python SNMP library. They are a system package, not
-a Python dependency:
+tools rather than binding a Python SNMP library. Those tools are a system
+package, not a Python dependency:
 
 .. code-block:: sh
 
@@ -104,8 +104,8 @@ Versioning
 
 A **rolling release**. The version is derived from git by ``hatch-vcs``
 (``0.0.postN``, or ``X.Y.postN`` once a ``vX.Y`` tag exists); every merge to
-``main`` publishes to PyPI and to the apt repository. There are no manual
-version bumps — see ``RELEASING.md``.
+``main`` publishes to PyPI and to the apt repository. No manual version bumps —
+see ``RELEASING.md``.
 
 .. note::
 

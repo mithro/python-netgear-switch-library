@@ -1,9 +1,9 @@
 Protocols
 =========
 
-Four backends, one operation surface. This section describes what each protocol
-actually is on these devices, what the library does with it, and the quirks
-worth knowing when you pick one.
+Four backends, one operation surface. Each page below covers what a protocol
+amounts to on these devices, what the library does with it, and the quirks worth
+weighing when you pick one.
 
 .. toctree::
    :maxdepth: 2
@@ -16,8 +16,8 @@ worth knowing when you pick one.
 Shape of the code
 -----------------
 
-Each protocol is split the same way, and the split is worth knowing if you plan
-to read the source:
+Each protocol is split the same way, which is worth knowing before you read the
+source:
 
 .. list-table::
    :header-rows: 1
@@ -66,8 +66,8 @@ Choosing a backend
    * - HTTP
      - Reaching a switch through a firewall that only allows the web port, and
        PoE control on Plus switches.
-     - Sessions expire; page sets vary widely between models. Five distinct
-       HTML dialects across this fleet.
+     - Sessions expire; page sets vary widely between models.
+       |dialect-count| distinct page dialects across this fleet.
    * - CLI
      - FASTPATH switches when you want the switch's own view, and the only
        route for ``copy scp://`` certificate deployment.

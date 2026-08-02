@@ -133,8 +133,8 @@ Every backend takes an injected client:
 All four at once
 ----------------
 
-One mock, one facade, three protocols — which is what makes cross-backend
-behaviour testable without hardware:
+One mock, one facade, three protocols — what makes cross-backend behaviour
+testable without hardware:
 
 .. tab-set::
 
@@ -207,9 +207,9 @@ behaviour testable without hardware:
    internal and link-aggregation interfaces (here, ifIndexes 418 and above)
    that the web UI's port table does not list, and this model's VLAN 1 has two
    ports SNMP shows as *configured* members while the web UI shows *current*
-   ones. Both are genuine properties of the two interfaces, not mock artefacts —
-   ``tests/test_cross_backend_equivalence.py`` restricts to physical ports and
-   pins the known difference explicitly rather than hiding it.
+   ones. Both are genuine properties of the two management interfaces, not mock
+   artefacts — ``tests/test_cross_backend_equivalence.py`` restricts to physical
+   ports and pins the known difference explicitly rather than hiding it.
 
 The CLI, with no SSH server
 ---------------------------
@@ -229,7 +229,7 @@ CLI backend.
 Testing that your code handles refusals
 ---------------------------------------
 
-The most valuable thing a faithful mock gives you is the *failure* paths. The
+The *failure* paths are the most valuable thing a faithful mock gives you. The
 mock refuses exactly what the hardware refuses, with the same message:
 
 .. tab-set::
@@ -358,7 +358,7 @@ condition you want to test — a dead link, a PoE fault, a full MAC table:
    binds, so a direct edit to ``state`` after ``start()`` is picked up by the
    HTTP, NSDP and CLI faces — which read the state live — but **not** by SNMP.
    Writes performed *through* a protocol rebuild the view and are consistent
-   everywhere; it is only out-of-band edits that need to happen first.
+   everywhere; only out-of-band edits need to happen first.
 
 Testing model detection
 -----------------------
@@ -384,8 +384,8 @@ with the wrong model:
                             Smart Switch with PoE+ and 4 10G uplinks',
                  sys_object_id='1.3.6.1.4.1.4526.100.10.19')
 
-Note it identified the switch by ``sysObjectID`` — which is the only way to tell
-this SKU apart from the S3300-28X, whose ``sysDescr`` text is indistinguishable.
+Identification came from ``sysObjectID`` — the only way to tell this SKU apart
+from the S3300-28X, whose ``sysDescr`` text is indistinguishable.
 
 Testing tools that are not this library
 ---------------------------------------
@@ -435,7 +435,7 @@ A common case: your exporter or check script takes a host and a community.
 
 Parametrising over models is where the fake earns its keep: the M4300-24X has no
 PoE at all, the GS728TPP has no vendor OIDs, and the S3300 answers to a different
-vendor subtree. Code that only ever met one switch tends to assume all three
+vendor subtree. Code written against a single switch tends to assume all three
 away.
 
 Choosing a model to test against
@@ -476,7 +476,7 @@ trustworthy:
   session for ordinary page ``GET``\ s. Real firmware does.
 * **Out-of-band state edits after** ``start()`` **are invisible to SNMP.** See
   the note above.
-* **The CLI face is in-process.** There is no SSH or telnet listener to test a
+* **The CLI face is in-process.** No SSH or telnet listener exists to test a
   transport against; it exercises the command surface, not the connection.
 * **Not every page of a real web UI exists** — only the pages the library uses.
 

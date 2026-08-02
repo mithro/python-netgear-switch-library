@@ -6,7 +6,7 @@ GS105PE
 .. ngsw-model-diagram:: gs105pe
 
 A 5-port "Smart Plus" switch (Gen-2 Broadcom BCM53125) — a genuinely distinct
-SKU from the GS305EP, not a rebadge. No SNMP; NSDP and the web UI.
+SKU from the GS305EP, not a rebadge. No SNMP agent, so NSDP and the web UI only.
 
 At a glance
 -----------
@@ -32,9 +32,9 @@ unit, so it exposes no PSE status page at all, and ``poe_port_count`` is 0.
 **No MAC/FDB table over any interface.** Not NSDP, not the web UI — a confirmed
 firmware limitation rather than something merely unread.
 
-**It exposed two real NSDP bugs**, both fixed: ``parse_device`` wrongly treated
-the ``MODEL`` TLV as optional, and ``PORT_MIRRORING`` is variable-width across
-firmware versions rather than the fixed size the parser assumed.
+**Two real NSDP bugs surfaced here**, both fixed: ``parse_device`` wrongly
+treated the ``MODEL`` TLV as optional, and ``PORT_MIRRORING`` is variable-width
+across firmware versions rather than the fixed size the parser assumed.
 
 Protocols
 ---------

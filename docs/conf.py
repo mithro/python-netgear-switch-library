@@ -32,6 +32,13 @@ REPO_ROOT = DOCS_DIR.parent
 sys.path.insert(0, str(DOCS_DIR / "_ext"))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+# Imported after the path is set up, so a bare checkout resolves it too.
+from netgear_switch.capabilities import (  # noqa: E402
+    READ_OPERATIONS,
+    WRITE_OPERATIONS,
+)
+from netgear_switch.protocols.http.endpoints import HTTP_SPECS  # noqa: E402
+
 # -- Project ------------------------------------------------------------------
 
 project = "python-netgear-switch-library"
@@ -73,8 +80,6 @@ exclude_patterns = [
     "README.md",
 ]
 
-# Single backticks mean "a Python object", which is what most inline references
-# in this project are.
 # Single backticks mean "literal", not "cross-reference". The library's
 # docstrings use them loosely for prose and shell fragments (`snmpget`,
 # `apt-get install -y snmp`, `type: ignore`), which a py:obj default role turns
@@ -83,6 +88,19 @@ exclude_patterns = [
 # lost -- and filelinks still turns any literal naming a repository file into a
 # link to that file.
 default_role = "literal"
+
+# How many operations the library exposes, counted from the library rather than
+# written into the prose. The hand-written version said "Nine reads and ten
+# writes" while there were in fact ten and eleven: the counts were correct when
+# typed and silently went stale as operations were added, which is exactly the
+# kind of restated fact this documentation generates instead.
+rst_prolog = f"""
+.. |read-count| replace:: {len(READ_OPERATIONS)}
+.. |write-count| replace:: {len(WRITE_OPERATIONS)}
+.. |operation-count| replace:: {len(READ_OPERATIONS) + len(WRITE_OPERATIONS)}
+.. |scheme-count| replace:: {len({s.scheme for s in HTTP_SPECS.values()})}
+.. |dialect-count| replace:: {len({s.html_dialect for s in HTTP_SPECS.values()})}
+"""
 
 # Every cross-reference must resolve, or the build fails. This is what keeps the
 # documentation actually hyperlinked: an unresolved `py:obj` renders as plain

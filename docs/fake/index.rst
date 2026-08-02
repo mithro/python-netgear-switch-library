@@ -24,8 +24,8 @@ Then, from any tool:
 
    snmpwalk -v2c -c public 127.0.0.1:36540 1.3.6.1.2.1.1
 
-Why it is worth trusting
-------------------------
+Why you can trust it
+--------------------
 
 A mock is only useful if it behaves like the thing it stands in for. This one is
 built to a strict rule: **where the fake differs from real hardware, the fake is
@@ -59,12 +59,12 @@ can only ever agree with that code.
 with a comment naming the host and firmware version it was observed on. A
 finding that lives only in a report gets regressed by the next change.
 
-The mock has also been cross-checked by tools that know nothing about this
-library: the third-party ProSafeLinux NSDP implementation decodes both mock
-switches completely with every value matching the seed, and the C tool
-``ngadmin`` validated the packet header — and surfaced a real four-byte
-sequence-number bug in the process, which was fixed. A mock validated only by
-the client that talks to it proves nothing.
+Tools that know nothing about this library have cross-checked it too. The
+third-party ProSafeLinux NSDP implementation decodes both mock switches
+completely, every value matching the seed; the C tool ``ngadmin`` validated the
+packet header — and surfaced a real four-byte sequence-number bug in the
+process, since fixed. A mock validated only by the client that talks to it
+proves nothing.
 
 What it is not
 --------------

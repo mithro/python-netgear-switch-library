@@ -1,7 +1,7 @@
 Reading a switch
 ================
 
-Nine read operations, available on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike, each
+|read-count| read operations, available on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike, each
 taking an optional ``backend=``. All return frozen dataclasses from
 `netgear_switch.models`, identical whichever protocol produced them.
 
@@ -129,7 +129,7 @@ Snapshots
          snap = await switch.snapshot()
          print(snap.model, snap.host, len(snap.ports), len(snap.vlans))
 
-Fields that backend cannot serve degrade to ``()`` or ``None``. They are *not*
+Fields the backend cannot serve degrade to ``()`` or ``None``. They are *not*
 re-read over another protocol — so a snapshot describes what one protocol
 really reports, rather than a blend of several. To compare protocols, take two
 snapshots:
@@ -158,7 +158,7 @@ snapshots:
          over_web = await switch.snapshot(backend=Backend.HTTP)
          assert over_snmp.vlans == over_web.vlans
 
-This is exactly what the cross-backend equivalence tests do; see
+The cross-backend equivalence tests do exactly this; see
 ``tests/test_cross_backend_equivalence.py``.
 
 .. note::
@@ -172,8 +172,8 @@ This is exactly what the cross-backend equivalence tests do; see
 Reading a fleet
 ---------------
 
-This is where the two APIs stop being interchangeable: the asynchronous facade
-reads every switch at once, the synchronous one reads them in turn.
+Here the two APIs stop being interchangeable: the asynchronous facade reads
+every switch at once, the synchronous one reads them in turn.
 
 .. tab-set::
 
@@ -257,8 +257,8 @@ Handling refusals
 Capturing what a switch says
 ----------------------------
 
-``ngsw capture`` writes a complete JSON record of a switch's readable state,
-which is how this project's fixtures and mock seeds are produced:
+``ngsw capture`` writes a complete JSON record of a switch's readable state.
+This project's fixtures and mock seeds are produced with it:
 
 .. code-block:: sh
 

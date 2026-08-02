@@ -11,8 +11,8 @@ tool — in any language — can talk to one when hardware is unavailable.
    ngsw serve --all                                 # every registered model
 
 Each switch that comes up prints its model, bind address, the port it actually
-bound for each protocol, and the credentials it accepts. Then it blocks until
-interrupted, at which point every switch is stopped cleanly.
+bound for each protocol, and the credentials it accepts. The command then blocks
+until interrupted, stopping every switch cleanly.
 
 .. code-block:: text
 
@@ -29,9 +29,9 @@ interrupted, at which point every switch is stopped cleanly.
        community='public' http_password='password'
    serving 10 mock switch(es); press Ctrl-C to stop
 
-Which faces bind is decided by the model's registry entry, which is why the
-GS110EMX above offers NSDP and HTTP while the M7300 offers only SNMP — the mocks
-have exactly the backends the real switches have.
+The model's registry entry decides which faces bind, which is why the GS110EMX
+above offers NSDP and HTTP while the M7300 offers only SNMP — the mocks have
+exactly the backends the real switches have.
 
 Options
 -------
@@ -60,8 +60,8 @@ Options
 .. note::
 
    A pinned port is a single listener, so ``--port``/``--http-port`` are only
-   accepted when serving exactly one model. Serving several, leave them unset
-   and read the printed ports.
+   accepted when serving exactly one model. When serving several, leave them
+   unset and read the printed ports.
 
 One bad model never takes the fleet down: a switch that cannot bind is reported
 and skipped, and the rest keep serving.
@@ -140,9 +140,9 @@ The FASTPATH CLI
 
 The CLI face is deliberately **in-process**: it implements the ``CliSession``
 protocol rather than binding an SSH or telnet listener, so there is no key
-exchange or terminal emulation to fight. It is reached through
-:py:obj:`~netgear_switch.virtual.server.VirtualSwitch.cli_session`, not over a socket, and so is not exposed by
-``ngsw serve``. See :doc:`testing`.
+exchange or terminal emulation to fight. Reach it through
+:py:obj:`~netgear_switch.virtual.server.VirtualSwitch.cli_session`, not over a socket; ``ngsw serve`` therefore does
+not expose it. See :doc:`testing`.
 
 This library against a mock
 ---------------------------

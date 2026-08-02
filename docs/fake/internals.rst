@@ -82,9 +82,9 @@ The HTML dialects differ enough that each has its own renderer:
 ``web_gs105pe.py`` and ``web_gs728tpp.py``, with shared pieces in ``web.py``.
 
 ``web_gs110emx_templates.py`` is pure data: single-line HTML strings copied
-byte-for-byte from real captures. It is excluded from lint precisely because
-there is no meaningful style to enforce on a literal capture, and reformatting it
-would destroy its value as evidence.
+byte-for-byte from real captures. It is excluded from lint precisely because a
+literal capture has no meaningful style to enforce, and reformatting it would
+destroy its value as evidence.
 
 From a real switch to a seed
 ----------------------------
@@ -96,8 +96,8 @@ From a real switch to a seed
 :doc:`ngsw capture <../cli>` records the switch's full state via
 :py:obj:`~netgear_switch.sync_api.SyncSwitch.snapshot`, and — given live access and a raw-walk callable — the
 reference ``snmpbulkwalk`` output alongside it. The result is a JSON file used
-**for reference** when hand-authoring a seed. It is deliberately not loaded
-directly by the mock.
+**for reference** when hand-authoring a seed; the mock deliberately never loads
+it directly.
 
 That last point is the important one. A seed is written by hand *from* a
 capture, which forces a human to decide what each value means, and lets the
@@ -145,8 +145,8 @@ library:
 * **ngadmin** (a C implementation) validated the packet header — and surfaced a
   real four-byte sequence-number bug in the process, which was fixed.
 
-The harness for this is a veth pair into a network namespace, so NSDP's
-broadcast behaviour is exercised rather than bypassed.
+The harness is a veth pair into a network namespace, so NSDP's broadcast
+behaviour is exercised rather than bypassed.
 
 Adding a model
 --------------

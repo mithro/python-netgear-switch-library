@@ -10,7 +10,7 @@ that registry at documentation build time, so it cannot drift from the code.
 Every model listed above is backed by a real device capture or a live run
 against the hardware. :py:func:`~netgear_switch.registry.get_model` resolves a key — or
 an alias, such as ``s3300`` — to the record; ``ngsw models`` prints the whole
-registry, including the entries below that these tables exclude.
+registry, including the entries these tables leave out, named below.
 
 .. ngsw-unverified-note::
 
@@ -18,8 +18,8 @@ Per-model pages
 ---------------
 
 Each page carries the model's registry facts, its full operation-by-backend
-support matrix, and the behaviour that was actually measured on it — including
-the quirks that only show up on that firmware.
+support matrix, and the behaviour measured on it — including the quirks that
+show up only on that firmware.
 
 .. toctree::
    :maxdepth: 1

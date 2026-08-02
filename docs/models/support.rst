@@ -5,7 +5,7 @@ Which model can do what, over which protocol. Every table on this page is
 generated at build time from ``src/netgear_switch/registry.py`` and
 ``src/netgear_switch/capabilities.py`` — the same data the library consults when
 it dispatches an operation — so a table here cannot disagree with what the code
-will actually do.
+does.
 
 The same answers are available at runtime:
 
@@ -31,14 +31,15 @@ The same answers are available at runtime:
 Protocol support
 ----------------
 
-Which backends each model exposes. This is :py:attr:`~netgear_switch.registry.SwitchModel.backends`, and it is
-what :py:obj:`~netgear_switch.sync_api.SyncSwitch.resolve_backend` will accept.
+Which backends each model exposes — the model's
+:py:attr:`~netgear_switch.registry.SwitchModel.backends`, and exactly what
+:py:obj:`~netgear_switch.sync_api.SyncSwitch.resolve_backend` accepts.
 
 .. ngsw-protocol-table::
 
 ``SSH`` and ``TELNET`` are two transports for the same FASTPATH command surface.
-A third, ``CONSOLE``, drives that same CLI over a serial line; it is a transport
-rather than a network backend, so it is never registered on a model and never
+A third, ``CONSOLE``, drives that same CLI over a serial line; being a transport
+rather than a network backend, it is never registered on a model and never
 selected automatically.
 
 Read operations

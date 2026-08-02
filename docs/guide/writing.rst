@@ -1,7 +1,7 @@
 Changing a switch
 =================
 
-Ten write operations, on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike. Each takes
+|write-count| write operations, on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike. Each takes
 ``force=`` and ``backend=``, each runs over exactly one protocol, and each
 reads back to confirm what it did.
 
@@ -41,16 +41,16 @@ Three safety rails
 ------------------
 
 **1. ``force=True`` is required.** Every disruptive write refuses without it.
-This is not a confirmation prompt in disguise: it is a keyword you have to type
-in the calling code, so a write cannot happen by passing the wrong variable to a
+It is not a confirmation prompt in disguise but a keyword you have to type in
+the calling code, so a write cannot happen by passing the wrong variable to a
 read.
 
 **2. Protected ports.** A port listed in the switch's ``protected_ports`` raises
 :py:obj:`~netgear_switch.errors.ProtectedPortError` unless forced. ``delete_vlan`` extends this: before
 deleting, the facade reads the VLAN's members **over the same backend** and
 refuses if any is protected — because two of the three write backends do not
-guard VLAN deletion themselves, and without this every backend would not be
-equally safe.
+guard VLAN deletion themselves, so without the facade-level check the backends
+would not be equally safe.
 
 **3. Read-back verification.** After the write lands, the value is read back. A
 mismatch raises :py:obj:`~netgear_switch.errors.WriteVerificationError`. A switch that accepts a SET and
@@ -90,8 +90,8 @@ reported as success.
 Writes are model-specific in ways that matter
 ---------------------------------------------
 
-Behind one method call there are genuinely different mechanisms, chosen per
-model from measurements, not from a MIB's ideal semantics.
+One method call hides genuinely different mechanisms, chosen per model from
+measurements, not from a MIB's ideal semantics.
 
 **VLAN membership over SNMP has two dialects.** On most models it is a
 read-modify-write of the standard Q-BRIDGE ``dot1qVlanStaticEgressPorts`` and
@@ -113,9 +113,9 @@ PDUs, egress first, works. ``snmp_vlan_split_membership_writes`` turns this on
 for that model only, because the GSM7252PS applies the combined PDU correctly
 and its verified path is not worth disturbing.
 
-You do not have to know any of this to call ``set_vlan_membership``. It is
-documented because it explains why the same call can behave differently across
-two switches from the same family, and why this project refuses to extrapolate
+You do not have to know any of this to call ``set_vlan_membership``. The detail
+is here because it explains why the same call can behave differently across two
+switches from the same family, and why this project refuses to extrapolate
 between SKUs.
 
 Certificates
@@ -162,22 +162,21 @@ Calling ``upload_certificate`` on a model whose mechanism is SCP raises
 the mechanism and pointing at the other method. The hardware can do it; that
 backend cannot.
 
-The SCP flow disables HTTPS, copies the server certificate (and optionally the
-root chain), re-enables HTTPS to load it, and saves the configuration. The
-switch is **not** rebooted. You must stage the PEM files on the SCP source
-yourself: the switch pulls
-``<host-with-dots-as-dashes>-server.pem`` from ``remote_dir``. This path is
-grounded in working prior art and tested end-to-end against the mock, but it is
-**not live-verified** — a real run needs a staging SCP server that CI does not
-have.
+The SCP flow is **not live-verified**: it is grounded in working prior art and
+tested end-to-end against the mock, but a real run needs a staging SCP server
+that CI does not have. It disables HTTPS, copies the server certificate (and
+optionally the root chain), re-enables HTTPS to load it, and saves the
+configuration. The switch is **not** rebooted. You must stage the PEM files on
+the SCP source yourself: the switch pulls
+``<host-with-dots-as-dashes>-server.pem`` from ``remote_dir``.
 
 Management IP
 -------------
 
 :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_mgmt_ip` is implemented and mock-verified on every backend that
-has it, but note what it does: the address you are talking to changes
-mid-operation, so the connection issuing the write is dropped by definition.
-This project has deliberately never applied it to a live switch.
+has it. The address you are talking to changes mid-operation, so the connection
+issuing the write is dropped by definition. This project has deliberately never
+applied it to a live switch.
 
 From the command line
 ---------------------
@@ -200,8 +199,8 @@ prints cannot drift from what would be sent.
 Testing writes against real hardware
 ------------------------------------
 
-These are the rules this project follows for its own live verification. They
-are worth adopting.
+This project follows these rules for its own live verification. They are worth
+adopting.
 
 * **Record the exact prior state, restore it, and prove the restore by
   re-reading.** Not "I think it was enabled".

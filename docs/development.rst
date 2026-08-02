@@ -75,7 +75,7 @@ honest:
     warnings fail the build, so the documentation cannot keep pointing at a file
     that has been renamed or deleted.
 
-Writing documentation, then, is mostly a matter of naming files in double
+Writing documentation is therefore mostly a matter of naming files in double
 backticks and letting the extension do the rest::
 
     See ``src/netgear_switch/registry.py`` for the registry.
@@ -92,7 +92,7 @@ a real device, writing a seed, and when a verification flag may be flipped.
 The rules
 ---------
 
-:doc:`guide/principles` is not optional reading for contributors. In particular:
+:doc:`guide/principles` is required reading for contributors. In particular:
 
 * **Never declare something unsupported to finish a task.** If you cannot
   implement it, say so plainly — naming the model, backend and operation — and
@@ -117,8 +117,8 @@ Releasing
 ---------
 
 A rolling release: every merge to ``main`` publishes to PyPI and the apt
-repository, with the version derived from git. There are no manual version
-bumps. See ``RELEASING.md``.
+repository, with the version derived from git — no manual version bumps. See
+``RELEASING.md``.
 
 Continuous integration
 ----------------------

@@ -5,10 +5,10 @@ GSM7252PS
 
 .. ngsw-model-diagram:: gsm7252ps
 
-A 52-port Fully Managed stackable switch, 48 of them PoE. The model with the
-widest verified backend coverage in this fleet — SNMP, the XE FASTPATH web UI
-and the CLI are all cross-verified against each other — and the one the
-equivalence tests lean on hardest.
+A Fully Managed stackable switch: 52 ports, 48 of them PoE. It has the widest
+verified backend coverage in this fleet — SNMP, the XE FASTPATH web UI and the
+CLI all cross-verified against each other — and the equivalence tests lean on it
+hardest.
 
 At a glance
 -----------
@@ -36,8 +36,8 @@ read-modify-write dialect is not merely the one that happened to work first: it
 is the only membership mechanism this agent publishes.
 
 **A single combined PDU applies correctly.** Unlike the S3300, this firmware
-honours egress and untagged varbinds travelling together, so it keeps the atomic
-write rather than the split-PDU workaround.
+honours egress and untagged varbinds travelling together, so this model keeps
+the atomic write rather than the split-PDU workaround.
 
 **Its VLAN PortList is 79 bytes wide** — a property of the device, not derivable
 from its 52 ports. The mock seeds that measured width instead of computing it,

@@ -39,8 +39,8 @@ HTTP
 CLI
 ---
 
-Three transports for one command surface. ``CliSession`` is the protocol they
-all satisfy — and so does the mock's in-process CLI face.
+Three transports for one command surface. All three satisfy the ``CliSession``
+protocol — and so does the mock's in-process CLI face.
 
 .. automodule:: netgear_switch.transport.cli
 

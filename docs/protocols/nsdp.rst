@@ -2,9 +2,9 @@ NSDP
 ====
 
 The **Netgear Switch Discovery Protocol**: a UDP, TLV-based management protocol,
-and one of only two ways to manage a Plus switch. It is undocumented by the
-vendor; everything here was established by capture and by measurement against
-live hardware.
+and one of only two ways to manage a Plus switch. The vendor documents none of
+it; everything here was established by capture and by measurement against live
+hardware.
 
 Switches that speak it
 ----------------------
@@ -53,10 +53,10 @@ What NSDP can and cannot do
 Reads: port status, per-port statistics, VLANs, PVIDs, and the management IP.
 Writes: PVID, VLAN membership, VLAN create and delete, and the management IP.
 
-It has **no** MAC/FDB table, LLDP, sensor or PoE capability, and this is not an
-assumption — it was established by an exhaustive sweep of the tag space against
-a live GS110EMX. The refusal messages the library raises say so, and they name
-the sweep as their evidence.
+It has **no** MAC/FDB table, LLDP, sensor or PoE capability — not an assumption,
+but the finding of an exhaustive sweep of the tag space against a live GS110EMX.
+The refusal messages the library raises say so, and they name that sweep as
+their evidence.
 
 Port administrative enable is also refused, as unproven rather than absent: no
 tag has been shown to do it.
@@ -69,8 +69,8 @@ backend exposes, and with per-port values left unconverted.
 Write authentication
 --------------------
 
-Two schemes exist. A switch advertises which by the value of tag ``0x0014``
-(``AUTH_V2_ENCPASS``): ``1`` means v1, ``0x10`` means v2.
+Tag ``0x0014`` (``AUTH_V2_ENCPASS``) advertises which of the two schemes a
+switch wants: ``1`` means v1, ``0x10`` means v2.
 
 **v1** (older firmware)
     The admin password travels in a ``PASSWORD`` TLV (``0x000A``) "encrypted" by
@@ -83,15 +83,15 @@ Two schemes exist. A switch advertises which by the value of tag ``0x0014``
     tag ``0x001A`` alongside the configuration change. The token is not a hash:
     it is an 8-byte XOR fold of the 20-byte password, the 4-byte salt and the
     switch's own 6-byte MAC, taken from the salt read's response header. Each
-    output byte XORs three password bytes, which is precisely the weakness
-    documented as CVE-2020-35221.
+    output byte XORs three password bytes — the weakness documented as
+    CVE-2020-35221.
 
 .. warning::
 
    **The token TLV must come first**, before the configuration TLVs. Sending it
    last is rejected. This cost real debugging time and is pinned by a test.
 
-Two facts worth recording about v2, because both are easy to assume wrongly:
+Two facts about v2, both easy to get wrong by assumption:
 
 * The token is **not** ``md5(merge(password, salt))``. That transform *is* what
   the switch's web UI uses — confirmed by a successful HTTP login — but the two
@@ -102,11 +102,11 @@ Two facts worth recording about v2, because both are easy to assume wrongly:
 Cross-checked against other implementations
 -------------------------------------------
 
-The v2 fold reproduces ``go-nsdp``'s own test vector byte for byte, and the
-mock's packets were decoded by two independent third-party tools — ProSafeLinux
-decodes both mock switches completely with every value matching the seed, and
-the C implementation ``ngadmin`` validated the header and surfaced a real
-four-byte sequence-number bug, which was fixed.
+The v2 fold reproduces ``go-nsdp``'s own test vector byte for byte, and two
+independent third-party tools decoded the mock's packets. ProSafeLinux decodes
+both mock switches completely, with every value matching the seed; the C
+implementation ``ngadmin`` validated the header and surfaced a real four-byte
+sequence-number bug, since fixed.
 
 That is the point of an independent cross-check: a mock validated only by the
 client that talks to it proves nothing.
@@ -114,16 +114,16 @@ client that talks to it proves nothing.
 Gotchas
 -------
 
-**Speed encoding.** In ``PORT_STATUS``, the speed byte value ``0x06`` means
-10 Gbit/s. Treating unknown values as "down" made every 10G link on the GS110EMX
-report as down — a real defect the tag sweep found.
+**Every 10G link reports as down.** In ``PORT_STATUS``, the speed byte value
+``0x06`` means 10 Gbit/s; treating unknown values as "down" made every 10G link
+on the GS110EMX read that way — a real defect the tag sweep found.
 
-**Variable-width TLVs.** ``PORT_MIRRORING`` is not a fixed size across firmware
-versions; parsers must not assume one.
+**The same TLV is not the same length on every firmware.** ``PORT_MIRRORING``
+varies between firmware versions; parsers must not assume a fixed size.
 
-**Model is mandatory in a device reply.** A ``get_device`` response without a
-``MODEL`` TLV is not a valid identification, and the parser says so rather than
-inventing one.
+**A device reply without a model is refused.** A ``get_device`` response missing
+its ``MODEL`` TLV is not a valid identification, and the parser says so rather
+than inventing one.
 
 API
 ---

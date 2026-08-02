@@ -16,8 +16,8 @@ Entry point
 Switch and credential resolution
 --------------------------------
 
-The shared path the CLI *and* the MCP server both use to turn arguments,
-environment variables and an inventory into a ready :py:obj:`~netgear_switch.sync_api.SyncSwitch`.
+The shared path the CLI *and* the MCP server use to turn arguments, environment
+variables and an inventory into a ready :py:obj:`~netgear_switch.sync_api.SyncSwitch`.
 
 .. automodule:: netgear_switch.cli.resolve
 

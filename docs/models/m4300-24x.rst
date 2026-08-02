@@ -5,8 +5,8 @@ M4300-24X
 
 .. ngsw-model-diagram:: m4300-24x
 
-The XSM4324CS, a Fully Managed 10G aggregation switch running FASTPATH
-12.0.13.8. Reachable over SNMP, the Cheetah ``/v1`` web UI, and the FASTPATH
+The XSM4324CS is a Fully Managed 10G aggregation switch running FASTPATH
+12.0.13.8, reachable over SNMP, the Cheetah ``/v1`` web UI, and the FASTPATH
 CLI on SSH or telnet.
 
 At a glance
@@ -28,9 +28,9 @@ Measured behaviour
 
 **No PoE at all.** This SKU has no PSE silicon, so
 :py:meth:`~netgear_switch.sync_api.SyncSwitch.get_poe` and every PoE write are refused —
-identically on SNMP, HTTP and the CLI, rather than SNMP returning an empty list
-from an empty ``pethPsePortTable`` while the other two raise. That consistency
-is deliberate; see :py:class:`~netgear_switch.capabilities.Support`.
+identically on SNMP, HTTP and the CLI, instead of SNMP handing back an empty
+list from an empty ``pethPsePortTable`` while the other two raise. That
+consistency is deliberate; see :py:class:`~netgear_switch.capabilities.Support`.
 
 **VLAN membership is written through the vendor switchport table**, not
 Q-BRIDGE. The standard static ``PortList`` columns here are read-only mirrors
@@ -43,15 +43,15 @@ that answer ``commitFailed`` even when written with byte-identical content, and
 **The port count is nominal.** ``port_count`` is 28 because that value also
 sizes the VLAN and port bitmaps, but the device reports 24 physical ports.
 :py:meth:`~netgear_switch.sync_api.SyncSwitch.get_stats` over the CLI iterates the ports
-the switch actually reports rather than trusting the registry, which is what
-stopped it fabricating counters for four ports that do not exist.
+the switch itself reports rather than trusting the registry — which is what
+stopped it inventing counters for four ports that do not exist.
 
 Protocols
 ---------
 
 * :doc:`../protocols/snmp` — the default backend, vendor subtree ``4526.10``.
 * :doc:`../protocols/http` — the ``CHEETAH_V1`` scheme: every page under
-  ``/v1/``, a ``Referer`` header required as CSRF protection.
+  ``/v1/``, with a ``Referer`` header required as CSRF protection.
 * :doc:`../protocols/cli` — SSH or telnet; also the only route for
   :py:meth:`~netgear_switch.sync_api.SyncSwitch.upload_certificate_scp`, since this
   firmware takes a certificate by ``copy scp://`` rather than an HTTP form.

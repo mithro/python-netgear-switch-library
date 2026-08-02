@@ -14,7 +14,7 @@ state capture, and the mock switch daemons.
 Selecting a switch
 ------------------
 
-Two ways, and exactly one of them is needed:
+Two ways; pick exactly one:
 
 **From an inventory** — ``--switch NAME`` together with ``--config
 <inventory.toml>``; ``--switch`` without ``--config`` is an error. Credentials
@@ -31,7 +31,7 @@ Choosing the protocol
 ---------------------
 
 ``--backend snmp|nsdp|http|ssh|telnet|console`` runs the operation over exactly
-that protocol. If it cannot serve the operation the command fails saying so; it
+that protocol. If it cannot serve the operation, the command fails saying so; it
 is never re-routed. Without the flag, the model's default backend is used — see
 :doc:`guide/concepts`.
 
@@ -115,7 +115,7 @@ The ``--model`` is only a placeholder to carry the host and credentials;
 
    ngsw --switch core capture core-2026-07-31.json
 
-This is how this project's fixtures and mock seeds are produced — see
+This is how the project's fixtures and mock seeds are produced — see
 :doc:`fake/internals`.
 
 **Run mock switches for another tool to talk to**

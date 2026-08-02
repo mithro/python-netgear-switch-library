@@ -6,8 +6,8 @@ and each is stated here with the concrete failure that produced it — an abstra
 principle is easy to rationalise around, a remembered bug is not. The canonical
 text lives in ``CLAUDE.md`` at the repository root.
 
-They matter to *users* of the library because they explain what its behaviour
-guarantees, and what a message from it actually means.
+They matter to *users* because they explain what the library guarantees, and
+what a message from it actually means.
 
 1. Fail fast and loud
 ---------------------
@@ -52,7 +52,7 @@ is not a device limitation until proven otherwise. Remaining gaps are listed in
 *Why:* every managed switch was once marked as having no HTTP VLAN-membership
 path, so the web UI could neither report tagged/untagged membership nor write
 it — while the same file already carried the working page for a sibling model.
-There was also no CLI write backend at all, though the FASTPATH command
+The library also had no CLI write backend at all, though the FASTPATH command
 sequences were known to work.
 
 3. Models have parity
@@ -111,7 +111,7 @@ recorded — naming the firmware version it applies to.
 The :doc:`virtual switch <../fake/index>` exists so this library can be tested
 honestly without hardware. That only works if it is a **faithful** model of the
 real devices — including their refusals, quirks and ordering requirements, not
-just their happy paths.
+only their happy paths.
 
 * When live hardware differs from the mock, **the mock is wrong** and gets
   fixed. Never adjust a test's expectation to match a mock already known to be

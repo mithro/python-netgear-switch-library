@@ -34,8 +34,8 @@ Transports
      - Uses :pypi:`pysnmp` from the ``[async]`` extra, and takes ``port=`` as a
        keyword.
 
-Both satisfy the same ``SnmpClient`` protocol, so a reader does not know or care
-which is underneath — and either can be pointed at a mock.
+Both satisfy the same ``SnmpClient`` protocol, so a reader neither knows nor
+cares which is underneath — and either can be pointed at a mock.
 
 .. note::
 
@@ -92,8 +92,8 @@ is recorded in its registry entry:
   ``1.3.6.1.4.1.4526`` answers ``noSuchObject``; its ``sysObjectID`` of
   ``4526.100.4.27`` is only an identifier value, not a data subtree.
 
-Code guards on ``oids.has_vendor_oids(model)`` rather than assuming, which is
-what makes the vendor-free model work at all.
+Code guards on ``oids.has_vendor_oids(model)`` instead of assuming a subtree is
+there, which is what makes the vendor-free model work at all.
 
 .. warning::
 
@@ -109,8 +109,8 @@ Model identification
 preferred: it is an unambiguous product identifier, so it can separate SKUs
 whose ``sysDescr`` text is indistinguishable — the S3300-52X from the
 unregistered S3300-28X, for instance. The OID map holds only values proven by a
-live capture, never a specification-sheet guess, and an unmatched switch yields
-``key=None`` rather than a guess.
+live capture, never one read off a specification sheet, and an unmatched switch
+yields ``key=None`` rather than a guess.
 
 VLAN writes
 -----------
@@ -156,14 +156,15 @@ Gotchas
 -------
 
 **An unauthorised request is silently dropped.** No error, no refusal — the
-agent simply does not answer, which is indistinguishable from an unreachable
+agent does not answer at all, which is indistinguishable from an unreachable
 host. If writes "time out", check the write community before anything else. One
 switch here has no ``private`` community at all; it publishes ``pib`` and
 ``public``, both read-write.
 
-**Ordering can matter within a PDU.** On Smart firmware, setting a port's egress
-bit auto-untags it, and that side effect beats an untagged varbind in the same
-PDU. Two PDUs, egress first, work — see ``snmp_vlan_split_membership_writes``.
+**The untagged varbind in a combined write is ignored.** On Smart firmware,
+setting a port's egress bit auto-untags it, and that side effect beats an
+untagged varbind in the same PDU. Two PDUs, egress first, work — see
+``snmp_vlan_split_membership_writes``.
 
 **An absent optional OID is not an error.** Readers treat a missing optional
 subtree honestly: ``power_mw`` is ``None`` where there is no vendor power column,

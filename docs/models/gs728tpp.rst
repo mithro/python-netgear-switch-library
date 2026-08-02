@@ -5,9 +5,9 @@ GS728TPP
 
 .. ngsw-model-diagram:: gs728tpp
 
-A 28-port Smart Managed Pro switch with 24 PoE+ ports. The most unusual entry in
-the registry: its SNMP agent implements **no Netgear vendor OIDs at all**, and
-its web UI is an XML API rather than scraped HTML.
+The most unusual entry in the registry: a 28-port Smart Managed Pro switch with
+24 PoE+ ports whose SNMP agent implements **no Netgear vendor OIDs at all**, and
+whose web UI is an XML API rather than scraped HTML.
 
 At a glance
 -----------
@@ -32,15 +32,15 @@ subtree. Everything comes from standard MIBs instead — per-port PoE from RFC
 and PSU **inventory** from ENTITY-MIB ``entPhysical``. This is why the readers
 guard on ``oids.has_vendor_oids`` rather than assuming a vendor subtree exists.
 
-**There is no live sensor value anywhere in its SNMP** — only the inventory. The
-web UI's diagnostics list does report health, so the two backends legitimately
-differ here. That is a difference, not a bug, and the support table above states
-it rather than hiding it.
+**Its SNMP carries no live sensor value anywhere** — only the inventory. The web
+UI's diagnostics list does report health, so the two backends genuinely differ
+here: a difference, not a bug, and one the support table above states rather
+than hides.
 
 **Its web UI is the GoAhead ``wcd`` XML API.** Login is a ``GET`` carrying the
 credentials in the query string — not a form POST — answering
-``<statusCode>0</statusCode>`` with a session id in a response header. It is the
-only ``XML_API`` model in the registry.
+``<statusCode>0</statusCode>`` with a session id in a response header. No other
+model in the registry uses ``XML_API``.
 
 **Management-IP writes are unavailable on both backends.** SNMP cannot serve
 them because the mgmt-IP write columns are vendor-only and this agent has no

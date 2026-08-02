@@ -92,8 +92,8 @@ exist otherwise — a model cannot call a tool that was never advertised.
 ``set_pvid``, ``set_vlan_membership``, ``create_vlan``, ``delete_vlan``,
 ``set_mgmt_ip``, ``upload_certificate``, ``upload_certificate_scp``.
 
-Even with writes enabled, each disruptive operation still requires the caller to
-pass ``force=true`` — the same rail the library and the CLI enforce — and
+Even with writes enabled, each disruptive operation requires the caller to pass
+``force=true`` — the same rail the library and the CLI enforce — and
 ``protected_ports`` from the inventory still applies.
 
 .. warning::

@@ -1,9 +1,9 @@
 MERGE_HASH_CGI — the Plus web UI
 ================================
 
-The login scheme of the Plus family. The login page carries a per-page nonce,
-the password is hashed together with it, and the result is posted to a ``.cgi``
-endpoint which answers with a session cookie.
+The login scheme of the Plus family. Its form page carries a per-page nonce, the
+password is hashed together with that nonce, and the result is posted to a
+``.cgi`` endpoint that answers with a session cookie.
 
 Switches
 --------
@@ -20,8 +20,8 @@ I/O, in ``src/netgear_switch/protocols/http/crypt.py``:
 :py:func:`~netgear_switch.protocols.http.crypt.merge` and
 :py:func:`~netgear_switch.protocols.http.crypt.merge_hash_md5`.
 
-The nonce matters: it is per-page, so the hash cannot be precomputed and a
-login must always begin by fetching the form.
+The nonce is per-page, so the hash cannot be precomputed: a login must always
+begin by fetching the form.
 
 Two switches, one scheme, two different page sets
 -------------------------------------------------
@@ -33,11 +33,11 @@ read pages genuinely differ.
 That distinction was learned the hard way. The GS105PE was first registered by
 copying the GS305EP's read paths, on the reasonable-looking grounds that the
 login was identical. Both ``dashboard.cgi`` and ``getPoePortStatus.cgi``
-returned 404 on a real GS105PE. The paths in the spec now are the ones observed
-on the device, grounded in six captures under ``tests/fixtures/http/``.
+returned 404 on a real GS105PE. The spec's paths are now the ones observed on
+the device, grounded in six captures under ``tests/fixtures/http/``.
 
-It is the same lesson the SNMP side learned from the M4300 pair: a shared
-mechanism in one place is not evidence of a shared mechanism in another.
+The SNMP side learned the same lesson from the M4300 pair: a shared mechanism in
+one place is not evidence of a shared mechanism in another.
 
 Pages each switch ships
 -----------------------
@@ -47,9 +47,10 @@ unimplemented reader. The reader raises rather than inventing a value.
 
 .. ngsw-http-scheme-pages:: MERGE_HASH_CGI
 
-Note the GS105PE's missing PoE status page. The product is marketed with "PoE
-pass-through", which means it can *be powered* over PoE rather than source it;
-``getPoePortStatus.cgi`` 404s on a real unit, and its ``poe_port_count`` is 0.
+The GS105PE's missing PoE status page has a reason: the product is marketed with
+"PoE pass-through", which means it can *be powered* over PoE rather than source
+it. ``getPoePortStatus.cgi`` 404s on a real unit, and its ``poe_port_count``
+is 0.
 
 API
 ---

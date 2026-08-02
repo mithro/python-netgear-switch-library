@@ -33,10 +33,10 @@ Everything SNMP can answer therefore comes from standard MIBs — per-port PoE
 from RFC 3621 ``pethPsePortTable``, the management IP from ``ipAddrTable``, and
 fan and PSU *inventory* from ENTITY-MIB ``entPhysical``.
 
-Crucially there is **no live sensor reading anywhere in its SNMP** — only the
-inventory. The web UI's diagnostics page does report health. So the two backends
-legitimately differ on this model, and the
-:doc:`support tables </models/support>` say so rather than papering over it.
+Its SNMP holds **no live sensor reading anywhere** — only the inventory. The web
+UI's diagnostics page does report health, so the two backends legitimately
+differ on this model, and the :doc:`support tables </models/support>` say so
+rather than papering over it.
 
 Pages
 -----
