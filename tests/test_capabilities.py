@@ -97,6 +97,7 @@ _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     # `hostname` with no argument is rejected by the device itself and clearing
     # a name is a different command (`no hostname`) that is not implemented.
     "set_hostname": (("capcheck",), {}),
+    "set_syslog_enabled": ((True,), {}),
 }
 
 #: Not driven. ``upload_certificate_scp`` runs a multi-command deploy sequence

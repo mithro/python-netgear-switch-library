@@ -661,6 +661,21 @@ class AsyncSwitch:
             lambda w: w.clear_poe_fault(port, force=force, timeouts=timeouts), backend
         )
 
+    async def set_syslog_enabled(
+        self,
+        enabled: bool,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Turn remote syslog on or off.
+
+        Served over SNMP. Adding or removing a COLLECTOR is a separate,
+        unbuilt operation -- it needs a row-status write that has not
+        been driven against hardware.
+        """
+        await self._write(lambda w: w.set_syslog_enabled(enabled, force=force), backend)
+
     async def set_hostname(
         self, name: str, *, force: bool = False, backend: Backend | None = None
     ) -> None:

@@ -503,9 +503,7 @@ class SyncSwitch:
         has -- the actionable information the old silent fallback destroyed.
         """
         if requested is None:
-            others = sorted(
-                b.name for b in self.model.backends if b is not chosen
-            )
+            others = sorted(b.name for b in self.model.backends if b is not chosen)
             hint = (
                 f"; pass backend=Backend.<{'|'.join(others)}> to use another backend"
                 if others
@@ -813,6 +811,21 @@ class SyncSwitch:
         self._write(
             lambda w: w.clear_poe_fault(port, force=force, timeouts=timeouts), backend
         )
+
+    def set_syslog_enabled(
+        self,
+        enabled: bool,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Turn remote syslog on or off.
+
+        Served over SNMP. Adding or removing a COLLECTOR is a separate,
+        unbuilt operation -- it needs a row-status write that has not
+        been driven against hardware.
+        """
+        self._write(lambda w: w.set_syslog_enabled(enabled, force=force), backend)
 
     def set_hostname(
         self, name: str, *, force: bool = False, backend: Backend | None = None

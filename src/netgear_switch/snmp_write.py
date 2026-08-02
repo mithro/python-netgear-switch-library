@@ -707,6 +707,46 @@ class SnmpWriter:
                 after=after,
             )
 
+    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """Turn remote syslog on or off.
+
+        Writes the vendor logging admin-mode column (``<base>.14.1.4.1.0``),
+        whose enum is ``1 = enabled, 2 = disabled`` -- established from captured
+        CLI rather than assumed, see ``oids.VendorOids.syslog_admin_mode``.
+
+        WRITABILITY MEASURED 2026-08-02 by SETting each switch the value it
+        already held, which cannot change device state but still distinguishes a
+        writable column from a read-only one: m4300-24x (10.1.5.13), gsm7252ps
+        (10.1.5.22) and gsm7228ps (10.1.5.11) all accepted it.
+
+        Deliberately narrower than ``get_syslog`` reads. Adding or removing a
+        COLLECTOR means creating a row in the host table, which needs a
+        row-status write that has not been driven against hardware; offering it
+        here on the strength of the read alone would be the inference this
+        project refuses.
+
+        Not force-gated: toggling log delivery cannot strand a switch and is
+        reversible by writing the old value back.
+        """
+        del force  # accepted for a uniform writer signature; nothing to gate
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only"
+            )
+        vo = oids.vendor_oids(self.model)
+        before = self._reader.get_syslog()
+        self.client.set_many(
+            [SetVarbind(vo.syslog_admin_mode, 1 if enabled else 2, "i")]
+        )
+        after = self._reader.get_syslog()
+        if after.enabled != enabled:
+            raise WriteVerificationError(
+                f"syslog enabled is {after.enabled} after writing {enabled}",
+                before=before,
+                after=after,
+            )
+
     def set_hostname(self, name: str, *, force: bool = False) -> None:
         """Set the switch's host name via the standard MIB-II ``sysName``.
 
@@ -1108,6 +1148,27 @@ class AsyncSnmpWriter:
         if after is not None:
             raise WriteVerificationError(
                 f"VLAN {vlan} still exists after destroy",
+                before=before,
+                after=after,
+            )
+
+    async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """Async twin of ``SnmpWriter.set_syslog_enabled`` -- see there."""
+        del force  # accepted for a uniform writer signature; nothing to gate
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only"
+            )
+        vo = oids.vendor_oids(self.model)
+        before = await self._reader.get_syslog()
+        await self.client.set_many(
+            [SetVarbind(vo.syslog_admin_mode, 1 if enabled else 2, "i")]
+        )
+        after = await self._reader.get_syslog()
+        if after.enabled != enabled:
+            raise WriteVerificationError(
+                f"syslog enabled is {after.enabled} after writing {enabled}",
                 before=before,
                 after=after,
             )
