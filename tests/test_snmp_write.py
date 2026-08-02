@@ -14,6 +14,24 @@ from netgear_switch.registry import get_model
 from netgear_switch.snmp_write import AsyncSnmpWriter, PoeCycleTimeouts, SnmpWriter
 
 
+def _walk_by_prefix(tables, base_oid):
+    """Every canned row at or under ``base_oid``, as a real agent answers.
+
+    Prefix semantics, not exact-key lookup: a walk of a single COLUMN must
+    return that column's rows out of a table canned under the table root, the
+    way ``snmpbulkwalk 1.3.6.1.2.1.105.1.1.1.3`` does against hardware. (The
+    reader walks the two PoE columns separately -- that table is very slow on
+    real firmware -- so an exact-key fake would answer nothing and every PoE
+    write would "time out" against a switch that is not there.)
+    """
+    return [
+        row
+        for rows in tables.values()
+        for row in rows
+        if row.oid == base_oid or row.oid.startswith(base_oid + ".")
+    ]
+
+
 class FakeWriteClient:
     """Read tables keyed by base OID; SETs recorded and (optionally) applied."""
 
@@ -31,7 +49,7 @@ class FakeWriteClient:
         return [row for oid in oids_ for row in self.walk(oid)]
 
     def walk(self, base_oid):
-        return list(self._tables.get(base_oid, []))
+        return _walk_by_prefix(self._tables, base_oid)
 
     def set(self, vb):
         self.set_many([vb])
@@ -71,7 +89,7 @@ class FakeAsyncWriteClient:
         return rows
 
     async def walk(self, base_oid):
-        return list(self._tables.get(base_oid, []))
+        return _walk_by_prefix(self._tables, base_oid)
 
     async def set(self, vb):
         await self.set_many([vb])
@@ -606,6 +624,36 @@ class CoherentPoeClient(FakeWriteClient):
                 ]
 
 
+class IdlePoeClient(FakeWriteClient):
+    """A PoE port with NOTHING attached: admin off -> disabled, on -> searching.
+
+    Detection never reaches delivering because there is no powered device to
+    detect. This is the real, common shape -- MEASURED on the GS728TPP
+    (10.2.5.10, firmware 6.0.1.30) port 17 -- and it is distinct from
+    ``StuckOffPoeClient``, which models a port that fails to come back at all
+    (detect stays 1/disabled forever).
+
+    Detect codes are the RFC3621 ones: 1 disabled, 2 searching, 3 delivering.
+    """
+
+    def set_many(self, vbs):
+        self.sets.extend(vbs)
+        self.calls.append(list(vbs))
+        for vb in vbs:
+            if vb.oid.startswith(f"{oids.PETH_PSE_PORT_TABLE}.3.1."):
+                port = int(vb.oid.rsplit(".", 1)[1])
+                on = int(vb.value) == 1
+                pse = oids.PETH_PSE_PORT_TABLE
+                self._tables[pse] = [
+                    SnmpRow(f"{pse}.3.1.{port}", 1 if on else 2, "INTEGER"),
+                    SnmpRow(f"{pse}.6.1.{port}", 2 if on else 1, "INTEGER"),
+                ]
+                # The link stays down either way -- nothing is plugged in.
+                self._tables[oids.IF_OPER_STATUS] = [
+                    SnmpRow(f"{oids.IF_OPER_STATUS}.{port}", 2, "INTEGER")
+                ]
+
+
 class AsyncCoherentPoeClient(FakeAsyncWriteClient):
     """Async twin of ``CoherentPoeClient``."""
 
@@ -777,11 +825,16 @@ def test_cycle_poe_off_never_reached_raises_timeout_and_terminates():
 
 
 def test_cycle_poe_on_never_reached_raises_timeout_and_terminates():
-    """Phase 2 (-> delivering) must also time out with a typed error, not
-    hang, when detect never leaves 'searching' after admin is re-enabled."""
+    """A port that WAS powering a device must come back powering it.
+
+    ``_poe_full_tables`` seeds detect=3 (delivering), so this is the strict
+    case: the PD went away across the cycle and that is a real failure the
+    caller must hear about. Phase 2 has to time out with a typed error rather
+    than hang.
+    """
     client = StuckOffPoeClient(_poe_full_tables())
     w = SnmpWriter(client, get_model("gsm7252ps"))
-    with pytest.raises(WriteVerificationError, match="did not return to delivering"):
+    with pytest.raises(WriteVerificationError, match="did not come back"):
         w.cycle_poe(
             5,
             force=True,
@@ -789,6 +842,47 @@ def test_cycle_poe_on_never_reached_raises_timeout_and_terminates():
             sleep=lambda _: None,
             clock=_incrementing_clock(),
         )
+
+
+def test_cycle_poe_succeeds_on_a_port_with_nothing_attached():
+    """Cycling an idle port must SUCCEED when detection resumes.
+
+    LIVE-PROVEN on sw-netgear-gs728tpp.monarto.mithis.com (10.2.5.10, firmware
+    6.0.1.30) 2026-08-03: port 17 is link-down with no powered device, so it
+    sits in SEARCHING. The off/on sequence ran correctly and the port returned
+    to SEARCHING -- and the old predicate, which demanded DELIVERING whatever
+    the port had been doing, polled the full 60s and then raised
+    WriteVerificationError on a cycle that had worked. A port with no PD can
+    never reach DELIVERING, so demanding it reports failure on success.
+
+    (``clear_poe_fault`` passed on the same port in the same run, driving the
+    identical off/on sequence -- which is what isolated the fault to the
+    predicate rather than the write.)
+    """
+    tables = _poe_full_tables()
+    # admin on (3.1.5=1), detect SEARCHING (6.1.5=2), link down: the live shape
+    # of an idle PoE port.
+    tables[oids.PETH_PSE_PORT_TABLE] = [
+        SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.3.1.5", 1, "INTEGER"),
+        SnmpRow(f"{oids.PETH_PSE_PORT_TABLE}.6.1.5", 2, "INTEGER"),
+    ]
+    tables[oids.IF_OPER_STATUS] = [SnmpRow(f"{oids.IF_OPER_STATUS}.5", 2, "INTEGER")]
+    client = IdlePoeClient(tables)
+    w = SnmpWriter(client, get_model("gsm7252ps"))
+    w.cycle_poe(
+        5,
+        force=True,
+        timeouts=PoeCycleTimeouts(off_timeout=1, on_timeout=1, poll_interval=0),
+        sleep=lambda _: None,
+        clock=_incrementing_clock(),
+    )
+    # And it really did drive the off/on, rather than short-circuiting.
+    admin_sets = [
+        int(vb.value)
+        for vb in client.sets
+        if vb.oid.startswith(f"{oids.PETH_PSE_PORT_TABLE}.3.1.")
+    ]
+    assert admin_sets == [2, 1]
 
 
 def test_clear_poe_fault_never_recovers_raises_timeout_and_terminates():
@@ -901,7 +995,7 @@ def test_async_cycle_poe_on_never_reached_raises_timeout_and_terminates():
     async def _sleep(seconds: float) -> None:
         return None
 
-    with pytest.raises(WriteVerificationError, match="did not return to delivering"):
+    with pytest.raises(WriteVerificationError, match="did not come back"):
         asyncio.run(
             w.cycle_poe(
                 5,

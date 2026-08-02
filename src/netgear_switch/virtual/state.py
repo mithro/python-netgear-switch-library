@@ -36,6 +36,21 @@ class NotWritableError(Exception):
     """The object exists but is read-only (real agents answer notWritable)."""
 
 
+class InconsistentValueError(Exception):
+    """The agent refuses this value in the device's current state.
+
+    Models a real SNMP ``inconsistentValue``. VERIFIED on the GS728TPP
+    (sw-netgear-gs728tpp.monarto.mithis.com / 10.2.5.10, firmware 6.0.1.30,
+    2026-08-03): every documented way of CREATING a dot1qVlanStaticTable row is
+    refused with exactly this error -- createAndGo(4) alone, createAndGo with
+    dot1qVlanStaticName in the same PDU, createAndWait(5) then name then
+    active(1), setting the name column alone, and createAndGo carrying an empty
+    126-byte egress PortList. The same firmware happily writes an EXISTING
+    row's membership and accepts destroy(6), so this is specifically row
+    creation, not a read-only table.
+    """
+
+
 def _all_vlans_bitmap() -> bytes:
     """A switchport allowed-VLAN bitmap with VLANs 1..4093 set.
 
@@ -1052,6 +1067,24 @@ class VirtualSwitchState:
         psim.admin = True
         psim.detect = 3 if psim.power_mw else 2
 
+    def _refuse_vlan_creation_if_unsupported(self, oid: str) -> None:
+        """Reproduce a device that will not create a dot1qVlanStaticTable row.
+
+        MEASURED on the GS728TPP (10.2.5.10, firmware 6.0.1.30): every
+        documented creation mechanism answers ``inconsistentValue``, while the
+        SAME table's data columns accept writes and ``destroy(6)`` works. The
+        mock has to make that exact distinction -- a blanket notWritable, or
+        silently creating the row, would each let a create_vlan that cannot work
+        on this hardware look fine in tests.
+        """
+        from ..registry import get_model
+
+        if not get_model(self.model_key).snmp_can_create_vlan:
+            raise InconsistentValueError(
+                f"{self.model_key}: this agent refuses VLAN row creation "
+                f"(inconsistentValue at {oid})"
+            )
+
     def apply_write(self, oid: str, value: int | bytes | str) -> None:
         """Mutate this state from one SNMP SET varbind, with device coherence.
 
@@ -1220,8 +1253,10 @@ class VirtualSwitchState:
         if vid is not None:
             if int(value) == oids.ROW_STATUS_DESTROY:
                 self.vlans.pop(vid, None)
-            elif int(value) == oids.ROW_STATUS_CREATE_AND_GO and vid not in self.vlans:
-                self.vlans[vid] = VlanSim(name="")
+            elif vid not in self.vlans:
+                self._refuse_vlan_creation_if_unsupported(oid)
+                if int(value) == oids.ROW_STATUS_CREATE_AND_GO:
+                    self.vlans[vid] = VlanSim(name="")
             return
 
         # dot1qVlanStaticName.<vid>
@@ -1231,6 +1266,9 @@ class VirtualSwitchState:
             if vid in self.vlans:
                 self.vlans[vid].name = name
             else:
+                # Setting the name of a row that does not exist IS a creation
+                # attempt -- one of the five the GS728TPP refuses.
+                self._refuse_vlan_creation_if_unsupported(oid)
                 self.vlans[vid] = VlanSim(name=name)
             return
 

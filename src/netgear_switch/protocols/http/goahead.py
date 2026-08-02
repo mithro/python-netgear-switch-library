@@ -95,6 +95,19 @@ def write_body(obj: str, action: str, children: Sequence[Node]) -> str:
     )
 
 
+def port_interface_name(port: int) -> str:
+    """``17`` -> ``"g17"``, the ``interfaceName`` every wcd object keys on.
+
+    The inverse of ``parse._goahead_port_num``, which is what the read side
+    already relies on: the live switch names its 28 physical ports ``g1``..
+    ``g28`` and its LAGs ``LAG1``.. -- so a name that does not match this shape
+    is not a physical port at all. Kept beside the builders that use it, rather
+    than formatted inline at each call site, so the convention has one
+    definition on the write side too.
+    """
+    return f"g{port}"
+
+
 def tagging_mode(mode: VlanMode) -> str:
     """The page's ``taggingMode`` code for a library ``VlanMode``."""
     from ...models import VlanMode as _VlanMode
@@ -133,6 +146,91 @@ def vlan_membership_body(vlan: int, port_name: str, mode: VlanMode) -> str:
                 "VLAN": {
                     "VLANID": str(vlan),
                     "MembershipList": [{"VLANMember": member}],
+                }
+            }
+        ],
+    )
+
+
+def poe_admin_body(port_name: str, enabled: bool) -> str:
+    """PoE admin state, via ``PoEPSEInterfaceList``.
+
+    ``adminEnable`` 1 = enabled, 2 = disabled -- the same codes the READ side
+    already decodes from this object.
+
+    Note what is NOT here: this UI has no PoE reset/power-cycle control at all.
+    ``Behaviour/UnitsPoe.js`` contains no reset, cycle or reboot action, and the
+    page's only buttons are Refresh/Cancel/Apply. A power cycle over HTTP is
+    therefore an admin off-then-on re-arm of this same field -- exactly what
+    SnmpWriter does on models whose agent has no reset column either.
+    """
+    return write_body(
+        "PoEPSEInterfaceList",
+        "set",
+        [
+            {
+                "Interface": {
+                    "interfaceName": port_name,
+                    "interfaceType": INTERFACE_PHYSICAL,
+                    "adminEnable": "1" if enabled else "2",
+                }
+            }
+        ],
+    )
+
+
+def vlan_create_body(vlan: int, name: str) -> str:
+    """Create one VLAN, via ``VLANList``.
+
+    There is no "add" verb on this UI: the framework (``js/home.js``) defines
+    exactly ACTION_SET="set", ACTION_DELETE="delete" and ACTION_RESTORE=
+    "restore", and ``createPostXml`` stamps a NEW row with ACTION_SET like any
+    other edit. So creating and editing a VLAN are the same request shape.
+
+    The switch's own page rejects ids outside 2-4093 (``VlanConfig
+    .checkValidVLANId``), which is narrower than the 1-4094 the protocol allows
+    -- VLAN 1 is the default VLAN and cannot be created.
+    """
+    return write_body(
+        "VLANList",
+        "set",
+        [{"VLAN": {"VLANID": str(vlan), "VLANName": name}}],
+    )
+
+
+def vlan_delete_body(vlan: int) -> str:
+    """Delete one VLAN, via ``VLANList``.
+
+    The shape is taken verbatim from ``VlanConfig.Reset``, which posts a
+    literal string rather than building it through the framework -- so it
+    states the delete envelope exactly:
+
+        <DeviceConfiguration><VLANInterfaceList action="restoreAll"/>
+          <VLANList action="delete"><VLAN><VLANID>4-4093</VLANID></VLAN>
+        </VLANList></DeviceConfiguration>
+
+    (That page-level "restore everything" is deliberately NOT reproduced here:
+    this deletes the one VLAN it was asked to, and nothing else.)
+    """
+    return write_body("VLANList", "delete", [{"VLAN": {"VLANID": str(vlan)}}])
+
+
+def pvid_body(port_name: str, vlan: int) -> str:
+    """One port's PVID, via ``VLANInterfaceList`` -- the object the read side
+    already parses PVIDs and per-port membership out of.
+
+    The page's own validation allows 1-4093 or 4095, and rejects 4094
+    explicitly (``PortPVID.Apply``).
+    """
+    return write_body(
+        "VLANInterfaceList",
+        "set",
+        [
+            {
+                "Interface": {
+                    "interfaceName": port_name,
+                    "interfaceType": INTERFACE_PHYSICAL,
+                    "PVID": str(vlan),
                 }
             }
         ],

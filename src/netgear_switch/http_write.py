@@ -45,6 +45,7 @@ is what the caller gets.
 from __future__ import annotations
 
 import re
+import time
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape as _xml_escape
@@ -57,14 +58,15 @@ from .errors import (
     WriteVerificationError,
 )
 from .http_read import _parse_poe, fastpath_membership_paths
-from .protocols.http import forms, parse
+from .models import VlanMode, poe_cycle_complete
+from .protocols.http import forms, goahead, parse
 from .protocols.http.endpoints import HtmlDialect, http_spec
 from .protocols.http.session import MultipartFile
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
-    from .models import VlanMode
+    from .models import PoEStatus
     from .protocols.http.endpoints import HttpModelSpec, XuiMgmtIpFields
     from .protocols.http.session import AsyncHttpSession, HttpSession
     from .protocols.http.types import FastpathMembership, XuiListPage, XuiRow
@@ -328,6 +330,36 @@ def _is_fastpath_dialect(spec: HttpModelSpec) -> bool:
     )
 
 
+def _is_xml_api_dialect(spec: HttpModelSpec) -> bool:
+    """True for a UI that writes by POSTing an XML body to one endpoint.
+
+    Only the GS728TPP's GoAhead ``wcd`` API today. Kept as a predicate rather
+    than an inline dialect comparison so the dispatch reads the same way as
+    ``_is_fastpath_dialect`` and a second XML-API model joins in one place.
+    """
+    return spec.html_dialect is HtmlDialect.GOAHEAD_XML
+
+
+def _check_goahead_status(text: str, what: str) -> None:
+    """Raise ``HttpError`` unless a ``wcd`` write reported success.
+
+    Success is ``<statusCode>0</statusCode>`` -- the same convention the
+    GS728TPP certificate upload already checks (it mirrors GS728TPPUpdater).
+    A missing statusCode means the POST did not reach a write handler at all
+    (not logged in, or wrong endpoint), which must never read as success.
+    """
+    match = _UPLOAD_STATUS_RE.search(text)
+    if match is None:
+        raise HttpError(
+            f"{what}: response carried no <statusCode> (unexpected page -- "
+            "not logged in, or wrong endpoint?)"
+        )
+    if match.group(1) != "0":
+        detail = _UPLOAD_STATUS_STRING_RE.search(text)
+        reason = detail.group(1) if detail else "unknown error"
+        raise HttpError(f"{what} failed (statusCode={match.group(1)}): {reason}")
+
+
 def _raise_on_fastpath_err_flag(html: str, what: str) -> None:
     """Surface the switch's OWN rejection of a FASTPATH apply.
 
@@ -531,7 +563,190 @@ class HttpWriter:
                 f"port {port} is protected on {self.model.key!r}; pass force=True"
             )
 
+    # --- GoAhead XML API (GS728TPP) ---------------------------------------
+    #
+    # Every write on this UI is one POST of an XML body to a single endpoint;
+    # the object name and action verb inside the body select the operation.
+    # See protocols/http/goahead.py for where that wire shape comes from.
+
+    def _goahead_write(self, body: str, what: str) -> None:
+        path = _require_path(
+            self.model.key, self._spec.xml_write_path, "XML-API write endpoint"
+        )
+        _check_goahead_status(self.session.post_xml(path, body), what)
+
+    def _goahead_membership(
+        self,
+    ) -> dict[int, tuple[frozenset[int], frozenset[int]]]:
+        """``{vlan: (tagged, untagged)}`` as the switch reports it right now.
+
+        Read from the per-port page the reader already uses: each port's inline
+        JoinVLANList carries the complete membership, so this is the same view
+        ``get_vlans`` is built from -- verification cannot pass against a
+        different projection than the one callers see.
+        """
+        path = _require_path(
+            self.model.key, self._spec.pvid_path, "port VLAN membership"
+        )
+        return parse.parse_goahead_port_vlan_membership(self.session.get_page(path))
+
+    def _goahead_mode_of(self, vlan: int, port: int) -> VlanMode:
+        tagged, untagged = self._goahead_membership().get(
+            vlan, (frozenset(), frozenset())
+        )
+        if port in untagged:
+            return VlanMode.UNTAGGED
+        if port in tagged:
+            return VlanMode.TAGGED
+        return VlanMode.EXCLUDED
+
+    def _goahead_vlan_ids(self) -> set[int]:
+        path = _require_path(
+            self.model.key, self._spec.vlan_config_path, "VLAN config"
+        )
+        return set(parse.parse_goahead_vlan_names(self.session.get_page(path)))
+
+    def _goahead_create_vlan(self, vlan: int, name: str) -> None:
+        before = self._goahead_vlan_ids()
+        self._goahead_write(
+            goahead.vlan_create_body(vlan, name), f"create VLAN {vlan}"
+        )
+        after = self._goahead_vlan_ids()
+        if vlan not in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not created",
+                before=sorted(before),
+                after=sorted(after),
+            )
+
+    def _goahead_delete_vlan(self, vlan: int) -> None:
+        before = self._goahead_vlan_ids()
+        self._goahead_write(goahead.vlan_delete_body(vlan), f"delete VLAN {vlan}")
+        after = self._goahead_vlan_ids()
+        if vlan in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not deleted",
+                before=sorted(before),
+                after=sorted(after),
+            )
+
+    def _goahead_poe_rearm(
+        self,
+        port: int,
+        *,
+        timeouts: PoeCycleTimeouts | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """Power-cycle ``port`` by driving its adminEnable off then on.
+
+        This UI publishes NO PoE reset control -- ``Behaviour/UnitsPoe.js`` has
+        no reset/cycle/reboot action and the page's only buttons are Refresh,
+        Cancel and Apply -- so a power cycle is an admin re-arm of the same
+        field. That is not an invention: it is the mechanism SnmpWriter already
+        uses on agents with no reset column, and it is what the switch itself
+        can be made to do.
+
+        Two SEPARATE writes, each verified, then a poll for the port to come
+        back, using the same recovery rule as every other backend
+        (``models.poe_cycle_complete``).
+        """
+        from .snmp_write import PoeCycleTimeouts
+
+        limits = timeouts or PoeCycleTimeouts()
+        before = self._poe_status(port)
+        self._goahead_poe_admin(port, on=False)
+        self._goahead_poe_admin(port, on=True)
+        deadline = clock() + limits.on_timeout
+        while not poe_cycle_complete(before, self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not come back after the power cycle "
+                    f"within {limits.on_timeout}s",
+                    before=before,
+                    after=self._poe_status(port),
+                )
+            sleep(limits.poll_interval)
+
+    def _poe_status(self, port: int) -> PoEStatus | None:
+        path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
+        rows = _parse_poe(self._spec, self.session.get_page(path))
+        return next((r for r in rows if r.port == port), None)
+
+    def _goahead_poe_admin(self, port: int, on: bool) -> None:
+        before = self._poe_admin(port)
+        self._goahead_write(
+            goahead.poe_admin_body(goahead.port_interface_name(port), on),
+            f"PoE port {port} admin -> {on}",
+        )
+        after = self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    def _set_goahead_port_enabled(self, path: str, port: int, enabled: bool) -> None:
+        """Port admin state through the ports page's ``Standard802_3List``.
+
+        ``path`` is the page the state is read back from -- the same one
+        ``get_ports`` uses -- while the write itself goes to the single wcd
+        endpoint like every other write on this UI.
+        """
+        before = next(
+            (
+                p.admin_enabled
+                for p in parse.parse_goahead_ports(self.session.get_page(path))
+                if p.port == port
+            ),
+            None,
+        )
+        self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, admin_enabled=enabled
+            ),
+            f"port {port} admin -> {enabled}",
+        )
+        after = next(
+            (
+                p.admin_enabled
+                for p in parse.parse_goahead_ports(self.session.get_page(path))
+                if p.port == port
+            ),
+            None,
+        )
+        if after is not enabled:
+            raise WriteVerificationError(
+                f"port {port} did not read back as enabled={enabled}",
+                before=before,
+                after=after,
+            )
+
+    def _set_goahead_membership(self, vlan: int, port: int, mode: VlanMode) -> None:
+        before = self._goahead_mode_of(vlan, port)
+        self._goahead_write(
+            goahead.vlan_membership_body(
+                vlan, goahead.port_interface_name(port), mode
+            ),
+            f"VLAN {vlan} membership for port {port} -> {mode.value}",
+        )
+        after = self._goahead_mode_of(vlan, port)
+        if after is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value}",
+                before=before,
+                after=after,
+            )
+
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
+        # The XML-API check comes BEFORE the page requirement: that UI has no
+        # per-op write page at all (one wcd endpoint, the body selects the op),
+        # so demanding ``poe_config_path`` would refuse a write that works.
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            self._goahead_poe_admin(port, on)
+            return
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
@@ -595,6 +810,13 @@ class HttpWriter:
         force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
+        if _is_xml_api_dialect(self._spec):
+            # This UI has no reset control at all, so a cycle is an admin
+            # re-arm -- and unlike the reset-button dialects it CAN be verified,
+            # so the timeouts are honoured rather than discarded.
+            self._guard(port, force)
+            self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         # timeouts accepted-but-unused: matches SnmpWriter/NsdpWriter so the
         # facade's SnmpWriter | NsdpWriter | HttpWriter union call site typechecks.
         del timeouts
@@ -627,6 +849,13 @@ class HttpWriter:
         switch has no separate "clear fault" action, the fault clears when
         detection re-runs.
         """
+        if _is_xml_api_dialect(self._spec):
+            # Same admin re-arm as cycle_poe -- this UI has no separate
+            # clear-fault action either, and a fault clears when detection
+            # re-runs (exactly as on the Plus CGI UI).
+            self._guard(port, force)
+            self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         del timeouts  # accepted-but-unused; uniform writer surface (see cycle_poe).
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
@@ -670,6 +899,20 @@ class HttpWriter:
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        if _is_xml_api_dialect(self._spec):
+            before = dict(parse.parse_goahead_pvids(self.session.get_page(path)))
+            self._goahead_write(
+                goahead.pvid_body(goahead.port_interface_name(port), vlan),
+                f"PVID for port {port} -> {vlan}",
+            )
+            now = dict(parse.parse_goahead_pvids(self.session.get_page(path)))
+            if now.get(port) != vlan:
+                raise WriteVerificationError(
+                    f"PVID for port {port} did not read back as {vlan}",
+                    before=before.get(port),
+                    after=now.get(port),
+                )
+            return
         page = self.session.get_page(path)
         self.session.post_form(
             path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
@@ -688,6 +931,9 @@ class HttpWriter:
         self._guard(port, force)
         if _is_fastpath_dialect(self._spec):
             self._set_fastpath_membership(vlan, port, mode)
+            return
+        if _is_xml_api_dialect(self._spec):
+            self._set_goahead_membership(vlan, port, mode)
             return
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
@@ -766,6 +1012,10 @@ class HttpWriter:
         return shown
 
     def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force
+            self._goahead_create_vlan(vlan, name)
+            return
         _require_csrf_dialect(self._spec, self.model.key, "create_vlan")
         del name, force  # web UI 8021qCf.cgi has no VLAN-name field (GROUNDED).
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -780,6 +1030,10 @@ class HttpWriter:
             )
 
     def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force  # membership disruptiveness is guarded per-member elsewhere
+            self._goahead_delete_vlan(vlan)
+            return
         _require_csrf_dialect(self._spec, self.model.key, "delete_vlan")
         del force  # VLAN delete disruptiveness is guarded per-member elsewhere.
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -827,6 +1081,17 @@ class HttpWriter:
         every other row byte-identical.
         """
         self._guard(port, force)
+        if _is_xml_api_dialect(self._spec):
+            # No per-op write page (see set_poe); the state is read back from
+            # the same ports page ``get_ports`` uses.
+            self._set_goahead_port_enabled(
+                _require_path(
+                    self.model.key, self._spec.dashboard_path, "the ports page"
+                ),
+                port,
+                enabled,
+            )
+            return
         path = _require_path(
             self.model.key, self._spec.port_config_path, "the port-configuration page"
         )

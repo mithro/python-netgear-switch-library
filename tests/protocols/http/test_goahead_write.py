@@ -71,6 +71,48 @@ def test_membership_excluded_is_a_delete_action_not_a_tagging_mode() -> None:
     assert "taggingMode" not in body
 
 
+def test_poe_admin_body() -> None:
+    """adminEnable 1 = enabled, 2 = disabled -- the codes the reader decodes."""
+    on = goahead.poe_admin_body("g17", True)
+    off = goahead.poe_admin_body("g17", False)
+    assert '<PoEPSEInterfaceList action="set">' in on
+    assert (
+        "<Interface><interfaceName>g17</interfaceName>"
+        "<interfaceType>1</interfaceType><adminEnable>1</adminEnable></Interface>"
+    ) in on
+    assert "<adminEnable>2</adminEnable>" in off
+
+
+def test_vlan_create_uses_set_not_add() -> None:
+    """There is no "add" verb: js/home.js defines only set/delete/restore, and
+    the framework stamps a NEW row with ACTION_SET like any other edit."""
+    body = goahead.vlan_create_body(4001, "ngsw-tmp")
+    assert '<VLANList action="set">' in body
+    assert "add" not in body
+    assert (
+        "<VLAN><VLANID>4001</VLANID><VLANName>ngsw-tmp</VLANName></VLAN>"
+    ) in body
+
+
+def test_vlan_delete_body_matches_the_pages_literal_envelope() -> None:
+    """VlanConfig.Reset posts this shape as a literal string, so it is exact."""
+    body = goahead.vlan_delete_body(4001)
+    assert '<VLANList action="delete">' in body
+    assert "<VLAN><VLANID>4001</VLANID></VLAN>" in body
+    # Deleting ONE VLAN must not carry the page's "restore everything" section.
+    assert "VLANInterfaceList" not in body
+    assert "restoreAll" not in body
+
+
+def test_pvid_body() -> None:
+    body = goahead.pvid_body("g17", 4001)
+    assert '<VLANInterfaceList action="set">' in body
+    assert (
+        "<Interface><interfaceName>g17</interfaceName>"
+        "<interfaceType>1</interfaceType><PVID>4001</PVID></Interface>"
+    ) in body
+
+
 def test_port_config_body_sends_admin_state_codes() -> None:
     """The ports page sends adminState 1 (up) / 2 (down)."""
     up = goahead.port_config_body("g17", 17, admin_enabled=True)

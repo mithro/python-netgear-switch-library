@@ -63,6 +63,31 @@ class PoEStatus:
         return self.detect is PoEDetect.DELIVERING
 
 
+def poe_cycle_complete(before: PoEStatus | None, now: PoEStatus | None) -> bool:
+    """Has a power-cycled port finished coming back?
+
+    Shared by every backend that power-cycles a port, because "back" is a
+    property of the PORT, not of the protocol used to ask.
+
+    What "back" means depends on what the port was doing, and getting it wrong
+    turns a successful cycle into a reported failure. LIVE-PROVEN on
+    sw-netgear-gs728tpp.monarto.mithis.com (10.2.5.10, firmware 6.0.1.30)
+    2026-08-03: cycling port 17 -- link-down with NOTHING attached -- performed
+    the off/on correctly and left the port SEARCHING, and a predicate demanding
+    DELIVERING unconditionally polled the full 60s and then raised on a cycle
+    that had worked. A port with no powered device can never reach DELIVERING.
+
+    * powering a device before the cycle -> success is powering it again, which
+      is the entire point of cycling it and the strict check worth keeping;
+    * powering nothing before -> success is detection running again.
+    """
+    if now is None:
+        return False
+    if before is not None and before.delivering:
+        return now.delivering
+    return now.detect in (PoEDetect.DELIVERING, PoEDetect.SEARCHING)
+
+
 @dataclass(frozen=True)
 class VLANInfo:
     vlan_id: int

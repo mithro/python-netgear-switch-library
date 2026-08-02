@@ -338,6 +338,17 @@ class HttpModelSpec:
     # model whose mgmt-IP page is a FASTPATH XUI form. ``None`` for the Plus/
     # GoAhead models, whose mgmt-IP pages are a different shape entirely.
     mgmt_ip_fields: XuiMgmtIpFields | None = None
+    # The single endpoint every write goes to on an XML-API UI, where the POST
+    # BODY -- not the URL -- selects the operation. The GS728TPP's site map
+    # lists exactly one POST target, ``wcd``, repeated for all 100-odd pages,
+    # so there is nothing per-operation to record: the object name and the
+    # action verb inside the body do that job (see protocols/http/goahead.py).
+    #
+    # It is deliberately NOT ``cert_upload_path``, which happens to hold the
+    # same string: "where certificates are uploaded" and "where every write
+    # goes" are different questions, and a UI could answer them differently.
+    # ``None`` = this model's UI is not an XML-API one.
+    xml_write_path: str | None = None
 
 
 # The managed (FASTPATH/Cheetah) "VLAN Membership" page, shared by every managed
@@ -948,6 +959,13 @@ _GS728TPP = HttpModelSpec(
     # None -- there is no multipart file part -- and the dialect (GOAHEAD_XML)
     # is what routes upload_certificate to the XML path.
     cert_upload_path="wcd",
+    # Every write on this UI POSTs an XML body here; the object name and action
+    # verb in the body select the operation. Its SiteMap.xml lists exactly one
+    # POST target -- ``wcd`` -- repeated for all 100-odd pages (LIVE-READ
+    # 2026-08-02 from 10.2.5.10), so there is genuinely nothing per-op to
+    # record here. See protocols/http/goahead.py for the body shapes and where
+    # each was transcribed from.
+    xml_write_path="wcd",
     # LIVE-VERIFIED 2026-07-29 against the real GS728TPP (10.2.5.10, via the
     # ten64 jump host): every parse_goahead_* was run on a FRESH live wcd fetch
     # and cross-checked against the switch's actual known config -- 28 ports

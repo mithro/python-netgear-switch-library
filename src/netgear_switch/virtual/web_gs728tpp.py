@@ -18,6 +18,8 @@ import xml.etree.ElementTree as ElementTree
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
 
+from .state import VlanSim
+
 if TYPE_CHECKING:
     from .state import VirtualSwitchState
 
@@ -249,6 +251,116 @@ def apply_cert_import(state: VirtualSwitchState, xml_body: str) -> str:
     if not certificate or not private_key:
         return _status_response(2, "missing certificate or privateKey")
     state.uploaded_cert = certificate
+    return _status_response(0, "")
+
+
+def _iface_port(entry: ElementTree.Element) -> int | None:
+    """``<interfaceName>g17</interfaceName>`` -> 17; a LAG or junk -> None."""
+    name = (entry.findtext("interfaceName") or "").strip()
+    if not name.startswith("g") or not name[1:].isdigit():
+        return None
+    return int(name[1:])
+
+
+def apply_write(state: VirtualSwitchState, xml_body: str) -> str:
+    """Apply one ``POST wcd`` write body and return the wcd status response.
+
+    The real UI writes EVERYTHING through this one endpoint, with the object
+    name and the ``action`` attribute selecting the operation -- so the mock
+    must dispatch the same way rather than recognising one special upload.
+    Each branch mirrors what the switch was observed to do on 10.2.5.10
+    (firmware 6.0.1.30) when the library drove that exact body.
+
+    An unrecognised object is a NON-zero statusCode, never a silent success:
+    a writer that posts a body this firmware has no handler for must fail
+    loudly here too.
+    """
+    if "<!DOCTYPE" in xml_body or "<!ENTITY" in xml_body:
+        return _status_response(3, "DTD/entity declaration rejected")
+    try:
+        root = ElementTree.fromstring(xml_body)
+    except ElementTree.ParseError as exc:
+        return _status_response(1, f"malformed XML: {exc}")
+
+    if root.find("./SSLCryptoCertificateImportList/Entry") is not None:
+        return apply_cert_import(state, xml_body)
+
+    handled = False
+    for section in root:
+        action = section.get("action", "set")
+        name = section.tag
+        if name == "VLANList":
+            for vlan_el in section.findall("VLAN"):
+                vid_text = (vlan_el.findtext("VLANID") or "").strip()
+                if not vid_text.isdigit():
+                    return _status_response(2, f"bad VLANID {vid_text!r}")
+                vid = int(vid_text)
+                if action == "delete":
+                    state.vlans.pop(vid, None)
+                else:
+                    vname = (vlan_el.findtext("VLANName") or "").strip()
+                    if vid in state.vlans:
+                        state.vlans[vid].name = vname
+                    else:
+                        state.vlans[vid] = VlanSim(name=vname)
+            handled = True
+        elif name == "VLANMembershipList":
+            for vlan_el in section.findall("VLAN"):
+                vid = int((vlan_el.findtext("VLANID") or "0").strip() or 0)
+                vlan = state.vlans.get(vid)
+                if vlan is None:
+                    return _status_response(2, f"no such VLAN {vid}")
+                for member in vlan_el.findall("./MembershipList/VLANMember"):
+                    port = _iface_port(member)
+                    if port is None:
+                        continue
+                    if action == "delete":
+                        vlan.member.discard(port)
+                        vlan.untagged.discard(port)
+                    else:
+                        vlan.member.add(port)
+                        # taggingMode 1 = untagged, 2 = tagged.
+                        if (member.findtext("taggingMode") or "").strip() == "1":
+                            vlan.untagged.add(port)
+                        else:
+                            vlan.untagged.discard(port)
+            handled = True
+        elif name == "VLANInterfaceList":
+            for iface in section.findall("Interface"):
+                port = _iface_port(iface)
+                pvid = (iface.findtext("PVID") or "").strip()
+                if port is not None and pvid.isdigit():
+                    state.pvids[port] = int(pvid)
+            handled = True
+        elif name == "PoEPSEInterfaceList":
+            for iface in section.findall("Interface"):
+                port = _iface_port(iface)
+                admin = (iface.findtext("adminEnable") or "").strip()
+                if port is None or port not in state.poe or admin not in ("1", "2"):
+                    continue
+                # Device coherence, as the real switch shows: admin off ->
+                # detect disabled(1); admin on with nothing attached -> the
+                # port resumes SEARCHING(2) rather than delivering.
+                state.poe[port].admin = admin == "1"
+                state.poe[port].detect = 2 if admin == "1" else 1
+            handled = True
+        elif name == "Standard802_3List":
+            for entry in section.findall("Entry"):
+                port = _iface_port(entry)
+                admin = (entry.findtext("adminState") or "").strip()
+                if port is None or port not in state.ports:
+                    continue
+                if admin in ("1", "2"):
+                    state.ports[port].admin = admin == "1"
+                    if admin == "2":
+                        state.ports[port].link = False
+                desc = entry.findtext("interfaceDescription")
+                if desc is not None:
+                    state.ports[port].description = desc.strip() or None
+            handled = True
+
+    if not handled:
+        return _status_response(2, f"no handler for {[s.tag for s in root]}")
     return _status_response(0, "")
 
 

@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import pytest
 
+from netgear_switch.errors import UnsupportedCapabilityError
 from netgear_switch.http_read import HttpReader
 from netgear_switch.models import VlanMode
 from netgear_switch.protocols.http.endpoints import http_spec
 from netgear_switch.protocols.snmp import oids
+from netgear_switch.protocols.snmp.client import SnmpError
+from netgear_switch.protocols.snmp.write import SetVarbind
 from netgear_switch.registry import get_model
 from netgear_switch.snmp_read import SnmpReader
 from netgear_switch.snmp_write import SnmpWriter
@@ -147,6 +150,66 @@ def test_membership_write_preserves_the_lag_bits(mock) -> None:
     assert len(after) == PORTLIST_WIDTH, "and it must keep the device's own width"
     vlan5 = next(v for v in SnmpReader(client, MODEL).get_vlans() if v.vlan_id == 5)
     assert 26 in vlan5.tagged_ports, "the change the caller actually asked for"
+
+
+def test_snmp_refuses_vlan_creation_the_way_the_switch_does(mock) -> None:
+    """This agent cannot create a VLAN, and both layers must say so.
+
+    MEASURED 2026-08-03 on 10.2.5.10 (firmware 6.0.1.30): every documented
+    RowStatus creation mechanism answers inconsistentValue --
+
+        createAndGo(4) alone                                inconsistentValue
+        createAndGo(4) + dot1qVlanStaticName in ONE PDU     inconsistentValue
+        createAndWait(5) -> name -> active(1)               inconsistentValue
+        dot1qVlanStaticName alone (implicit create)         inconsistentValue
+        createAndGo(4) + name + empty 126-byte PortList     inconsistentValue
+
+    while the SAME table's membership columns accept writes and destroy(6)
+    removes a VLAN. So the writer must refuse BY NAME before sending anything,
+    and the fake must refuse the raw SET -- otherwise a create_vlan that cannot
+    work on this hardware would pass its tests.
+    """
+    client = _snmp(mock)
+    writer = SnmpWriter(client, MODEL)
+
+    with pytest.raises(UnsupportedCapabilityError, match="cannot create a VLAN"):
+        writer.create_vlan(4007, "nope")
+
+    # The fake refuses the raw row-status SET too, so the refusal is a property
+    # of the modelled device rather than only of the writer's guard.
+    with pytest.raises(SnmpError):
+        client.set(
+            SetVarbind(
+                f"{oids.DOT1Q_VLAN_STATIC_ROW_STATUS}.4007",
+                oids.ROW_STATUS_CREATE_AND_GO,
+                "i",
+            )
+        )
+    assert 4007 not in {v.vlan_id for v in SnmpReader(client, MODEL).get_vlans()}
+
+
+def test_snmp_delete_and_membership_still_work(mock) -> None:
+    """Creation is the ONLY thing refused -- proving it is not a read-only table.
+
+    All three were driven against the live switch: membership on VLAN 90 port
+    17 (tagged -> excluded -> tagged), dot1qPvid, and destroy(6) removing a
+    VLAN the web UI had created.
+    """
+    client = _snmp(mock)
+    writer = SnmpWriter(client, MODEL)
+    reader = SnmpReader(client, MODEL)
+
+    writer.set_vlan_membership(90, 17, VlanMode.EXCLUDED, force=True)
+    vlan90 = next(v for v in reader.get_vlans() if v.vlan_id == 90)
+    assert 17 not in vlan90.member_ports
+    writer.set_vlan_membership(90, 17, VlanMode.TAGGED, force=True)
+    assert 17 in next(v for v in reader.get_vlans() if v.vlan_id == 90).tagged_ports
+
+    writer.set_pvid(17, 90)
+    assert dict(reader.get_pvids())[17] == 90
+
+    writer.delete_vlan(90, force=True)
+    assert 90 not in {v.vlan_id for v in reader.get_vlans()}
 
 
 def test_pvids_and_ports_exclude_the_lags(mock) -> None:

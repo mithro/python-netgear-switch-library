@@ -274,10 +274,14 @@ class VirtualHttpFace:
                 self._send("<html><body>Not Found</body></html>", 404)
 
             def _goahead_post(self) -> None:
-                """Serve the GoAhead XML_API write flow: a POST of the
-                ``SSLCryptoCertificateImportList`` XML to ``<sess>/wcd`` records
-                the certificate and returns a wcd statusCode. Any other POST
-                404s (the mock never fabricates a page)."""
+                """Serve the GoAhead XML_API write flow.
+
+                EVERY write on this UI is a POST of an XML body to
+                ``<sess>/wcd``; the object name and ``action`` attribute inside
+                the body select the operation -- VLAN create/delete, VLAN
+                membership, PVID, PoE admin, port admin, certificate import.
+                A POST to any other path 404s (the mock never fabricates a
+                page)."""
                 path_only = self.path.split("?", 1)[0]
                 # Real hardware refuses an unauthenticated write (redirects to
                 # login); mirror that so the suite catches a client that uploads
@@ -293,7 +297,7 @@ class VirtualHttpFace:
                     return
                 raw = self._raw()
                 with face._lock:
-                    response = web_gs728tpp.apply_cert_import(
+                    response = web_gs728tpp.apply_write(
                         face.state, raw.decode("utf-8")
                     )
                 self._send(response)

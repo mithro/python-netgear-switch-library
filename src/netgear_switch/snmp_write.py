@@ -19,7 +19,7 @@ from .errors import (
     UnsupportedCapabilityError,
     WriteVerificationError,
 )
-from .models import PoEDetect, VlanMode
+from .models import PoEDetect, VlanMode, poe_cycle_complete
 from .protocols.snmp import oids
 from .protocols.snmp.client import SnmpError
 from .protocols.snmp.parse import decode_port_bitmap, physical_ports
@@ -327,12 +327,41 @@ def _poe_is_off(status: PoEStatus | None, port_up: bool) -> bool:
     )
 
 
-def _poe_recovered(status: PoEStatus | None) -> bool:
-    """True once detect has left FAULT and settled to delivering/searching."""
+#: Why an SNMP VLAN create is refused on a model whose agent cannot do it. A
+#: capability refusal, so it is raised BEFORE any SET is attempted and the
+#: caller can route the operation to a backend that works.
+_NO_VLAN_CREATE = (
+    "this model's SNMP agent cannot create a VLAN: every RowStatus mechanism "
+    "(createAndGo, createAndGo+name in one PDU, createAndWait->name->active, "
+    "the name column alone, and createAndGo carrying an egress PortList) is "
+    "answered inconsistentValue -- measured on the device. Membership, PVID "
+    "and delete DO work over SNMP; create a VLAN over the HTTP backend"
+)
+
+
+def _require_snmp_vlan_creation(model: SwitchModel) -> None:
+    if not model.snmp_can_create_vlan:
+        raise UnsupportedCapabilityError(f"model {model.key!r}: {_NO_VLAN_CREATE}")
+
+
+def _poe_recovered(before: PoEStatus | None, status: PoEStatus | None) -> bool:
+    """True once detect has left FAULT and settled to delivering/searching.
+
+    ``before`` is unused: clearing a fault succeeds when the port has left
+    FAULT, whatever it was doing beforehand. It is in the signature so both
+    recovery predicates share one shape (see ``_poe_cycled_back``).
+    """
+    del before
     return status is not None and status.detect in (
         PoEDetect.DELIVERING,
         PoEDetect.SEARCHING,
     )
+
+
+#: See ``models.poe_cycle_complete`` -- shared with the HTTP writer, because
+#: what counts as a port having come back is a property of the port rather than
+#: of the protocol that asked.
+_poe_cycled_back = poe_cycle_complete
 
 
 class SnmpWriter:
@@ -415,7 +444,7 @@ class SnmpWriter:
         timeouts: PoeCycleTimeouts,
         sleep: Callable[[float], None],
         clock: Callable[[], float],
-        on_recovered: Callable[[PoEStatus | None], bool],
+        on_recovered: Callable[[PoEStatus | None, PoEStatus | None], bool],
         on_timeout_message: str,
     ) -> None:
         """Re-arm PoE on ``port``: TWO SEPARATE sequential SETs (off, then on)
@@ -440,7 +469,7 @@ class SnmpWriter:
         # Phase 2: on, poll until the caller's recovery predicate is met.
         self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
         deadline = clock() + timeouts.on_timeout
-        while not on_recovered(self._poe_status(port)):
+        while not on_recovered(before, self._poe_status(port)):
             if clock() >= deadline:
                 raise WriteVerificationError(
                     on_timeout_message.format(timeout=timeouts.on_timeout),
@@ -464,9 +493,10 @@ class SnmpWriter:
             timeouts=timeouts,
             sleep=sleep,
             clock=clock,
-            on_recovered=lambda st: bool(st and st.delivering),
+            on_recovered=_poe_cycled_back,
             on_timeout_message=(
-                f"PoE port {port} did not return to delivering within {{timeout}}s"
+                f"PoE port {port} did not come back after the power cycle "
+                "within {timeout}s"
             ),
         )
 
@@ -672,6 +702,7 @@ class SnmpWriter:
         # Creating an EMPTY VLAN adds no port membership, so it is
         # non-disruptive and does NOT require force. ``force`` exists only for
         # signature symmetry with delete_vlan (review item 3).
+        _require_snmp_vlan_creation(self.model)
         before = self._vlan(vlan)
         self.client.set_many(
             [
@@ -898,7 +929,7 @@ class AsyncSnmpWriter:
         timeouts: PoeCycleTimeouts,
         sleep: Callable[[float], Awaitable[None]],
         clock: Callable[[], float],
-        on_recovered: Callable[[PoEStatus | None], bool],
+        on_recovered: Callable[[PoEStatus | None, PoEStatus | None], bool],
         on_timeout_message: str,
     ) -> None:
         """Async twin of ``SnmpWriter._poe_rearm``: TWO SEPARATE sequential
@@ -921,7 +952,7 @@ class AsyncSnmpWriter:
         # Phase 2: on, poll until the caller's recovery predicate is met.
         await self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
         deadline = clock() + timeouts.on_timeout
-        while not on_recovered(await self._poe_status(port)):
+        while not on_recovered(before, await self._poe_status(port)):
             if clock() >= deadline:
                 raise WriteVerificationError(
                     on_timeout_message.format(timeout=timeouts.on_timeout),
@@ -945,9 +976,10 @@ class AsyncSnmpWriter:
             timeouts=timeouts,
             sleep=sleep,
             clock=clock,
-            on_recovered=lambda st: bool(st and st.delivering),
+            on_recovered=_poe_cycled_back,
             on_timeout_message=(
-                f"PoE port {port} did not return to delivering within {{timeout}}s"
+                f"PoE port {port} did not come back after the power cycle "
+                "within {timeout}s"
             ),
         )
 
@@ -1130,6 +1162,7 @@ class AsyncSnmpWriter:
 
     async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
         # Empty VLAN creation is non-disruptive; force is for symmetry only.
+        _require_snmp_vlan_creation(self.model)
         before = await self._vlan(vlan)
         await self.client.set_many(
             [

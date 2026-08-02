@@ -104,6 +104,11 @@ _CLI_BACKENDS = frozenset({Backend.SSH, Backend.TELNET, Backend.CONSOLE})
 #: HTTP writes implemented by scraping the Plus dialect's CSRF token. A dialect
 #: without that token cannot serve any of them -- see
 #: ``endpoints.dialect_has_csrf_hash`` for the measurement.
+#:
+#: The XML-API dialect is exempt, and not as a special case: its writer posts an
+#: XML body and never scrapes a token, so "does this UI carry an <input
+#: name='hash'>" is not a question about it. Both ops are LIVE-VERIFIED there
+#: (GS728TPP 10.2.5.10, VLAN 4001 created with its name, then deleted).
 _CSRF_HTTP_WRITES = frozenset({"create_vlan", "delete_vlan"})
 
 READ_OPERATIONS: tuple[Operation, ...] = (
@@ -284,6 +289,12 @@ def _snmp_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
             f"model {model.key!r} registers no Netgear vendor OID subtree, and "
             "the logging columns are vendor-only",
         )
+    if op.name == "create_vlan" and not model.snmp_can_create_vlan:
+        # Reuse the writer's own refusal text so the table and the code that
+        # enforces it cannot drift apart.
+        from .snmp_write import _NO_VLAN_CREATE
+
+        return Support.UNSUPPORTED, f"model {model.key!r}: {_NO_VLAN_CREATE}"
     if op.name == "get_macs" and not model.has_mac_table:  # pragma: no cover
         # Unreachable today: has_mac_table IS "has an SNMP backend". Kept so the
         # rule tracks the property rather than assuming its current definition.
@@ -312,6 +323,27 @@ def _nsdp_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
     return Support.SUPPORTED, ""
 
 
+#: Writes the XML-API (GoAhead ``wcd``) writer actually implements, each with a
+#: body builder GROUNDED in the page's own JavaScript. An op absent here is
+#: honestly unsupported on this dialect -- not "probably works": the endpoint
+#: is shared, so a missing entry means nobody has established what body that
+#: operation sends, and guessing one would write something unintended.
+_XML_API_WRITES = {
+    "set_vlan_membership": True,
+    "set_port_enabled": True,
+    "set_poe": True,
+    "set_pvid": True,
+    "create_vlan": True,
+    "delete_vlan": True,
+    # No reset control exists on this UI (its PoE page has only Refresh/Cancel/
+    # Apply, and Behaviour/UnitsPoe.js has no reset action), so these are an
+    # admin off/on re-arm of the same field -- the mechanism SnmpWriter already
+    # uses on agents with no reset column.
+    "cycle_poe": True,
+    "clear_poe_fault": True,
+}
+
+
 def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
     """The endpoint ``op`` needs, or ``None`` if this model's UI has no such page.
 
@@ -320,6 +352,22 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
     exactly one definition of "this UI can answer that".
     """
     from .http_read import _has_sysinfo_hostname, _mgmt_ip_path, _supports_sensors
+    from .http_write import _is_xml_api_dialect
+
+    if _is_xml_api_dialect(spec) and op.kind is OperationKind.WRITE:
+        # On an XML-API UI every write POSTs to one endpoint and the BODY
+        # selects the operation, so "is there a page for this op" is the wrong
+        # question -- there is no per-op page, and answering it with the op's
+        # READ path would claim support for any write whose data can be read.
+        # That is not hypothetical: set_pvid was reported SUPPORTED on the
+        # GS728TPP purely because pvid_path exists, while the writer would have
+        # posted a Plus-class CGI form at a wcd query string.
+        #
+        # Certificate upload keeps its own path: it is a distinct XML flow with
+        # its own grounding and its own response check.
+        if op.name == "upload_certificate":
+            return spec.cert_upload_path
+        return spec.xml_write_path if _XML_API_WRITES.get(op.name) else None
 
     simple: dict[str, str | None] = {
         "get_ports": spec.dashboard_path,
@@ -355,7 +403,7 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
 
 
 def _http_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
-    from .http_write import CERT_UPLOAD_KNOWN_UNIMPLEMENTED
+    from .http_write import CERT_UPLOAD_KNOWN_UNIMPLEMENTED, _is_xml_api_dialect
     from .protocols.http.endpoints import dialect_has_csrf_hash, http_spec
 
     spec = http_spec(model)
@@ -379,7 +427,11 @@ def _http_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
                 f"this model takes a certificate by {mechanism}, not over the "
                 "web UI -- use upload_certificate_scp",
             )
-    if op.name in _CSRF_HTTP_WRITES and not dialect_has_csrf_hash(spec.html_dialect):
+    if (
+        op.name in _CSRF_HTTP_WRITES
+        and not _is_xml_api_dialect(spec)
+        and not dialect_has_csrf_hash(spec.html_dialect)
+    ):
         # These writers scrape an <input name="hash"> before posting, and this
         # dialect's pages do not carry one -- MEASURED on gsm7252ps and
         # gs110emx, see endpoints.dialect_has_csrf_hash. Driving them raises
