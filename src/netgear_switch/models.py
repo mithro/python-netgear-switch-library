@@ -38,6 +38,17 @@ class PortStatus:
     # older tests) keep constructing without it; a backend that cannot read
     # ifAlias (NSDP, HTTP) leaves it honestly None rather than fabricating "".
     description: str | None = None
+    #: Whether the link negotiated FULL duplex. ``None`` when the backend cannot
+    #: tell -- a down port has no negotiated duplex, and not every backend
+    #: reports it at all. Measured 2026-08-02: the M4300's EtherLike-MIB dot3
+    #: table exposes only error counters, NOT dot3StatsDuplexStatus (column 19
+    #: is absent), so SNMP cannot answer this and leaves it None. The FASTPATH
+    #: CLI does: `show port all` reports "1000 Full" in its Physical Status
+    #: column, carrying speed and duplex together.
+    full_duplex: bool | None = None
+    #: Whether IEEE 802.3x flow control is enabled on the port ("Flow Mode" in
+    #: `show port all`). ``None`` where the backend does not report it.
+    flow_control: bool | None = None
 
 
 @dataclass(frozen=True)

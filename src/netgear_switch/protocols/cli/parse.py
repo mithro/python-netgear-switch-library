@@ -244,6 +244,11 @@ def parse_version(text: str, models: Mapping[str, SwitchModel]) -> DetectedModel
 #   Link Status | Link Trap | LACP Mode | Flow Mode
 _PORT_INTF, _PORT_TYPE, _PORT_ADMIN = 0, 1, 2
 _PORT_PHYS_MODE, _PORT_PHYS_STATUS, _PORT_LINK = 3, 4, 5
+# Flow Mode is the LAST column of `show port all` (Intf, Type, Admin Mode,
+# Physical Mode, Physical Status, Link Status, Link Trap, LACP Mode, Flow
+# Mode). Indexed from the end so a firmware that omits an intermediate
+# column cannot silently shift it.
+_PORT_FLOW = -1
 
 _SPEED_RE = re.compile(r"(\d+)\s*([GgMm]?)")
 
@@ -261,13 +266,30 @@ def _speed_mbps(phys_status: str) -> int | None:
     return value * 1000 if m.group(2).upper() == "G" else value
 
 
+def _duplex(phys_status: str) -> bool | None:
+    """FULL/HALF from the Physical Status cell, e.g. "1000 Full" -> True.
+
+    Blank on a down port, which has no negotiated duplex -- honestly None rather
+    than a fabricated False.
+    """
+    text = phys_status.strip().lower()
+    if "full" in text:
+        return True
+    if "half" in text:
+        return False
+    return None
+
+
 def parse_port_status(text: str) -> list[PortStatus]:
     """``show port all`` -> per physical-port ``PortStatus``.
 
     ``admin_enabled`` = Admin Mode == "Enable"; ``link_up`` = Link Status ==
-    "Up"; ``speed_mbps`` from Physical Status (None when blank/down). ``lag N``
-    aggregation rows are skipped (not physical ports). ``description`` is
-    honestly ``None``: this command carries no ifAlias column.
+    "Up"; ``speed_mbps`` and ``full_duplex`` both from Physical Status, which
+    carries them together ("1000 Full"); ``flow_control`` from the Flow Mode
+    column. All three are ``None`` on a down port, which has negotiated nothing.
+    ``lag N`` aggregation rows are skipped (not physical ports).
+    ``description`` is honestly ``None``: this command carries no ifAlias
+    column.
     """
     out: list[PortStatus] = []
     for cells in iter_table_rows(text):
@@ -288,6 +310,16 @@ def parse_port_status(text: str) -> list[PortStatus]:
                     else None
                 ),
                 description=None,
+                full_duplex=(
+                    _duplex(cells[_PORT_PHYS_STATUS])
+                    if cells[_PORT_LINK].strip().lower() == "up"
+                    else None
+                ),
+                flow_control=(
+                    cells[_PORT_FLOW].strip().lower() == "enable"
+                    if len(cells) > _PORT_LINK + 1
+                    else None
+                ),
             )
         )
     return out
