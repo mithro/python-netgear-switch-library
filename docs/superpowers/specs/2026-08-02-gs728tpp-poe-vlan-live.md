@@ -202,15 +202,70 @@ consumption column, and this agent implements **zero** Netgear vendor OIDs (a
 walk of `1.3.6.1.4.1.4526` answers noSuchObject). Everything else in `get_poe`
 — admin state and detection status — matches HTTP port for port.
 
-## Status
+## SNMP cannot create a VLAN on this firmware — proven, not assumed
 
-| Area | SNMP | HTTP |
+`create_vlan` over SNMP is refused. Before recording that as a device
+limitation, every documented mechanism was tried; all five answer
+`inconsistentValue` naming `.1.3.6.1.2.1.17.7.1.4.3.1.5.<vlan>`:
+
+| attempt | result |
+| --- | --- |
+| `createAndGo(4)` alone | inconsistentValue |
+| `createAndGo(4)` + `dot1qVlanStaticName` in ONE PDU (RFC 2579's requirement) | inconsistentValue |
+| `createAndWait(5)` → name → `active(1)` | inconsistentValue at each step |
+| `dot1qVlanStaticName` alone (implicit row creation) | inconsistentValue |
+| `createAndGo(4)` + name + empty 126-byte egress PortList | inconsistentValue |
+
+And it is neither a read-only table nor a rejected VLAN id. On the same switch,
+in the same session:
+
+* an **existing** row's membership was rewritten — VLAN 90 / port 17, tagged →
+  excluded → tagged, verified and restored;
+* `dot1qPvid` was written and read back;
+* `destroy(6)` removed a VLAN;
+* the **web UI created VLAN 4001** without complaint.
+
+So row creation specifically is unimplemented in this agent.
+`registry.snmp_can_create_vlan=False`, `SnmpWriter.create_vlan` refuses by name
+before sending anything, and the capability table reuses the writer's own
+reason. Creating a VLAN here is an HTTP operation — which is exactly why the
+library keeps both backends.
+
+## Two defects the hardware exposed in shared code
+
+**`cycle_poe` reported failure on success.** Its recovery predicate demanded
+`DELIVERING` whatever the port had been doing, so cycling port 17 — which has
+nothing attached — polled the full 60s and raised `WriteVerificationError` on a
+cycle that had worked. A port with no powered device can never reach
+`DELIVERING`. Recovery is now relative to the port's prior state
+(`models.poe_cycle_complete`, shared by both writers). `clear_poe_fault`
+passing on the same port in the same run, driving the identical off/on
+sequence, is what isolated it to the predicate rather than the write.
+
+**A session that expires mid-run looked like a parser bug.** The switch answers
+an expired session with HTTP **200** and a normal `<ResponseData>` envelope
+whose ActionStatus carries `statusCode 4 / "Request Is not authenticated"`.
+Reads now re-authenticate and re-issue once; writes never re-send, and say so.
+A first attempt at detecting this keyed off the *absence* of `<ResponseData>`
+— a guess, and wrong, since the unauthenticated reply has one. The signal was
+settled by making a request with a stale cookie and reading the answer.
+
+## Status — all live-verified on the switch
+
+| operation | SNMP | HTTP |
 | --- | --- | --- |
-| get_ports / get_pvids / get_vlans / get_lldp | live-verified, cross-checked | live-verified, cross-checked |
-| get_poe | live-verified (no per-port mW: device limit) | live-verified |
-| PoE write (set/cycle/clear-fault) | to verify live | **not implemented** |
-| VLAN create/delete/membership | to verify live | **not implemented** |
-| set_pvid | to verify live | claimed supported, to verify live |
+| get_ports / get_vlans / get_pvids | ✅ | ✅ (agree field-for-field) |
+| get_lldp | ✅ | ✅ (agree back-to-back) |
+| get_poe | ✅ (no per-port mW: device limit) | ✅ |
+| set_poe | ✅ | ✅ |
+| cycle_poe / clear_poe_fault | ✅ | ✅ (admin re-arm; no reset control exists) |
+| set_port_enabled | ✅ | ✅ |
+| set_vlan_membership (tagged/untagged/excluded) | ✅ | ✅ |
+| set_pvid | ✅ | ✅ |
+| delete_vlan | ✅ | ✅ |
+| create_vlan | ❌ device refuses (proven above) | ✅ |
 
-Test ports reserved for the write work: **port 17** (link-down, no description,
-PoE `SEARCHING`, PVID 4) and throwaway VLAN id **4001**.
+Throwaway resources used throughout: **port 17** (link-down, no description,
+PoE idle) and VLAN **4001**. Every run recorded the prior state, restored it,
+and proved the restore by re-reading on both backends. Nothing was ever saved
+to startup configuration.
