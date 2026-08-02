@@ -520,3 +520,31 @@ empty for this page, and `page.nav` is
 sentinel, or re-uses index 0 has not been established, and getting it wrong
 would edit an existing VLAN rather than add one. That is the single remaining
 unknown, and it is readable from `xui_common.js`'s row-add handler.
+
+
+### Next action: capture the real POST with a browser
+
+`xui_common.js` (18027 bytes) is generic framework — it drives `submit_flag`
+and the `xeData` attribute maps but contains no row-add handler.
+`_xe_vlanConfiguration.js` only declares column attributes (column 1 carries
+`"mandate"`, i.e. the VLAN id is required). Neither states the index a new row
+takes, and further reading of the framework is poor value.
+
+The definitive answer is one browser capture: load `/vlanConfiguration.html`
+with Playwright, click ADD, enter a throwaway VLAN id from the reserved
+4001-4008 range, click APPLY, and record the actual request body. That yields
+the exact field names and row index the firmware expects, rather than any
+inference — and it is the same technique that cracked the M4300's read-page
+URLs when static analysis dead-ended.
+
+This IS a real create, so it runs under the project's live-hardware rules:
+throwaway id only, record the prior VLAN set, delete afterwards, and prove the
+restore by re-reading. Those rules exist precisely to sanction this kind of
+measurement, and creating VLAN 4007 on a switch that already carries 14 VLANs
+is the least invasive write in this whole area.
+
+Once that body is captured, `_xui_vlan_create`/`_xui_vlan_delete` are a small
+addition next to `_xui_poe_admin`, the `_CSRF_HTTP_WRITES` entry comes out of
+`capabilities.py`, and the xfail in `test_write_outcomes.py` should flip to
+passing — at which point HTTP VLAN creation works on all four FASTPATH models
+and the support table can say so truthfully.
