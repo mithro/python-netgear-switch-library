@@ -52,6 +52,12 @@ _OP_TO_COMMAND = {
     "set_mgmt_ip": "ip",
     "upload_certificate": "upload-certificate",
     "upload_certificate_scp": "upload-certificate-scp",
+    "get_users": "users",
+    "get_services": "services",
+    "get_hostname": "hostname",
+    "set_hostname": "hostname",
+    "get_syslog": "syslog",
+    "set_syslog_enabled": "syslog",
 }
 
 

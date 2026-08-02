@@ -206,6 +206,67 @@ def _cmd_sensors(
     return EXIT_OK
 
 
+def _cmd_users(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_users(), fmt.users_table)
+    return EXIT_OK
+
+
+def _cmd_services(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_services(), fmt.services_table)
+    return EXIT_OK
+
+
+def _cmd_syslog(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_syslog(), fmt.syslog_text)
+    return EXIT_OK
+
+
+def _cmd_syslog_set(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    enabled = args.state == "on"
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"turn remote logging {args.state}",
+        action=lambda: switch.set_syslog_enabled(enabled, force=args.force),
+    )
+
+
+def _cmd_hostname(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_hostname(), fmt.hostname_text)
+    return EXIT_OK
+
+
+def _cmd_hostname_set(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"set hostname to {args.name!r}",
+        action=lambda: switch.set_hostname(args.name, force=args.force),
+    )
+
+
 def _cmd_show(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
@@ -558,6 +619,8 @@ def build_parser() -> argparse.ArgumentParser:
     read_cmd("lldp", _cmd_lldp, "show LLDP neighbours")
     read_cmd("macs", _cmd_macs, "show the MAC/FDB table")
     read_cmd("sensors", _cmd_sensors, "show sensors")
+    read_cmd("users", _cmd_users, "show local login accounts")
+    read_cmd("services", _cmd_services, "show which management services are enabled")
     read_cmd("show", _cmd_show, "show a full switch snapshot")
     read_cmd("identify", _cmd_identify, "detect the switch's real model over SNMP")
     read_cmd(
@@ -688,6 +751,33 @@ def build_parser() -> argparse.ArgumentParser:
     ip_set.add_argument("gateway")
     safety.add_write_args(ip_set)
     ip_set.set_defaults(func=_cmd_ip_set)
+
+    # hostname / syslog follow the `ip` shape: bare command reads, `set` writes.
+    hostname = sub.add_parser(
+        "hostname", parents=[child_gp], help="show or set the switch's host name"
+    )
+    hostname.set_defaults(func=_cmd_hostname)
+    hostname_sub = hostname.add_subparsers(dest="hostname_cmd")
+    hostname_set = hostname_sub.add_parser(
+        "set", parents=[child_gp], help="set the switch's host name"
+    )
+    hostname_set.add_argument("name")
+    safety.add_write_args(hostname_set)
+    hostname_set.set_defaults(func=_cmd_hostname_set)
+
+    syslog = sub.add_parser(
+        "syslog",
+        parents=[child_gp],
+        help="show remote-logging config, or turn it on/off",
+    )
+    syslog.set_defaults(func=_cmd_syslog)
+    syslog_sub = syslog.add_subparsers(dest="syslog_cmd")
+    syslog_set = syslog_sub.add_parser(
+        "set", parents=[child_gp], help="turn remote logging on or off"
+    )
+    syslog_set.add_argument("state", choices=("on", "off"))
+    safety.add_write_args(syslog_set)
+    syslog_set.set_defaults(func=_cmd_syslog_set)
 
     cap = sub.add_parser(
         "capture",

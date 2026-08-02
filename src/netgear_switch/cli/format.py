@@ -23,7 +23,10 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        ServiceStatus,
         SwitchData,
+        SwitchUser,
+        SyslogConfig,
         VLANInfo,
     )
     from netgear_switch.protocols.nsdp.types import NsdpDevice
@@ -215,6 +218,51 @@ def mgmt_ip_text(cfg: MgmtIpConfig) -> str:
             f"mac:     {cfg.base_mac or '-'}",
         ]
     )
+
+
+def hostname_text(name: str) -> str:
+    return name
+
+
+def users_table(users: Sequence[SwitchUser]) -> str:
+    """Local accounts, showing the firmware's OWN wording for the access mode.
+
+    ``access_mode`` is printed verbatim and ``privileged`` beside it: the two
+    images word the same level differently (``Privilege-15`` vs ``Read/Write``),
+    so showing only a normalised flag would hide what the switch actually said,
+    and showing only the text would make two switches look incomparable.
+    """
+    return _table(
+        ["user", "access mode", "privileged"],
+        [
+            [u.name, u.access_mode, "-" if u.privileged is None else str(u.privileged)]
+            for u in users
+        ],
+    )
+
+
+def services_table(services: Sequence[ServiceStatus]) -> str:
+    return _table(
+        ["service", "enabled", "port"],
+        [
+            [s.name, str(s.enabled), "-" if s.port is None else str(s.port)]
+            for s in services
+        ],
+    )
+
+
+def syslog_text(cfg: SyslogConfig) -> str:
+    head = [
+        f"enabled:    {cfg.enabled}",
+        f"local port: {cfg.local_port}",
+    ]
+    if not cfg.servers:
+        return "\n".join([*head, "collectors: none"])
+    rows = _table(
+        ["collector", "port", "severity", "active"],
+        [[s.host, str(s.port), str(s.severity), str(s.active)] for s in cfg.servers],
+    )
+    return "\n".join([*head, "collectors:", rows])
 
 
 def snapshot_text(data: SwitchData) -> str:

@@ -48,6 +48,22 @@ The operations
      - :py:obj:`~netgear_switch.models.MgmtIpConfig`
      - Address, netmask, gateway, DHCP-or-static mode, and the switch's base
        MAC.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_hostname`
+     - ``str``
+     - The switch's configured host name.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_users`
+     - ``list[SwitchUser]``
+     - Local login accounts. ``access_mode`` is the firmware's own wording —
+       the images disagree (``Privilege-15`` vs ``Read/Write``) — with a
+       normalised ``privileged`` flag beside it.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_services`
+     - ``list[ServiceStatus]``
+     - Whether http, https, telnet and ssh are enabled, and on which port
+       where the firmware reports one.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_syslog`
+     - :py:obj:`~netgear_switch.models.SyslogConfig`
+     - Whether remote logging is on, the local source port, and the configured
+       collectors.
 
 Not every model serves every one of these on every backend.
 :doc:`../models/support` has the complete grid, and

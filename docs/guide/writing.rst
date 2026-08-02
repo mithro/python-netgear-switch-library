@@ -33,6 +33,10 @@ The operations
      - Delete a VLAN.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_mgmt_ip`
      - Set the management address, netmask and gateway.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_hostname`
+     - Set the switch's host name.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_syslog_enabled`
+     - Turn remote logging on or off. Does not change the collector list.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.upload_certificate` / :py:obj:`~netgear_switch.sync_api.SyncSwitch.upload_certificate_scp`
      - Install an HTTPS server certificate — over the web UI, or by FASTPATH
        ``copy scp://``.

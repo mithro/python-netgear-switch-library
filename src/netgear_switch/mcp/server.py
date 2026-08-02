@@ -246,6 +246,26 @@ def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-
     _register_read("get_sensors", "get_sensors", "Fan/temperature/PSU sensors.")
     _register_read("get_poe", "get_poe", "Per-port PoE status and delivered power.")
     _register_read("get_mgmt_ip", "get_mgmt_ip", "Management IP config and base MAC.")
+    _register_read("get_hostname", "get_hostname", "The switch's configured host name.")
+    _register_read(
+        "get_users",
+        "get_users",
+        "Local login accounts and their access level. The access mode is the "
+        "firmware's own wording, which differs between images, with a "
+        "normalised 'privileged' flag beside it.",
+    )
+    _register_read(
+        "get_services",
+        "get_services",
+        "Which management services (http/https/telnet/ssh) are enabled, and on "
+        "which port where the firmware reports one.",
+    )
+    _register_read(
+        "get_syslog",
+        "get_syslog",
+        "Remote-logging configuration: whether it is on, the local source port, "
+        "and the configured collectors.",
+    )
     _register_read(
         "snapshot",
         "snapshot",
@@ -312,6 +332,51 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         return _write(
             "set_pvid",
             lambda: sw.set_pvid(port, vlan, force=force, backend=chosen),
+        )
+
+    @mcp.tool()
+    def set_hostname(
+        name: str,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
+        nsdp_interface: str | None = None,
+        backend: str | None = None,
+    ) -> dict[str, Any]:
+        """Set the switch's host name. Reversible by writing the old name back."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        chosen = _as_backend(backend)
+        return _write(
+            "set_hostname", lambda: sw.set_hostname(name, force=force, backend=chosen)
+        )
+
+    @mcp.tool()
+    def set_syslog_enabled(
+        enabled: bool,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
+        nsdp_interface: str | None = None,
+        backend: str | None = None,
+    ) -> dict[str, Any]:
+        """Turn remote logging on or off. Does not change the collector list."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        chosen = _as_backend(backend)
+        return _write(
+            "set_syslog_enabled",
+            lambda: sw.set_syslog_enabled(enabled, force=force, backend=chosen),
         )
 
     @mcp.tool()
