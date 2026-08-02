@@ -215,3 +215,44 @@ cross-backend operation.
 Service protocols are NOT implementable yet: SSH state is readable, inbound
 telnet state is unlocated, and HTTP state is unlocated. Recording that as three
 separate unknowns rather than one blocked feature.
+
+
+## Service-protocol WRITE commands — attempted, not established
+
+Reading service state is done (`show ip http`, `show telnetcon`, `show ip ssh`;
+see `get_services`). The commands that CHANGE it are not, and this section
+records the attempt so the next person does not repeat it.
+
+Toggling a management service on a production switch can lock out the very
+session doing it — disabling SSH on 10.1.5.13 would end the connection issuing
+the command — so no toggle was performed. The safe substitute this project uses
+elsewhere is the device's own context-sensitive help (`<partial> ?`), which is
+read-only and abandons the line.
+
+That substitute did **not** work cleanly here. Asked in config mode on
+m4300-24x:
+
+| Query | Answer |
+|---|---|
+| `ip http ?` | lists only `accounting` and `authentication` |
+| `ip ssh ?` | `% Unrecognized command` |
+| `ip telnet ?` | `% Unrecognized command` |
+| `telnet ?` | `% Unrecognized command` |
+
+Two reasons to distrust the negative results rather than record them as limits:
+
+1. **`ip http secure-server` is demonstrably valid on this switch** — it appears
+   in its own `show running-config | include http` output. So the `ip http ?`
+   listing above is incomplete, not authoritative, and the help query is being
+   partly consumed by the shell driver rather than fully captured.
+2. `show running-config | include telnet` returns `line telnet`, which suggests
+   the inbound telnet server is configured inside a `line telnet` sub-mode
+   rather than at global-config level. That would explain the `ip telnet`
+   rejection without meaning the capability is absent.
+
+**Conclusion: unresolved, and deliberately not implemented.** What is needed is
+either a capture of the help output through a driver that does not swallow it,
+or a toggle performed on a switch that is safe to lose contact with. Writing
+`ip http server` / `no ip ssh server` on the strength of FASTPATH convention
+would be precisely the inference this project forbids — and the cost of being
+wrong is a switch that can no longer be reached.
