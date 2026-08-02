@@ -407,3 +407,37 @@ So the fix is two parts, and neither is a device limitation:
 Which of the four buttons is Add and which is Delete has NOT been established —
 that needs the page's own markup read carefully, and the write driven against a
 switch with a throwaway VLAN id before anything is claimed.
+
+
+### `/vlanConfiguration.html` field semantics (read off the capture)
+
+Correcting the previous note again: `v_2_1_1`..`v_2_1_4` are **row cell fields,
+not action buttons**. From the capture:
+
+| Field | Value in row 1 | Meaning |
+|---|---|---|
+| `1.0.14.v_2_1_1` | `1` | VLAN id |
+| `1.0.14.v_2_1_2` | `default` | VLAN name |
+| `1.0.14.v_2_1_3` | `Default` | VLAN type |
+| `1.0.14.v_2_1_4` | `Add` | per-row action, in a `display:none` cell |
+
+Two `FORM`s as expected: `/vlanConfiguration.html/a0` and `/a1`.
+
+So this is the standard XUI editable-table shape the library already handles for
+PoE (`parse_xui_list_page` + `forms.xui_row_apply_form`), with one difference
+that matters: PoE **edits an existing row**, whereas creating a VLAN means
+**submitting a NEW row** carrying the id, the name and the action cell.
+
+`xui_row_apply_form` builds its body from a row the parser found on the page, so
+it cannot express "a row that is not there yet". Creating a VLAN needs a sibling
+builder — an add-row form — rather than a new argument to the existing one.
+
+**Not yet established, and deliberately not guessed:** whether the action cell
+takes the literal `Add` for a new row, what a delete row carries in that cell,
+and whether the id/name cells for a new row are indexed `v_2_<n>_<col>` at the
+next free row number or at a fixed "new row" index. Every one of those is
+readable from the page's own JavaScript or from a browser-driven capture of a
+real Add. Until then this stays unimplemented: posting a guessed action to a
+switch's live VLAN table is the one write here that could disrupt production
+VLANs, and the project's rule is that a wrong guess must never be shipped as a
+capability.
