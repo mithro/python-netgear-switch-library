@@ -157,6 +157,17 @@ def port_name_tlv(port: int, name: str) -> TLVEntry:
     return TLVEntry(Tag.PORT_NAME, bytes([port]) + name.encode("utf-8"))
 
 
+def hostname_tlv(name: str) -> TLVEntry:
+    """Host-name write TLV (tag 0x0003), the same shape the read decodes.
+
+    The read side is measured -- ``parsers`` decodes this tag as plain text and
+    three live GS110EMX report their names through it -- so the write is that
+    encoding with nothing added: the bare name, ASCII, no length prefix and no
+    port byte (unlike ``port_name_tlv`` above, whose tag is indexed by port).
+    """
+    return TLVEntry(Tag.HOSTNAME, name.encode("ascii"))
+
+
 def ipv4_tlv(tag: Tag, dotted: str) -> TLVEntry:
     return TLVEntry(tag, socket.inet_aton(dotted))
 

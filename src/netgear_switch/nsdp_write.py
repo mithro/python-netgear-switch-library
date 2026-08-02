@@ -33,6 +33,7 @@ from .models import VlanMode
 from .nsdp_read import AsyncNsdpReader, NsdpReader
 from .protocols.nsdp.protocol import Tag
 from .protocols.nsdp.write import (
+    hostname_tlv,
     ipv4_tlv,
     pvid_tlv,
     vlan_destroy_tlv,
@@ -131,6 +132,28 @@ class NsdpWriter:
 
     def _vlan(self, vlan: int) -> VLANInfo | None:
         return next((v for v in self._reader.get_vlans() if v.vlan_id == vlan), None)
+
+    def set_hostname(self, name: str, *, force: bool = False) -> None:
+        """Set the switch's host name over NSDP (tag 0x0003).
+
+        The Plus family's only write route for this: those switches have no SNMP
+        agent and no CLI, so without this they cannot be renamed at all.
+
+        Not force-gated -- renaming cannot strand a switch, and it is reversible
+        by writing the old name back. Verified by re-reading the tag.
+        """
+        del force  # accepted for a uniform writer signature; nothing to gate
+        if not name.strip():
+            raise ValueError("hostname must not be empty")
+        before = self._reader.get_hostname()
+        self.client.write([hostname_tlv(name)], password=self._password)
+        after = self._reader.get_hostname()
+        if after != name:
+            raise WriteVerificationError(
+                f"host name is {after!r} after writing {name!r}",
+                before=before,
+                after=after,
+            )
 
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): PORT_PVID
