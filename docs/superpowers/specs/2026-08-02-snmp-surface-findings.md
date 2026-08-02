@@ -256,3 +256,52 @@ or a toggle performed on a switch that is safe to lose contact with. Writing
 `ip http server` / `no ip ssh server` on the strength of FASTPATH convention
 would be precisely the inference this project forbids — and the cost of being
 wrong is a switch that can no longer be reached.
+
+
+## DEFECT: HTTP `create_vlan` cannot work on the FASTPATH models
+
+Found 2026-08-02 by driving `create_vlan` over each backend of gsm7252ps
+(10.1.5.22) against the live switch:
+
+| Backend | Result |
+|---|---|
+| SNMP | created, deleted, VLAN set restored — PASS |
+| SSH | created, deleted, VLAN set restored — PASS |
+| **HTTP** | **`HttpUnexpectedPageError: no CSRF 'hash' token on page before write`** |
+
+`HttpWriter.create_vlan` was written for the **Plus** dialect and only ever
+worked there. Its own comment says so — *"web UI 8021qCf.cgi has no VLAN-name
+field"* — that is the gs305ep/gs105pe `.cgi` page. It scrapes an
+`<input name="hash">` CSRF token and posts `forms.vlan_add_form`.
+
+On a FASTPATH model `vlan_config_path` is `/vlanStatus.html`, and a live
+capture of that page (`tests/fixtures/http/gsm7252ps_vlan_status_live.html`)
+shows it carries **no `hash` input at all** — only `applet_port`,
+`applet_unit`, `dbgopt` and the XUI cell hiddens (`1.N.14.v_1_1_M`). It is an
+XUI page and needs the two-`FORM` `submit_flag` shape, not the Plus form.
+
+### Why nothing caught it
+
+* **The capability oracle says HTTP=yes.** `_http_path_for` only asks whether
+  `vlan_config_path` is set. It is — it just points at a page this writer
+  cannot drive.
+* **The mock passes.** `virtual/web.py` emits
+  `<input type="hidden" name="hash" ...>` on *every* rendered page, including
+  the FASTPATH ones. The real FASTPATH page has no such input, so the mock and
+  the writer agree with each other while both disagree with the device — the
+  exact failure principle 5 describes, and why a green suite proved nothing.
+
+### Scope
+
+Confirmed on gsm7252ps. The same code path and page type apply to `gsm7228ps`,
+`m4300-24x` and `m4300-16x`, so they are expected to fail identically — an
+inference, and each needs its own live check before it is recorded as fact.
+`gs728tpp` is a different dialect (GoAhead XML) and untested here.
+
+### What has to change
+
+1. The mock must stop emitting a `hash` token on pages that do not have one.
+   That alone will turn the existing suite red, which is the correct outcome.
+2. `create_vlan` needs an XUI implementation for the FASTPATH dialects.
+3. Until it exists, the oracle must report HTTP `create_vlan` unsupported on
+   those models rather than claiming it works.
