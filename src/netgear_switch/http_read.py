@@ -380,6 +380,20 @@ def _with_fastpath_egress(
     return out
 
 
+def _has_sysinfo_hostname(spec: HttpModelSpec) -> bool:
+    """Whether this dialect's identity page carries the switch's host name.
+
+    True only for the two whose parsers extract it -- gs110emx's
+    ``sysInfo.html`` (``switch_name`` input) and gs105pe's ``switch_info.cgi``.
+    The FASTPATH/XE, M4300 and GoAhead identity pages were checked and carry no
+    host-name field, so their models read the name over SNMP or the CLI, both of
+    which they have.
+    """
+    return spec.sysinfo_path is not None and (
+        _is_gs110emx_dialect(spec) or _is_gs105pe_dialect(spec)
+    )
+
+
 def _parse_sysinfo(spec: HttpModelSpec, html: str) -> HttpSysInfo:
     """Dispatch the device-identity/mgmt-IP page: gs105pe's switch_info.cgi
     (lowercase ip_address inputs, dhcpMode select) vs gs110emx's sysInfo.html."""
@@ -628,6 +642,25 @@ class HttpReader:
         return _parse_sensors(
             self._spec, self.session.get_page(self._spec.sysinfo_path)
         )
+
+    def get_hostname(self) -> str:
+        """The switch's host name, from its device-identity page.
+
+        Only the two dialects whose identity page actually carries the field can
+        serve this: gs110emx's ``sysInfo.html`` and gs105pe's
+        ``switch_info.cgi``, both of which already expose it as
+        ``HttpSysInfo.switch_name``. Every other dialect's identity page has no
+        such field, and is refused by name rather than returning "" -- an empty
+        string is a real host name on a switch that has never been named, so it
+        must not double as "this backend cannot tell you".
+        """
+        if not _has_sysinfo_hostname(self._spec):
+            raise _unsupported(self.model.key, "a host name field")
+        assert self._spec.sysinfo_path is not None  # guaranteed by the guard
+        info = _parse_sysinfo(
+            self._spec, self.session.get_page(self._spec.sysinfo_path)
+        )
+        return info.switch_name
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         path = _mgmt_ip_path(self._spec)
