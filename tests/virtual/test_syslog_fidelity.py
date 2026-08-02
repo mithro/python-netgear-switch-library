@@ -29,7 +29,14 @@ MEASURED = {
     "m4300-24x": (True, 514, [("10.1.5.1", 514, 6, True)]),
     # 10.1.5.22, same row (its host table prints five columns, not eight)
     "gsm7252ps": (True, 514, [("10.1.5.1", 514, 6, True)]),
-    # 10.1.5.11: admin-mode column reads 2, and the host table is empty
+    # 10.1.5.11: admin-mode column reads 2, and the host table is empty.
+    #
+    # NOTE this is a SNAPSHOT of that switch on 2026-08-02, and the switch has
+    # since moved on: a live read on 2026-08-03 returned enabled=True with one
+    # collector. That is an operator changing the switch, not the parser
+    # breaking, and the seed stays as recorded -- the mock's job is to reproduce
+    # a state that was really observed, not to track a production device. Do not
+    # "fix" this row to match a later live read without capturing that read.
     "gsm7228ps": (False, 514, []),
 }
 
