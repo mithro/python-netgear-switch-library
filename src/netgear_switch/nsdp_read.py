@@ -216,6 +216,18 @@ class NsdpReader:
         dev = self._device([Tag.PORT_PVID])
         return [(p.port_id, p.vlan_id) for p in dev.port_pvids]
 
+    def get_hostname(self) -> str:
+        """The switch's host name, from the NSDP ``HOSTNAME`` tag (0x0003).
+
+        The same value SNMP would report as ``sysName`` -- except that a Plus
+        switch has no SNMP agent at all, which is why NSDP carries it.
+
+        A switch that has never been named answers the tag with nothing, and
+        that is a real answer rather than a failure: unlike SNMP's ``sysName``,
+        which is a mandatory scalar, this tag is genuinely optional.
+        """
+        return self._device([Tag.HOSTNAME]).hostname or ""
+
     def get_mgmt_ip(self) -> MgmtIpConfig:
         return _mgmt(
             self._device([Tag.IP_ADDRESS, Tag.NETMASK, Tag.GATEWAY, Tag.DHCP_MODE])
@@ -269,6 +281,10 @@ class AsyncNsdpReader:
     async def get_pvids(self) -> list[tuple[int, int]]:
         dev = await self._device([Tag.PORT_PVID])
         return [(p.port_id, p.vlan_id) for p in dev.port_pvids]
+
+    async def get_hostname(self) -> str:
+        """Async twin of ``NsdpReader.get_hostname`` -- see there."""
+        return (await self._device([Tag.HOSTNAME])).hostname or ""
 
     async def get_mgmt_ip(self) -> MgmtIpConfig:
         return _mgmt(
