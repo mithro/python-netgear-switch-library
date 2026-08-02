@@ -32,6 +32,30 @@ a.repofile tt {
   text-decoration-style: dotted;
 }
 
+/* Product photos (docs/_ext/support_tables.py's ngsw-model-photo).
+
+   The class sits on the <img>, not the <figure>: reST's `figure` directive
+   applies its :class: to the image node, unlike the port map below, which is
+   raw HTML and carries the class on the figure itself. */
+img.ngsw-model-photo {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  /* These are product shots on a white background. Painting that background on
+     explicitly, rather than leaving whatever the image happens to carry, keeps
+     them from reading as a bright cut-out in the dark theme. */
+  background: #fff;
+  padding: 0.75rem;
+}
+figure:has(> img.ngsw-model-photo) {
+  margin: 1rem 0 1.5rem;
+}
+figure:has(> img.ngsw-model-photo) figcaption {
+  font-size: 0.85em;
+  opacity: 0.75;
+  margin-top: 0.4rem;
+}
+
 /* Generated port maps (docs/_ext/support_tables.py's ngsw-model-diagram). */
 figure.ngsw-port-map {
   margin: 1rem 0 1.5rem;
