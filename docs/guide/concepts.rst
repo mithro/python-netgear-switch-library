@@ -57,10 +57,17 @@ A backend is *the protocol an operation travels over*:
        transports; ``CONSOLE`` is a serial line rather than a network backend,
        so it is never registered on a model.
 
-Every read and every write is implemented on every backend a model has. That is
-deliberate: if SNMP writes are locked down on your network, or the web UI is the
-only port through a firewall, you can pick a different protocol and get the same
-answer. :doc:`../models/support` lists the gaps that remain.
+Backend parity is the design aim: an operation should work on every backend a
+model has, so that if SNMP writes are locked down on your network, or the web UI
+is the only port through a firewall, you can pick a different protocol and get
+the same answer.
+
+Where that does not hold, the reason is recorded rather than glossed over. Some
+are limits proven against the hardware — the GS728TPP's SNMP agent refuses every
+documented way of creating a VLAN, while its own web UI creates one without
+complaint — and others are pages or commands nobody has built yet.
+:doc:`../models/support` marks each one. Either way the library refuses by name;
+it never substitutes a protocol you did not ask for.
 
 Dispatch: exactly one backend, every time
 -----------------------------------------

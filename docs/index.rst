@@ -75,12 +75,13 @@ follows.
 What this library gives you
 ---------------------------
 
-**The same operations on every protocol a switch speaks.** Every read and every
-write is implemented across SNMP, NSDP, the web UI and the FASTPATH CLI, so the
-*caller* picks — useful when SNMP writes are locked down, or when the web port
-is all a firewall allows. Reading VLANs over SNMP, HTTP and SSH returns the same
-values, and the tests assert it. Where a gap remains, it is listed in
-:doc:`models/support`, with the reason.
+**One set of operations, on as many of a switch's protocols as it can serve.**
+The same API drives SNMP, NSDP, the web UI and the FASTPATH CLI, so the *caller*
+picks — useful when SNMP writes are locked down, or when the web port is all a
+firewall allows. Reading VLANs over SNMP, HTTP and SSH returns the same values,
+and the tests assert it. Where a backend cannot serve an operation, the library
+refuses by name instead of quietly answering over a different protocol, and
+:doc:`models/support` records which combinations those are and why.
 
 **Plus switches, not only managed ones.** The GS110EMX, GS305EP and GS105PE have
 no SNMP agent at all; they are driven over NSDP, an undocumented UDP protocol
