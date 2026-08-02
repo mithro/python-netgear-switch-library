@@ -1,8 +1,8 @@
 Reading a switch
 ================
 
-|read-count| read operations, available on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike, each
-taking an optional ``backend=``. All return frozen dataclasses from
+Every read below is available on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike, and each
+takes an optional ``backend=``. They return frozen dataclasses from
 `netgear_switch.models`, identical whichever protocol produced them.
 
 The operations

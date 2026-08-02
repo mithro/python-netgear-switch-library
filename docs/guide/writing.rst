@@ -1,7 +1,7 @@
 Changing a switch
 =================
 
-|write-count| write operations, on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike. Each takes
+Every write below is on :py:obj:`~netgear_switch.sync_api.SyncSwitch` and :py:obj:`~netgear_switch.aio_api.AsyncSwitch` alike. Each takes
 ``force=`` and ``backend=``, each runs over exactly one protocol, and each
 reads back to confirm what it did.
 

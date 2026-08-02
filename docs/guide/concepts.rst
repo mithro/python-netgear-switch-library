@@ -57,11 +57,10 @@ A backend is *the protocol an operation travels over*:
        transports; ``CONSOLE`` is a serial line rather than a network backend,
        so it is never registered on a model.
 
-The same |read-count| read operations and |write-count| write operations are implemented on every
-backend a model has. That is deliberate: if SNMP writes are locked down on your
-network, or the web UI is the only port through a firewall, you can pick a
-different protocol and get the same answer. :doc:`../models/support` lists the
-gaps that remain.
+Every read and every write is implemented on every backend a model has. That is
+deliberate: if SNMP writes are locked down on your network, or the web UI is the
+only port through a firewall, you can pick a different protocol and get the same
+answer. :doc:`../models/support` lists the gaps that remain.
 
 Dispatch: exactly one backend, every time
 -----------------------------------------

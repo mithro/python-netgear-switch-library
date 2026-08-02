@@ -33,10 +33,6 @@ sys.path.insert(0, str(DOCS_DIR / "_ext"))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 # Imported after the path is set up, so a bare checkout resolves it too.
-from netgear_switch.capabilities import (  # noqa: E402
-    READ_OPERATIONS,
-    WRITE_OPERATIONS,
-)
 from netgear_switch.protocols.http.endpoints import HTTP_SPECS  # noqa: E402
 
 # -- Project ------------------------------------------------------------------
@@ -89,15 +85,16 @@ exclude_patterns = [
 # link to that file.
 default_role = "literal"
 
-# How many operations the library exposes, counted from the library rather than
-# written into the prose. The hand-written version said "Nine reads and ten
-# writes" while there were in fact ten and eleven: the counts were correct when
-# typed and silently went stale as operations were added, which is exactly the
-# kind of restated fact this documentation generates instead.
+# Counted from the library rather than written into the prose, because a
+# hand-written count goes stale silently: this documentation claimed "Four
+# distinct login schemes and five HTML dialects" when there were five and seven.
+#
+# There is deliberately no count of read or write OPERATIONS here. How many
+# there are is not a useful thing for a reader to know -- the pages that used to
+# open with one are followed immediately by a table naming every operation, so
+# the number told nobody anything the table did not. What matters is that the
+# set is the same on every backend, which is what those pages now say.
 rst_prolog = f"""
-.. |read-count| replace:: {len(READ_OPERATIONS)}
-.. |write-count| replace:: {len(WRITE_OPERATIONS)}
-.. |operation-count| replace:: {len(READ_OPERATIONS) + len(WRITE_OPERATIONS)}
 .. |scheme-count| replace:: {len({s.scheme for s in HTTP_SPECS.values()})}
 .. |dialect-count| replace:: {len({s.html_dialect for s in HTTP_SPECS.values()})}
 """

@@ -75,8 +75,8 @@ follows.
 What this library gives you
 ---------------------------
 
-**The same operations on every protocol a switch speaks.** |read-count| reads and |write-count|
-writes, implemented across SNMP, NSDP, the web UI and the FASTPATH CLI, so the
+**The same operations on every protocol a switch speaks.** Every read and every
+write is implemented across SNMP, NSDP, the web UI and the FASTPATH CLI, so the
 *caller* picks — useful when SNMP writes are locked down, or when the web port
 is all a firewall allows. Reading VLANs over SNMP, HTTP and SSH returns the same
 values, and the tests assert it. Where a gap remains, it is listed in
