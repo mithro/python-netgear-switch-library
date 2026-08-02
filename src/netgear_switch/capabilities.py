@@ -115,6 +115,28 @@ READ_OPERATIONS: tuple[Operation, ...] = (
     Operation("get_mgmt_ip", OperationKind.READ, "Management IP configuration"),
     Operation("get_hostname", OperationKind.READ, "The switch's host name"),
     Operation(
+        "get_users",
+        OperationKind.READ,
+        "Local login accounts and their access level",
+        # CLI only, deliberately. The S3300's vendor SNMP user table holds ONE
+        # account where its own CLI lists two, so the two backends do not report
+        # the same set; claiming both serve this would assert an equivalence the
+        # hardware contradicts. Restricting it to the CLI makes no cross-backend
+        # claim at all, and leaves the SNMP question open rather than answered
+        # wrongly.
+        backends=_CLI_BACKENDS,
+    ),
+    Operation(
+        "get_services",
+        OperationKind.READ,
+        "Which management services (http/https/telnet/ssh) are enabled",
+        # CLI only so far: `show ip http`, `show telnetcon` and `show ip ssh`
+        # are measured, and the SNMP/HTTP/NSDP equivalents are unlocated rather
+        # than absent. The four models with no CLI backend therefore have no
+        # route to this yet, which the support table now shows as a hole.
+        backends=_CLI_BACKENDS,
+    ),
+    Operation(
         "get_syslog",
         OperationKind.READ,
         "Remote-logging configuration and collectors",

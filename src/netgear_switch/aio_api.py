@@ -95,6 +95,8 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        ServiceStatus,
+        SwitchUser,
         SyslogConfig,
         VLANInfo,
         VlanMode,
@@ -451,6 +453,20 @@ class AsyncSwitch:
     async def get_syslog(self, *, backend: Backend | None = None) -> SyslogConfig:
         """Async twin of ``SyncSwitch.get_syslog`` -- see there."""
         return await self._read(lambda r: r.get_syslog(), backend)
+
+    async def get_users(self, *, backend: Backend | None = None) -> list[SwitchUser]:
+        """Async twin of ``SyncSwitch.get_users``.
+
+        AsyncSwitch has no CLI backend, so this refuses on every model -- the
+        same honest refusal every async CLI read gives.
+        """
+        return await self._read(lambda r: r.get_users(), backend)
+
+    async def get_services(
+        self, *, backend: Backend | None = None
+    ) -> list[ServiceStatus]:
+        """Async twin of ``SyncSwitch.get_services`` -- CLI only, see there."""
+        return await self._read(lambda r: r.get_services(), backend)
 
     async def get_hostname(self, *, backend: Backend | None = None) -> str:
         """Async twin of ``SyncSwitch.get_hostname`` -- see there."""

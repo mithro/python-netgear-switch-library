@@ -157,6 +157,8 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        ServiceStatus,
+        SwitchUser,
         SyslogConfig,
         VLANInfo,
         VlanMode,
@@ -563,6 +565,23 @@ class SyncSwitch:
         collectors configured.
         """
         return self._read(lambda r: r.get_syslog(), backend)
+
+    def get_users(self, *, backend: Backend | None = None) -> list[SwitchUser]:
+        """The switch's local login accounts.
+
+        Served over the FASTPATH CLI. ``SwitchUser.access_mode`` keeps the
+        firmware's own wording, which differs between images, and
+        ``privileged`` carries the normalised reading.
+        """
+        return self._read(lambda r: r.get_users(), backend)
+
+    def get_services(self, *, backend: Backend | None = None) -> list[ServiceStatus]:
+        """Which management services are enabled, and on which ports.
+
+        Served over the FASTPATH CLI. A ``port`` of ``None`` means the firmware
+        reports no port for that service, not that a default applies.
+        """
+        return self._read(lambda r: r.get_services(), backend)
 
     def get_hostname(self, *, backend: Backend | None = None) -> str:
         """The switch's host name.
