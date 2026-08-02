@@ -339,3 +339,40 @@ That is a gap in the safety net, not a bug in the test. Catching this class
 needs a different check: drive each write against the mock and assert the state
 actually changed. Recorded here so the next person does not assume a green
 capability suite means the writes work.
+
+
+### CORRECTION: the dialect is drivable; `create_vlan` just lacks the branch
+
+An earlier paragraph above implied the missing CSRF token makes the whole XE
+FASTPATH dialect undrivable for writes. **That is wrong, and this corrects it.**
+
+`HttpWriter.set_poe` branches on `_is_fastpath_dialect` into `_xui_poe_admin`,
+which posts the two-`FORM` `submit_flag` shape and needs no `hash` at all. Its
+docstring records it as LIVE-PROVEN on gsm7228ps (10.1.5.11, port `1/g12`),
+m4300-16x (10.1.5.20:49152, port 1/0/15) and gsm7252ps (10.1.5.22). Driving
+`set_poe` over HTTP against the now-faithful mock succeeds on all three
+FASTPATH models.
+
+So XUI writes work. `create_vlan`/`delete_vlan` simply have no XUI branch —
+they go straight to the Plus form and its token. That makes HTTP VLAN creation
+on FASTPATH a **missing implementation**, which principle 2 is explicit about:
+*"A backend missing an operation is a missing implementation, to be built. It is
+not a device limitation until proven otherwise."*
+
+### Consequence: the capability marking committed above is itself wrong
+
+`_CSRF_HTTP_WRITES` now makes the oracle report `Support.UNSUPPORTED` for HTTP
+`create_vlan`/`delete_vlan` on those models. But `Support.UNSUPPORTED`'s own
+docstring says it is *"Never a stand-in for 'not implemented yet'"* — and that
+is exactly what it is being used for here.
+
+The published support table therefore now tells a different lie from the one it
+told before: it previously claimed a broken write worked; it now implies the
+hardware cannot do something it can. The first lie was worse, so this is not a
+regression — but it is not the end state.
+
+**The correct fix is to implement `_xui_vlan_create`/`_xui_vlan_delete`**
+alongside `_xui_poe_admin`, modelled on the same two-`FORM` `submit_flag` post,
+then remove the `_CSRF_HTTP_WRITES` entry entirely so the table can say
+"supported" truthfully. Until that lands, the xfail in
+`tests/virtual/test_write_outcomes.py` and this note are the honest record.
