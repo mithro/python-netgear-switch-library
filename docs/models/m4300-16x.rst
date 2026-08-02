@@ -32,15 +32,17 @@ the port and the TLS flag, so :py:meth:`~netgear_switch.sync_api.SyncSwitch.get_
 with ``backend=Backend.HTTP`` reaches it with no special handling from the
 caller.
 
-**Its firmware requires a ``Referer`` header on every POST.** The same body
-returns 403 without one and 200 with it — a difference isolated live, then
-reproduced by the mock's HTTP face so the requirement cannot regress.
+**Its firmware requires an ``Origin`` header alongside the ``Referer`` on every
+POST.** A ``Referer`` alone is not enough: the same body returns 403 with only
+the Referer and 200 once Origin accompanies it, on pages whose ``GET`` returns
+200 — isolated live, then reproduced by the mock's HTTP face so the requirement
+cannot regress.
 
-**The VLAN-write dialect was settled by measurement, not by family.** This
-firmware *does* accept some Q-BRIDGE egress writes that the -24X refuses, so the
-inference from its sibling could not be trusted even though it happened to land
-on the right answer. An A/B/A on port 1/0/1, issuing byte-identical writes while
-flipping only that one port's mode, gave:
+**The VLAN-write dialect was settled by measurement, not by family.** The
+tempting reading — that this firmware simply accepts Q-BRIDGE egress writes the
+-24X refuses — is not what is happening, and the measurement says so. An A/B/A
+on port 1/0/1, issuing byte-identical writes while flipping only that one port's
+mode, gave:
 
 .. code-block:: text
 
@@ -49,11 +51,14 @@ flipping only that one port's mode, gave:
    access  → commitFailed              general → noError
 
 ``dot1qVlanStaticEgressPorts`` is writable only while **no interface on the
-switch** is in access mode — switch-wide, not per-VLAN. Since an untagged
-membership write is expressed *as* access mode, the standard dialect would
-disable itself on first use. So this SKU belongs on ``fastpath_switchport``
-after all — now for a reason rather than a guess. The full account is in
-:doc:`../guide/principles`.
+switch** is in access mode — switch-wide, not per-VLAN, and that rule is the
+same on both firmwares. The -24X looks different only because 21 of its 24 ports
+are in access mode, so its column is never writable; nothing about the two
+images differs here. Since an untagged membership write is expressed *as* access
+mode, the standard dialect would disable itself on first use, so this SKU
+belongs on ``fastpath_switchport`` after all — now for a reason rather than a
+guess, and for a reason that is a precondition rather than a firmware quirk. The
+full account is in :doc:`../guide/principles`.
 
 Protocols
 ---------

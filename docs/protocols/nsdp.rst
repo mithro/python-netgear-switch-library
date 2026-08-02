@@ -104,7 +104,9 @@ Cross-checked against other implementations
 
 The v2 fold reproduces ``go-nsdp``'s own test vector byte for byte, and two
 independent third-party tools decoded the mock's packets. ProSafeLinux decodes
-both mock switches completely, with every value matching the seed; the C
+the GS110EMX and GS105PE mocks completely, with every value matching the seed
+(the third NSDP model, the GS305EP, is seeded from invention rather than a
+capture, so decoding it would prove nothing); the C
 implementation ``ngadmin`` validated the header and surfaced a real four-byte
 sequence-number bug, since fixed.
 

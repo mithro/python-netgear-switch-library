@@ -751,24 +751,23 @@ _M4300 = HttpModelSpec(
     html_dialect=HtmlDialect.M4300,
 )
 
-# INHERITED, NOT INDEPENDENTLY CAPTURED. The M4300-16X runs the same FASTPATH
-# firmware image and therefore the same Cheetah /v1 web UI as the 24X, so the
-# login scheme and page URLs carry over -- but NO M4300-16X web session was
-# ever captured, and no fixture or test exercises this SKU's HTTP path. The
-# verified flags below are inherited from the 24X and mean "verified for this
-# firmware family", NOT "captured from a 16X". Treat a 16X-specific HTTP
-# surprise (different port count, PoE pages the 24X lacks) as unverified until
-# someone captures one.
-# reads_verified=False (unlike the 24x): the M4300-16X-PoE runs the AV-era
-# two-UI firmware where the FASTPATH "Main UI" (Cheetah) is moved OFF port 80 to
-# HTTPS on port 49152 (port 80/443 serve the Vue "AV UI" instead). Confirmed live
-# on 10.1.5.20 (2026-07-30): port 80 -> <title>network</title> (Vue), port 49152 ->
-# <TITLE>NETGEAR M4300-16X</TITLE> (Cheetah). This inherited-from-24x spec targets
-# http://<host>/v1/... (the AV-UI port) and so does NOT work against the real 16x
-# -- login POSTs 404, and :49152 resets a plaintext-http connect (it is HTTPS).
-# The 16x is otherwise fully live-verified over SNMP + CLI. Wiring 16x HTTP needed
-# HTTPS-on-49152 transport support (done) + the SIDSSL cookie + a poe_status_path
-# (the 16x IS PoE, unlike the 24x) -- all done + live cross-verified below.
+# The M4300-16X STARTED as an inherit-from-24X spec and is no longer one: it has
+# since been captured and live cross-verified in its own right (2026-07-30 on
+# 10.1.5.20:49152), there are m4300_16x_*.html fixtures, and reads_verified=True
+# below is earned rather than assumed. The paths and login scheme still come from
+# the 24X -- same FASTPATH firmware family, same Cheetah /v1 UI -- but every one
+# of them has now been driven against a real 16X.
+#
+# Inheriting was NOT enough, which is the point worth keeping. This SKU runs the
+# AV-era two-UI firmware: the Cheetah "Main UI" is moved OFF port 80 to HTTPS on
+# port 49152, while 80/443 serve the Vue "AV UI" (confirmed live -- port 80 ->
+# <title>network</title>, port 49152 -> <TITLE>NETGEAR M4300-16X</TITLE>). The
+# inherited spec therefore did not work at all against real hardware: login POSTs
+# 404'd and :49152 reset a plaintext connection. Three further differences from
+# the 24X had to be found the same way -- the HTTPS session cookie is SIDSSL not
+# SID, this SKU HAS PoE pages the non-PoE 24X lacks, and its firmware answers 403
+# to every POST that carries a Referer without an Origin. Each is recorded at the
+# field it affects below.
 _M4300_16X = dataclasses.replace(
     _M4300,
     model_key="m4300-16x",

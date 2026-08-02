@@ -140,8 +140,10 @@ A mock validated only by the client that talks to it proves nothing, so the NSDP
 face has been driven by third-party implementations that know nothing about this
 library:
 
-* **ProSafeLinux** decodes both mock switches completely, and every value it
-  reports matches the seed.
+* **ProSafeLinux** decodes the GS110EMX and GS105PE mocks completely, and every
+  value it reports matches the seed. Those two, not all three NSDP models: the
+  GS305EP seed is hand-invented, so decoding it would only confirm this
+  library's own invention.
 * **ngadmin** (a C implementation) validated the packet header — and surfaced a
   real four-byte sequence-number bug in the process, which was fixed.
 

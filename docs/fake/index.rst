@@ -60,8 +60,8 @@ with a comment naming the host and firmware version it was observed on. A
 finding that lives only in a report gets regressed by the next change.
 
 Tools that know nothing about this library have cross-checked it too. The
-third-party ProSafeLinux NSDP implementation decodes both mock switches
-completely, every value matching the seed; the C tool ``ngadmin`` validated the
+third-party ProSafeLinux NSDP implementation decodes the GS110EMX and GS105PE
+mocks completely, every value matching the seed; the C tool ``ngadmin`` validated the
 packet header — and surfaced a real four-byte sequence-number bug in the
 process, since fixed. A mock validated only by the client that talks to it
 proves nothing.
