@@ -152,7 +152,11 @@ class SnmpReader:
             if oids.has_vendor_oids(self.model)
             else []
         )
-        return parse.parse_poe(w(oids.PETH_PSE_PORT_TABLE), power)
+        # Two column-scoped walks, not the whole table: parse_poe honours only
+        # columns 3 and 6, and this table is very slow on real hardware (see
+        # oids.PETH_PSE_PORT_ADMIN for the measurement).
+        status = w(oids.PETH_PSE_PORT_ADMIN) + w(oids.PETH_PSE_PORT_DETECT)
+        return parse.parse_poe(status, power)
 
     def get_sensors(self) -> list[Sensor]:
         w = self.client.walk
@@ -349,7 +353,11 @@ class AsyncSnmpReader:
             if oids.has_vendor_oids(self.model)
             else []
         )
-        return parse.parse_poe(await w(oids.PETH_PSE_PORT_TABLE), power)
+        # Column-scoped walks -- see SnmpReader.get_poe.
+        status = await w(oids.PETH_PSE_PORT_ADMIN) + await w(
+            oids.PETH_PSE_PORT_DETECT
+        )
+        return parse.parse_poe(status, power)
 
     async def get_sensors(self) -> list[Sensor]:
         w = self.client.walk

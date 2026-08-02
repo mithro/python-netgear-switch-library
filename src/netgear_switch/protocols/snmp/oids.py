@@ -113,6 +113,18 @@ ENT_CLASS_FAN = 7
 LLDP_REM_TABLE = "1.0.8802.1.1.2.1.4.1"
 # RFC3621; col3=admin, col6=detect
 PETH_PSE_PORT_TABLE = "1.3.6.1.2.1.105.1.1.1"
+# The only two columns parse_poe honours. Reading them as two column-scoped
+# walks instead of one whole-table walk is not a micro-optimisation on real
+# hardware: the GS728TPP's PoE MIB answers at roughly 0.35s per varbind (its
+# ifTable manages 69 rows in 1.5s), so the 288-row table walk takes 102s while
+# these two 24-row columns take ~23s together. That mattered enough to make a
+# PoE WRITE -- which verifies by re-reading -- take over three minutes.
+# Measured 2026-08-02 on 10.2.5.10, firmware 6.0.1.30. (Raising
+# max-repetitions was tried and is WORSE than useless here: -Cr25 returned a
+# TRUNCATED 50 rows in 44s, so the agent mishandles large GETBULKs on this
+# table -- fetching fewer varbinds is the only safe speed-up.)
+PETH_PSE_PORT_ADMIN = PETH_PSE_PORT_TABLE + ".3"  # pethPsePortAdminEnable
+PETH_PSE_PORT_DETECT = PETH_PSE_PORT_TABLE + ".6"  # pethPsePortDetectionStatus
 # ipAddrTable (snmp_common.py:36 base .4.20)
 IP_ADENT_ADDR = "1.3.6.1.2.1.4.20.1.1"
 IP_ADENT_IFINDEX = "1.3.6.1.2.1.4.20.1.2"
