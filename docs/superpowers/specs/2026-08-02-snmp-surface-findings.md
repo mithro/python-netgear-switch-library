@@ -441,3 +441,45 @@ real Add. Until then this stays unimplemented: posting a guessed action to a
 switch's live VLAN table is the one write here that could disrupt production
 VLANs, and the project's rule is that a wrong guess must never be shipped as a
 capability.
+
+
+### RESOLVED: the action cell is SNMP RowStatus, read from the page's own JS
+
+`/scripts/_xe_vlanConfiguration.js` (captured as
+`tests/fixtures/http/gsm7252ps_vlan_configuration.js`) defines the `2_1_4`
+column's value list:
+
+    [ "Invalid","Active","Not In Service","Not Ready","Add","Reserve","Delete","Modify" ]
+
+Indexed from 0, that is **SNMP RowStatus**:
+
+| Index | Label | RowStatus |
+|---|---|---|
+| 1 | Active | `active(1)` |
+| 2 | Not In Service | `notInService(2)` |
+| 3 | Not Ready | `notReady(3)` |
+| **4** | **Add** | **`createAndGo(4)`** |
+| 5 | Reserve | `createAndWait(5)` |
+| **6** | **Delete** | **`destroy(6)`** |
+
+The web UI is a thin skin over the same Q-BRIDGE row semantics the SNMP backend
+already writes — and the library already names those constants:
+`oids.ROW_STATUS_CREATE_AND_GO = 4` and `oids.ROW_STATUS_DESTROY = 6`.
+
+The same file gives the two action buttons:
+
+    xeData.xbImage_6_1_1 = "/base/images/Add_on.gif"     -> button 6_1_1 = Add
+    xeData.xbImage_6_1_2 = "/base/images/Delete_on.gif"  -> button 6_1_2 = Delete
+
+So all three unknowns from the previous note are now answered **from the
+device's own code**, with no guessing and no write attempted:
+
+* the action cell takes `4` to create and `6` to delete;
+* a create submits a new row carrying id, name and action `4`;
+* the submit buttons are `6_1_1` (Add) and `6_1_2` (Delete).
+
+That is enough to implement `_xui_vlan_create`/`_xui_vlan_delete` against
+`/vlanConfiguration.html`, posting to its `/a0` or `/a1` action alongside the
+existing `submit_flag`. It still needs driving against a switch with a throwaway
+VLAN id and reading back before `reads_verified`-style confidence is claimed —
+but the mechanism is no longer inferred.
