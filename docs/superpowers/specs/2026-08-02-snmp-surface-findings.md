@@ -376,3 +376,34 @@ alongside `_xui_poe_admin`, modelled on the same two-`FORM` `submit_flag` post,
 then remove the `_CSRF_HTTP_WRITES` entry entirely so the table can say
 "supported" truthfully. Until that lands, the xfail in
 `tests/virtual/test_write_outcomes.py` and this note are the honest record.
+
+
+### Root cause: `vlan_config_path` points at a STATUS page, not a config page
+
+The reason HTTP `create_vlan` cannot work on FASTPATH is narrower and more
+fixable than "no CSRF token".
+
+`HTTP_SPECS['gsm7252ps'].vlan_config_path` is `/vlanStatus.html`. A live capture
+(`tests/fixtures/http/gsm7252ps_vlan_status_live.html`) shows it *does* have the
+XUI two-`FORM` shape — `ACTION="/vlanStatus.html/a0"` and `/a1`, plus
+`submit_flag` — but it carries **no `v_2_*` action buttons at all**. It is a
+read-only status page. `_xui_poe_admin` works because
+`poeInterfaceConfiguration.html` is a *configuration* page and does have them.
+
+The real page is **`/vlanConfiguration.html`** — 23104 bytes, titled "NetGear -
+VLAN Configuration", carrying `v_2_1_1` through `v_2_1_4`. Captured as
+`tests/fixtures/http/gsm7252ps_vlan_configuration_live.html`.
+
+So the fix is two parts, and neither is a device limitation:
+
+1. The spec needs a separate write path for VLAN creation — the read path
+   (`vlanStatus.html`) is correct for `get_vlans` and simply cannot serve a
+   write. This mirrors `vlan_membership_path` vs `vlan_membership_post_path`,
+   which already makes exactly this distinction for membership.
+2. `create_vlan`/`delete_vlan` then need an XUI branch posting to that page's
+   action with the appropriate `v_2_1_*` button, modelled on
+   `_xui_poe_admin`/`forms.xui_row_apply_form`.
+
+Which of the four buttons is Add and which is Delete has NOT been established —
+that needs the page's own markup read carefully, and the write driven against a
+switch with a throwaway VLAN id before anything is claimed.
