@@ -46,6 +46,7 @@ from netgear_switch.capabilities import (
     backends_for,
     support,
 )
+from netgear_switch.protocols.http.endpoints import HTTP_SPECS
 from netgear_switch.registry import MODEL_ALIASES, MODELS, Backend, get_model
 
 if TYPE_CHECKING:
@@ -100,13 +101,25 @@ _BACKEND_PAGES = {
     Backend.CONSOLE: "protocols/cli",
 }
 
+#: Each web-UI login scheme gets its own page. They share a transport and
+#: nothing else: different login mechanics, different session handling and
+#: different page sets, which is why one "HTTP" page could not describe them.
+_HTTP_SCHEME_PAGES = {
+    "MERGE_HASH_CGI": "protocols/http/merge-hash-cgi",
+    "GAMBIT": "protocols/http/gambit",
+    "CHEETAH_FORM": "protocols/http/cheetah-form",
+    "CHEETAH_V1": "protocols/http/cheetah-v1",
+    "XML_API": "protocols/http/xml-api",
+}
+
 #: Literal text -> the page that documents it. Everything a generated table or a
-#: docstring can name: every model key, every alias, every backend name, and
-#: ``CLI`` for the command surface as a whole.
+#: docstring can name: every model key, every alias, every backend name, every
+#: web-UI login scheme, and ``CLI`` for the command surface as a whole.
 _LINKABLE: dict[str, str] = {
     **{key: f"models/{key}" for key in MODELS},
     **{alias: f"models/{key}" for alias, key in MODEL_ALIASES.items()},
     **{backend.name: page for backend, page in _BACKEND_PAGES.items()},
+    **_HTTP_SCHEME_PAGES,
     "CLI": "protocols/cli",
 }
 
@@ -550,6 +563,136 @@ class BackendOperationTable(_GeneratedTable):
         return f"{table}\n{citations}\n"
 
 
+#: Every page an ``HttpModelSpec`` can carry a path for, in the order a reader
+#: meets them. ``None`` on a spec means that firmware ships no such page, which
+#: is why the generated coverage table can show a real gap rather than implying
+#: the operation is merely unimplemented here.
+_HTTP_PAGE_FIELDS = (
+    ("Dashboard / port status", "dashboard_path"),
+    ("Port statistics", "stats_path"),
+    ("PoE status", "poe_status_path"),
+    ("PoE configuration", "poe_config_path"),
+    ("VLAN configuration", "vlan_config_path"),
+    ("VLAN membership", "vlan_membership_path"),
+    ("PVIDs", "pvid_path"),
+    ("MAC / FDB table", "mac_table_path"),
+    ("LLDP neighbours", "lldp_path"),
+    ("System info", "sysinfo_path"),
+    ("Management IP", "mgmt_ip_path"),
+    ("Port configuration", "port_config_path"),
+    ("Certificate upload", "cert_upload_path"),
+    ("Reboot", "reboot_path"),
+    ("Logout", "logout_path"),
+)
+
+
+def _scheme_specs(scheme: str) -> list[Any]:
+    return [s for s in HTTP_SPECS.values() if s.scheme.name == scheme]
+
+
+def _transport(spec: Any) -> str:
+    """How the web UI is reached: scheme and port, where they are not default."""
+    proto = "HTTPS" if spec.secure else "HTTP"
+    return f"{proto}, port {spec.web_port}" if spec.web_port else proto
+
+
+class HttpSchemeTable(_GeneratedTable):
+    """Every web-UI login scheme, with the models and dialects behind it."""
+
+    def body(self) -> str:
+        rows = []
+        for scheme, page in _HTTP_SCHEME_PAGES.items():
+            specs = _scheme_specs(scheme)
+            if not specs:  # pragma: no cover - every scheme has a model today
+                continue
+            dialects = sorted({s.html_dialect.name for s in specs})
+            rows.append(
+                [
+                    f":doc:`{scheme} </{page}>`",
+                    ", ".join(f"``{s.model_key}``" for s in specs),
+                    ", ".join(f"``{d}``" for d in dialects),
+                    _transport(specs[0]),
+                ]
+            )
+        return _list_table(
+            "",
+            ["Login scheme", "Switches", "HTML dialect", "Reached over"],
+            rows,
+        )
+
+
+class HttpSchemeFacts(_GeneratedTable):
+    """One login scheme: the models on it and how each one is talked to."""
+
+    required_arguments = 1
+
+    def body(self) -> str:
+        scheme = self.arguments[0].strip().upper()
+        specs = _scheme_specs(scheme)
+        if not specs:
+            raise self.error(f"ngsw-http-scheme: no model uses scheme {scheme!r}")
+        rows = []
+        for spec in specs:
+            if spec.session_token_field:
+                session = f"token, ``{spec.session_token_field}``"
+            elif spec.cookie_name:
+                session = f"cookie, ``{spec.cookie_name}``"
+            else:
+                session = "none"
+            rows.append(
+                [
+                    f"``{spec.model_key}``",
+                    f"``{spec.html_dialect.name}``",
+                    _transport(spec),
+                    f"``{spec.login_path}``",
+                    ", ".join(
+                        f"``{f}``"
+                        for f in (spec.username_field, spec.password_field)
+                        if f
+                    ),
+                    session,
+                ]
+            )
+        return _list_table(
+            "",
+            [
+                "Switch",
+                "HTML dialect",
+                "Reached over",
+                "Login path",
+                "Fields",
+                "Session",
+            ],
+            rows,
+        )
+
+
+class HttpSchemePages(_GeneratedTable):
+    """Which pages each model on a scheme actually ships."""
+
+    required_arguments = 1
+
+    def body(self) -> str:
+        scheme = self.arguments[0].strip().upper()
+        specs = _scheme_specs(scheme)
+        if not specs:
+            raise self.error(f"ngsw-http-scheme-pages: no model uses {scheme!r}")
+        rows = []
+        for label, field in _HTTP_PAGE_FIELDS:
+            cells = []
+            for spec in specs:
+                path = getattr(spec, field, None)
+                cells.append(f"``{path}``" if path else _NO)
+            if all(cell == _NO for cell in cells):
+                continue
+            rows.append([label, *cells])
+        return _list_table(
+            "",
+            ["Page", *(f"``{s.model_key}``" for s in specs)],
+            rows,
+        )
+
+
 class ModelFacts(_GeneratedTable):
     """The registry record for one model, as a field list."""
 
@@ -753,6 +896,9 @@ def setup(app: Sphinx) -> dict[str, Any]:
     app.add_directive("ngsw-backend-models", BackendModelTable)
     app.add_directive("ngsw-backend-operations", BackendOperationTable)
     app.add_directive("ngsw-support-gaps", SupportGaps)
+    app.add_directive("ngsw-http-scheme-table", HttpSchemeTable)
+    app.add_directive("ngsw-http-scheme", HttpSchemeFacts)
+    app.add_directive("ngsw-http-scheme-pages", HttpSchemePages)
     app.add_post_transform(ReferenceLinks)
     app.connect("build-finished", _report_missing_photos)
     app.connect("build-finished", _report_reference_links)

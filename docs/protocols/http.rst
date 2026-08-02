@@ -23,51 +23,26 @@ implementation here.
 
 .. ngsw-backend-operations:: HTTP
 
-Five login schemes
-------------------
+Five web-UI protocols, not one
+------------------------------
 
-There is no single Netgear web UI. Each scheme in
-``src/netgear_switch/protocols/http/endpoints.py`` is a distinct firmware
-lineage:
+There is no single Netgear web UI. Five distinct login schemes exist across this
+fleet, each paired with its own HTML dialect, and they share a transport and
+almost nothing else — different credentials handling, different session
+mechanics, different page sets. Each gets its own page:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
+.. ngsw-http-scheme-table::
 
-   * - Scheme
-     - How login works
-   * - ``MERGE_HASH_CGI``
-     - Plus switches (GS305EP, GS105PE). The password is hashed by merging it
-       with a nonce the login page carries, then posted to a ``.cgi`` endpoint.
-   * - ``GAMBIT``
-     - GS110EMX. A ``Gambit`` session token is issued at login and carried
-       thereafter.
-   * - ``CHEETAH_FORM``
-     - GSM7252PS and the S3300. A conventional form POST setting a session
-       cookie.
-   * - ``CHEETAH_V1``
-     - M4300. Same lineage, but every page lives under ``/v1/``, a ``Referer``
-       header is required as CSRF protection, and the session identifier expires
-       on a 60-second window.
-   * - ``XML_API``
-     - GS728TPP. A GoAhead ``wcd`` XML API: a ``GET /`` redirect to a
-       per-session path, then a **GET** — not a POST — carrying the credentials
-       in the query string, answering ``<statusCode>0</statusCode>`` with a
-       session id in a response header.
+.. toctree::
+   :maxdepth: 1
 
-Seven HTML dialects
--------------------
+   http/merge-hash-cgi
+   http/gambit
+   http/cheetah-form
+   http/cheetah-v1
+   http/xml-api
 
-Login is only half of it: the pages themselves differ enough that parsing is
-per-dialect — ``STANDARD``, ``GS110EMX``, ``GS105PE``, ``M4300``,
-``XE_FASTPATH``, ``S3300`` and ``GOAHEAD_XML``.
-
-The FASTPATH XUI dialects share a distinctive shape worth knowing if you ever
-read the write code: each page carries two ``<FORM>`` elements, posts to
-``<page>.html/a1`` with a ``submit_flag``, addresses table rows as
-``<unit>.<row>.<count>.v_1_2_<column>``, and returns errors as hidden
-``err_flag`` / ``err_msg`` fields **with HTTP 200**. A write that "succeeded"
-by status code may have failed in the body, so the library reads those fields.
+Everything below this point holds for all five.
 
 Endpoint specs
 --------------
@@ -106,7 +81,10 @@ switch served a login page instead of the page requested.
 left to expire on their own, and a switch with a small session table can refuse
 new logins until they do. Worth knowing if you poll frequently.
 
-**Errors arrive with HTTP 200.** See the XUI note above.
+**Errors arrive with HTTP 200.** On the FASTPATH XUI dialects a failed write
+reports itself in hidden ``err_flag`` / ``err_msg`` fields while the response
+code stays 200, so a write that "succeeded" by status code may not have — see
+:doc:`http/cheetah-form`.
 
 **A write needs the fields the page would have sent.** Web-UI writes replay the
 whole form, including hidden and list-navigation fields. A missing one is
