@@ -269,3 +269,29 @@ Throwaway resources used throughout: **port 17** (link-down, no description,
 PoE idle) and VLAN **4001**. Every run recorded the prior state, restored it,
 and proved the restore by re-reading on both backends. Nothing was ever saved
 to startup configuration.
+
+## Final end-to-end run — 35/35
+
+`tmp/gs728_goal_verify.py` drives the PUBLIC facade (`SyncSwitch`) with the
+backend named on every single call, so no result can be another protocol
+answering:
+
+```
+PASS get_ports SNMP/HTTP · get_lldp SNMP/HTTP · get_poe SNMP/HTTP
+PASS get_vlans SNMP/HTTP · get_pvids SNMP/HTTP
+PASS get_ports agree · get_vlans agree · get_pvids agree   (field-for-field)
+PASS set_poe off/on SNMP · cycle_poe SNMP · clear_poe_fault SNMP
+PASS set_poe off/on HTTP · cycle_poe HTTP · clear_poe_fault HTTP
+PASS set_port_enabled SNMP · set_port_enabled HTTP
+PASS create_vlan refuses SNMP (by name, before sending)
+PASS create_vlan HTTP  name='ngsw-tmp'
+PASS membership tagged/untagged/excluded SNMP · set_pvid SNMP
+PASS membership tagged/untagged/excluded HTTP · set_pvid HTTP
+PASS delete_vlan SNMP · delete_vlan HTTP
+PASS restore verified SNMP · restore verified HTTP
+35/35 passed
+```
+
+Both backends read back the untouched prior configuration at the end:
+`vlans=[1,2,3,4,5,6,7,10,20,31,41,90,99]`, port 17 PVID 4, PoE and port admin
+enabled.
