@@ -193,6 +193,14 @@ class SnmpReader:
             w(oids.IP_ADDRESS_IFINDEX),  # RFC-4293 fallback (M4300)
         )
 
+    def get_hostname(self) -> str:
+        """The switch's host name, from the standard MIB-II ``sysName`` scalar.
+
+        Standard, so this works on every SNMP model -- including ``gs728tpp``,
+        which publishes no Netgear vendor subtree at all.
+        """
+        return parse.parse_hostname(self.client.get([oids.SYS_NAME]))
+
     def get_system_info(self) -> DetectedModel:
         """Identify this switch's model via sysDescr (see ``read_system_info``).
 
@@ -319,6 +327,10 @@ class AsyncSnmpReader:
             await w(oids.DOT1D_BASE_BRIDGE_ADDRESS),  # standard BRIDGE-MIB scalar
             await w(oids.IP_ADDRESS_IFINDEX),  # RFC-4293 fallback (M4300)
         )
+
+    async def get_hostname(self) -> str:
+        """Async twin of ``SnmpReader.get_hostname`` -- see there."""
+        return parse.parse_hostname(await self.client.get([oids.SYS_NAME]))
 
     async def get_system_info(self) -> DetectedModel:
         """Async twin of ``SnmpReader.get_system_info`` -- see there."""

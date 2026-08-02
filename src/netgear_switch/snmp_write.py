@@ -238,9 +238,7 @@ def _plan_switchport_membership(
             # rebuild it from the membership the port actually has.
             allowed = _vlan_bitmap({untagged_vlan, *want_tagged})
         varbinds.append(
-            SetVarbind(
-                f"{oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS}.{port}", allowed, "x"
-            )
+            SetVarbind(f"{oids.FASTPATH_SWITCHPORT_ALLOWED_VLANS}.{port}", allowed, "x")
         )
         varbinds.append(
             SetVarbind(
@@ -558,9 +556,7 @@ class SnmpWriter:
             self.client.set(vb)
         problem = _switchport_divergence(plan, vlan, port, self._reader.get_vlans())
         if problem is not None:
-            raise WriteVerificationError(
-                problem, before=before, after=self._vlan(vlan)
-            )
+            raise WriteVerificationError(problem, before=before, after=self._vlan(vlan))
 
     def _switchport_vlan_bitmap(self, base_oid: str, port: int) -> bytes:
         """A switchport VLAN-list column's octets, or an all-zero 512-byte map."""
@@ -596,11 +592,18 @@ class SnmpWriter:
         raw_egress = self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_EGRESS, vlan)
         raw_untagged = self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_UNTAGGED, vlan)
         new_egress, new_untagged = membership_bitmaps(
-            mode=mode, port=port,
-            egress=(raw_egress if raw_egress is not None
-                    else encode_port_bitmap(before.member_ports)),
-            untagged=(raw_untagged if raw_untagged is not None
-                      else encode_port_bitmap(before.untagged_ports)),
+            mode=mode,
+            port=port,
+            egress=(
+                raw_egress
+                if raw_egress is not None
+                else encode_port_bitmap(before.member_ports)
+            ),
+            untagged=(
+                raw_untagged
+                if raw_untagged is not None
+                else encode_port_bitmap(before.untagged_ports)
+            ),
             width_bytes=vlan_bitmap_width(self.model),
         )
         egress_vb = SetVarbind(
@@ -700,6 +703,30 @@ class SnmpWriter:
         if after is not None:
             raise WriteVerificationError(
                 f"VLAN {vlan} still exists after destroy",
+                before=before,
+                after=after,
+            )
+
+    def set_hostname(self, name: str, *, force: bool = False) -> None:
+        """Set the switch's host name via the standard MIB-II ``sysName``.
+
+        GROUNDED, unlike ``set_mgmt_ip`` below: ``sysName`` was confirmed
+        writable on every SNMP model in this fleet on 2026-08-02, by SETting
+        each switch the value it already held. See ``oids.SYS_NAME`` for the
+        hosts and communities, and for why this is NOT the same value as the
+        FASTPATH ``hostname`` running-config directive.
+
+        Not force-gated: renaming a switch cannot strand it the way a mgmt-IP
+        write can, and it is trivially reversible by writing the old name back.
+        ``force`` is accepted so the signature matches every other writer.
+        """
+        del force  # accepted for a uniform writer signature; nothing to gate
+        before = self._reader.get_hostname()
+        self.client.set_many([SetVarbind(oids.SYS_NAME, name, "s")])
+        after = self._reader.get_hostname()
+        if after != name:
+            raise WriteVerificationError(
+                f"sysName is {after!r} after writing {name!r}",
                 before=before,
                 after=after,
             )
@@ -982,11 +1009,18 @@ class AsyncSnmpWriter:
         raw_egress = await self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_EGRESS, vlan)
         raw_untagged = await self._raw_bitmap(oids.DOT1Q_VLAN_STATIC_UNTAGGED, vlan)
         new_egress, new_untagged = membership_bitmaps(
-            mode=mode, port=port,
-            egress=(raw_egress if raw_egress is not None
-                    else encode_port_bitmap(before.member_ports)),
-            untagged=(raw_untagged if raw_untagged is not None
-                      else encode_port_bitmap(before.untagged_ports)),
+            mode=mode,
+            port=port,
+            egress=(
+                raw_egress
+                if raw_egress is not None
+                else encode_port_bitmap(before.member_ports)
+            ),
+            untagged=(
+                raw_untagged
+                if raw_untagged is not None
+                else encode_port_bitmap(before.untagged_ports)
+            ),
             width_bytes=vlan_bitmap_width(self.model),
         )
         egress_vb = SetVarbind(
@@ -1074,6 +1108,19 @@ class AsyncSnmpWriter:
         if after is not None:
             raise WriteVerificationError(
                 f"VLAN {vlan} still exists after destroy",
+                before=before,
+                after=after,
+            )
+
+    async def set_hostname(self, name: str, *, force: bool = False) -> None:
+        """Async twin of ``SnmpWriter.set_hostname`` -- see there."""
+        del force  # accepted for a uniform writer signature; nothing to gate
+        before = await self._reader.get_hostname()
+        await self.client.set_many([SetVarbind(oids.SYS_NAME, name, "s")])
+        after = await self._reader.get_hostname()
+        if after != name:
+            raise WriteVerificationError(
+                f"sysName is {after!r} after writing {name!r}",
                 before=before,
                 after=after,
             )

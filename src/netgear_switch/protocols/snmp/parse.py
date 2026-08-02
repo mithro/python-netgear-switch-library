@@ -826,6 +826,27 @@ def _scalar_text(rows: Sequence[SnmpRow], oid: str) -> str | None:
     return None
 
 
+def parse_hostname(rows: Sequence[SnmpRow]) -> str:
+    """Extract ``sysName`` from one exact-OID GET.
+
+    Raises rather than returning a placeholder when the scalar is absent. Every
+    switch in this fleet answers ``sysName`` -- it is a mandatory MIB-II scalar
+    -- so an absent one is a real failure to report, not an empty hostname to
+    invent. An empty *string* is a different thing and is passed through: a
+    switch with no name configured genuinely has one.
+    """
+    from . import oids
+
+    value = _scalar_text(rows, oids.SYS_NAME)
+    if value is None:
+        raise SnmpError(
+            f"switch did not answer sysName ({oids.SYS_NAME}); it is a mandatory "
+            "MIB-II scalar, so this is an agent or transport failure rather "
+            "than an absent hostname"
+        )
+    return value
+
+
 def parse_system_info(rows: Sequence[SnmpRow]) -> tuple[str | None, str | None]:
     """Extract the raw sysDescr/sysObjectID scalar text from one combined GET.
 

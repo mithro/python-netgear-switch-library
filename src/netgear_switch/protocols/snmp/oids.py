@@ -21,6 +21,23 @@ SYS_DESCR = "1.3.6.1.2.1.1.1.0"  # sysDescr: text incl. the model name
 SYS_OBJECT_ID = "1.3.6.1.2.1.1.2.0"  # sysObjectID: read-only signal, unused
 # for matching (no known OID->model table exists -- see parse.py's
 # detect_model_from_sysdescr docstring).
+# sysName: the switch's host name. A STANDARD MIB-II scalar, which is why it is
+# the one hostname source that also works on gs728tpp -- that agent publishes no
+# Netgear vendor subtree at all.
+#
+# WRITABLE on every SNMP model in this fleet. Measured 2026-08-02 by SETting the
+# value the switch already had: a zero-impact writability probe, since the device
+# state cannot change but a read-only column still answers notWritable. All five
+# accepted -- gsm7228ps (10.1.5.11) on community `public`, which is the only one
+# it has, and m4300-24x (.13), m4300-16x (.20), gsm7252ps (.22) and gs728tpp
+# (10.2.5.10) on `private`.
+#
+# NOT the same value as the FASTPATH `hostname` running-config directive. On
+# m4300-16x sysName is "sw-netgear-m4300-16x-poe-s2" while running-config holds
+# "manage-sw-netgear-m4300-16x-poe-s2", and on gsm7252ps running-config carries
+# no hostname at all. sysName tracks `show hosts`, which is therefore what the
+# CLI reader parses so that the two backends cannot disagree.
+SYS_NAME = "1.3.6.1.2.1.1.5.0"
 IF_TYPE = "1.3.6.1.2.1.2.2.1.3"  # ifType (6=ethernetCsmacd=physical)
 IF_ADMIN_STATUS = "1.3.6.1.2.1.2.2.1.7"  # ifAdminStatus (1=up,2=down)
 IF_OPER_STATUS = "1.3.6.1.2.1.2.2.1.8"  # ifOperStatus  (1=up,2=down)
