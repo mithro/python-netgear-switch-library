@@ -42,6 +42,8 @@ from ...models import (
     PortStats,
     PortStatus,
     Sensor,
+    SyslogConfig,
+    SyslogServer,
     VLANInfo,
 )
 
@@ -604,6 +606,87 @@ def parse_environment(text: str) -> list[Sensor]:
             )
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# show logging / show logging hosts -> syslog configuration
+# ---------------------------------------------------------------------------
+
+#: Syslog severity names as FASTPATH prints them, to the standard numbers the
+#: SNMP columns carry. Cross-checked on m4300-24x: `show logging hosts` prints
+#: "info" where the SNMP severity column reads 6.
+_SEVERITY_NAMES = {
+    "emergency": 0,
+    "alert": 1,
+    "critical": 2,
+    "error": 3,
+    "warning": 4,
+    "notice": 5,
+    "info": 6,
+    "informational": 6,
+    "debug": 7,
+}
+
+
+def _colon_fields(text: str) -> dict[str, str]:
+    """Parse ``Label   : value`` lines, which `show logging` uses.
+
+    Distinct from ``labelled_values`` above: that reads the dotted-leader form
+    (``Label........ value``) which `show hosts` and `show network` use. The
+    logging command uses a colon instead, so it needs its own reader.
+    """
+    out: dict[str, str] = {}
+    for line in text.splitlines():
+        if ":" not in line:
+            continue
+        label, _, value = line.partition(":")
+        label = label.strip()
+        if label:
+            out[label] = value.strip()
+    return out
+
+
+def parse_syslog(logging_text: str, hosts_text: str) -> SyslogConfig:
+    """``show logging`` + ``show logging hosts`` -> ``SyslogConfig``.
+
+    Captured 2026-08-02 from m4300-24x (10.1.5.13), m4300-16x (10.1.5.20) and
+    gsm7252ps (10.1.5.22)::
+
+        Syslog Logging                      : enabled
+        Logging Client Local Port           : 514
+
+        Index   IP Address/Hostname     Severity    Port   Status  Mode  Auth  Cert#
+        ----- ------------------------ ---------- ------ --------- ----- ----- -----
+        1     10.1.5.1                 info       514    Active    udp
+
+    **The host table's column set differs by firmware.** The M4300s emit eight
+    columns (through ``Cert#``); the gsm7252ps emits only the first five. Both
+    are parsed by taking the first five whitespace-separated fields and ignoring
+    anything after ``Status``, so neither shape can shift a value into the wrong
+    field -- the same class of trap as the VLAN PortList width.
+    """
+    fields = _colon_fields(logging_text)
+    enabled = fields.get("Syslog Logging", "").strip().lower() == "enabled"
+    port_text = fields.get("Logging Client Local Port", "").strip()
+    local_port = int(port_text) if port_text.isdigit() else 0
+
+    servers: list[SyslogServer] = []
+    for line in hosts_text.splitlines():
+        cells = line.split()
+        # A data row starts with the integer index; the header and the dashed
+        # rule under it do not, which is what filters them out.
+        if len(cells) < 5 or not cells[0].isdigit():
+            continue
+        _index, host, severity, port, status = cells[:5]
+        servers.append(
+            SyslogServer(
+                host=host,
+                port=int(port) if port.isdigit() else 0,
+                severity=_SEVERITY_NAMES.get(severity.lower(), 0),
+                active=status.lower() == "active",
+            )
+        )
+    return SyslogConfig(enabled=enabled, local_port=local_port, servers=tuple(servers))
 
 
 # ---------------------------------------------------------------------------

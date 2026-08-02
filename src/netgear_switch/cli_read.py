@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        SyslogConfig,
         VLANInfo,
     )
     from .registry import SwitchModel
@@ -102,6 +103,18 @@ class CliReader:
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         return parse.parse_mgmt_ip(self.session.run(self._spec.network_cmd))
+
+    def get_syslog(self) -> SyslogConfig:
+        """Remote-logging configuration, from ``show logging`` + its host table.
+
+        Two commands because the switch splits it that way: the globals live in
+        ``show logging`` and the collectors in ``show logging hosts``. The host
+        table's column set differs by firmware -- see ``parse.parse_syslog``.
+        """
+        return parse.parse_syslog(
+            self.session.run(self._spec.logging_cmd),
+            self.session.run(self._spec.logging_hosts_cmd),
+        )
 
     def get_hostname(self) -> str:
         """The switch's host name, from ``show hosts``.

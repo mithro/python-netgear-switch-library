@@ -103,6 +103,10 @@ class CliModelSpec:
     # SNMP's sysName, so it is what keeps the two backends returning the same
     # answer for the same switch.
     hosts_cmd: str = "show hosts"
+    # Remote logging. `show syslog` does NOT exist -- all three FASTPATH
+    # switches answered "% Invalid input detected" on 2026-08-02.
+    logging_cmd: str = "show logging"
+    logging_hosts_cmd: str = "show logging hosts"
     # Global-config directive. Quoted on the wire by the device's own
     # running-config output ('hostname "sw-netgear-m4300-24x"').
     hostname_config_cmd: str = "hostname {name}"
