@@ -341,3 +341,55 @@ def test_backends_are_in_facade_preference_order() -> None:
         Backend.TELNET,
     )
     assert backends_for("gs110emx") == (Backend.NSDP, Backend.HTTP)
+
+
+#: SyncSwitch methods that are deliberately NOT capability-gated operations:
+#: connection lifecycle, backend resolution, model detection, and the aggregate
+#: that simply calls the others. (Mirrors ``_NOT_CLI_EXPOSED`` in
+#: tests/cli/test_op_coverage.py and ``_NOT_MCP_EXPOSED`` in
+#: tests/test_mcp_server.py.)
+_NOT_CAPABILITY_GATED = {"close", "identify", "resolve_backend", "snapshot"}
+
+
+def test_every_switch_operation_has_a_capability_entry() -> None:
+    """The forcing function that was missing.
+
+    ``set_syslog_enabled`` shipped on the facade with no ``Operation`` entry at
+    all: ``support(model, backend, "set_syslog_enabled")`` raised KeyError and
+    the generated support matrix silently omitted an operation the library
+    performs. The CLI and the MCP server each have a coverage guard; the
+    capability table -- which the published documentation is generated FROM --
+    did not, so nothing caught it.
+    """
+    import inspect
+
+    from netgear_switch.sync_api import SyncSwitch
+
+    public = {
+        name
+        for name, member in inspect.getmembers(SyncSwitch, predicate=inspect.isfunction)
+        if not name.startswith("_")
+    }
+    known = {op.name for op in OPERATIONS}
+    missing = public - known - _NOT_CAPABILITY_GATED
+    assert not missing, (
+        f"SyncSwitch operations with no capabilities.Operation entry: "
+        f"{sorted(missing)}"
+    )
+
+
+def test_no_capability_entry_without_a_facade_method() -> None:
+    """The other direction: the table must not advertise an op nobody can call."""
+    import inspect
+
+    from netgear_switch.sync_api import SyncSwitch
+
+    public = {
+        name
+        for name, member in inspect.getmembers(SyncSwitch, predicate=inspect.isfunction)
+        if not name.startswith("_")
+    }
+    orphans = {op.name for op in OPERATIONS} - public
+    assert not orphans, (
+        f"capability entries with no SyncSwitch method: {sorted(orphans)}"
+    )
