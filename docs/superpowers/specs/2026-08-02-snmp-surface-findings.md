@@ -149,3 +149,69 @@ user**, a different thing from a local login account. They must not be conflated
 - Port speed/duplex **configuration** (as opposed to `ifHighSpeed`, which is the
   negotiated rate). EtherLike-MIB `dot3` at `1.3.6.1.2.1.10.7` carries 1416
   varbinds on the S3300 and is the obvious candidate for duplex status.
+
+
+## Local users and service protocols — CLI, measured 2026-08-02
+
+Captured from m4300-24x (10.1.5.13) and gsm7252ps (10.1.5.22). Three things
+here would have been got wrong by assuming, which is why they are recorded
+before any code is written against them.
+
+### `show users` — two users, and the access-mode WORDS differ by firmware
+
+Both switches carry `admin` and `guest`, and both print the same five columns
+(User Name, User Access Mode, three SNMPv3 columns). The **values** are not the
+same vocabulary:
+
+| Switch | admin | guest |
+|---|---|---|
+| m4300-24x | `Privilege-15` | `Privilege-1` |
+| gsm7252ps | `Read/Write` | `Read Only` |
+
+A parser mapping the access-mode column to an enum must accept both spellings.
+Matching on `Privilege-N` alone would silently fail on the gsm7252ps and vice
+versa — the same shape of defect as the `show logging hosts` column count.
+
+`show users long` prints just the names, on both.
+
+### `show telnet` is OUTBOUND telnet, not the telnet server
+
+    Outbound Telnet Login Timeout (minutes)........ 5
+    Maximum Number of Outbound Telnet Sessions..... 5
+    Allow New Outbound Telnet Sessions............. Yes
+
+Every field is about the switch acting as a telnet **client**. None of it
+reports whether the inbound telnet server — the thing this library's TELNET
+backend connects to — is enabled. Reading "Allow New Outbound Telnet Sessions:
+Yes" as "telnet is on" would be wrong in exactly the way that looks right.
+The inbound server state has NOT been located yet.
+
+### `show ip ssh` works, but its field set differs by firmware
+
+    Administrative Mode: .......................... Enabled
+    SSH Port: ..................................... 22          <- m4300 ONLY
+    Protocol Levels: .............................. Version 2
+    Max SSH Sessions Allowed: ..................... 5
+
+The gsm7252ps prints **no `SSH Port` line at all**, and reports its protocol
+levels as `Versions 1 and 2` against the m4300's `Version 2`. A reader must
+treat the port as optional rather than assume every FASTPATH image reports it.
+
+### HTTP has no `show ip http server`
+
+Both switches answer `% Invalid input detected` to `show ip http server` and to
+`show ip http secure-server`. The command that reports web-server state has not
+been found yet; it is not either of those.
+
+### What this means for implementation
+
+`get_users` is implementable on the FASTPATH CLI today, across both firmwares,
+provided the access-mode parser accepts both vocabularies. Note the SNMP side
+disagrees about scope: the S3300's vendor user table (`4526.11.1.2.1.3`) held
+only ONE user, while its CLI shows two — so the two backends are not reporting
+the same set, and that must be resolved before `get_users` is registered as a
+cross-backend operation.
+
+Service protocols are NOT implementable yet: SSH state is readable, inbound
+telnet state is unlocated, and HTTP state is unlocated. Recording that as three
+separate unknowns rather than one blocked feature.
