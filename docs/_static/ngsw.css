@@ -12,8 +12,14 @@ table.ngsw-support-table th {
   vertical-align: top;
 }
 
-/* The "why not" column carries full sentences; let it wrap. */
-table.ngsw-support-table td:last-child {
+/* A table whose LAST column carries full sentences (the parity-gaps "Why"
+   column): let it wrap, and give it room to be worth wrapping.
+
+   Scoped to that one class deliberately. As a blanket
+   `.ngsw-support-table td:last-child` rule this forced 20rem onto the last
+   column of every generated table -- so the model table's Status column, whose
+   widest value is the 13-character "live-verified", was rendered 320px wide. */
+table.ngsw-reason-table td:last-child {
   white-space: normal;
   min-width: 20rem;
 }

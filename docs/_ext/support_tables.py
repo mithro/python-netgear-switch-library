@@ -32,9 +32,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from docutils import nodes
 from docutils.parsers.rst import directives
+from sphinx.transforms.post_transforms import SphinxPostTransform
 from sphinx.util import logging
 from sphinx.util.docutils import SphinxDirective
+from sphinx.util.nodes import make_refnode
 
 from netgear_switch.capabilities import (
     READ_OPERATIONS,
@@ -48,7 +51,6 @@ from netgear_switch.registry import MODEL_ALIASES, MODELS, Backend, get_model
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from docutils import nodes
     from sphinx.application import Sphinx
 
 logger = logging.getLogger(__name__)
@@ -87,6 +89,139 @@ def unverified_models() -> tuple[str, ...]:
     return tuple(key for key, model in MODELS.items() if not model.verified)
 
 
+#: The page documenting each backend. SSH, TELNET and CONSOLE are three
+#: transports over one command surface, so all three land on the CLI page.
+_BACKEND_PAGES = {
+    Backend.SNMP: "protocols/snmp",
+    Backend.NSDP: "protocols/nsdp",
+    Backend.HTTP: "protocols/http",
+    Backend.SSH: "protocols/cli",
+    Backend.TELNET: "protocols/cli",
+    Backend.CONSOLE: "protocols/cli",
+}
+
+#: Literal text -> the page that documents it. Everything a generated table or a
+#: docstring can name: every model key, every alias, every backend name, and
+#: ``CLI`` for the command surface as a whole.
+_LINKABLE: dict[str, str] = {
+    **{key: f"models/{key}" for key in MODELS},
+    **{alias: f"models/{key}" for alias, key in MODEL_ALIASES.items()},
+    **{backend.name: page for backend, page in _BACKEND_PAGES.items()},
+    "CLI": "protocols/cli",
+}
+
+
+class ReferenceLinks(SphinxPostTransform):
+    """Link every inline literal that names something this documentation defines.
+
+    Three kinds of name are resolved, in order: a switch model key or alias, a
+    backend name, and any Python object autodoc has documented (matched on its
+    full dotted path, so there is no ambiguity to guess at).
+
+    Doing this in a post-transform rather than at each use is what makes the
+    linking total, and it exists because per-use linking kept missing cases:
+
+    * The generated tables wrote a model key as a bare literal in three of the
+      seven builders, so ``docs/models/index.rst`` listed eight model keys and
+      linked none of them, while the protocol pages linked theirs.
+    * ``conf.py`` sets ``default_role = "literal"``, so every single-backtick
+      name renders as text. The module lists at the bottom of each protocol
+      page are written that way -- ```netgear_switch.http_read``` -- and were
+      silently not links, even though the class names beside them, written with
+      an explicit role, were.
+
+    Neither failure could be caught by ``nitpicky``: an unresolved *reference*
+    fails the build, but a literal that should have been a reference is
+    indistinguishable from ordinary text. Only linking them automatically
+    closes that gap.
+
+    Matching is exact and confined to inline literals, so prose about "the HTTP
+    backend" is untouched while ``` ``HTTP`` ``` becomes a link.
+    """
+
+    # After filelinks' post-transform (400), whose repository links are already
+    # `reference` nodes by this point and are skipped below.
+    default_priority = 410
+
+    #: The facade a bare operation name should resolve to when several classes
+    #: define it. ``get_vlans`` is documented on nine classes -- both facades and
+    #: every reader -- and the one a reader of prose means is the public
+    #: synchronous entry point.
+    _PREFERRED_OWNER = "netgear_switch.sync_api.SyncSwitch."
+
+    def _short_index(self) -> dict[str, list[str]]:
+        """Last path component -> the full names that end with it."""
+        objects = self.env.domaindata.get("py", {}).get("objects", {})
+        index: dict[str, list[str]] = {}
+        for name, entry in objects.items():
+            if getattr(entry, "aliased", False):
+                continue  # a duplicate of the canonical entry
+            index.setdefault(name.rsplit(".", 1)[-1], []).append(name)
+        return index
+
+    def _python_target(self, text: str) -> tuple[str, str] | None:
+        """``(docname, node_id)`` for a documented Python object, if any.
+
+        An exact dotted path always wins. A bare name is resolved only when it
+        is shaped like an API name -- CamelCase, SCREAMING_CASE or containing an
+        underscore -- and resolves unambiguously, or to the preferred facade.
+
+        The shape test is what keeps the linking honest. ``port``, ``name``,
+        ``host`` and ``model`` are all documented dataclass fields *and* ordinary
+        words that appear as literals throughout these docstrings; linking every
+        occurrence to one arbitrary dataclass would be worse than not linking.
+        """
+        objects = self.env.domaindata.get("py", {}).get("objects", {})
+        entry = objects.get(text)
+        if entry is not None:
+            return entry.docname, entry.node_id
+        if not ("_" in text or (text[:1].isupper() and text.isalnum())):
+            return None
+        candidates = self._short_index().get(text)
+        if not candidates:
+            return None
+        if len(candidates) > 1:
+            preferred = [c for c in candidates if c.startswith(self._PREFERRED_OWNER)]
+            if len(preferred) != 1:
+                return None
+            candidates = preferred
+        entry = objects[candidates[0]]
+        return entry.docname, entry.node_id
+
+    def run(self, **kwargs: Any) -> None:
+        counts = self.env.domaindata.setdefault("ngsw_reflinks", {"linked": 0})
+        for node in list(self.document.findall(nodes.literal)):
+            if isinstance(node.parent, nodes.reference):
+                continue  # already a link (a resolved xref, or filelinks')
+            if "xref" in node["classes"]:
+                continue  # an unresolved cross-reference, not a plain literal
+            text = node.astext().strip()
+
+            docname = _LINKABLE.get(text)
+            if docname is not None and docname in self.env.found_docs:
+                node_id = ""
+            else:
+                found = self._python_target(text)
+                if found is None:
+                    continue
+                docname, node_id = found
+
+            # A page linking to itself is noise; an anchor on the same page is
+            # not -- it jumps to the definition.
+            if docname == self.env.docname and not node_id:
+                continue
+            link = make_refnode(
+                self.app.builder,
+                self.env.docname,
+                docname,
+                node_id or None,
+                node.deepcopy(),
+            )
+            link["classes"].append("ngsw-ref")
+            node.replace_self(link)
+            counts["linked"] += 1
+
+
 def _rst_escape(text: str) -> str:
     """Neutralise inline reST markup in generated cell text."""
     for char in ("\\", "*", "`", "|", "_"):
@@ -99,14 +234,22 @@ def _list_table(
     header: Sequence[str],
     rows: Iterable[Sequence[str]],
     *,
-    widths: str = "",
+    classes: Sequence[str] = (),
 ) -> str:
-    """Render a reST ``list-table`` block."""
+    """Render a reST ``list-table`` block.
+
+    No ``:widths:`` is emitted, deliberately. ``docs/_static/ngsw.css`` gives
+    these tables ``white-space: nowrap`` inside a horizontally scrolling box,
+    so the browser's own table layout sizes every column to its content --
+    which is always right, and cannot go stale the way a hand-picked
+    percentage does when a model name or a backend list changes.
+
+    ``classes`` adds CSS classes beyond ``ngsw-support-table``. Only a table
+    whose last column holds prose wants ``ngsw-reason-table``.
+    """
     out = [f".. list-table:: {title}" if title else ".. list-table::"]
     out.append("   :header-rows: 1")
-    if widths:
-        out.append(f"   :widths: {widths}")
-    out.append("   :class: ngsw-support-table")
+    out.append("   :class: " + " ".join(("ngsw-support-table", *classes)))
     out.append("")
     for row in (header, *rows):
         cells = list(row)
@@ -149,7 +292,7 @@ class ModelTable(_GeneratedTable):
                     model.switch_class.value.replace("_", " "),
                     str(model.port_count),
                     str(model.poe_port_count),
-                    ", ".join(b.name for b in backends_for(model)),
+                    ", ".join(f"``{b.name}``" for b in backends_for(model)),
                     "live-verified" if model.verified else "**unverified**",
                 ]
             )
@@ -165,7 +308,6 @@ class ModelTable(_GeneratedTable):
                 "Status",
             ],
             rows,
-            widths="14 18 14 7 8 22 17",
         )
 
 
@@ -188,9 +330,8 @@ class ProtocolTable(_GeneratedTable):
             rows.append([f"``{key}``", *cells])
         return _list_table(
             "",
-            ["Model", *(b.name for b in self._COLUMNS)],
+            ["Model", *(f"``{b.name}``" for b in self._COLUMNS)],
             rows,
-            widths="26 12 12 12 12 12",
         )
 
 
@@ -259,7 +400,7 @@ class ModelSupportTable(_GeneratedTable):
 
         table = _list_table(
             "",
-            ["Operation", "What it does", *(b.name for b in backends)],
+            ["Operation", "What it does", *(f"``{b.name}``" for b in backends)],
             rows,
         )
         if not notes:
@@ -302,7 +443,7 @@ class SupportGaps(_GeneratedTable):
             "",
             ["Model", "Operation", "Served by", "Not served by", "Why"],
             rows,
-            widths="12 16 12 14 46",
+            classes=("ngsw-reason-table",),
         )
 
 
@@ -341,12 +482,12 @@ class BackendModelTable(_GeneratedTable):
         rows = []
         for key in _models_with(backends):
             model = MODELS[key]
-            reached = ", ".join(b.name for b in backends_for(model) if b in backends)
+            reached = ", ".join(
+                f"``{b.name}``" for b in backends_for(model) if b in backends
+            )
             rows.append(
                 [
-                    # Absolute doc path: this table is included from
-                    # docs/protocols/, so a relative target would resolve there.
-                    f":doc:`{key} </models/{key}>`",
+                    f"``{key}``",
                     _rst_escape(model.display_name),
                     model.switch_class.value.replace("_", " "),
                     str(model.port_count),
@@ -359,7 +500,6 @@ class BackendModelTable(_GeneratedTable):
             "",
             ["Model", "Product", "Class", "Ports", "Reached over"],
             rows,
-            widths="16 24 18 10 32",
         )
 
 
@@ -453,7 +593,7 @@ class ModelFacts(_GeneratedTable):
                 "yes" if model.has_mac_table else "no",
             ]
         )
-        return _list_table("", ["Field", "Value"], rows, widths="30 70")
+        return _list_table("", ["Field", "Value"], rows)
 
 
 class ModelPhoto(_GeneratedTable):
@@ -594,6 +734,13 @@ def _report_missing_photos(app: Sphinx, exception: Exception | None) -> None:
     )
 
 
+def _report_reference_links(app: Sphinx, exception: Exception | None) -> None:
+    if exception is not None:
+        return
+    linked = app.env.domaindata.get("ngsw_reflinks", {}).get("linked", 0)
+    logger.info("ngsw: linked %d model/backend/API reference(s)", linked)
+
+
 def setup(app: Sphinx) -> dict[str, Any]:
     app.add_directive("ngsw-unverified-note", UnverifiedNote)
     app.add_directive("ngsw-model-table", ModelTable)
@@ -606,5 +753,7 @@ def setup(app: Sphinx) -> dict[str, Any]:
     app.add_directive("ngsw-backend-models", BackendModelTable)
     app.add_directive("ngsw-backend-operations", BackendOperationTable)
     app.add_directive("ngsw-support-gaps", SupportGaps)
+    app.add_post_transform(ReferenceLinks)
     app.connect("build-finished", _report_missing_photos)
+    app.connect("build-finished", _report_reference_links)
     return {"version": "1.0", "parallel_read_safe": True, "parallel_write_safe": True}
