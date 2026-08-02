@@ -552,6 +552,20 @@ class SyncSwitch:
     def get_mgmt_ip(self, *, backend: Backend | None = None) -> MgmtIpConfig:
         return self._read(lambda r: r.get_mgmt_ip(), backend)
 
+    def get_hostname(self, *, backend: Backend | None = None) -> str:
+        """The switch's host name.
+
+        Every backend can answer, but from a different place: SNMP reads the
+        standard ``sysName`` scalar, NSDP the ``HOSTNAME`` tag, the CLI
+        ``show hosts``, and the web UI the device-identity page -- on the two
+        dialects whose page carries the field; the rest refuse by name.
+
+        The CLI deliberately parses ``show hosts`` rather than
+        ``show running-config``: the two report different values on real
+        hardware, and only ``show hosts`` agrees with ``sysName``.
+        """
+        return self._read(lambda r: r.get_hostname(), backend)
+
     def nsdp_device(self) -> NsdpDevice:
         """Return the COMPLETE raw ``NsdpDevice`` for this switch: model, MAC,
         hostname, mgmt IP, firmware, DHCP mode, port count, serial number,

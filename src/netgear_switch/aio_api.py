@@ -447,6 +447,10 @@ class AsyncSwitch:
     async def get_mgmt_ip(self, *, backend: Backend | None = None) -> MgmtIpConfig:
         return await self._read(lambda r: r.get_mgmt_ip(), backend)
 
+    async def get_hostname(self, *, backend: Backend | None = None) -> str:
+        """Async twin of ``SyncSwitch.get_hostname`` -- see there."""
+        return await self._read(lambda r: r.get_hostname(), backend)
+
     async def nsdp_device(self) -> NsdpDevice:
         """Async twin of ``SyncSwitch.nsdp_device`` -- see there."""
         reader = self._reader_for(Backend.NSDP)

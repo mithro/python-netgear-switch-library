@@ -113,6 +113,7 @@ READ_OPERATIONS: tuple[Operation, ...] = (
     Operation("get_poe", OperationKind.READ, "Per-port PoE status and power draw"),
     Operation("get_sensors", OperationKind.READ, "Fan/PSU/temperature sensors"),
     Operation("get_mgmt_ip", OperationKind.READ, "Management IP configuration"),
+    Operation("get_hostname", OperationKind.READ, "The switch's host name"),
     Operation(
         "nsdp_device",
         OperationKind.READ,
@@ -247,7 +248,7 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
     ops with composite conditions defer to the reader's own helpers so there is
     exactly one definition of "this UI can answer that".
     """
-    from .http_read import _mgmt_ip_path, _supports_sensors
+    from .http_read import _has_sysinfo_hostname, _mgmt_ip_path, _supports_sensors
 
     simple: dict[str, str | None] = {
         "get_ports": spec.dashboard_path,
@@ -269,6 +270,11 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
     }
     if op.name == "get_sensors":
         return spec.sysinfo_path if _supports_sensors(spec) else None
+    if op.name == "get_hostname":
+        # Only two identity pages carry the field (gs110emx's sysInfo.html and
+        # gs105pe's switch_info.cgi); the reader's own predicate decides, so
+        # there is one definition rather than two that can drift.
+        return spec.sysinfo_path if _has_sysinfo_hostname(spec) else None
     if op.name == "get_mgmt_ip":
         return _mgmt_ip_path(spec)
     if op.name == "set_mgmt_ip":
