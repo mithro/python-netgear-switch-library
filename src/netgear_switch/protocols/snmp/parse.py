@@ -116,6 +116,13 @@ def physical_ports(if_types: Sequence[SnmpRow]) -> set[int] | None:
     return {idx for idx, t in type_map.items() if t == ETHERNET_CSMACD}
 
 
+#: dot3StatsDuplexStatus -> PortStatus.full_duplex. 1 (unknown) maps to None
+#: rather than False: "the agent does not know" and "this link is half duplex"
+#: are different answers. MEASURED on the GS728TPP -- every link-up port reads
+#: 3, every link-down port reads 1.
+_DUPLEX_STATUS = {2: False, 3: True}
+
+
 def parse_port_status(
     admin: Sequence[SnmpRow],
     oper: Sequence[SnmpRow],
@@ -123,7 +130,17 @@ def parse_port_status(
     names: Sequence[SnmpRow],
     aliases: Sequence[SnmpRow],
     if_types: Sequence[SnmpRow] = (),
+    duplex: Sequence[SnmpRow] = (),
+    pause: Sequence[SnmpRow] = (),
 ) -> list[PortStatus]:
+    """Per-port status. ``duplex``/``pause`` are the EtherLike-MIB columns.
+
+    Both are optional because they are genuinely absent on some agents (see
+    ``oids.DOT3_STATS_DUPLEX_STATUS``): the GS728TPP serves them, the GSM7252PS
+    does not publish those columns at all. A port with no row stays ``None``,
+    which is what the CLI backend already reports where its own table omits the
+    value -- absence is never rendered as False.
+    """
     from . import oids
 
     admin_map = index_int_column(admin, oids.IF_ADMIN_STATUS)
@@ -135,6 +152,9 @@ def parse_port_status(
     # description set" -> honest None, never a fabricated "".
     alias_map = index_str_column(aliases, oids.IF_ALIAS)
 
+    duplex_map = index_int_column(duplex, oids.DOT3_STATS_DUPLEX_STATUS)
+    pause_map = index_int_column(pause, oids.DOT3_PAUSE_OPER_MODE)
+
     physical = physical_ports(if_types)
     ports = sorted(set(admin_map) | set(oper_map))
     if physical is not None:
@@ -143,12 +163,17 @@ def parse_port_status(
     for p in ports:
         link_up = oper_map.get(p) == 1
         mbps = speed_map.get(p)
+        pause_mode = pause_map.get(p)
         result.append(
             PortStatus(
                 port=p,
                 name=name_map.get(p) or None,
                 admin_enabled=admin_map.get(p) == 1,
                 link_up=link_up,
+                full_duplex=_DUPLEX_STATUS.get(duplex_map.get(p, 0)),
+                # dot3PauseOperMode 1 is "disabled"; 2/3/4 are the enabled
+                # directions, and any of them means pause frames are in use.
+                flow_control=None if pause_mode is None else pause_mode != 1,
                 # A DOWN port has no operational speed: ifHighSpeed keeps
                 # reporting the configured rate on a down port (verified on the
                 # gsm7252ps: 10000 on down 1/0/52), which is NOT an operational

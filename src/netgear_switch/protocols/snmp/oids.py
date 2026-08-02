@@ -50,6 +50,23 @@ IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"
 IF_HC_OUT_UCAST = "1.3.6.1.2.1.31.1.1.1.11"
 IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"  # Mbps
 IF_ALIAS = "1.3.6.1.2.1.31.1.1.1.18"
+# EtherLike-MIB (RFC 3635) per-port duplex and pause (flow control). NOT served
+# by every agent, and the difference is per-model, measured 2026-08-03:
+#
+#   gs728tpp 10.2.5.10 : dot3StatsTable has column 19, dot3PauseTable has
+#                        columns 1 and 2 -- both readable for all 36 interfaces.
+#   gsm7252ps 10.1.5.22: dot3StatsTable stops at column 16 (no 19) and
+#                        dot3PauseTable serves only the COUNTERS (3-6), not
+#                        AdminMode/OperMode. So duplex and flow control are
+#                        genuinely unavailable over SNMP there, and stay None
+#                        rather than being invented.
+#
+# dot3StatsDuplexStatus: 1 unknown, 2 halfDuplex, 3 fullDuplex.
+# dot3PauseOperMode:     1 disabled, 2 enabledXmit, 3 enabledRcv,
+#                        4 enabledXmitAndRcv.
+DOT3_STATS_DUPLEX_STATUS = "1.3.6.1.2.1.10.7.2.1.19"
+DOT3_PAUSE_ADMIN_MODE = "1.3.6.1.2.1.10.7.10.1.1"
+DOT3_PAUSE_OPER_MODE = "1.3.6.1.2.1.10.7.10.1.2"
 DOT1D_BASE_BRIDGE_ADDRESS = "1.3.6.1.2.1.17.1.1"  # scalar (.0); BRIDGE-MIB base MAC
 DOT1D_BASE_PORT_IF_INDEX = "1.3.6.1.2.1.17.1.4.1.2"
 DOT1Q_TP_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"  # MAC table, port column ONLY

@@ -79,6 +79,10 @@ class SnmpReader:
         self.model = model
 
     def get_ports(self) -> list[PortStatus]:
+        # The two EtherLike columns are walked unconditionally: an agent that
+        # does not serve them answers an empty subtree, which parse_port_status
+        # renders as None. See oids.DOT3_STATS_DUPLEX_STATUS for which models
+        # were measured to have them and which do not.
         w = self.client.walk
         return parse.parse_port_status(
             w(oids.IF_ADMIN_STATUS),
@@ -87,6 +91,8 @@ class SnmpReader:
             w(oids.IF_NAME),
             w(oids.IF_ALIAS),
             w(oids.IF_TYPE),
+            w(oids.DOT3_STATS_DUPLEX_STATUS),
+            w(oids.DOT3_PAUSE_OPER_MODE),
         )
 
     def get_stats(self) -> list[PortStats]:
@@ -288,6 +294,8 @@ class AsyncSnmpReader:
         self.model = model
 
     async def get_ports(self) -> list[PortStatus]:
+        # See SnmpReader.get_ports for why the EtherLike columns are always
+        # walked and what an agent that lacks them reports.
         w = self.client.walk
         return parse.parse_port_status(
             await w(oids.IF_ADMIN_STATUS),
@@ -296,6 +304,8 @@ class AsyncSnmpReader:
             await w(oids.IF_NAME),
             await w(oids.IF_ALIAS),
             await w(oids.IF_TYPE),
+            await w(oids.DOT3_STATS_DUPLEX_STATUS),
+            await w(oids.DOT3_PAUSE_OPER_MODE),
         )
 
     async def get_stats(self) -> list[PortStats]:

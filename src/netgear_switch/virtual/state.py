@@ -168,6 +168,17 @@ class PortSim:
     # says Disable. Defaults True, which is the factory default those first two
     # units are still on.
     flow_control: bool = True
+    # Does this model's SNMP agent publish the EtherLike-MIB duplex/pause
+    # columns for this interface? Per-model, MEASURED 2026-08-03: the GS728TPP
+    # serves dot3StatsDuplexStatus and dot3PauseAdminMode/OperMode for all 36
+    # interfaces, while the GSM7252PS publishes neither column (its
+    # dot3StatsTable stops at 16 and its dot3PauseTable has only counters).
+    #
+    # Default False so no model gains an OID its hardware was never observed
+    # to answer -- a seed opts in. Where it is False, SNMP get_ports reports
+    # full_duplex/flow_control as None, which is the honest reading of an
+    # absent column, and exactly what the real GSM7252PS produces.
+    serves_etherlike: bool = False
 
 
 @dataclass
@@ -821,6 +832,18 @@ class VirtualSwitchState:
             m[f"{oids.IF_HIGH_SPEED}.{port}"] = ("Gauge32", str(sim.speed))
             m[f"{oids.IF_TYPE}.{port}"] = ("INTEGER", str(sim.if_type))
             m[f"{oids.IF_NAME}.{port}"] = ("OCTETSTR", sim.name)
+            if sim.serves_etherlike:
+                # dot3StatsDuplexStatus: 3 fullDuplex while the link is up,
+                # 1 unknown while it is down -- exactly what the live GS728TPP
+                # returns for every one of its 28 ports.
+                m[f"{oids.DOT3_STATS_DUPLEX_STATUS}.{port}"] = (
+                    "INTEGER",
+                    "3" if sim.link else "1",
+                )
+                # dot3PauseOperMode: 1 disabled, 4 enabledXmitAndRcv.
+                mode = "4" if sim.flow_control else "1"
+                m[f"{oids.DOT3_PAUSE_OPER_MODE}.{port}"] = ("INTEGER", mode)
+                m[f"{oids.DOT3_PAUSE_ADMIN_MODE}.{port}"] = ("INTEGER", mode)
             if sim.description is not None:
                 m[f"{oids.IF_ALIAS}.{port}"] = ("OCTETSTR", sim.description)
             # Port stats: only emit a counter the port actually exposes

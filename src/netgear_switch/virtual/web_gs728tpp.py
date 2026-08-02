@@ -58,17 +58,29 @@ def _physical_ports(state: VirtualSwitchState) -> list[int]:
     return [p for p in sorted(state.ports) if p <= port_count]
 
 
-def render_ports(state: VirtualSwitchState) -> str:
-    rows = "".join(
-        f"<Entry><interfaceName>g{p}</interfaceName>"
-        f"<interfaceType>1</interfaceType><interfaceID>{p}</interfaceID>"
-        f"<interfaceDescription>{escape(state.ports[p].description or '')}"
+def _port_entry(state: VirtualSwitchState, port: int) -> str:
+    sim = state.ports[port]
+    # duplexOperMode 2 while up / 4 while down, and flowControlOperType
+    # 1 enabled / 2 disabled -- the codes the live switch returns, decoded
+    # against SNMP (see parse._GOAHEAD_DUPLEX_OPER and _GOAHEAD_FLOW_CONTROL).
+    return (
+        f"<Entry><interfaceName>g{port}</interfaceName>"
+        f"<interfaceType>1</interfaceType><interfaceID>{port}</interfaceID>"
+        f"<interfaceDescription>{escape(sim.description or '')}"
         "</interfaceDescription>"
-        f"<adminState>{_ADMIN[state.ports[p].admin]}</adminState>"
-        f"<linkState>{_LINK[state.ports[p].link]}</linkState>"
-        f"<speedOper>{state.ports[p].speed}</speedOper></Entry>"
-        for p in _physical_ports(state)
+        f"<adminState>{_ADMIN[sim.admin]}</adminState>"
+        f"<linkState>{_LINK[sim.link]}</linkState>"
+        f"<speedOper>{sim.speed}</speedOper>"
+        f"<duplexOperMode>{'2' if sim.link else '4'}</duplexOperMode>"
+        f"<duplexAdminMode>3</duplexAdminMode>"
+        f"<flowControlOperType>{'1' if sim.flow_control else '2'}</flowControlOperType>"
+        f"<flowControlAdminType>{'1' if sim.flow_control else '2'}"
+        "</flowControlAdminType></Entry>"
     )
+
+
+def render_ports(state: VirtualSwitchState) -> str:
+    rows = "".join(_port_entry(state, p) for p in _physical_ports(state))
     return _wcd(f'<Standard802_3List type="section">{rows}</Standard802_3List>')
 
 

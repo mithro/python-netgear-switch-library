@@ -2712,6 +2712,11 @@ def seed_gs728tpp() -> VirtualSwitchState:
             admin=True,
             link=p in up,
             speed=100 if p in speed100 else 1000,
+            # This agent DOES serve the EtherLike duplex/pause columns (unlike
+            # the GSM7252PS), and every port reads flow control OFF -- measured
+            # 2026-08-03 across all 28 ports on both backends at once.
+            serves_etherlike=True,
+            flow_control=False,
         )
         for p in range(1, 29)
     }

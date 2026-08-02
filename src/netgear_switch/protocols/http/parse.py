@@ -2486,13 +2486,41 @@ def _gtext(el: ElementTree.Element, tag: str) -> str:
     return (child.text or "").strip() if child is not None else ""
 
 
+#: ``duplexOperMode`` -> full_duplex, DECODED AGAINST SNMP rather than guessed.
+#: Measured on the live GS728TPP (10.2.5.10, firmware 6.0.1.30, 2026-08-03) by
+#: reading this page and dot3StatsDuplexStatus for all 28 ports at once:
+#: every link-UP port reads 2 here and 3 (fullDuplex) there, every link-DOWN
+#: port reads 4 here and 1 (unknown) there.
+#:
+#: 4 is therefore mapped to None, not False. Nothing is claimed about codes 1
+#: and 3: that fleet had no half-duplex link to observe, and inventing the rest
+#: of an enum from one observation is how a plausible-but-wrong mapping gets in.
+#: An unmapped code yields None, which is the honest answer for "not known".
+#:
+#: Note this is NOT the same enum as ``duplexAdminMode``, where the page's own
+#: JS uses 2=half / 3=full (see protocols/http/goahead.py).
+_GOAHEAD_DUPLEX_OPER = {"2": True}
+
+#: ``flowControlOperType`` -> flow_control. Measured in the same read: every
+#: port reads 2 here while dot3PauseOperMode reads 1 (disabled), so 2 is
+#: disabled -- consistent with this UI's usual 1=enabled/2=disabled pairing
+#: (``adminState``, ``linkState``). Every port on that switch had flow control
+#: off, so "1 means enabled" is inference from the UI's convention rather than
+#: observation, and any other code stays None.
+_GOAHEAD_FLOW_CONTROL = {"1": True, "2": False}
+
+
 def parse_goahead_ports(body: str) -> list[PortStatus]:
     """GS728TPP ``Standard802_3List`` -> per-port status.
 
     Only physical ``g<n>`` ports are returned; the page also lists LAG
     aggregations (``LAG1``..), which are not ports. ``speed_mbps`` is the
     negotiated ``speedOper`` while the link is up, and honestly ``None`` on a
-    down port (whose ``speedOper`` still reports the configured rate)."""
+    down port (whose ``speedOper`` still reports the configured rate).
+
+    ``duplexOperMode`` and ``flowControlOperType`` are decoded against SNMP
+    rather than against a guess -- see ``_GOAHEAD_DUPLEX_OPER`` and
+    ``_GOAHEAD_FLOW_CONTROL``."""
     sec = _goahead_section(body, "Standard802_3List")
     out: list[PortStatus] = []
     for e in sec.findall("Entry"):
@@ -2508,6 +2536,10 @@ def parse_goahead_ports(body: str) -> list[PortStatus]:
                 link_up=link_up,
                 speed_mbps=_int(_gtext(e, "speedOper")) if link_up else None,
                 description=_gtext(e, "interfaceDescription") or None,
+                full_duplex=_GOAHEAD_DUPLEX_OPER.get(_gtext(e, "duplexOperMode")),
+                flow_control=_GOAHEAD_FLOW_CONTROL.get(
+                    _gtext(e, "flowControlOperType")
+                ),
             )
         )
     if not out:

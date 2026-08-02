@@ -241,6 +241,48 @@ def test_set_pvid_refuses_a_vlan_the_switch_does_not_have(mock) -> None:
     assert absent not in {v.vlan_id for v in reader.get_vlans()}
 
 
+def test_duplex_and_flow_control_agree_across_backends(mock) -> None:
+    """Both backends report duplex/flow control, and report the SAME thing.
+
+    LIVE-VERIFIED on 10.2.5.10 (firmware 6.0.1.30, 2026-08-03) by reading both
+    at once for all 28 ports: zero mismatches. The two encodings are different,
+    which is why this is worth pinning --
+
+        link UP  : SNMP dot3StatsDuplexStatus 3 (full)  / HTTP duplexOperMode 2
+        link DOWN: SNMP 1 (unknown)                     / HTTP 4
+
+    -- so a down port is ``None`` on both, never False. Flow control was off on
+    every port: SNMP dot3PauseOperMode 1 (disabled), HTTP flowControlOperType 2.
+    """
+    snmp = {p.port: p for p in SnmpReader(_snmp(mock), MODEL).get_ports()}
+    http = {p.port: p for p in _http_reader(mock).get_ports()}
+    assert sorted(snmp) == sorted(http)
+    for port in sorted(snmp):
+        assert snmp[port].full_duplex == http[port].full_duplex, f"port {port}"
+        assert snmp[port].flow_control == http[port].flow_control, f"port {port}"
+
+    up = next(p for p in snmp.values() if p.link_up)
+    down = next(p for p in snmp.values() if not p.link_up)
+    assert up.full_duplex is True
+    assert down.full_duplex is None, "a down port's duplex is unknown, not half"
+    assert up.flow_control is False
+
+
+def test_a_model_without_the_etherlike_columns_reports_none(mock) -> None:
+    """Absence must read as None, not as False.
+
+    LIVE-VERIFIED on the GSM7252PS (10.1.5.22): its dot3StatsTable stops at
+    column 16 and its dot3PauseTable serves only counters, so SNMP get_ports
+    returns (None, None) for all 52 ports. Reporting False there would be
+    asserting "half duplex, flow control off" about a switch that never said so.
+    """
+    with VirtualSwitch(model="gsm7252ps") as other:
+        client = NetsnmpCliClient(f"{other.host}:{other.port}", other.community)
+        ports = SnmpReader(client, get_model("gsm7252ps")).get_ports()
+    assert ports, "precondition: the mock serves ports at all"
+    assert {(p.full_duplex, p.flow_control) for p in ports} == {(None, None)}
+
+
 def test_pvids_and_ports_exclude_the_lags(mock) -> None:
     client = _snmp(mock)
     raw_pvids = client.walk(oids.DOT1Q_PVID)
