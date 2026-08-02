@@ -44,6 +44,7 @@ is what the caller gets.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from types import MappingProxyType
@@ -64,7 +65,7 @@ from .protocols.http.endpoints import HtmlDialect, http_spec
 from .protocols.http.session import MultipartFile
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Awaitable, Callable, Mapping
 
     from .models import PoEStatus
     from .protocols.http.endpoints import HttpModelSpec, XuiMgmtIpFields
@@ -1318,7 +1319,132 @@ class AsyncHttpWriter:
                 return r.admin_enabled
         return False
 
+    # --- GoAhead XML API: async twins of SnmpWriter's -- see the sync writer
+    # for where every body shape comes from. They exist because the capability
+    # table does not distinguish sync from async: an op the sync writer can do
+    # and the async one cannot would be a claim this codebase cannot honour.
+
+    async def _goahead_write(self, body: str, what: str) -> None:
+        path = _require_path(
+            self.model.key, self._spec.xml_write_path, "XML-API write endpoint"
+        )
+        _check_goahead_status(await self.session.post_xml(path, body), what)
+
+    async def _poe_status(self, port: int) -> PoEStatus | None:
+        path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
+        rows = _parse_poe(self._spec, await self.session.get_page(path))
+        return next((r for r in rows if r.port == port), None)
+
+    async def _goahead_poe_admin(self, port: int, on: bool) -> None:
+        before = await self._poe_admin(port)
+        await self._goahead_write(
+            goahead.poe_admin_body(goahead.port_interface_name(port), on),
+            f"PoE port {port} admin -> {on}",
+        )
+        after = await self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    async def _goahead_poe_rearm(
+        self,
+        port: int,
+        *,
+        timeouts: PoeCycleTimeouts | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        from .snmp_write import PoeCycleTimeouts
+
+        limits = timeouts or PoeCycleTimeouts()
+        before = await self._poe_status(port)
+        await self._goahead_poe_admin(port, on=False)
+        await self._goahead_poe_admin(port, on=True)
+        deadline = clock() + limits.on_timeout
+        while not poe_cycle_complete(before, await self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not come back after the power cycle "
+                    f"within {limits.on_timeout}s",
+                    before=before,
+                    after=await self._poe_status(port),
+                )
+            await sleep(limits.poll_interval)
+
+    async def _goahead_membership(
+        self,
+    ) -> dict[int, tuple[frozenset[int], frozenset[int]]]:
+        path = _require_path(
+            self.model.key, self._spec.pvid_path, "port VLAN membership"
+        )
+        return parse.parse_goahead_port_vlan_membership(
+            await self.session.get_page(path)
+        )
+
+    async def _goahead_mode_of(self, vlan: int, port: int) -> VlanMode:
+        tagged, untagged = (await self._goahead_membership()).get(
+            vlan, (frozenset(), frozenset())
+        )
+        if port in untagged:
+            return VlanMode.UNTAGGED
+        return VlanMode.TAGGED if port in tagged else VlanMode.EXCLUDED
+
+    async def _set_goahead_membership(
+        self, vlan: int, port: int, mode: VlanMode
+    ) -> None:
+        before = await self._goahead_mode_of(vlan, port)
+        await self._goahead_write(
+            goahead.vlan_membership_body(
+                vlan, goahead.port_interface_name(port), mode
+            ),
+            f"VLAN {vlan} membership for port {port} -> {mode.value}",
+        )
+        after = await self._goahead_mode_of(vlan, port)
+        if after is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value}",
+                before=before,
+                after=after,
+            )
+
+    async def _goahead_vlan_ids(self) -> set[int]:
+        path = _require_path(
+            self.model.key, self._spec.vlan_config_path, "VLAN config"
+        )
+        return set(
+            parse.parse_goahead_vlan_names(await self.session.get_page(path))
+        )
+
+    async def _set_goahead_port_enabled(
+        self, path: str, port: int, enabled: bool
+    ) -> None:
+        def admin_of(body: str) -> bool | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.admin_enabled for p in rows if p.port == port), None)
+
+        before = admin_of(await self.session.get_page(path))
+        await self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, admin_enabled=enabled
+            ),
+            f"port {port} admin -> {enabled}",
+        )
+        after = admin_of(await self.session.get_page(path))
+        if after is not enabled:
+            raise WriteVerificationError(
+                f"port {port} did not read back as enabled={enabled}",
+                before=before,
+                after=after,
+            )
+
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            await self._goahead_poe_admin(port, on)
+            return
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
@@ -1371,6 +1497,10 @@ class AsyncHttpWriter:
         force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            await self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         del timeouts  # accepted-but-unused; uniform writer surface (see sync).
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
@@ -1392,6 +1522,10 @@ class AsyncHttpWriter:
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
         """Async twin of ``HttpWriter.clear_poe_fault`` (see its docs)."""
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            await self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         del timeouts  # accepted-but-unused; uniform writer surface (see sync).
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
@@ -1424,6 +1558,22 @@ class AsyncHttpWriter:
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        if _is_xml_api_dialect(self._spec):
+            before = dict(
+                parse.parse_goahead_pvids(await self.session.get_page(path))
+            )
+            await self._goahead_write(
+                goahead.pvid_body(goahead.port_interface_name(port), vlan),
+                f"PVID for port {port} -> {vlan}",
+            )
+            now = dict(parse.parse_goahead_pvids(await self.session.get_page(path)))
+            if now.get(port) != vlan:
+                raise WriteVerificationError(
+                    f"PVID for port {port} did not read back as {vlan}",
+                    before=before.get(port),
+                    after=now.get(port),
+                )
+            return
         page = await self.session.get_page(path)
         await self.session.post_form(
             path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
@@ -1442,6 +1592,9 @@ class AsyncHttpWriter:
         self._guard(port, force)
         if _is_fastpath_dialect(self._spec):
             await self._set_fastpath_membership(vlan, port, mode)
+            return
+        if _is_xml_api_dialect(self._spec):
+            await self._set_goahead_membership(vlan, port, mode)
             return
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
@@ -1501,6 +1654,20 @@ class AsyncHttpWriter:
         return shown
 
     async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force
+            before = await self._goahead_vlan_ids()
+            await self._goahead_write(
+                goahead.vlan_create_body(vlan, name), f"create VLAN {vlan}"
+            )
+            after_ids = await self._goahead_vlan_ids()
+            if vlan not in after_ids:
+                raise WriteVerificationError(
+                    f"VLAN {vlan} was not created",
+                    before=sorted(before),
+                    after=sorted(after_ids),
+                )
+            return
         _require_csrf_dialect(self._spec, self.model.key, "create_vlan")
         del name, force
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -1515,6 +1682,20 @@ class AsyncHttpWriter:
             )
 
     async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force
+            before = await self._goahead_vlan_ids()
+            await self._goahead_write(
+                goahead.vlan_delete_body(vlan), f"delete VLAN {vlan}"
+            )
+            after_ids = await self._goahead_vlan_ids()
+            if vlan in after_ids:
+                raise WriteVerificationError(
+                    f"VLAN {vlan} was not deleted",
+                    before=sorted(before),
+                    after=sorted(after_ids),
+                )
+            return
         _require_csrf_dialect(self._spec, self.model.key, "delete_vlan")
         del force
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -1554,6 +1735,15 @@ class AsyncHttpWriter:
     ) -> None:
         """Async twin of ``HttpWriter.set_port_enabled`` (see its docs)."""
         self._guard(port, force)
+        if _is_xml_api_dialect(self._spec):
+            await self._set_goahead_port_enabled(
+                _require_path(
+                    self.model.key, self._spec.dashboard_path, "the ports page"
+                ),
+                port,
+                enabled,
+            )
+            return
         path = _require_path(
             self.model.key, self._spec.port_config_path, "the port-configuration page"
         )

@@ -551,6 +551,56 @@ def test_expired_session_recovers_on_a_read_but_never_resends_a_write(
         client.close()
 
 
+def test_goahead_async_writer_matches_the_sync_one(goahead_face) -> None:
+    """Every GoAhead write must exist on the ASYNC writer too.
+
+    The capability table does not distinguish sync from async, so an operation
+    the sync writer can do and the async one cannot is a claim the library
+    cannot honour -- and that is exactly what happened when these were first
+    added to HttpWriter alone.
+    """
+    from netgear_switch.http_write import AsyncHttpWriter
+    from netgear_switch.models import VlanMode
+    from netgear_switch.transport.http.client import AsyncHttpClient
+
+    async def run() -> None:
+        _f, port, _state = goahead_face
+        model = get_model("gs728tpp")
+        client = AsyncHttpClient(f"127.0.0.1:{port}", "password", http_spec(model))
+        try:
+            await client.login()
+            writer = AsyncHttpWriter(client, model)
+            reader = AsyncHttpReader(client, model)
+
+            await writer.set_poe(17, on=False)
+            poe = {p.port: p for p in await reader.get_poe()}
+            assert poe[17].admin_enabled is False
+            await writer.set_poe(17, on=True)
+
+            await writer.set_port_enabled(17, enabled=False, force=True)
+            ports = {p.port: p for p in await reader.get_ports()}
+            assert ports[17].admin_enabled is False
+            await writer.set_port_enabled(17, enabled=True, force=True)
+
+            await writer.create_vlan(4007, "async-tmp")
+            vlans = {v.vlan_id: v for v in await reader.get_vlans()}
+            assert 4007 in vlans
+            assert vlans[4007].name == "async-tmp"
+
+            await writer.set_vlan_membership(4007, 17, VlanMode.TAGGED, force=True)
+            vlans = {v.vlan_id: v for v in await reader.get_vlans()}
+            assert 17 in vlans[4007].tagged_ports
+            await writer.set_pvid(17, 4007, force=True)
+            assert dict(await reader.get_pvids())[17] == 4007
+
+            await writer.delete_vlan(4007, force=True)
+            assert 4007 not in {v.vlan_id for v in await reader.get_vlans()}
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
+
+
 def test_goahead_async_reader_end_to_end(goahead_face) -> None:
     """Async twin: sync/async parity over the XML_API login + wcd reads."""
 
