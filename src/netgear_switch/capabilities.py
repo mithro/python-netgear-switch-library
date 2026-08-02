@@ -150,6 +150,21 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
     Operation("delete_vlan", OperationKind.WRITE, "Delete a VLAN"),
     Operation("set_mgmt_ip", OperationKind.WRITE, "Set the management IP/mask/gateway"),
     Operation(
+        "set_hostname",
+        OperationKind.WRITE,
+        "Set the switch's host name",
+        # SNMP (sysName, confirmed writable on all five reachable switches) and
+        # the FASTPATH CLI (`hostname`) are what the library writes today.
+        #
+        # This restriction makes a REAL GAP visible rather than hiding it: the
+        # Plus models have neither backend, so this library currently cannot
+        # rename a gs110emx, gs105pe or gs305ep at all. Both routes exist on the
+        # devices -- NSDP carries a writable HOSTNAME tag and two web UIs expose
+        # a switch_name field -- so this is unbuilt work, not a device limit,
+        # and the support table should show the hole until it is filled.
+        backends=frozenset({Backend.SNMP}) | _CLI_BACKENDS,
+    ),
+    Operation(
         "upload_certificate",
         OperationKind.WRITE,
         "Upload an HTTPS certificate over the web UI",

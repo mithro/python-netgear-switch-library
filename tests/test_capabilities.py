@@ -93,6 +93,10 @@ _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     "create_vlan": ((4008, "capcheck"), {}),
     "delete_vlan": ((4008,), {}),
     "set_mgmt_ip": (("10.99.0.2", "255.255.255.0", "10.99.0.1"), {}),
+    # A non-empty name: set_hostname refuses an empty one outright, because
+    # `hostname` with no argument is rejected by the device itself and clearing
+    # a name is a different command (`no hostname`) that is not implemented.
+    "set_hostname": (("capcheck",), {}),
 }
 
 #: Not driven. ``upload_certificate_scp`` runs a multi-command deploy sequence

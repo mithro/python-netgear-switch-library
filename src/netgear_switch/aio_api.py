@@ -645,6 +645,16 @@ class AsyncSwitch:
             lambda w: w.clear_poe_fault(port, force=force, timeouts=timeouts), backend
         )
 
+    async def set_hostname(
+        self, name: str, *, force: bool = False, backend: Backend | None = None
+    ) -> None:
+        """Async twin of ``SyncSwitch.set_hostname`` -- see there.
+
+        Note AsyncSwitch has no CLI backend at all, so on this facade the write
+        resolves over SNMP or not at all.
+        """
+        await self._write(lambda w: w.set_hostname(name, force=force), backend)
+
     async def set_mgmt_ip(
         self,
         address: str,

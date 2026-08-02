@@ -795,6 +795,21 @@ class SyncSwitch:
             lambda w: w.clear_poe_fault(port, force=force, timeouts=timeouts), backend
         )
 
+    def set_hostname(
+        self, name: str, *, force: bool = False, backend: Backend | None = None
+    ) -> None:
+        """Set the switch's host name, and read it back to confirm.
+
+        Written over SNMP (``sysName``) or the FASTPATH CLI (``hostname``),
+        whichever backend resolves. Not force-gated: renaming cannot strand a
+        switch and is reversible by writing the old name back, unlike
+        ``set_mgmt_ip``, which drops the session that issues it.
+
+        The Plus models cannot be renamed by this library yet -- they have
+        neither backend, and the NSDP and web-UI routes are unbuilt.
+        """
+        self._write(lambda w: w.set_hostname(name, force=force), backend)
+
     def set_mgmt_ip(
         self,
         address: str,
