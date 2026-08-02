@@ -483,3 +483,40 @@ That is enough to implement `_xui_vlan_create`/`_xui_vlan_delete` against
 existing `submit_flag`. It still needs driving against a switch with a throwaway
 VLAN id and reading back before `reads_verified`-style confidence is claimed —
 but the mechanism is no longer inferred.
+
+
+### The ADD button is client-side; APPLY carries the new row
+
+Posting `v_6_1_1=ADD` to `/vlanConfiguration.html/a1` (with the page's tokens
+and nav) returns **12 bytes** — not a form. So `ADD` is a JavaScript action that
+reveals an input row in the table the browser already has; it is not a server
+round trip and it creates nothing.
+
+Section 6 is the page-button block (the page's own comment marks it
+`page_buttons_end`):
+
+| Field | Value |
+|---|---|
+| `v_6_1_1` | `ADD` |
+| `v_6_1_2` | `DELETE` |
+| `v_6_1_3` | `CANCEL` |
+| `v_6_1_4`, `v_6_1_5` | `APPLY` |
+
+The display table is 14 rows addressed `1.<row0>.14.v_2_1_<col>`, all hidden
+inputs, with columns 1=id, 2=name, 3=type and 4=RowStatus.
+
+So the create flow is a SINGLE post: the new row's cells plus an APPLY button,
+with the action cell carrying `createAndGo(4)` — and delete is the same shape
+with `destroy(6)`. It is NOT the two-step ADD-then-APPLY a browser appears to
+perform.
+
+Also captured: `page.action` is `/vlanConfiguration.html/a1`, `page.tokens` is
+empty for this page, and `page.nav` is
+`{v_1_1_1: Disable, v_4_1_1: 4093, v_4_2_1: Descending}` — the nav block that
+`xui_row_apply_form` already knows to send.
+
+**Still unresolved:** the row index a new row must use. Existing rows occupy
+`1.0.14` .. `1.13.14`; whether a create uses `1.14.14` (next free), a fixed
+sentinel, or re-uses index 0 has not been established, and getting it wrong
+would edit an existing VLAN rather than add one. That is the single remaining
+unknown, and it is readable from `xui_common.js`'s row-add handler.
