@@ -283,6 +283,40 @@ PoE idle) and VLAN **4001**. Every run recorded the prior state, restored it,
 and proved the restore by re-reading on both backends. Nothing was ever saved
 to startup configuration.
 
+## Follow-on work this switch made possible
+
+Two further things were measured on the same session and shipped:
+
+**Per-port duplex and flow control now read over SNMP and HTTP.** `PortStatus`
+had carried `full_duplex`/`flow_control` since the CLI learned to parse them,
+but only the CLI ever filled them in. Which OIDs serve this is per-model, and
+was measured by walking `1.3.6.1.2.1.10.7` on each switch:
+
+| | dot3StatsTable | dot3PauseTable |
+| --- | --- | --- |
+| GS728TPP | has column 19 | has columns 1-2 |
+| GSM7252PS | stops at 16 | counters only (3-6) |
+
+So both columns are always walked and an absent one reports `None` — confirmed
+on both switches (GS728TPP fills all 28 ports; GSM7252PS reports `(None, None)`
+for all 52). The HTTP enums were decoded *against SNMP* rather than guessed, by
+reading both for every port in one pass: link-up is `duplexOperMode` 2 ↔
+`dot3StatsDuplexStatus` 3 (full), link-down is 4 ↔ 1 (unknown), and every port
+read `flowControlOperType` 2 ↔ `dot3PauseOperMode` 1 (disabled). Only the
+observed codes are mapped — that fleet had no half-duplex link, so the rest of
+the enum is left `None` rather than invented. SNMP and HTTP agree on all 28
+ports.
+
+**An empty-string SET could never be sent.** `snmpset ... s ""` is rejected by
+the net-snmp CLI itself with `Needs value`, before a packet leaves the host — so
+clearing any text column was impossible through this transport. Found while
+restoring `ifAlias` on port 17 after a write probe: the switch had taken the
+description and the restore could not be sent. An empty OCTET STRING now goes
+out as an empty hex string, which net-snmp accepts and the agent applied.
+
+(`ifAlias` **is** writable on this switch, which is the feasibility answer for a
+future `set_port_description`.)
+
 ## Final end-to-end run — 35/35
 
 `tmp/gs728_goal_verify.py` drives the PUBLIC facade (`SyncSwitch`) with the
