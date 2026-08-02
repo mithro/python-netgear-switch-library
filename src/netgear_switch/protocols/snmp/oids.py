@@ -147,6 +147,32 @@ class VendorOids:
     """The ONE symbol every call site uses for the DHCP-mode OID. See
     DHCP_MODE_OID_SUFFIX above — UNVERIFIED, best-effort read only. No call site
     may hard-code a ``.99.1`` literal; they all reference this field."""
+    syslog_admin_mode: str
+    syslog_local_port: str
+    syslog_host_addr: str
+    syslog_host_port: str
+    syslog_host_severity: str
+    syslog_host_status: str
+    """Remote-logging configuration, under ``<base>.14`` on BOTH vendor
+    families -- 4526.10 (FASTPATH) and 4526.11 (S3300) share the column layout.
+
+    Located 2026-08-02 by reading each switch's own ``show logging`` /
+    ``show logging hosts`` and then searching a full walk for those values;
+    every field of the CLI output is accounted for by a column and the two
+    agree. On m4300-24x (10.1.5.13) the host row reads 10.1.5.1 / port 514 /
+    severity 6 / status 1 against a CLI table of ``10.1.5.1  info  514
+    Active`` -- so severity is the standard syslog scale (6 = info) and status
+    1 = Active.
+
+    ``<base>.17`` is NOT this: it looks like logging until you notice it holds
+    port 123 and the string "NTP Bits". It is SNTP, and this fleet's NTP server
+    and syslog server are the same host, which is what makes the confusion easy.
+
+    The admin-mode enum is ``1 = enabled, 2 = disabled``, confirmed twice over
+    on m4300-24x: syslog reads 1 while ``show logging`` says "Syslog Logging :
+    enabled", and the console column reads 2 while it says "Console Logging :
+    disabled". The console severity column independently reads 3 against a CLI
+    "error", matching the same syslog scale."""
     mgmt_write_addr_unverified: str
     mgmt_write_netmask_unverified: str
     mgmt_write_gateway_unverified: str
@@ -236,6 +262,12 @@ def vendor_oids(model: SwitchModel) -> VendorOids:
         box_psu_power=f"{base}.43.1.8.1.5",
         box_temp=f"{base}.43.1.15.1.3",
         dhcp_mode_unverified=f"{base}.{DHCP_MODE_OID_SUFFIX}",
+        syslog_admin_mode=f"{base}.14.1.4.1.0",
+        syslog_local_port=f"{base}.14.1.4.3.0",
+        syslog_host_addr=f"{base}.14.1.4.5.1.3",
+        syslog_host_port=f"{base}.14.1.4.5.1.4",
+        syslog_host_severity=f"{base}.14.1.4.5.1.5",
+        syslog_host_status=f"{base}.14.1.4.5.1.7",
         mgmt_write_addr_unverified=f"{base}.98.1",
         mgmt_write_netmask_unverified=f"{base}.98.2",
         mgmt_write_gateway_unverified=f"{base}.98.3",

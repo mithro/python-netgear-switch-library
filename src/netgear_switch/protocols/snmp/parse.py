@@ -17,6 +17,8 @@ from ...models import (
     PortStats,
     PortStatus,
     Sensor,
+    SyslogConfig,
+    SyslogServer,
     VLANInfo,
 )
 from .client import SnmpError, SnmpRow
@@ -714,6 +716,70 @@ def _ipv4_from_rfc4293_index(rows: Sequence[SnmpRow]) -> str | None:
             continue
         return ip
     return None
+
+
+#: The vendor admin-mode enum shared by every logging destination column.
+#: 1 = enabled, 2 = disabled -- confirmed twice on m4300-24x against its own
+#: ``show logging``: syslog reads 1 under "Syslog Logging : enabled" and the
+#: console column reads 2 under "Console Logging : disabled".
+_ADMIN_ENABLED = 1
+
+#: Row status in the syslog host table. 1 is what the CLI prints as "Active".
+_HOST_STATUS_ACTIVE = 1
+
+
+def _first_int(rows: Sequence[SnmpRow]) -> int | None:
+    """The value of a single-varbind scalar GET, when it is an integer."""
+    for row in rows:
+        if isinstance(row.value, int):
+            return row.value
+    return None
+
+
+def parse_syslog(
+    admin_mode: Sequence[SnmpRow],
+    local_port: Sequence[SnmpRow],
+    host_addr: Sequence[SnmpRow],
+    host_port: Sequence[SnmpRow],
+    host_severity: Sequence[SnmpRow],
+    host_status: Sequence[SnmpRow],
+    *,
+    addr_base: str,
+    port_base: str,
+    severity_base: str,
+    status_base: str,
+) -> SyslogConfig:
+    """Vendor logging columns -> ``SyslogConfig``.
+
+    The host table is indexed by an integer row id, and every per-host column is
+    matched to the address column by that index rather than by position -- so a
+    table with a gap in its indices (a deleted row) cannot silently shift one
+    row's port onto another row's address.
+
+    A row whose address is empty is skipped. The address is the only field that
+    makes a row meaningful, and reporting one collector fewer is far better than
+    inventing where logs are being sent.
+    """
+    addresses = index_str_column(host_addr, addr_base)
+    ports = index_int_column(host_port, port_base)
+    severities = index_int_column(host_severity, severity_base)
+    statuses = index_int_column(host_status, status_base)
+
+    servers = tuple(
+        SyslogServer(
+            host=address,
+            port=ports.get(index, 0),
+            severity=severities.get(index, 0),
+            active=statuses.get(index) == _HOST_STATUS_ACTIVE,
+        )
+        for index, address in sorted(addresses.items())
+        if address.strip()
+    )
+    return SyslogConfig(
+        enabled=_first_int(admin_mode) == _ADMIN_ENABLED,
+        local_port=_first_int(local_port) or 0,
+        servers=servers,
+    )
 
 
 def parse_mgmt_ip(

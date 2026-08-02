@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        SyslogConfig,
         VLANInfo,
     )
     from .protocols.snmp.client import AsyncSnmpClient, SnmpClient
@@ -200,6 +201,36 @@ class SnmpReader:
         which publishes no Netgear vendor subtree at all.
         """
         return parse.parse_hostname(self.client.get([oids.SYS_NAME]))
+
+    def get_syslog(self) -> SyslogConfig:
+        """Remote-logging configuration: whether it is on, and where it sends.
+
+        VENDOR columns, so a model with no Netgear subtree cannot serve this.
+        ``gs728tpp`` is exactly that model -- a walk of ``1.3.6.1.4.1.4526``
+        answers ``noSuchObject`` -- and it is refused by name rather than
+        returned empty, which would read as "no collectors configured".
+        """
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only; an empty "
+                "result here would be indistinguishable from a switch with no "
+                "syslog collectors configured"
+            )
+        vo = oids.vendor_oids(self.model)
+        w = self.client.walk
+        return parse.parse_syslog(
+            self.client.get([vo.syslog_admin_mode]),
+            self.client.get([vo.syslog_local_port]),
+            w(vo.syslog_host_addr),
+            w(vo.syslog_host_port),
+            w(vo.syslog_host_severity),
+            w(vo.syslog_host_status),
+            addr_base=vo.syslog_host_addr,
+            port_base=vo.syslog_host_port,
+            severity_base=vo.syslog_host_severity,
+            status_base=vo.syslog_host_status,
+        )
 
     def get_system_info(self) -> DetectedModel:
         """Identify this switch's model via sysDescr (see ``read_system_info``).

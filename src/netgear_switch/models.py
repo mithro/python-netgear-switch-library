@@ -120,6 +120,38 @@ class MgmtIpConfig:
 
 
 @dataclass(frozen=True)
+class SyslogServer:
+    """One remote syslog collector the switch is configured to send to."""
+
+    host: str
+    port: int
+    #: Standard syslog severity, 0 (emergency) to 7 (debug). The switch sends
+    #: messages AT OR ABOVE this level. Cross-checked on m4300-24x: the SNMP
+    #: column reads 6 where ``show logging hosts`` prints "info".
+    severity: int
+    #: The switch's own word for the row's state, "Active" in the CLI table.
+    active: bool
+
+
+@dataclass(frozen=True)
+class SyslogConfig:
+    """Remote-logging configuration: whether it is on, and where it sends.
+
+    Deliberately narrower than everything ``show logging`` prints. The console
+    and buffered-logging columns are in the same vendor subtree, but only the
+    console pair could be decoded against captured CLI output; the buffered
+    severity did not match any column read, so it is left out rather than
+    guessed at. See ``VendorOids.syslog_*``.
+    """
+
+    enabled: bool
+    #: The source port the switch sends FROM (``Logging Client Local Port``),
+    #: not the collector's port -- that is per-server in ``servers``.
+    local_port: int
+    servers: tuple[SyslogServer, ...]
+
+
+@dataclass(frozen=True)
 class DetectedModel:
     """Result of identifying a switch's model over SNMP (sysObjectID + sysDescr).
 
