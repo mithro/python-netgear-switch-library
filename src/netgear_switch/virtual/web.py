@@ -57,9 +57,9 @@ def _has_csrf_hash(spec: HttpModelSpec) -> bool:
     where the hardware does makes the mock refuse the same write the switch
     refuses.
     """
-    from ..protocols.http.endpoints import HtmlDialect
+    from ..protocols.http.endpoints import dialect_has_csrf_hash
 
-    return spec.html_dialect in {HtmlDialect.STANDARD, HtmlDialect.GS105PE}
+    return dialect_has_csrf_hash(spec.html_dialect)
 
 
 def render_page(

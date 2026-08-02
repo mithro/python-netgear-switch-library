@@ -101,6 +101,11 @@ class Operation:
 
 _CLI_BACKENDS = frozenset({Backend.SSH, Backend.TELNET, Backend.CONSOLE})
 
+#: HTTP writes implemented by scraping the Plus dialect's CSRF token. A dialect
+#: without that token cannot serve any of them -- see
+#: ``endpoints.dialect_has_csrf_hash`` for the measurement.
+_CSRF_HTTP_WRITES = frozenset({"create_vlan", "delete_vlan"})
+
 READ_OPERATIONS: tuple[Operation, ...] = (
     Operation("get_ports", OperationKind.READ, "Per-port link/admin status"),
     Operation("get_stats", OperationKind.READ, "Per-port octet/packet counters"),
@@ -351,7 +356,7 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
 
 def _http_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
     from .http_write import CERT_UPLOAD_KNOWN_UNIMPLEMENTED
-    from .protocols.http.endpoints import http_spec
+    from .protocols.http.endpoints import dialect_has_csrf_hash, http_spec
 
     spec = http_spec(model)
     if not spec.reads_verified:
@@ -374,6 +379,17 @@ def _http_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
                 f"this model takes a certificate by {mechanism}, not over the "
                 "web UI -- use upload_certificate_scp",
             )
+    if op.name in _CSRF_HTTP_WRITES and not dialect_has_csrf_hash(spec.html_dialect):
+        # These writers scrape an <input name="hash"> before posting, and this
+        # dialect's pages do not carry one -- MEASURED on gsm7252ps and
+        # gs110emx, see endpoints.dialect_has_csrf_hash. Driving them raises
+        # HttpUnexpectedPageError on real hardware, so claiming support here
+        # would publish a support table that contradicts the device.
+        return (
+            Support.UNSUPPORTED,
+            f"model {model.key!r} web UI carries no CSRF 'hash' token, which "
+            f"the HTTP {op.name} writer requires",
+        )
     path = _http_path_for(spec, op)
     if path is None:
         return (

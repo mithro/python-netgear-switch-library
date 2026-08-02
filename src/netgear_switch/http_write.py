@@ -268,6 +268,25 @@ def _check_goahead_upload_response(text: str) -> None:
         )
 
 
+def _require_csrf_dialect(spec: HttpModelSpec, model_key: str, op: str) -> None:
+    """Refuse a hash-scraping write on a dialect whose pages carry no token.
+
+    This is a CAPABILITY refusal, not a surprise, so it raises
+    UnsupportedCapabilityError rather than HttpUnexpectedPageError: the writer
+    is built on the Plus form, and MEASURED probes of gsm7252ps and gs110emx
+    found no ``<input name="hash">`` anywhere in their write pages. Saying so by
+    type is what lets the facade, the capability table and the caller agree --
+    and what stops a bare "unexpected page" from reading like a transient fault.
+    """
+    from .protocols.http.endpoints import dialect_has_csrf_hash
+
+    if not dialect_has_csrf_hash(spec.html_dialect):
+        raise UnsupportedCapabilityError(
+            f"model {model_key!r} web UI carries no CSRF 'hash' token, which "
+            f"the HTTP {op} writer requires"
+        )
+
+
 def _csrf(html: str) -> str:
     token = parse.parse_csrf_hash(html)
     if token is None:
@@ -747,6 +766,7 @@ class HttpWriter:
         return shown
 
     def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        _require_csrf_dialect(self._spec, self.model.key, "create_vlan")
         del name, force  # web UI 8021qCf.cgi has no VLAN-name field (GROUNDED).
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
         page = self.session.get_page(path)
@@ -760,6 +780,7 @@ class HttpWriter:
             )
 
     def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        _require_csrf_dialect(self._spec, self.model.key, "delete_vlan")
         del force  # VLAN delete disruptiveness is guarded per-member elsewhere.
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
         page = self.session.get_page(path)
@@ -1215,6 +1236,7 @@ class AsyncHttpWriter:
         return shown
 
     async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        _require_csrf_dialect(self._spec, self.model.key, "create_vlan")
         del name, force
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
         page = await self.session.get_page(path)
@@ -1228,6 +1250,7 @@ class AsyncHttpWriter:
             )
 
     async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        _require_csrf_dialect(self._spec, self.model.key, "delete_vlan")
         del force
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
         page = await self.session.get_page(path)

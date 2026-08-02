@@ -140,6 +140,27 @@ class HtmlDialect(enum.Enum):
     GOAHEAD_XML = "goahead_xml"
 
 
+def dialect_has_csrf_hash(dialect: HtmlDialect) -> bool:
+    """Whether this dialect's pages carry an ``<input name="hash">`` CSRF token.
+
+    ``http_write`` scrapes that token before every form post, so a dialect
+    without one cannot be driven by those writers at all.
+
+    MEASURED 2026-08-02, not inferred. Live probes found NO hash on any write
+    page of gsm7252ps (10.1.5.22: vlanStatus, poeInterfaceConfiguration,
+    portPvidConfiguration, vlan_port_cfg, portsConfiguration) nor of gs110emx
+    (10.1.5.25: Cf8021q, vlan_pvidsetting). Only the Plus ``.cgi`` pages have
+    it -- the surface ``HttpWriter`` was originally written against.
+
+    ONE definition, read by the capability oracle AND by the virtual switch, so
+    the mock can never emit a token the hardware lacks. That divergence is
+    exactly how HTTP ``create_vlan`` passed the entire test suite while failing
+    on all four FASTPATH switches.
+    """
+    return dialect in {HtmlDialect.STANDARD, HtmlDialect.GS105PE}
+
+
+
 @dataclass(frozen=True)
 class XuiMgmtIpFields:
     """Which fields of a FASTPATH XUI management-IP page carry what.
