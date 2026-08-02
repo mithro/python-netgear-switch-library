@@ -742,9 +742,7 @@ class HttpWriter:
         if page.vlan_id == vlan:
             return page
         body = forms.fastpath_membership_form(page, vlan=vlan)
-        shown = parse.parse_fastpath_membership(
-            self.session.post_form(post_path, body)
-        )
+        shown = parse.parse_fastpath_membership(self.session.post_form(post_path, body))
         _require_fastpath_membership_for(shown, vlan, post_path)
         return shown
 
@@ -984,6 +982,27 @@ class HttpWriter:
             if r.port == port:
                 return r.admin_enabled
         return False
+
+    def set_hostname(self, name: str, *, force: bool = False) -> None:
+        """This backend does not serve a host-name write.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose a host-name write"
+        )
+
+    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """This backend does not serve a remote-logging toggle.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "a remote-logging toggle"
+        )
 
 
 class AsyncHttpWriter:
@@ -1302,9 +1321,7 @@ class AsyncHttpWriter:
             ),
         )
         _raise_on_fastpath_err_flag(applied, f"management IP -> {address}/{netmask}")
-        after = parse.parse_xui_form_page(
-            await self.session.get_page(path), page=path
-        )
+        after = parse.parse_xui_form_page(await self.session.get_page(path), page=path)
         got = (
             after.fields.get(fields.address),
             after.fields.get(fields.netmask),
@@ -1345,4 +1362,25 @@ class AsyncHttpWriter:
             )
         _check_multipart_cert_response(
             await self.session.post_multipart(path, fields, payload)
+        )
+
+    async def set_hostname(self, name: str, *, force: bool = False) -> None:
+        """This backend does not serve a host-name write.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose a host-name write"
+        )
+
+    async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """This backend does not serve a remote-logging toggle.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "a remote-logging toggle"
         )

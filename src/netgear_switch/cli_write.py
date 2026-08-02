@@ -712,3 +712,14 @@ class CliWriter:
         except CliTransportError:
             # Expected: the switch tore the session down while rebooting.
             return
+
+    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """This backend does not serve a remote-logging toggle.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "a remote-logging toggle"
+        )

@@ -21,7 +21,15 @@ from .protocols.nsdp.types import LinkSpeed
 from .registry import Backend
 
 if TYPE_CHECKING:
-    from .models import LLDPNeighbor, MacEntry, PoEStatus, Sensor
+    from .models import (
+        LLDPNeighbor,
+        MacEntry,
+        PoEStatus,
+        Sensor,
+        ServiceStatus,
+        SwitchUser,
+        SyslogConfig,
+    )
     from .protocols.nsdp.client import AsyncNsdpClient, NsdpClient
     from .protocols.nsdp.types import NsdpDevice
     from .registry import SwitchModel
@@ -255,6 +263,39 @@ class NsdpReader:
     def get_poe(self) -> list[PoEStatus]:
         raise UnsupportedCapabilityError(_NO_POE)
 
+    def get_users(self) -> list[SwitchUser]:
+        """This backend does not serve local user accounts.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "local user accounts (no such tag/page/table on this backend)"
+        )
+
+    def get_services(self) -> list[ServiceStatus]:
+        """This backend does not serve management-service state.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "management-service state (http/https/telnet/ssh)"
+        )
+
+    def get_syslog(self) -> SyslogConfig:
+        """This backend does not serve remote-logging configuration.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "remote-logging configuration"
+        )
+
 
 class AsyncNsdpReader:
     """Asynchronous NSDP read facade (mirror of NsdpReader)."""
@@ -308,3 +349,36 @@ class AsyncNsdpReader:
 
     async def get_poe(self) -> list[PoEStatus]:
         raise UnsupportedCapabilityError(_NO_POE)
+
+    async def get_users(self) -> list[SwitchUser]:
+        """This backend does not serve local user accounts.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "local user accounts (no such tag/page/table on this backend)"
+        )
+
+    async def get_services(self) -> list[ServiceStatus]:
+        """This backend does not serve management-service state.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "management-service state (http/https/telnet/ssh)"
+        )
+
+    async def get_syslog(self) -> SyslogConfig:
+        """This backend does not serve remote-logging configuration.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "remote-logging configuration"
+        )

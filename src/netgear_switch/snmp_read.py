@@ -23,6 +23,8 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        ServiceStatus,
+        SwitchUser,
         SyslogConfig,
         VLANInfo,
     )
@@ -243,6 +245,28 @@ class SnmpReader:
         """
         return read_system_info(self.client)
 
+    def get_users(self) -> list[SwitchUser]:
+        """This backend does not serve local user accounts.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "local user accounts (no such tag/page/table on this backend)"
+        )
+
+    def get_services(self) -> list[ServiceStatus]:
+        """This backend does not serve management-service state.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "management-service state (http/https/telnet/ssh)"
+        )
+
 
 class AsyncSnmpReader:
     def __init__(self, client: AsyncSnmpClient, model: SwitchModel) -> None:
@@ -359,6 +383,30 @@ class AsyncSnmpReader:
             await w(oids.IP_ADDRESS_IFINDEX),  # RFC-4293 fallback (M4300)
         )
 
+    async def get_syslog(self) -> SyslogConfig:
+        """Async twin of ``SnmpReader.get_syslog`` -- see there."""
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only; an empty "
+                "result here would be indistinguishable from a switch with no "
+                "syslog collectors configured"
+            )
+        vo = oids.vendor_oids(self.model)
+        w = self.client.walk
+        return parse.parse_syslog(
+            await self.client.get([vo.syslog_admin_mode]),
+            await self.client.get([vo.syslog_local_port]),
+            await w(vo.syslog_host_addr),
+            await w(vo.syslog_host_port),
+            await w(vo.syslog_host_severity),
+            await w(vo.syslog_host_status),
+            addr_base=vo.syslog_host_addr,
+            port_base=vo.syslog_host_port,
+            severity_base=vo.syslog_host_severity,
+            status_base=vo.syslog_host_status,
+        )
+
     async def get_hostname(self) -> str:
         """Async twin of ``SnmpReader.get_hostname`` -- see there."""
         return parse.parse_hostname(await self.client.get([oids.SYS_NAME]))
@@ -366,3 +414,25 @@ class AsyncSnmpReader:
     async def get_system_info(self) -> DetectedModel:
         """Async twin of ``SnmpReader.get_system_info`` -- see there."""
         return await async_read_system_info(self.client)
+
+    async def get_users(self) -> list[SwitchUser]:
+        """This backend does not serve local user accounts.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "local user accounts (no such tag/page/table on this backend)"
+        )
+
+    async def get_services(self) -> list[ServiceStatus]:
+        """This backend does not serve management-service state.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "management-service state (http/https/telnet/ssh)"
+        )

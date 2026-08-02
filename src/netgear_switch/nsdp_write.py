@@ -305,6 +305,17 @@ class NsdpWriter:
                 after=after,
             )
 
+    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """This backend does not serve a remote-logging toggle.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "a remote-logging toggle"
+        )
+
 
 class AsyncNsdpWriter:
     """Asynchronous NSDP write facade (mirror of NsdpWriter)."""
@@ -465,3 +476,24 @@ class AsyncNsdpWriter:
                 before=before,
                 after=after,
             )
+
+    async def set_hostname(self, name: str, *, force: bool = False) -> None:
+        """This backend does not serve a host-name write.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose a host-name write"
+        )
+
+    async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """This backend does not serve a remote-logging toggle.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "a remote-logging toggle"
+        )

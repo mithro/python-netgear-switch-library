@@ -45,6 +45,9 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        ServiceStatus,
+        SwitchUser,
+        SyslogConfig,
     )
     from .protocols.http.endpoints import HttpModelSpec
     from .protocols.http.session import AsyncHttpSession, HttpSession
@@ -681,6 +684,39 @@ class HttpReader:
             )
         return cfg
 
+    def get_users(self) -> list[SwitchUser]:
+        """This backend does not serve local user accounts.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "local user accounts (no such tag/page/table on this backend)"
+        )
+
+    def get_services(self) -> list[ServiceStatus]:
+        """This backend does not serve management-service state.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "management-service state (http/https/telnet/ssh)"
+        )
+
+    def get_syslog(self) -> SyslogConfig:
+        """This backend does not serve remote-logging configuration.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "remote-logging configuration"
+        )
+
 
 class AsyncHttpReader:
     """Asynchronous web-UI read facade (mirror of ``HttpReader``)."""
@@ -820,3 +856,46 @@ class AsyncHttpReader:
                 ),
             )
         return cfg
+
+    async def get_users(self) -> list[SwitchUser]:
+        """This backend does not serve local user accounts.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "local user accounts (no such tag/page/table on this backend)"
+        )
+
+    async def get_services(self) -> list[ServiceStatus]:
+        """This backend does not serve management-service state.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "management-service state (http/https/telnet/ssh)"
+        )
+
+    async def get_syslog(self) -> SyslogConfig:
+        """This backend does not serve remote-logging configuration.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose "
+            "remote-logging configuration"
+        )
+
+    async def get_hostname(self) -> str:
+        """This backend does not serve a host name field.
+
+        Refused by name rather than returned empty: an empty answer here
+        would be indistinguishable from a switch that genuinely has none.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend does not expose a host name field"
+        )
