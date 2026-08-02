@@ -119,6 +119,80 @@ and current were byte-for-byte identical for all 12 shared VLANs.
 untagged, status) for every VLAN, and the GoAhead web face filters to physical
 ports — the real wcd pages list 28 entries, never the LAGs.
 
+## The write community — a timeout is not a dead agent
+
+The first SNMP write attempt timed out on every SET while reads over the same
+transport worked perfectly. That is exactly the failure mode principle 4 warns
+about: an agent **silently drops** a request whose community lacks write access,
+so an unauthorised community is indistinguishable from an unreachable host.
+
+Rather than guess, the switch was asked. `wcd?{file=/System/SNMP/
+CominityConf_master.xml}{SNMPv2CommunityList}{ViewList}` answers:
+
+| community | accessMode | view |
+| --- | --- | --- |
+| `private` | 3 | DefaultSuper |
+| `public` | 1 | Default |
+
+`public` is read-only. Writes need `private`, and with it the SETs go through.
+Both are restricted to management station 10.2.5.10/255.0.0.0 (i.e. 10/8), which
+the jump host satisfies.
+
+## The PoE MIB is very slow on this agent — and the library was over-fetching
+
+`parse_poe` honours only columns 3 and 6 of `pethPsePortTable`, but `get_poe`
+walked the whole table: 288 varbinds fetched to use 48. Measured on an idle
+switch:
+
+```
+ifName (69 rows)                      1.5s
+whole pethPsePortTable (288 rows)   102.0s
+pethPsePortAdminEnable  (24 rows)    11.7s
+pethPsePortDetectionStatus (24)      11.4s
+```
+
+The agent is fast for ordinary tables and answers the PoE MIB at ~0.35s per
+varbind. Because `SnmpWriter` verifies by re-reading, `set_poe` cost over three
+minutes and the first write probe could not complete a single operation in 25
+minutes. Reading the two columns separately cuts it to ~23s.
+
+Raising `max-repetitions` is not an alternative: `-Cr25` returned a **truncated**
+50 rows in 44s, so this agent mishandles large GETBULKs on this table. Fetching
+fewer varbinds is the only sound speed-up.
+
+## The HTTP write protocol
+
+The site map has exactly one POST target — `wcd` — repeated for all 100-odd
+pages, so the **body** selects the operation, not the URL. Each page's own
+JavaScript builds a `post` object which the framework serialises:
+
+```js
+// Switching/VLAN/VlanMembership_jq.htm
+post.VLANMembershipList['set']    = [{VLAN:{VLANID, MembershipList:[
+    {VLANMember:{interfaceName, interfaceType, membershipType, taggingMode}}]}}]
+post.VLANMembershipList['delete'] = [{VLAN:{VLANID, MembershipList:[
+    {VLANMember:{interfaceName, interfaceType}}]}}]
+
+// Switching/Ports/portConfiguration_master_jq.htm
+post.Standard802_3List = {set: [{Entry:{interfaceName, interfaceType,
+    interfaceID, interfaceDescription, adminState, speedAdmin, duplexAdminMode}}]}
+```
+
+Combined with the library's existing `_build_gs728tpp_cert_xml` (whose envelope
+came from the certbot hook that works against real GS728TPPs), the rule is:
+the JS object key is the element name, the `set`/`delete` key becomes the
+`action` attribute, and each list entry is one repeated child element.
+
+Two asymmetries are the page's own and must be reproduced: removing a port from
+a VLAN is a **delete** action carrying only the interface identity (not a `set`
+with `taggingMode` 0, a mode the firmware does not have), and untouched fields
+are omitted entirely rather than sent empty. `taggingMode` codes come from the
+page's Group Operation select: 2 = Tag, 1 = Untag, 0 = Remove.
+`interfaceType` is 1 for a physical port and 2 for a LAG.
+
+Success is `<statusCode>0</statusCode>`, the same convention the cert upload
+already checks.
+
 ## Honest per-backend difference: per-port PoE power
 
 SNMP reports `power_mw=None` where HTTP reports live milliwatts (1900/1800 mW on
