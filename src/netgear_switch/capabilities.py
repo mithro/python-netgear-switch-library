@@ -202,6 +202,23 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         backends=frozenset({Backend.SNMP, Backend.NSDP}) | _CLI_BACKENDS,
     ),
     Operation(
+        "set_syslog_enabled",
+        OperationKind.WRITE,
+        "Turn remote logging on or off",
+        # SNMP only, and deliberately narrow. The vendor logging admin-mode
+        # column was confirmed WRITABLE on m4300-24x, gsm7252ps and gsm7228ps
+        # by SETting each the value it already held -- a probe that cannot
+        # change device state but still separates a writable column from a
+        # read-only one. A model with no 4526 vendor subtree (gs728tpp) has
+        # nothing to write, and _snmp_support refuses it there by name.
+        #
+        # This op existed on the facade with NO entry here at all, so
+        # ``support(model, backend, "set_syslog_enabled")`` raised KeyError and
+        # the published support matrix simply omitted it -- an operation the
+        # library offers and the capability table did not know about.
+        backends=frozenset({Backend.SNMP}),
+    ),
+    Operation(
         "upload_certificate",
         OperationKind.WRITE,
         "Upload an HTTPS certificate over the web UI",
@@ -278,12 +295,15 @@ def _snmp_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
             f"model {model.key!r} registers no Netgear vendor OID subtree, and "
             "the management-IP write columns are vendor-only",
         )
-    if op.name == "get_syslog" and not oids.has_vendor_oids(model):
+    if op.name in ("get_syslog", "set_syslog_enabled") and not oids.has_vendor_oids(
+        model
+    ):
         # Logging lives at <vendor base>.14 on both vendor families, so a model
         # whose agent registers no 4526 subtree at all (gs728tpp -- a walk of
-        # 1.3.6.1.4.1.4526 answers noSuchObject) has nothing to read.
-        # SnmpReader.get_syslog refuses by name for the same reason: an empty
-        # result would be indistinguishable from a switch with no collectors.
+        # 1.3.6.1.4.1.4526 answers noSuchObject) has nothing to read OR write.
+        # SnmpReader.get_syslog and SnmpWriter.set_syslog_enabled both refuse by
+        # name for the same reason: an empty result would be indistinguishable
+        # from a switch with no collectors, and a write has no column to land in.
         return (
             Support.UNSUPPORTED,
             f"model {model.key!r} registers no Netgear vendor OID subtree, and "
