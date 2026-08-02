@@ -52,18 +52,30 @@ _END_OF_MIB_MARKERS = (
 _TIMETICKS_RE = re.compile(r"\((\d+)\)")
 
 
-def _format_set_value(vb: SetVarbind) -> str:
-    """Render a SetVarbind value as the string snmpset expects for its type.
+def _set_argv(vb: SetVarbind) -> tuple[str, str, str]:
+    """Render one varbind as the ``(oid, type, value)`` triple snmpset takes.
 
     ``x`` (hex/octets) is emitted as lowercase hex digits; every other type is
     stringified directly (net-snmp parses ``i``/``u``/``s``/``a`` from text).
+
+    An EMPTY string is the exception, and it is not theoretical: ``snmpset ...
+    s ""`` is rejected by the net-snmp CLI itself with ``Needs value`` before a
+    packet is ever sent, so clearing a text column that way silently cannot
+    work. Hit live on 2026-08-03 restoring ``ifAlias`` on a GS728TPP port after
+    a write probe -- the switch had accepted the description and there was no
+    way to take it off again. An empty OCTET STRING is sent as an empty HEX
+    string instead, which net-snmp accepts and which the agent applied (the
+    port read back with no description).
     """
     if vb.type_letter == "x":
         data = (
             vb.value if isinstance(vb.value, bytes) else str(vb.value).encode("latin-1")
         )
-        return data.hex()
-    return str(vb.value)
+        return vb.oid, "x", data.hex()
+    text = str(vb.value)
+    if vb.type_letter == "s" and text == "":
+        return vb.oid, "x", ""
+    return vb.oid, vb.type_letter, text
 
 
 class _CompletedProcess(Protocol):
@@ -247,7 +259,7 @@ class NetsnmpCliClient:
             return
         triples: list[str] = []
         for vb in varbinds:
-            triples += [vb.oid, vb.type_letter, _format_set_value(vb)]
+            triples += list(_set_argv(vb))
         argv = [*self._base_args("snmpset"), self.host, *triples]
         # _invoke raises SnmpError on non-zero exit or any stderr (commitFailed,
         # noSuchName, wrong type). The echoed varbinds it parses are discarded.
