@@ -103,6 +103,9 @@ class CliModelSpec:
     # SNMP's sysName, so it is what keeps the two backends returning the same
     # answer for the same switch.
     hosts_cmd: str = "show hosts"
+    # Local login accounts. Present on both FASTPATH images measured; the
+    # ACCESS-MODE vocabulary differs between them (see parse.parse_users).
+    users_cmd: str = "show users"
     # Remote logging. `show syslog` does NOT exist -- all three FASTPATH
     # switches answered "% Invalid input detected" on 2026-08-02.
     logging_cmd: str = "show logging"

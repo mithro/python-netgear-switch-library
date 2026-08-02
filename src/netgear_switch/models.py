@@ -120,6 +120,28 @@ class MgmtIpConfig:
 
 
 @dataclass(frozen=True)
+class SwitchUser:
+    """One local login account on the switch."""
+
+    name: str
+    #: The access mode exactly as this firmware words it. Kept verbatim because
+    #: the vocabulary is NOT the same across images: measured 2026-08-02, the
+    #: m4300-24x prints ``Privilege-15``/``Privilege-1`` where the gsm7252ps
+    #: prints ``Read/Write``/``Read Only`` for the same two accounts.
+    access_mode: str
+    #: Whether ``access_mode`` is the full-privilege level, normalised across
+    #: both vocabularies so callers do not have to know which image they are on.
+    #: ``None`` when the text is neither spelling -- an unrecognised level is
+    #: reported honestly rather than guessed as unprivileged.
+    privileged: bool | None
+    #: The three SNMPv3 columns the same table carries. ``None`` where the
+    #: firmware prints nothing.
+    snmpv3_access: str | None = None
+    snmpv3_auth: str | None = None
+    snmpv3_encryption: str | None = None
+
+
+@dataclass(frozen=True)
 class SyslogServer:
     """One remote syslog collector the switch is configured to send to."""
 

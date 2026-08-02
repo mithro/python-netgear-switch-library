@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        SwitchUser,
         SyslogConfig,
         VLANInfo,
     )
@@ -103,6 +104,15 @@ class CliReader:
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         return parse.parse_mgmt_ip(self.session.run(self._spec.network_cmd))
+
+    def get_users(self) -> list[SwitchUser]:
+        """The switch's local login accounts, from ``show users``.
+
+        The access-mode wording differs between firmware images, so
+        ``SwitchUser.access_mode`` keeps the raw text and ``privileged``
+        carries the normalised reading -- see ``parse.parse_users``.
+        """
+        return parse.parse_users(self.session.run(self._spec.users_cmd))
 
     def get_syslog(self) -> SyslogConfig:
         """Remote-logging configuration, from ``show logging`` + its host table.

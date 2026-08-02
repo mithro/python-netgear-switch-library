@@ -42,6 +42,7 @@ from ...models import (
     PortStats,
     PortStatus,
     Sensor,
+    SwitchUser,
     SyslogConfig,
     SyslogServer,
     VLANInfo,
@@ -606,6 +607,66 @@ def parse_environment(text: str) -> list[Sensor]:
             )
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# show users -> local login accounts
+# ---------------------------------------------------------------------------
+
+#: Access-mode text meaning full privilege, in BOTH vocabularies FASTPATH uses.
+#: Measured 2026-08-02: m4300-24x prints "Privilege-15"/"Privilege-1" while
+#: gsm7252ps prints "Read/Write"/"Read Only" for the same admin/guest pair. A
+#: parser that knew only one spelling would silently mis-report the other image.
+_PRIVILEGED_ACCESS = frozenset({"privilege-15", "read/write"})
+_UNPRIVILEGED_ACCESS = frozenset({"privilege-1", "read only", "no access"})
+
+
+def _privileged(access_mode: str) -> bool | None:
+    text = access_mode.strip().lower()
+    if text in _PRIVILEGED_ACCESS:
+        return True
+    if text in _UNPRIVILEGED_ACCESS:
+        return False
+    return None
+
+
+def parse_users(text: str) -> list[SwitchUser]:
+    """``show users`` -> the switch's local login accounts.
+
+    Captured 2026-08-02 from m4300-24x (10.1.5.13) and gsm7252ps (10.1.5.22);
+    both list ``admin`` and ``guest``, under a header that wraps over three
+    lines::
+
+        User        SNMPv3         SNMPv3        SNMPv3
+        User Name                 Access Mode   Access Mode  Authentication  Encryption
+        ------------------------  ------------  -----------  --------------  ----------
+        admin                     Privilege-15  Read Only    MD5             None
+
+    Sliced by the ruler rather than split on whitespace, because an access mode
+    legitimately contains a space (``Read Only``, ``Read/Write``) and a naive
+    split would tear it in half.
+
+    The ACCESS-MODE VOCABULARY differs by firmware -- see ``_PRIVILEGED_ACCESS``
+    -- so the raw text is preserved on ``SwitchUser.access_mode`` and only the
+    normalised ``privileged`` flag interprets it.
+    """
+    users: list[SwitchUser] = []
+    for cells in iter_table_rows(text):
+        if not cells or not cells[0].strip():
+            continue
+        padded = [*cells, "", "", "", ""]
+        name, access, snmp_access, snmp_auth, snmp_enc = (c.strip() for c in padded[:5])
+        users.append(
+            SwitchUser(
+                name=name,
+                access_mode=access,
+                privileged=_privileged(access),
+                snmpv3_access=snmp_access or None,
+                snmpv3_auth=snmp_auth or None,
+                snmpv3_encryption=snmp_enc or None,
+            )
+        )
+    return users
 
 
 # ---------------------------------------------------------------------------
