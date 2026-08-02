@@ -11,10 +11,11 @@ from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
 from netgear_switch.registry import get_model
 from netgear_switch.snmp_write import PoeCycleTimeouts
 from netgear_switch.sync_api import SyncSwitch, detect_model
+from snmp_fakes import walk_by_prefix
 
 
 class FakeClient:
-    """Serves canned SnmpRows keyed by exact base OID (mirrors test_snmp_read)."""
+    """Serves canned SnmpRows by OID prefix (mirrors test_snmp_read)."""
 
     def __init__(self, tables: dict[str, list[SnmpRow]]) -> None:
         self._tables = tables
@@ -23,7 +24,7 @@ class FakeClient:
         return [row for oid in oids for row in self.walk(oid)]
 
     def walk(self, base_oid: str) -> list[SnmpRow]:
-        return list(self._tables.get(base_oid, []))
+        return walk_by_prefix(self._tables, base_oid)
 
 
 def _ports_tables() -> dict[str, list[SnmpRow]]:

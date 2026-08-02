@@ -16,25 +16,7 @@ from netgear_switch.snmp_read import (
     async_read_system_info,
     read_system_info,
 )
-
-
-def _walk_by_prefix(
-    tables: dict[str, list[SnmpRow]], base_oid: str
-) -> list[SnmpRow]:
-    """Every canned row at or under ``base_oid``, as a real agent answers.
-
-    Prefix semantics, not exact-key lookup: a walk of a single COLUMN must
-    return that column's rows out of a table canned under the table root, the
-    way ``snmpbulkwalk 1.3.6.1.2.1.105.1.1.1.3`` does against hardware. A fake
-    that only matched whole-table keys would answer nothing for a column walk
-    and so disagree with every real switch.
-    """
-    return [
-        row
-        for rows in tables.values()
-        for row in rows
-        if row.oid == base_oid or row.oid.startswith(base_oid + ".")
-    ]
+from snmp_fakes import walk_by_prefix
 
 
 class FakeClient:
@@ -47,7 +29,7 @@ class FakeClient:
         return [row for oid in oids for row in self.walk(oid)]
 
     def walk(self, base_oid):
-        return _walk_by_prefix(self._tables, base_oid)
+        return walk_by_prefix(self._tables, base_oid)
 
 
 class FakeAsyncClient:
@@ -63,7 +45,7 @@ class FakeAsyncClient:
         return rows
 
     async def walk(self, base_oid):
-        return _walk_by_prefix(self._tables, base_oid)
+        return walk_by_prefix(self._tables, base_oid)
 
 
 def _r(base, pairs, typ="INTEGER"):

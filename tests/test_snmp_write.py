@@ -12,24 +12,7 @@ from netgear_switch.protocols.snmp.parse import decode_port_bitmap
 from netgear_switch.protocols.snmp.write import SetVarbind, encode_port_bitmap
 from netgear_switch.registry import get_model
 from netgear_switch.snmp_write import AsyncSnmpWriter, PoeCycleTimeouts, SnmpWriter
-
-
-def _walk_by_prefix(tables, base_oid):
-    """Every canned row at or under ``base_oid``, as a real agent answers.
-
-    Prefix semantics, not exact-key lookup: a walk of a single COLUMN must
-    return that column's rows out of a table canned under the table root, the
-    way ``snmpbulkwalk 1.3.6.1.2.1.105.1.1.1.3`` does against hardware. (The
-    reader walks the two PoE columns separately -- that table is very slow on
-    real firmware -- so an exact-key fake would answer nothing and every PoE
-    write would "time out" against a switch that is not there.)
-    """
-    return [
-        row
-        for rows in tables.values()
-        for row in rows
-        if row.oid == base_oid or row.oid.startswith(base_oid + ".")
-    ]
+from snmp_fakes import walk_by_prefix
 
 
 class FakeWriteClient:
@@ -49,7 +32,7 @@ class FakeWriteClient:
         return [row for oid in oids_ for row in self.walk(oid)]
 
     def walk(self, base_oid):
-        return _walk_by_prefix(self._tables, base_oid)
+        return walk_by_prefix(self._tables, base_oid)
 
     def set(self, vb):
         self.set_many([vb])
@@ -89,7 +72,7 @@ class FakeAsyncWriteClient:
         return rows
 
     async def walk(self, base_oid):
-        return _walk_by_prefix(self._tables, base_oid)
+        return walk_by_prefix(self._tables, base_oid)
 
     async def set(self, vb):
         await self.set_many([vb])
