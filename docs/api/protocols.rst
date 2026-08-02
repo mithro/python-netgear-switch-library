@@ -51,6 +51,8 @@ HTTP web UI
 
 .. automodule:: netgear_switch.protocols.http.forms
 
+.. automodule:: netgear_switch.protocols.http.goahead
+
 .. automodule:: netgear_switch.protocols.http.crypt
 
 .. automodule:: netgear_switch.protocols.http.session
