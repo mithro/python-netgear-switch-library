@@ -254,6 +254,26 @@ def apply_cert_import(state: VirtualSwitchState, xml_body: str) -> str:
     return _status_response(0, "")
 
 
+def unauthenticated_response() -> str:
+    """What the switch answers a ``wcd`` request with no valid session.
+
+    CAPTURED from the live GS728TPP (10.2.5.10, firmware 6.0.1.30) by issuing a
+    request with a stale sessionID cookie. Note what it is NOT: not a 302, not
+    a 401, and not an empty body -- it is **HTTP 200** carrying a normal
+    ``<ResponseData>`` envelope whose ActionStatus says statusCode 4. That
+    detail is the whole point of reproducing it: a mock that redirected instead
+    would let the client's session-expiry handling look correct while missing
+    the case real hardware actually produces.
+    """
+    return (
+        "<?xml version='1.0' encoding='UTF-8'?>\n<ResponseData>\n<ActionStatus>\n"
+        "<version>1.0</version>\n<requestURL>wcd</requestURL>\n"
+        "<statusCode>4</statusCode>\n<deviceStatusCode>0</deviceStatusCode>\n"
+        "<statusString>Request Is not authenticated</statusString>\n"
+        "</ActionStatus>\n</ResponseData>\n"
+    )
+
+
 def _iface_port(entry: ElementTree.Element) -> int | None:
     """``<interfaceName>g17</interfaceName>`` -> 17; a LAG or junk -> None."""
     name = (entry.findtext("interfaceName") or "").strip()

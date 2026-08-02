@@ -484,21 +484,71 @@ def test_goahead_face_404s_unknown_wcd_query(goahead_face) -> None:
 
 
 def test_goahead_face_refuses_unauthenticated_wcd_read(goahead_face) -> None:
-    """Fidelity: real hardware redirects an unauthenticated wcd read to login.
-    The mock must do the same (302), so the suite would catch a client that
-    tried to read before logging in. A valid session cookie is served normally."""
+    """Fidelity: an unauthenticated wcd read is HTTP 200 with statusCode 4.
+
+    CAPTURED from the live GS728TPP (10.2.5.10, firmware 6.0.1.30) by issuing a
+    request with a stale sessionID cookie. It is NOT a 302 and NOT a 401 -- the
+    switch returns a perfectly normal ``<ResponseData>`` envelope, HTTP 200,
+    whose ActionStatus carries statusCode 4 "Request Is not authenticated".
+
+    The mock used to redirect, and that unfaithfulness had a cost: an expired
+    session surfaced to callers as "no <DeviceConfiguration> data block found",
+    and a first attempt at detecting it keyed off the absence of
+    ``<ResponseData>`` -- which this reply HAS -- so it did not work.
+    """
     _f, port, _state = goahead_face
     url = (
         f"http://127.0.0.1:{port}/cs0000face/wcd?"
         "{file=/System/Management/IPConf_master.xml}{IPv4InterfaceList}"
     )
-    # No cookie -> refused with a redirect, NOT served.
     refused = httpx.get(url, follow_redirects=False)
-    assert refused.status_code == 302
+    assert refused.status_code == 200
+    assert "<ResponseData>" in refused.text
+    assert "<statusCode>4</statusCode>" in refused.text
+    assert "IPv4InterfaceList" not in refused.text
     # Same query WITH the post-login session cookie -> served.
     served = httpx.get(url, headers={"Cookie": "sessionID=virtualsid"})
     assert served.status_code == 200
     assert "IPv4InterfaceList" in served.text
+
+
+def test_expired_session_recovers_on_a_read_but_never_resends_a_write(
+    goahead_face,
+) -> None:
+    """A session that dies mid-run must not look like a parse error.
+
+    The GoAhead session expires on its own -- MEASURED: a live verification run
+    did every read, spent minutes doing SNMP work, and then failed every
+    subsequent HTTP write, having worked perfectly beforehand.
+
+    A READ re-authenticates and re-issues itself: re-running a GET is safe, and
+    the alternative is handing the caller "no <DeviceConfiguration> data block
+    found" for what is really an expired cookie.
+
+    A WRITE does NOT. A dropped or rejected write is not proof the switch
+    ignored it, so it is surfaced as HttpAuthError for the caller to retry
+    deliberately -- the same rule post_form already applies to retries.
+    """
+    from netgear_switch.errors import HttpAuthError
+    from netgear_switch.protocols.http import goahead
+
+    _f, port, _state = goahead_face
+    spec = http_spec(get_model("gs728tpp"))
+    client = HttpClient(f"127.0.0.1:{port}", "password", spec)
+    try:
+        client.login()
+        assert "VLANList" in client.get_page(spec.vlan_config_path)
+
+        # Kill the session the way a timeout does.
+        client._client.cookies.set("sessionID", "stale")
+        body = client.get_page(spec.vlan_config_path)
+        assert "VLANList" in body, "a read must transparently re-establish it"
+
+        client._client.cookies.set("sessionID", "stale")
+        with pytest.raises(HttpAuthError, match="NOT re-sent"):
+            client.post_xml("wcd", goahead.vlan_create_body(4007, "nope"))
+    finally:
+        client.close()
 
 
 def test_goahead_async_reader_end_to_end(goahead_face) -> None:

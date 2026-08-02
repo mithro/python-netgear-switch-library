@@ -119,6 +119,33 @@ def _xml_api_session_path(resp: httpx.Response) -> str:
     return m.group(1)
 
 
+#: What the GS728TPP answers a ``wcd`` request once its session has expired.
+#: CAPTURED from 10.2.5.10 (firmware 6.0.1.30) by making a request with a stale
+#: sessionID cookie -- HTTP **200**, with no ``<DeviceConfiguration>``:
+#:
+#:     <ResponseData><ActionStatus>
+#:       <requestURL>/cs5f72b8e1/wcd</requestURL>
+#:       <statusCode>4</statusCode><deviceStatusCode>0</deviceStatusCode>
+#:       <statusString>Request Is not authenticated</statusString>
+#:     </ActionStatus></ResponseData>
+#:
+#: The status code is the signal. The absence of ``<ResponseData>`` is NOT:
+#: this reply has one, which is why an earlier guess at the signal did not
+#: catch it, and the expiry surfaced several layers up as "no
+#: <DeviceConfiguration> data block found" -- reading like a parser bug rather
+#: than an expired cookie.
+_XML_API_UNAUTHENTICATED = 4
+_XML_API_STATUS_RE = re.compile(r"<statusCode>(\d+)</statusCode>")
+
+
+def _xml_api_session_lost(spec: HttpModelSpec, text: str) -> bool:
+    """True when a ``wcd`` response says the session is no longer authenticated."""
+    if spec.scheme is not LoginScheme.XML_API:
+        return False
+    match = _XML_API_STATUS_RE.search(text)
+    return match is not None and int(match.group(1)) == _XML_API_UNAUTHENTICATED
+
+
 def _xml_api_login_url(spec: HttpModelSpec, session_path: str, password: str) -> str:
     """The ``System.xml?action=login`` GET URL under the session path (pure)."""
     return (
@@ -351,6 +378,12 @@ class HttpClient:
 
     def _xml_api_login(self) -> None:
         """GS728TPP GoAhead three-step login (see ``LoginScheme.XML_API``)."""
+        # Start from no session. Logging in again over a DEAD session's cookies
+        # sends the switch credentials it has already rejected, and this is a
+        # re-login path now (a session that expires mid-run is re-established
+        # transparently for reads), so the stale trio must go first.
+        for stale in ("userStatus", "usernme", "sessionID"):
+            self._client.cookies.delete(stale)
         try:
             redirect = self._client.get(self._spec.login_path, follow_redirects=False)
             self._session_path = _xml_api_session_path(redirect)
@@ -374,6 +407,26 @@ class HttpClient:
         except httpx.HTTPError as exc:
             raise HttpError(f"GET {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"GET {path}", path=path)
+        if _xml_api_session_lost(self._spec, resp.text):
+            # The session timed out. Log in again and re-issue -- ONCE, and only
+            # for a READ: re-running a GET is safe, and the alternative is
+            # handing the caller a parse error for what is really an expired
+            # session. Writes deliberately do NOT do this (see post_xml).
+            self._logged_in = False
+            self.login()
+            try:
+                resp = _retry_on_dropped_connection(
+                    lambda: self._client.get(self._read_url(path), params=params),
+                    f"GET {path}",
+                )
+            except httpx.HTTPError as exc:
+                raise HttpError(f"GET {path} transport error: {exc}") from exc
+            _validate_response(resp, context=f"GET {path}", path=path)
+            if _xml_api_session_lost(self._spec, resp.text):
+                raise HttpAuthError(
+                    f"GET {path}: the web UI answered with its login page even "
+                    "after re-authenticating -- the session cannot be kept"
+                )
         return resp.text
 
     def post_form(self, path: str, data: dict[str, str]) -> str:
@@ -411,13 +464,13 @@ class HttpClient:
     def post_xml(self, path: str, body: str) -> str:
         if not self._logged_in:
             self.login()
-        # The GS728TPP GoAhead cert upload POSTs a raw XML body to the
-        # session-path-prefixed ``wcd`` endpoint (``_read_url`` adds the
-        # ``/<sess>/`` prefix, exactly like the reads).
+        # Every GS728TPP write POSTs a raw XML body to the session-path-prefixed
+        # ``wcd`` endpoint (``_read_url`` adds the ``/<sess>/`` prefix, exactly
+        # like the reads).
         url = self._read_url(path)
         try:
-            # NEVER retried -- this carries a WRITE (the SSL-cert import). A
-            # dropped connection does not prove the switch ignored it.
+            # NEVER retried -- this carries a WRITE. A dropped connection does
+            # not prove the switch ignored it.
             resp = self._client.post(
                 url,
                 content=body.encode("utf-8"),
@@ -426,6 +479,17 @@ class HttpClient:
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")
+        if _xml_api_session_lost(self._spec, resp.text):
+            # An expired session answers a write with the login page, HTTP 200
+            # and all. Say so plainly instead of letting it surface as a parse
+            # error -- and do NOT silently re-login and re-send: re-issuing a
+            # write nobody can prove was ignored is exactly what post_form
+            # refuses to do. The caller re-authenticates and retries knowingly.
+            raise HttpAuthError(
+                f"POST {path}: the web UI answered with its login page -- the "
+                "session expired, and this write was NOT re-sent (log in again "
+                "and retry it deliberately)"
+            )
         return resp.text
 
     def close(self) -> None:

@@ -252,15 +252,12 @@ class VirtualHttpFace:
                     return
                 decoded = unquote(self.path)
                 if "wcd?" in decoded:
-                    # Real hardware refuses an unauthenticated wcd read (it
-                    # redirects to the login page); mirror that so the suite
-                    # catches a client that reads before logging in. The
-                    # transport sets sessionID=virtualsid as a cookie post-login.
+                    # Real hardware answers an unauthenticated wcd read with
+                    # HTTP 200 and statusCode 4 -- NOT a redirect (captured; see
+                    # web_gs728tpp.unauthenticated_response). The transport sets
+                    # sessionID=virtualsid as a cookie post-login.
                     if "sessionID=virtualsid" not in self.headers.get("Cookie", ""):
-                        self.send_response(302)
-                        self.send_header("Location", f"/{face._session_path}/")
-                        self.send_header("Content-Length", "0")
-                        self.end_headers()
+                        self._send(web_gs728tpp.unauthenticated_response())
                         return
                     with face._lock:
                         page = web_gs728tpp.render_wcd(
@@ -283,14 +280,10 @@ class VirtualHttpFace:
                 A POST to any other path 404s (the mock never fabricates a
                 page)."""
                 path_only = self.path.split("?", 1)[0]
-                # Real hardware refuses an unauthenticated write (redirects to
-                # login); mirror that so the suite catches a client that uploads
-                # before logging in.
+                # Real hardware answers an unauthenticated write the same way it
+                # answers an unauthenticated read: HTTP 200, statusCode 4.
                 if "sessionID=virtualsid" not in self.headers.get("Cookie", ""):
-                    self.send_response(302)
-                    self.send_header("Location", f"/{face._session_path}/")
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
+                    self._send(web_gs728tpp.unauthenticated_response())
                     return
                 if not path_only.endswith("/wcd"):
                     self._send("<html><body>Not Found</body></html>", 404)
