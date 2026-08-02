@@ -2123,7 +2123,9 @@ _M4300_24X_SWITCHPORT: dict[int, _SwitchportRow] = {
     # VLAN (90) differs from its NATIVE VLAN (5) -- proving membership follows
     # col4 not col3 in trunk mode -- with a genuinely sparse allowed list.
     5: (
-        2, 90, 5,
+        2,
+        90,
+        5,
         frozenset({1, 5, 6, 7, 10, 20, 41, 90, 99, 121, 141}),
         {1, 90},
         set(),
@@ -2393,6 +2395,9 @@ def seed_m4300_24x() -> VirtualSwitchState:
         mode="static",
     )
     state = VirtualSwitchState(
+        # Measured 2026-08-02: sysName and `show hosts` both report this on the
+        # real switch. Was empty here, which no real FASTPATH switch is.
+        hostname="sw-netgear-m4300-24x",
         model_key="m4300-24x",
         ports=ports,
         vlans=vlans,
@@ -2587,6 +2592,9 @@ def seed_m4300_16x() -> VirtualSwitchState:
         ),
     ]
     state = VirtualSwitchState(
+        # Measured 2026-08-02: sysName and `show hosts` both report this on the
+        # real switch. Was empty here, which no real FASTPATH switch is.
+        hostname="sw-netgear-m4300-16x-poe-s2",
         model_key="m4300-16x",
         ports=ports,
         vlans=vlans,

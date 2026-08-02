@@ -30,6 +30,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from ...errors import CliCommandError
 from ...models import (
     DetectedModel,
     IpMode,
@@ -603,6 +604,46 @@ def parse_environment(text: str) -> list[Sensor]:
             )
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# show hosts -> host name
+# ---------------------------------------------------------------------------
+
+
+def parse_hostname(text: str) -> str:
+    """``show hosts`` -> the switch's host name.
+
+    The command reports far more than the name -- DNS servers, the domain list,
+    resolver retry counts, the static host-to-address table -- and only the
+    first labelled field is wanted::
+
+        Host name...................................... sw-netgear-m4300-24x
+        Default domain................................. Domain name is not configured
+        Name servers (Preference order)................ 8.8.8.8, 10.1.5.1
+
+    Captured 2026-08-02 from m4300-24x (10.1.5.13), m4300-16x (10.1.5.20) and
+    gsm7252ps (10.1.5.22); all three label it exactly "Host name".
+
+    This is deliberately NOT ``show running-config | include hostname``. The two
+    report different values: on m4300-16x running-config holds
+    "manage-sw-netgear-m4300-16x-poe-s2" against this command's
+    "sw-netgear-m4300-16x-poe-s2", and on gsm7252ps running-config has no
+    hostname line at all while this command still answers. ``show hosts`` is the
+    one that matches SNMP's sysName, so parsing it is what stops the CLI and
+    SNMP backends disagreeing about the same switch.
+
+    Raises rather than returning "" when the label is absent: every FASTPATH
+    switch measured answers it, so silence means the command failed or the
+    output drifted, and a blank host name would be a fabrication.
+    """
+    name = labelled_values(text).get("Host name")
+    if name is None:
+        raise CliCommandError(
+            "`show hosts` output carries no 'Host name' field; got: "
+            + " ".join(text.split())[:200]
+        )
+    return name.strip()
 
 
 # ---------------------------------------------------------------------------

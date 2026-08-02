@@ -103,5 +103,14 @@ class CliReader:
     def get_mgmt_ip(self) -> MgmtIpConfig:
         return parse.parse_mgmt_ip(self.session.run(self._spec.network_cmd))
 
+    def get_hostname(self) -> str:
+        """The switch's host name, from ``show hosts``.
+
+        See ``parse.parse_hostname`` for why this command and not
+        ``show running-config``: the two report different values, and only this
+        one agrees with SNMP's ``sysName``.
+        """
+        return parse.parse_hostname(self.session.run(self._spec.hosts_cmd))
+
     def identify(self) -> DetectedModel:
         return parse.parse_version(self.session.run(self._spec.version_cmd), MODELS)

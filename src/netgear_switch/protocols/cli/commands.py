@@ -94,6 +94,18 @@ class CliModelSpec:
     environment_cmd: str = "show environment"
     network_cmd: str = "show network"
     interface_stats_cmd: str = "show interface ethernet {iface}"
+    # Host name. `show hosts` and NOT `show running-config | include hostname`:
+    # the two report DIFFERENT values, measured 2026-08-02. On m4300-16x
+    # (10.1.5.20) `show hosts` gives "sw-netgear-m4300-16x-poe-s2" while
+    # running-config gives "manage-sw-netgear-m4300-16x-poe-s2", and on
+    # gsm7252ps (10.1.5.22) running-config carries no hostname line at all while
+    # `show hosts` still reports one. `show hosts` is the one that agrees with
+    # SNMP's sysName, so it is what keeps the two backends returning the same
+    # answer for the same switch.
+    hosts_cmd: str = "show hosts"
+    # Global-config directive. Quoted on the wire by the device's own
+    # running-config output ('hostname "sw-netgear-m4300-24x"').
+    hostname_config_cmd: str = "hostname {name}"
 
     # --- physical-interface naming -----------------------------------------
     # How this model's firmware ADDRESSES one physical port in a command

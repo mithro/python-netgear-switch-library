@@ -729,6 +729,13 @@ class VirtualSwitchState:
         # has no vendor subtree at all -- see the field docstring).
         default_object_id = f"{v.base}.1" if v is not None else "1.3.6.1.2.1"
         m[oids.SYS_OBJECT_ID] = ("OID", self.sys_object_id or default_object_id)
+        # sysName: the same host name the CLI face reports through `show hosts`
+        # and the web faces render, so the backends cannot disagree about it
+        # here any more than they do on real hardware. Projected for EVERY model
+        # with an SNMP backend, matching the devices: all five reachable
+        # switches answered sysName on 2026-08-02, including gs728tpp, which
+        # publishes no vendor subtree at all.
+        m[oids.SYS_NAME] = ("OCTETSTR", self.hostname)
 
         for port, sim in self.ports.items():
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")

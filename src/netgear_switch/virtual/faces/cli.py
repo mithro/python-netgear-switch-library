@@ -59,6 +59,7 @@ _COPY_RE = re.compile(r"^copy\s+(\S+)\s+(\S+)$")
 
 # --- configuration-mode commands -------------------------------------------
 _CONFIGURE_RE = re.compile(r"^config(?:ure)?(?: terminal)?$")
+_HOSTNAME_RE = re.compile(r'^hostname\s+("?[^"]+"?)$')
 _VLAN_DATABASE_RE = re.compile(r"^vlan database$")
 _VLAN_CREATE_RE = re.compile(r"^vlan (\d+)$")
 _VLAN_NAME_RE = re.compile(r"^vlan name (\d+) (\S+)$")
@@ -339,6 +340,14 @@ class VirtualCliFace:
         if self._mode == _VLAN_DB:
             return self._vlan_db_command(c)
         if self._mode == _CONFIG:
+            m = _HOSTNAME_RE.match(c)
+            if m:
+                # The device stores the name unquoted; its running-config
+                # renders it quoted, and `show hosts` reports it bare. Accept
+                # either form on the wire so a caller that quotes is not
+                # silently given a name with quotes embedded in it.
+                self.state.hostname = m.group(1).strip().strip('"')
+                return _ACCEPTED
             m = _INTERFACE_RE.match(c)
             if m:
                 port = cli_fastpath.port_for_iface(self.state, m.group(1))
@@ -406,6 +415,8 @@ class VirtualCliFace:
             return cli_fastpath.render_environment(self.state)
         if c == self.spec.network_cmd:
             return cli_fastpath.render_network(self.state)
+        if c == self.spec.hosts_cmd:
+            return cli_fastpath.render_hosts(self.state)
         m = _SHOW_VLAN_ID_RE.match(c)
         if m:
             return cli_fastpath.render_vlan_detail(self.state, int(m.group(1)))

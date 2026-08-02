@@ -127,6 +127,44 @@ def render_network(state: VirtualSwitchState) -> str:
     )
 
 
+# --- show hosts -------------------------------------------------------------
+
+
+def render_hosts(state: VirtualSwitchState) -> str:
+    """``show hosts``, transcribed from real output captured 2026-08-02.
+
+    From m4300-24x (10.1.5.13), m4300-16x (10.1.5.20) and gsm7252ps
+    (10.1.5.22). All three label the name exactly "Host name", and the resolver
+    and static-mapping sections around it are reproduced because the reader has
+    to pick one field out of them -- a mock emitting only the wanted line would
+    not exercise that at all.
+
+    The trailing static-mapping tables are the empty form all three returned;
+    none had a host-to-address mapping configured.
+    """
+    return "\n".join(
+        [
+            _dotted("Host name", state.hostname),
+            _dotted("Default domain", "Domain name is not configured"),
+            _dotted("Default domain list", "Domain Name List is not configured"),
+            _dotted("Domain Name Lookup", "Enabled"),
+            _dotted("Number of retries", "2"),
+            _dotted("Retry timeout period", "3"),
+            _dotted("Name servers (Preference order)", "10.1.5.1"),
+            "",
+            "Configured host name-to-address mapping:",
+            "",
+            " Host                                Addresses",
+            "------------------------ ----------------------",
+            "No host name is configured to IP address",
+            "",
+            " Host                   Total   Elapsed    Type        Addresses",
+            "---------------------- -------  -------    ----        --------------",
+            "No hostname is mapped to an IP address",
+        ]
+    )
+
+
 # --- show port all ----------------------------------------------------------
 
 

@@ -561,8 +561,10 @@ class CliWriter:
             timeouts=timeouts or _DEFAULT_POE_TIMEOUTS,
             sleep=sleep,
             clock=clock,
-            recovered=lambda st: st is not None
-            and st.detect in (PoEDetect.DELIVERING, PoEDetect.SEARCHING),
+            recovered=lambda st: (
+                st is not None
+                and st.detect in (PoEDetect.DELIVERING, PoEDetect.SEARCHING)
+            ),
             timeout_message=(
                 f"PoE port {port} still in FAULT after clear within {{timeout}}s"
             ),
@@ -595,6 +597,52 @@ class CliWriter:
 
     def _port_status(self, port: int) -> PortStatus | None:
         return next((p for p in self._reader.get_ports() if p.port == port), None)
+
+    # --- host name -----------------------------------------------------------
+
+    def set_hostname(self, name: str, *, force: bool = False) -> None:
+        """Set the switch's host name, via global-config ``hostname <name>``.
+
+        Not force-gated: renaming cannot strand the switch and is reversible by
+        writing the old name back, unlike ``set_mgmt_ip`` below which drops the
+        session that issues it. ``force`` is accepted so the signature matches
+        every other writer.
+
+        Verified by re-reading ``show hosts``. That command, rather than
+        ``show running-config``, is deliberate and load-bearing here: the two
+        report different values on real hardware (see
+        ``protocols.cli.parse.parse_hostname``), and ``show hosts`` is the one
+        that agrees with SNMP, so a CLI write verified this way is also
+        observable over SNMP.
+
+        Nothing is persisted -- no ``write memory`` -- exactly like every other
+        write in this module.
+        """
+        del force  # accepted for a uniform writer signature; nothing to gate
+        if not name.strip():
+            # `hostname` with no argument is rejected by the device itself
+            # ("Command not found / Incomplete command"), so sending it would
+            # surface as a confusing CliCommandError from deep in _in_mode.
+            # CLEARING a host name is a different operation -- FASTPATH spells
+            # it `no hostname` -- and that has not been driven against real
+            # hardware here, so it is not offered rather than guessed at.
+            raise ValueError(
+                "hostname must not be empty; clearing a switch's host name is "
+                "`no hostname` on FASTPATH, which this library does not "
+                "implement because it has not been verified on a device"
+            )
+        before = self._reader.get_hostname()
+        self._in_mode(
+            [self._spec.configure_cmd],
+            [self._spec.hostname_config_cmd.format(name=name)],
+        )
+        after = self._reader.get_hostname()
+        if after != name:
+            raise WriteVerificationError(
+                f"`show hosts` reports {after!r} after setting hostname {name!r}",
+                before=before,
+                after=after,
+            )
 
     # --- management IP + reboot --------------------------------------------
 
