@@ -31,6 +31,8 @@ from .state import (
     PoeSim,
     PortSim,
     SensorSim,
+    SyslogCollectorSim,
+    SyslogSim,
     VirtualSwitchState,
     VlanMembershipPageSim,
     VlanSim,
@@ -1237,6 +1239,13 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         # capture of this switch (tests/fixtures/http/gsm7252ps_sysInfo.html).
         serial="2BW20A47000CC",
         firmware="10.0.0.53",
+        # MEASURED 2026-08-02 on 10.1.5.22: identical to the m4300 pair --
+        # enabled, port 514, one collector 10.1.5.1 info(6) 514 Active.
+        syslog=SyslogSim(
+            admin_mode=1,
+            local_port=514,
+            collectors=[SyslogCollectorSim("10.1.5.1", 514, 6)],
+        ),
         hostname="sw-netgear-gsm7252ps-s1.welland.mithis.com",
         nsdp_mac=b"\xe0\x91\xf5\x0c\xd6\xdb",  # captured System MAC Address
         # Illustrative sysDescr text -- NOT a captured real firmware string;
@@ -1798,6 +1807,10 @@ def seed_gsm7228ps() -> VirtualSwitchState:
         lldp=lldp,
         mgmt=mgmt,
         model_name="GSM7228PS",
+        # MEASURED 2026-08-02 on 10.1.5.11: the vendor admin-mode column
+        # reads 2 (disabled) and the host table is EMPTY -- this switch has
+        # no collector configured, which is why get_syslog returns none.
+        syslog=SyslogSim(admin_mode=2, local_port=514, collectors=[]),
         hostname="sw-netgear-s3300-1",
         nsdp_mac=b"\x08\xbd\x43\x6b\xb8\xd8",  # captured base/System MAC
         # REAL captured identity: the S3300-52X-PoE+'s actual sysDescr and
@@ -2397,6 +2410,14 @@ def seed_m4300_24x() -> VirtualSwitchState:
     state = VirtualSwitchState(
         # Measured 2026-08-02: sysName and `show hosts` both report this on the
         # real switch. Was empty here, which no real FASTPATH switch is.
+        # MEASURED 2026-08-02 on 10.1.5.13: `show logging` reports
+        # "Syslog Logging : enabled" and local port 514, and
+        # `show logging hosts` one row 10.1.5.1 / info(6) / 514 / Active.
+        syslog=SyslogSim(
+            admin_mode=1,
+            local_port=514,
+            collectors=[SyslogCollectorSim("10.1.5.1", 514, 6)],
+        ),
         hostname="sw-netgear-m4300-24x",
         model_key="m4300-24x",
         ports=ports,

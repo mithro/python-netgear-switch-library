@@ -156,6 +156,37 @@ class PortSim:
 
 
 @dataclass
+class SyslogCollectorSim:
+    """One remote syslog collector row, as the vendor host table reports it.
+
+    Field values are SEEDED from a live switch, never computed: the severity is
+    the standard syslog number the device actually returns (6 for "info" on
+    m4300-24x, cross-checked against its own `show logging hosts`), and status 1
+    is what that command prints as "Active".
+    """
+
+    host: str
+    port: int
+    severity: int
+    status: int = 1
+
+
+@dataclass
+class SyslogSim:
+    """The switch's remote-logging state, as the vendor `.14` subtree reports it.
+
+    MEASURED 2026-08-02 -- see docs/superpowers/specs/. ``admin_mode`` is the
+    device's own enum (1 = enabled, 2 = disabled), kept as the raw integer
+    rather than a bool so the mock emits exactly what a real agent emits and the
+    reader's own decoding is what gets exercised.
+    """
+
+    admin_mode: int = 2
+    local_port: int = 514
+    collectors: list[SyslogCollectorSim] = field(default_factory=list)
+
+
+@dataclass
 class VlanSim:
     """One dot1q VLAN: display name plus egress-member and untagged port sets.
 
@@ -374,6 +405,10 @@ class VirtualSwitchState:
     serial: str = ""
     firmware: str = ""
     hostname: str = ""
+    #: Remote-logging state. Only meaningful for a model with a vendor subtree;
+    #: oid_map() projects it under <vendor base>.14 for those models only, which
+    #: is what makes gs728tpp (no vendor OIDs) correctly unable to answer.
+    syslog: SyslogSim = field(default_factory=SyslogSim)
     nsdp_password: str = "password"
     # Write-auth scheme this mock advertises via AUTH_V2_ENCPASS (0x0014), and
     # the ONLY scheme it accepts on a WRITE_REQUEST:
@@ -736,6 +771,20 @@ class VirtualSwitchState:
         # switches answered sysName on 2026-08-02, including gs728tpp, which
         # publishes no vendor subtree at all.
         m[oids.SYS_NAME] = ("OCTETSTR", self.hostname)
+
+        # Remote logging, under <vendor base>.14 -- the same columns the real
+        # agents publish, and ONLY for a model that has a vendor subtree. A
+        # model with none (gs728tpp) must stay unable to answer get_syslog here
+        # exactly as it is on the wire, rather than the mock inventing a reply.
+        if v is not None:
+            m[f"{v.base}.14.1.4.1.0"] = ("INTEGER", str(self.syslog.admin_mode))
+            m[f"{v.base}.14.1.4.3.0"] = ("Gauge32", str(self.syslog.local_port))
+            for index, col in enumerate(self.syslog.collectors, start=1):
+                m[f"{v.base}.14.1.4.5.1.2.{index}"] = ("INTEGER", "1")
+                m[f"{v.base}.14.1.4.5.1.3.{index}"] = ("OCTETSTR", col.host)
+                m[f"{v.base}.14.1.4.5.1.4.{index}"] = ("Gauge32", str(col.port))
+                m[f"{v.base}.14.1.4.5.1.5.{index}"] = ("INTEGER", str(col.severity))
+                m[f"{v.base}.14.1.4.5.1.7.{index}"] = ("INTEGER", str(col.status))
 
         for port, sim in self.ports.items():
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")
