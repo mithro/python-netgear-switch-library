@@ -305,3 +305,37 @@ inference, and each needs its own live check before it is recorded as fact.
 2. `create_vlan` needs an XUI implementation for the FASTPATH dialects.
 3. Until it exists, the oracle must report HTTP `create_vlan` unsupported on
    those models rather than claiming it works.
+
+
+### Follow-up: no FASTPATH page carries the token, and the tests cannot see it
+
+Probing every write page on the live gsm7252ps:
+
+| Page | `hash` present |
+|---|---|
+| `/vlanStatus.html` | no |
+| `/poeInterfaceConfiguration.html` | no |
+| `/portPvidConfiguration.html` | no |
+| `/switching/dot1q/vlan_port_cfg.html` | no |
+| `/portsConfiguration.html` | no |
+
+So the token is absent from the **whole XE FASTPATH dialect**, not just the VLAN
+page, and every `_csrf`-scraping write is affected on those models — not only
+`create_vlan`.
+
+The mock is now faithful: `virtual/web.py` emits the token only for the Plus
+dialects that really have it, and driving HTTP `create_vlan` against the fake
+reproduces the live failure on gsm7252ps while still succeeding on gs305ep.
+
+**`tests/test_capabilities.py` stayed green through that change, and it was
+right to.** Its `_refused()` counts only `UnsupportedCapabilityError` and
+`NotImplementedError` as a refusal; anything else "means the backend ACCEPTED
+the operation and tried, which is exactly what Support.SUPPORTED claims". An
+`HttpUnexpectedPageError` is therefore success by that definition. The test
+verifies **dispatch**, not **outcome** — by design — so it can never catch a
+write that reaches the right backend and then fails there.
+
+That is a gap in the safety net, not a bug in the test. Catching this class
+needs a different check: drive each write against the mock and assert the state
+actually changed. Recorded here so the next person does not assume a green
+capability suite means the writes work.

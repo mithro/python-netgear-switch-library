@@ -39,7 +39,39 @@ def _hash_input() -> str:
     return f'<input type="hidden" name="hash" value="{_HASH}">'
 
 
+def _has_csrf_hash(spec: HttpModelSpec) -> bool:
+    """Whether this model's real web UI carries an ``<input name="hash">``.
+
+    ONLY the Plus ``.cgi`` dialects do. MEASURED 2026-08-02: a live capture of
+    the FASTPATH ``vlanStatus.html`` on gsm7252ps (10.1.5.22, committed as
+    ``tests/fixtures/http/gsm7252ps_vlan_status_live.html``) carries no ``hash``
+    input anywhere -- only ``applet_port``, ``applet_unit``, ``dbgopt`` and the
+    XUI cell hiddens.
+
+    This mock used to emit the token on EVERY page regardless of dialect, and
+    that is how ``HttpWriter.create_vlan`` -- which scrapes the token and is
+    written for the Plus form -- passed here while failing on real FASTPATH
+    hardware with "no CSRF 'hash' token on page before write". The mock and the
+    writer agreed with each other while both disagreed with the device, which
+    is exactly the failure principle 5 exists to prevent. Emitting it only
+    where the hardware does makes the mock refuse the same write the switch
+    refuses.
+    """
+    from ..protocols.http.endpoints import HtmlDialect
+
+    return spec.html_dialect in {HtmlDialect.STANDARD, HtmlDialect.GS105PE}
+
+
 def render_page(
+    state: VirtualSwitchState, spec: HttpModelSpec, path: str, form: dict[str, str]
+) -> str:
+    html = _render_page_body(state, spec, path, form)
+    if not _has_csrf_hash(spec):
+        html = html.replace(_hash_input(), "")
+    return html
+
+
+def _render_page_body(
     state: VirtualSwitchState, spec: HttpModelSpec, path: str, form: dict[str, str]
 ) -> str:
     if path == spec.dashboard_path:
