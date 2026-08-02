@@ -607,6 +607,30 @@ class HttpWriter:
         )
         return set(parse.parse_goahead_vlan_names(self.session.get_page(path)))
 
+    def _require_vlan_exists(self, vlan: int) -> None:
+        """Refuse a PVID pointing at a VLAN this switch does not have.
+
+        A precondition, so nothing is sent. The device will not catch it:
+        MEASURED on the GS728TPP (10.2.5.10, firmware 6.0.1.30) an unknown PVID
+        is ACCEPTED and reads back, creating no VLAN -- so verify-after-write
+        passes while the port is left pointing at a VLAN that is not there.
+
+        Skipped where this UI cannot enumerate VLANs at all (no vlan_config
+        page): refusing on a list we cannot read would be worse than the risk.
+        """
+        if self._spec.vlan_config_path is None:
+            return
+        page = self.session.get_page(self._spec.vlan_config_path)
+        known = (
+            set(parse.parse_goahead_vlan_names(page))
+            if _is_xml_api_dialect(self._spec)
+            else set(parse.parse_vlan_ids(page))
+        )
+        if vlan not in known:
+            raise HttpUnexpectedPageError(
+                f"VLAN {vlan} does not exist (known: {sorted(known)})"
+            )
+
     def _goahead_create_vlan(self, vlan: int, name: str) -> None:
         before = self._goahead_vlan_ids()
         self._goahead_write(
@@ -900,6 +924,7 @@ class HttpWriter:
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        self._require_vlan_exists(vlan)
         if _is_xml_api_dialect(self._spec):
             before = dict(parse.parse_goahead_pvids(self.session.get_page(path)))
             self._goahead_write(
@@ -1555,9 +1580,25 @@ class AsyncHttpWriter:
         )
         _raise_on_fastpath_err_flag(applied, f"PoE reset of port {port}")
 
+    async def _require_vlan_exists(self, vlan: int) -> None:
+        """Async twin of ``HttpWriter._require_vlan_exists`` (see its docs)."""
+        if self._spec.vlan_config_path is None:
+            return
+        page = await self.session.get_page(self._spec.vlan_config_path)
+        known = (
+            set(parse.parse_goahead_vlan_names(page))
+            if _is_xml_api_dialect(self._spec)
+            else set(parse.parse_vlan_ids(page))
+        )
+        if vlan not in known:
+            raise HttpUnexpectedPageError(
+                f"VLAN {vlan} does not exist (known: {sorted(known)})"
+            )
+
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        await self._require_vlan_exists(vlan)
         if _is_xml_api_dialect(self._spec):
             before = dict(
                 parse.parse_goahead_pvids(await self.session.get_page(path))

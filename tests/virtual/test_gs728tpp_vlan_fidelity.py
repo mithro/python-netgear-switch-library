@@ -212,6 +212,35 @@ def test_snmp_delete_and_membership_still_work(mock) -> None:
     assert 90 not in {v.vlan_id for v in reader.get_vlans()}
 
 
+def test_set_pvid_refuses_a_vlan_the_switch_does_not_have(mock) -> None:
+    """The device will not catch this, so the library must.
+
+    MEASURED on 10.2.5.10 (firmware 6.0.1.30) 2026-08-03: a raw
+    ``dot1qPvid.17 := 4002`` for a VLAN that does not exist is ACCEPTED, reads
+    back as 4002, and creates no VLAN -- so verify-after-write passes while the
+    port is left pointing at a VLAN that is not there.
+
+    Both halves matter. The writer must refuse before sending anything, and the
+    fake must still ACCEPT the raw SET, because that is what the switch does --
+    a mock that rejected it would hide why the guard is needed at all.
+    """
+    client = _snmp(mock)
+    writer = SnmpWriter(client, MODEL)
+    reader = SnmpReader(client, MODEL)
+    absent = 4002
+    assert absent not in {v.vlan_id for v in reader.get_vlans()}
+    before = dict(reader.get_pvids())[17]
+
+    with pytest.raises(SnmpError, match=f"VLAN {absent} does not exist"):
+        writer.set_pvid(17, absent, force=True)
+    assert dict(reader.get_pvids())[17] == before, "nothing may be sent"
+
+    # The device itself accepts it -- which is exactly the hazard.
+    client.set(SetVarbind(f"{oids.DOT1Q_PVID}.17", absent, "u"))
+    assert dict(reader.get_pvids())[17] == absent
+    assert absent not in {v.vlan_id for v in reader.get_vlans()}
+
+
 def test_pvids_and_ports_exclude_the_lags(mock) -> None:
     client = _snmp(mock)
     raw_pvids = client.walk(oids.DOT1Q_PVID)

@@ -342,8 +342,10 @@ def test_async_switch_write_methods_delegate_to_writer() -> None:
         await sw.set_port_enabled(1, enabled=False, force=True)
         assert SetVarbind(f"{oids.IF_ADMIN_STATUS}.1", 2, "i") in client.sets
 
-        await sw.set_pvid(1, 20, force=True)
-        assert SetVarbind(f"{oids.DOT1Q_PVID}.1", 20, "u") in client.sets
+        # _WRITE_VLAN, not an arbitrary id: set_pvid refuses a PVID pointing at
+        # a VLAN the switch does not have (see the sync twin).
+        await sw.set_pvid(1, _WRITE_VLAN, force=True)
+        assert SetVarbind(f"{oids.DOT1Q_PVID}.1", _WRITE_VLAN, "u") in client.sets
 
         await sw.set_vlan_membership(_WRITE_VLAN, 2, VlanMode.TAGGED, force=True)
         assert any(
@@ -626,6 +628,11 @@ def test_async_switch_plus_set_pvid_over_nsdp() -> None:
             )
             pkt.add_tlv(Tag.MODEL, b"GS110EMX")
             pkt.add_tlv(Tag.PORT_COUNT, b"\x0a")
+            # VLAN 90 exists here -- see the sync twin: set_pvid refuses a PVID
+            # pointing at a VLAN the device does not have.
+            pkt.add_tlv(
+                Tag.VLAN_MEMBERS, struct.pack(">H", 90) + b"\x80\x00" + b"\x00\x00"
+            )
             for p, v in self.pvids.items():
                 pkt.add_tlv(Tag.PORT_PVID, bytes([p]) + struct.pack(">H", v))
             return pkt

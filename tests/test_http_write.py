@@ -7,6 +7,7 @@ import pytest
 
 from netgear_switch.errors import (
     HttpError,
+    HttpUnexpectedPageError,
     ProtectedPortError,
     UnsupportedCapabilityError,
     WriteVerificationError,
@@ -42,7 +43,11 @@ class _FakeGs305epState:
         self.vlan_members: dict[int, dict[int, VlanMode]] = {
             1: dict.fromkeys(range(1, _PORT_COUNT + 1), VlanMode.UNTAGGED)
         }
-        self.vlan_ids: set[int] = {1}
+        # VLAN 20 exists because the PVID tests target it: set_pvid refuses a
+        # PVID pointing at a VLAN the switch does not have, so a fake that
+        # listed only VLAN 1 would be modelling a switch on which those writes
+        # genuinely cannot succeed.
+        self.vlan_ids: set[int] = {1, 20}
         self.honour_writes = honour_writes
         self.posts: list[tuple[str, dict[str, str]]] = []
 
@@ -199,6 +204,22 @@ def test_set_pvid_write_not_reflected_raises_verification() -> None:
     writer = HttpWriter(sess, get_model("gs305ep"))
     with pytest.raises(WriteVerificationError):
         writer.set_pvid(3, 20)
+
+
+def test_set_pvid_refuses_a_vlan_that_does_not_exist() -> None:
+    """A PVID may only point at a VLAN the switch actually has.
+
+    MEASURED on a GS728TPP (10.2.5.10, firmware 6.0.1.30): the equivalent write
+    to a non-existent VLAN is ACCEPTED and reads back, creating no VLAN -- so
+    verify-after-write passes while the port is left pointing at nothing. Only
+    a precondition can catch that, and nothing may be sent when it fails.
+    """
+    sess = _StatefulSession()
+    writer = HttpWriter(sess, get_model("gs305ep"))
+    with pytest.raises(HttpUnexpectedPageError, match="VLAN 4007 does not exist"):
+        writer.set_pvid(3, 4007)
+    assert not any(path == "/portPVID.cgi" for path, _ in sess.posts)
+    assert sess.pvids[3] == 1
 
 
 def test_set_vlan_membership_verifies() -> None:

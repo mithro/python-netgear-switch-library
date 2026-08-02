@@ -550,6 +550,16 @@ class SnmpWriter:
 
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)  # changing a port's PVID is disruptive
+        # Precondition, like set_vlan_membership's: no SET is attempted, so
+        # this is not a verification divergence.
+        #
+        # The device will NOT catch this. MEASURED on the GS728TPP (10.2.5.10,
+        # firmware 6.0.1.30, 2026-08-03): dot1qPvid := a VLAN that does not
+        # exist is ACCEPTED, reads back as that id, and creates no VLAN -- so
+        # verify-after-write passes and the port is left with a PVID for a VLAN
+        # that is not there. Only a precondition check can catch it.
+        if not any(v.vlan_id == vlan for v in self._reader.get_vlans()):
+            raise SnmpError(f"VLAN {vlan} does not exist")
         before = self._reader.get_pvids()
         self.client.set(SetVarbind(f"{oids.DOT1Q_PVID}.{port}", vlan, "u"))
         after = self._reader.get_pvids()
@@ -1026,6 +1036,10 @@ class AsyncSnmpWriter:
 
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
+        # Precondition -- see SnmpWriter.set_pvid: the device accepts a PVID for
+        # a VLAN that does not exist, so verify-after-write cannot catch it.
+        if not any(v.vlan_id == vlan for v in await self._reader.get_vlans()):
+            raise SnmpError(f"VLAN {vlan} does not exist")
         before = await self._reader.get_pvids()
         await self.client.set(SetVarbind(f"{oids.DOT1Q_PVID}.{port}", vlan, "u"))
         after = await self._reader.get_pvids()

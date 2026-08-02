@@ -393,10 +393,18 @@ class CliWriter:
         ``SnmpWriter.set_pvid``). ``switchport mode general`` is sent first for
         the same reason as ``set_vlan_membership``: in access mode the port's
         PVID follows its access VLAN, so ``vlan pvid`` cannot take effect.
-        Whether the target VLAN must already exist is left to the switch, which
-        rejects the command (-> ``CliCommandError``) if it does not.
+
+        Refuses up front if the VLAN does not exist, exactly as
+        ``set_vlan_membership`` does -- a precondition failure, so no command is
+        sent. This used to be left to the switch, on the assumption it would
+        reject the command. That assumption does not hold generally: MEASURED on
+        a GS728TPP (10.2.5.10, firmware 6.0.1.30), the equivalent write is
+        ACCEPTED and reads back, leaving the port pointing at a VLAN that is not
+        there -- which no amount of verify-after-write can catch.
         """
         self._guard(port, force)
+        if not any(v.vlan_id == vlan for v in self._reader.get_vlans()):
+            raise CliCommandError(f"VLAN {vlan} does not exist")
         before = dict(self._reader.get_pvids())
         self._in_mode(
             [self._spec.configure_cmd, self._spec.interface(port)],

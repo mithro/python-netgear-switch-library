@@ -133,6 +133,20 @@ class NsdpWriter:
     def _vlan(self, vlan: int) -> VLANInfo | None:
         return next((v for v in self._reader.get_vlans() if v.vlan_id == vlan), None)
 
+    def _require_vlan_exists(self, vlan: int) -> None:
+        """Refuse a PVID pointing at a VLAN this switch does not have.
+
+        ``NsdpError`` (not UnsupportedCapabilityError): the operation IS
+        supported, the switch simply has no such VLAN right now. Each backend
+        raises its own transport-native error for this precondition, matching
+        what ``set_vlan_membership`` already does there; all of them derive from
+        ``NetgearSwitchError``, so a backend-agnostic caller can catch one type.
+        """
+        from .protocols.nsdp.client import NsdpError
+
+        if self._vlan(vlan) is None:
+            raise NsdpError(f"VLAN {vlan} does not exist")
+
     def set_hostname(self, name: str, *, force: bool = False) -> None:
         """Set the switch's host name over NSDP (tag 0x0003).
 
@@ -163,6 +177,12 @@ class NsdpWriter:
         # error 2 (surfaced as NsdpError by check_result). verify-after-write
         # below is the runtime guard.
         self._guard(port, force)
+        # Precondition, matching every other backend: a PVID for a VLAN that
+        # does not exist is refused here rather than sent. This switch happens
+        # to reject it, but that is not universal -- a GS728TPP ACCEPTS the
+        # equivalent write and reads it back (measured), so the check belongs in
+        # the library, on every backend, not in the hope that firmware objects.
+        self._require_vlan_exists(vlan)
         before = dict(self._reader.get_pvids())
         self.client.write([pvid_tlv(port, vlan)], password=self._password)
         after = dict(self._reader.get_pvids())
@@ -345,12 +365,21 @@ class AsyncNsdpWriter:
         vlans = await self._reader.get_vlans()
         return next((v for v in vlans if v.vlan_id == vlan), None)
 
+    async def _require_vlan_exists(self, vlan: int) -> None:
+        """Async twin of ``NsdpWriter._require_vlan_exists`` (see its docs)."""
+        from .protocols.nsdp.client import NsdpError
+
+        if await self._vlan(vlan) is None:
+            raise NsdpError(f"VLAN {vlan} does not exist")
+
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): PORT_PVID
         # (0x3000) IS writable. Constraint observed live: the target VLAN must
         # be one the port is already a member of, else the switch rejects with
         # header error 2. verify-after-write below is the runtime guard.
         self._guard(port, force)
+        # Precondition -- see NsdpWriter._require_vlan_exists.
+        await self._require_vlan_exists(vlan)
         before = dict(await self._reader.get_pvids())
         await self.client.write([pvid_tlv(port, vlan)], password=self._password)
         after = dict(await self._reader.get_pvids())
