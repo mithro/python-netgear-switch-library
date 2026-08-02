@@ -2715,21 +2715,51 @@ def seed_gs728tpp() -> VirtualSwitchState:
         )
         for p in range(1, 29)
     }
+    # The eight LAG pseudo-interfaces, MEASURED 2026-08-02 on the live switch:
+    # ifName "po 1".."po 8" at ifIndex 1000..1007, ifType 161 (ieee8023adLag).
+    # dot1dBasePortIfIndex is identity-mapped there, so those same numbers are
+    # the Q-BRIDGE PortList bit positions. They are seeded because they are what
+    # the bitmaps actually contain: without them the mock cannot reproduce the
+    # phantom "member port 1000" SNMP get_vlans used to report (parse_vlans).
+    ports.update(
+        {
+            idx: PortSim(
+                name=f"po {idx - 999}", admin=True, link=False, speed=0, if_type=161
+            )
+            for idx in range(1000, 1008)
+        }
+    )
+    _lags = set(range(1000, 1008))
     # VLAN 1 is untagged on the access ports; every other VLAN is carried tagged
     # on the trunk set, except the untagged sets captured below.
+    #
+    # LAG membership is MEASURED (2026-08-02): VLAN 1's current-table bitmap
+    # sets all eight LAG bits, while every configured VLAN's static bitmap sets
+    # bit 1000 alone. VLAN 1 also has NO dot1qVlanStaticTable row on this switch
+    # -- static_row=False -- which is precisely the VLAN a static-table-only
+    # reader lost.
     vlans = {
-        1: VlanSim(name="", member=set(_GS728TPP_VLAN1), untagged=set(_GS728TPP_VLAN1)),
-        2: VlanSim(name="Voice VLAN", member=set(_GS728TPP_TRUNK), untagged=set()),
-        3: VlanSim(name="Auto Video VLAN", member=set(), untagged=set()),
-        5: VlanSim(name="net", member=set(_GS728TPP_TRUNK), untagged={3, 5, 12, 23}),
-        6: VlanSim(name="pwr", member=set(_GS728TPP_TRUNK), untagged=set()),
-        7: VlanSim(name="store", member=set(_GS728TPP_TRUNK), untagged=set()),
-        10: VlanSim(name="int", member=set(_GS728TPP_TRUNK), untagged={1}),
-        20: VlanSim(name="roam", member=set(_GS728TPP_TRUNK), untagged=set()),
-        31: VlanSim(name="fpgas", member=set(_GS728TPP_TRUNK), untagged=set()),
-        41: VlanSim(name="sm", member=set(_GS728TPP_TRUNK), untagged=set()),
-        90: VlanSim(name="iot", member=set(_GS728TPP_TRUNK), untagged=set()),
-        99: VlanSim(name="guest", member=set(_GS728TPP_TRUNK), untagged=set()),
+        1: VlanSim(
+            name="",
+            member=set(_GS728TPP_VLAN1) | _lags,
+            untagged=set(_GS728TPP_VLAN1) | _lags,
+            static_row=False,
+        ),
+        2: VlanSim(name="Voice VLAN", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        # Bit 1000 alone: the live static bitmap for VLAN 3 is all-zero except
+        # that LAG bit, i.e. a VLAN whose ONLY member is a LAG.
+        3: VlanSim(name="Auto Video VLAN", member={1000}, untagged=set()),
+        5: VlanSim(
+            name="net", member=_GS728TPP_TRUNK | {1000}, untagged={3, 5, 12, 23}
+        ),
+        6: VlanSim(name="pwr", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        7: VlanSim(name="store", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        10: VlanSim(name="int", member=_GS728TPP_TRUNK | {1000}, untagged={1}),
+        20: VlanSim(name="roam", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        31: VlanSim(name="fpgas", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        41: VlanSim(name="sm", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        90: VlanSim(name="iot", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        99: VlanSim(name="guest", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
     }
     pvids = {
         1: 10,
@@ -2761,6 +2791,11 @@ def seed_gs728tpp() -> VirtualSwitchState:
         27: 1,
         28: 1,
     }
+    # The real dot1qPvid walk returns 36 rows, not 28: the eight LAGs carry a
+    # PVID too (all 1, measured 2026-08-02). parse_pvids already filters them
+    # out by ifType; seeding them keeps that filter honest work rather than a
+    # no-op against a mock that never presents the case.
+    pvids.update(dict.fromkeys(range(1000, 1008), 1))
     poe = {p: PoeSim(admin=True, detect=2, power_mw=0) for p in range(1, 25)}
     # A subset of the real dynamic FDB (VLANs 1 and 5, on physical ports).
     macs = [
@@ -2871,6 +2906,12 @@ def seed_gs728tpp() -> VirtualSwitchState:
         model_name="GS728TPP",
         serial="3AR476520016D",
         firmware="6.0.1.30",
+        # The device's REAL PortList width, measured off the wire 2026-08-02:
+        # every dot1qVlanStatic/Current bitmap is 126 bytes (1008 bits), which
+        # is what makes room for the LAG bits at 1000-1007. Seeded, never
+        # derived -- a mock that recomputed it with the writer's own formula
+        # could only ever agree with the writer (principle 5).
+        vlan_portlist_width=126,
         hostname="sw-netgear-gs728tpp",
         nsdp_mac=b"\xb0\x39\x56\x77\x54\x29",
         sys_descr="Netgear GS728TPP ProSafe Smart Managed Pro Switch",

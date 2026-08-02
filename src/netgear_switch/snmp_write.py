@@ -22,7 +22,7 @@ from .errors import (
 from .models import PoEDetect, VlanMode
 from .protocols.snmp import oids
 from .protocols.snmp.client import SnmpError
-from .protocols.snmp.parse import decode_port_bitmap
+from .protocols.snmp.parse import decode_port_bitmap, physical_ports
 from .protocols.snmp.write import (
     SetVarbind,
     encode_port_bitmap,
@@ -382,6 +382,19 @@ class SnmpWriter:
                 return row.value
         return None
 
+    def _physical(self) -> set[int] | None:
+        """The switch's physical ports, or None when it does not publish ifType.
+
+        A membership write is verified by decoding the bitmap it SENT and
+        comparing it with what ``get_vlans`` reads back -- and get_vlans drops
+        LAG bridge-ports (parse.parse_vlans). Without the same filter here the
+        two sides disagree by exactly those bits and every write on a switch
+        with a LAG in the VLAN would raise a bogus WriteVerificationError.
+        Measured on the GS728TPP: bit 1000 (``po 1``) is set in 11 of its 13
+        VLANs, so this is the normal case there, not an edge case.
+        """
+        return physical_ports(self.client.walk(oids.IF_TYPE))
+
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
             self._guard(port, force)  # turning PoE off is disruptive
@@ -625,9 +638,14 @@ class SnmpWriter:
         after = self._vlan(vlan)
         # Verify BOTH columns this op wrote: egress membership AND the untagged
         # set. A mock/device that accepts the egress SET but silently drops the
-        # untagged SET must be caught (review item 1).
+        # untagged SET must be caught (review item 1). Compare on the same
+        # footing get_vlans reports -- physical ports only (see _physical).
+        keep = self._physical()
         want_egress = frozenset(decode_port_bitmap(new_egress))
         want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if keep is not None:
+            want_egress &= keep
+            want_untagged &= keep
         if after is None:
             raise WriteVerificationError(
                 f"VLAN {vlan} disappeared while setting membership for port {port}",
@@ -851,6 +869,10 @@ class AsyncSnmpWriter:
             if row.oid.endswith(suffix) and isinstance(row.value, bytes):
                 return row.value
         return None
+
+    async def _physical(self) -> set[int] | None:
+        """Async twin of ``SnmpWriter._physical`` -- see it for why."""
+        return physical_ports(await self.client.walk(oids.IF_TYPE))
 
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
@@ -1076,9 +1098,14 @@ class AsyncSnmpWriter:
         else:
             await self.client.set_many([egress_vb, untagged_vb])
         after = await self._vlan(vlan)
-        # Verify BOTH written columns (egress AND untagged) — review item 1.
+        # Verify BOTH written columns (egress AND untagged) — review item 1 —
+        # on the same physical-port footing get_vlans reports (see _physical).
+        keep = await self._physical()
         want_egress = frozenset(decode_port_bitmap(new_egress))
         want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if keep is not None:
+            want_egress &= keep
+            want_untagged &= keep
         if after is None:
             raise WriteVerificationError(
                 f"VLAN {vlan} disappeared while setting membership for port {port}",

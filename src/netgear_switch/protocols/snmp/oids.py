@@ -56,6 +56,15 @@ DOT1Q_TP_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"  # MAC table, port column ONLY
 DOT1Q_VLAN_STATIC_NAME = "1.3.6.1.2.1.17.7.1.4.3.1.1"
 DOT1Q_VLAN_STATIC_EGRESS = "1.3.6.1.2.1.17.7.1.4.3.1.2"
 DOT1Q_VLAN_STATIC_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.3.1.4"
+# dot1qVlanCurrentTable -- the OPERATIONAL VLAN table, indexed by
+# <dot1qVlanTimeMark>.<dot1qVlanIndex> (the static table above is indexed by
+# the VLAN id alone). Read alongside the static table because a VLAN can exist
+# here and NOT there: on the GS728TPP (10.2.5.10, firmware 6.0.1.30) VLAN 1 has
+# no dot1qVlanStaticTable row at all, only a current-table row with
+# dot1qVlanStatus = 1 (other) -- see parse_vlans.
+DOT1Q_VLAN_CURRENT_EGRESS = "1.3.6.1.2.1.17.7.1.4.2.1.4"
+DOT1Q_VLAN_CURRENT_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.2.1.5"
+DOT1Q_VLAN_STATUS = "1.3.6.1.2.1.17.7.1.4.2.1.6"  # 1 other, 2 permanent, 3 dynamicGvrp
 DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"
 DOT1Q_VLAN_STATIC_ROW_STATUS = "1.3.6.1.2.1.17.7.1.4.3.1.5"  # dot1qVlanStaticRowStatus
 ROW_STATUS_CREATE_AND_GO = 4  # RowStatus createAndGo

@@ -40,23 +40,39 @@ def _mac_text(mac_bytes: tuple[int, ...]) -> str:
     return ":".join(f"{b:02x}" for b in mac_bytes)
 
 
+def _physical_ports(state: VirtualSwitchState) -> list[int]:
+    """Just the PHYSICAL ports, in order.
+
+    The seed carries ifIndex-keyed entries for the eight LAG pseudo-interfaces
+    (``po 1``..``po 8`` at 1000-1007, ifType 161) because the switch's Q-BRIDGE
+    bitmaps really do include them. The real wcd pages list ONLY physical ports:
+    a live ``Standard802_3List`` fetch returns 28 ``<Entry>`` rows, and the
+    per-port ``VLANInterfaceList`` likewise. Rendering the LAGs would make the
+    HTTP reader report interfaces the web UI never shows -- and disagree with
+    SNMP, which filters them by ifType."""
+    from ..registry import get_model
+
+    port_count = get_model(state.model_key).port_count
+    return [p for p in sorted(state.ports) if p <= port_count]
+
+
 def render_ports(state: VirtualSwitchState) -> str:
     rows = "".join(
         f"<Entry><interfaceName>g{p}</interfaceName>"
         f"<interfaceType>1</interfaceType><interfaceID>{p}</interfaceID>"
-        f"<interfaceDescription>{escape(sim.description or '')}"
+        f"<interfaceDescription>{escape(state.ports[p].description or '')}"
         "</interfaceDescription>"
-        f"<adminState>{_ADMIN[sim.admin]}</adminState>"
-        f"<linkState>{_LINK[sim.link]}</linkState>"
-        f"<speedOper>{sim.speed}</speedOper></Entry>"
-        for p, sim in sorted(state.ports.items())
+        f"<adminState>{_ADMIN[state.ports[p].admin]}</adminState>"
+        f"<linkState>{_LINK[state.ports[p].link]}</linkState>"
+        f"<speedOper>{state.ports[p].speed}</speedOper></Entry>"
+        for p in _physical_ports(state)
     )
     return _wcd(f'<Standard802_3List type="section">{rows}</Standard802_3List>')
 
 
 def render_pvids_membership(state: VirtualSwitchState) -> str:
     rows = ""
-    for p, _sim in sorted(state.ports.items()):
+    for p in _physical_ports(state):
         entries = "".join(
             f"<VLANEntry><VLANID>{vid}</VLANID>"
             f"<taggingMode>{'1' if p in vlan.untagged else '2'}</taggingMode>"

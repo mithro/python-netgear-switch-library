@@ -102,11 +102,18 @@ class SnmpReader:
         )
 
     def get_vlans(self) -> list[VLANInfo]:
+        # ifType keeps LAG bridge-ports out of the membership bitmaps, and the
+        # current table supplies VLANs the static table omits -- the GS728TPP's
+        # VLAN 1 has no static row at all. See parse.parse_vlans for the live
+        # evidence behind both.
         w = self.client.walk
         return parse.parse_vlans(
             w(oids.DOT1Q_VLAN_STATIC_NAME),
             w(oids.DOT1Q_VLAN_STATIC_EGRESS),
             w(oids.DOT1Q_VLAN_STATIC_UNTAGGED),
+            w(oids.IF_TYPE),
+            w(oids.DOT1Q_VLAN_CURRENT_EGRESS),
+            w(oids.DOT1Q_VLAN_CURRENT_UNTAGGED),
         )
 
     def get_pvids(self) -> list[tuple[int, int]]:
@@ -300,11 +307,17 @@ class AsyncSnmpReader:
         )
 
     async def get_vlans(self) -> list[VLANInfo]:
+        # See SnmpReader.get_vlans: ifType drops LAG bridge-ports, and the
+        # current table carries VLANs (e.g. the GS728TPP's VLAN 1) that have no
+        # dot1qVlanStaticTable row.
         w = self.client.walk
         return parse.parse_vlans(
             await w(oids.DOT1Q_VLAN_STATIC_NAME),
             await w(oids.DOT1Q_VLAN_STATIC_EGRESS),
             await w(oids.DOT1Q_VLAN_STATIC_UNTAGGED),
+            await w(oids.IF_TYPE),
+            await w(oids.DOT1Q_VLAN_CURRENT_EGRESS),
+            await w(oids.DOT1Q_VLAN_CURRENT_UNTAGGED),
         )
 
     async def get_pvids(self) -> list[tuple[int, int]]:

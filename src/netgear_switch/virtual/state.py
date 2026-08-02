@@ -213,6 +213,20 @@ class VlanSim:
     # with each other while both disagreed with hardware. Empty (the default) =
     # configured and current coincide, which is the normal case.
     configured_only: set[int] = field(default_factory=set)
+    # Does this VLAN have a ``dot1qVlanStaticTable`` row at all?
+    #
+    # MEASURED on the GS728TPP (sw-netgear-gs728tpp.monarto.mithis.com /
+    # 10.2.5.10, firmware 6.0.1.30, 2026-08-02): its default VLAN 1 does NOT.
+    # A walk of dot1qVlanStaticName/Egress/Untagged/RowStatus returns exactly 12
+    # rows -- ids 2,3,4,5,6,7,10,20,31,41,90,99 -- while dot1qVlanCurrentTable
+    # returns 13, the extra one being VLAN 1 with dot1qVlanStatus = 1 (other)
+    # where every other VLAN reads 2 (permanent). The web UI lists VLAN 1, so a
+    # reader that consults only the static table loses it; see
+    # protocols/snmp/parse.parse_vlans, which reads both tables because of this.
+    #
+    # True (the default) is the normal case and is itself measured: the
+    # GSM7252PS, both M4300s and the S3300-52X all publish a static VLAN 1 row.
+    static_row: bool = True
 
     @property
     def configured(self) -> set[int]:
@@ -853,6 +867,30 @@ class VirtualSwitchState:
                     )
 
         for vid, vsim in self.vlans.items():
+            # dot1qVlanCurrentTable -- the OPERATIONAL view, indexed
+            # <timeMark>.<vlanIndex>. Real agents publish it for EVERY VLAN,
+            # including ones with no static row, which is the only place the
+            # GS728TPP's VLAN 1 appears at all (see VlanSim.static_row). Time
+            # mark 0 is what that switch reports on every row.
+            m[f"{oids.DOT1Q_VLAN_CURRENT_EGRESS}.0.{vid}"] = (
+                "OCTETSTR",
+                encode_port_bitmap(vsim.member, width_bytes=vlan_width),
+            )
+            m[f"{oids.DOT1Q_VLAN_CURRENT_UNTAGGED}.0.{vid}"] = (
+                "OCTETSTR",
+                encode_port_bitmap(vsim.untagged, width_bytes=vlan_width),
+            )
+            # 1=other, 2=permanent: the live GS728TPP reports 1 for its
+            # static-row-less VLAN 1 and 2 for all 12 configured VLANs.
+            m[f"{oids.DOT1Q_VLAN_STATUS}.0.{vid}"] = (
+                "INTEGER",
+                "2" if vsim.static_row else "1",
+            )
+            if not vsim.static_row:
+                # No dot1qVlanStaticTable row at all -- not an empty one. The
+                # distinction is the whole point: an empty row would still make
+                # the VLAN visible to a static-table-only reader.
+                continue
             m[f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"] = ("OCTETSTR", vsim.name)
             m[f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"] = (
                 "OCTETSTR",

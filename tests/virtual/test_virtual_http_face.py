@@ -401,20 +401,31 @@ def test_goahead_face_serves_every_read_op_from_state(goahead_face) -> None:
             client.login()
             reader = HttpReader(client, get_model("gs728tpp"))
 
+            # The seed also carries the switch's eight LAG pseudo-interfaces
+            # (ifIndex 1000-1007, ifType 161) because its Q-BRIDGE bitmaps and
+            # dot1qPvid walk really do include them. The real wcd pages list
+            # ONLY physical ports, so the comparison is against that projection
+            # -- state.ports is deliberately the larger set.
+            physical = {p: s for p, s in state.ports.items() if s.if_type == 6}
             ports = {p.port: p for p in reader.get_ports()}
             assert set(ports) == set(range(1, 29))  # physical g1..g28 only
-            for p, sim in state.ports.items():
+            assert set(physical) == set(range(1, 29))
+            for p, sim in physical.items():
                 assert ports[p].link_up is sim.link
                 assert ports[p].speed_mbps == (sim.speed if sim.link else None)
 
-            assert dict(reader.get_pvids()) == state.pvids
+            assert dict(reader.get_pvids()) == {
+                p: v for p, v in state.pvids.items() if p in physical
+            }
 
             vlans = {v.vlan_id: v for v in reader.get_vlans()}
             assert set(vlans) == set(state.vlans)
             for vid, sim in state.vlans.items():
-                assert vlans[vid].member_ports == frozenset(sim.member)
-                assert vlans[vid].untagged_ports == frozenset(sim.untagged)
-                assert vlans[vid].tagged_ports == frozenset(sim.member - sim.untagged)
+                member = sim.member & set(physical)
+                untagged = sim.untagged & set(physical)
+                assert vlans[vid].member_ports == frozenset(member)
+                assert vlans[vid].untagged_ports == frozenset(untagged)
+                assert vlans[vid].tagged_ports == frozenset(member - untagged)
 
             poe = {p.port: p for p in reader.get_poe()}
             assert set(poe) == set(state.poe)
@@ -501,7 +512,12 @@ def test_goahead_async_reader_end_to_end(goahead_face) -> None:
                 reader = AsyncHttpReader(client, get_model("gs728tpp"))
                 ports = {p.port: p for p in await reader.get_ports()}
                 assert set(ports) == set(range(1, 29))
-                assert dict(await reader.get_pvids()) == state.pvids
+                # Physical ports only -- the seed's LAG pseudo-interfaces
+                # (1000-1007) carry a PVID on the real switch but never appear
+                # on a wcd page. See the sync twin above.
+                assert dict(await reader.get_pvids()) == {
+                    p: v for p, v in state.pvids.items() if p <= 28
+                }
                 mgmt = await reader.get_mgmt_ip()
                 assert mgmt.address == state.mgmt.address
             finally:
