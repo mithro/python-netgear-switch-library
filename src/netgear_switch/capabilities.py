@@ -115,6 +115,19 @@ READ_OPERATIONS: tuple[Operation, ...] = (
     Operation("get_mgmt_ip", OperationKind.READ, "Management IP configuration"),
     Operation("get_hostname", OperationKind.READ, "The switch's host name"),
     Operation(
+        "get_syslog",
+        OperationKind.READ,
+        "Remote-logging configuration and collectors",
+        # SNMP and the CLI are the two backends that READ this today, and the
+        # two agree field-for-field on live hardware. Restricting the op here
+        # states what the LIBRARY serves; it deliberately does NOT assert that
+        # a web UI cannot show syslog. No dialect's syslog page has been
+        # located or captured yet, so HTTP is an unbuilt implementation -- a
+        # bug to fix, in this project's terms, not a device limitation. NSDP
+        # has no logging tag in the exhaustive tag sweep of a live GS110EMX.
+        backends=frozenset({Backend.SNMP}) | _CLI_BACKENDS,
+    ),
+    Operation(
         "nsdp_device",
         OperationKind.READ,
         "Full NSDP device record",
@@ -212,6 +225,17 @@ def _snmp_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
             Support.UNSUPPORTED,
             f"model {model.key!r} registers no Netgear vendor OID subtree, and "
             "the management-IP write columns are vendor-only",
+        )
+    if op.name == "get_syslog" and not oids.has_vendor_oids(model):
+        # Logging lives at <vendor base>.14 on both vendor families, so a model
+        # whose agent registers no 4526 subtree at all (gs728tpp -- a walk of
+        # 1.3.6.1.4.1.4526 answers noSuchObject) has nothing to read.
+        # SnmpReader.get_syslog refuses by name for the same reason: an empty
+        # result would be indistinguishable from a switch with no collectors.
+        return (
+            Support.UNSUPPORTED,
+            f"model {model.key!r} registers no Netgear vendor OID subtree, and "
+            "the logging columns are vendor-only",
         )
     if op.name == "get_macs" and not model.has_mac_table:  # pragma: no cover
         # Unreachable today: has_mac_table IS "has an SNMP backend". Kept so the

@@ -95,6 +95,7 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        SyslogConfig,
         VLANInfo,
         VlanMode,
     )
@@ -446,6 +447,10 @@ class AsyncSwitch:
 
     async def get_mgmt_ip(self, *, backend: Backend | None = None) -> MgmtIpConfig:
         return await self._read(lambda r: r.get_mgmt_ip(), backend)
+
+    async def get_syslog(self, *, backend: Backend | None = None) -> SyslogConfig:
+        """Async twin of ``SyncSwitch.get_syslog`` -- see there."""
+        return await self._read(lambda r: r.get_syslog(), backend)
 
     async def get_hostname(self, *, backend: Backend | None = None) -> str:
         """Async twin of ``SyncSwitch.get_hostname`` -- see there."""

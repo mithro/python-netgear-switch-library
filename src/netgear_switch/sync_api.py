@@ -157,6 +157,7 @@ if TYPE_CHECKING:
         PortStats,
         PortStatus,
         Sensor,
+        SyslogConfig,
         VLANInfo,
         VlanMode,
     )
@@ -551,6 +552,17 @@ class SyncSwitch:
 
     def get_mgmt_ip(self, *, backend: Backend | None = None) -> MgmtIpConfig:
         return self._read(lambda r: r.get_mgmt_ip(), backend)
+
+    def get_syslog(self, *, backend: Backend | None = None) -> SyslogConfig:
+        """Remote-logging configuration: whether it is on, and its collectors.
+
+        Served over SNMP and the FASTPATH CLI, which agree field-for-field on
+        live hardware. ``gs728tpp`` is refused over SNMP by name: it registers
+        no Netgear vendor subtree, and the logging columns are vendor-only, so
+        an empty result would be indistinguishable from a switch with no
+        collectors configured.
+        """
+        return self._read(lambda r: r.get_syslog(), backend)
 
     def get_hostname(self, *, backend: Backend | None = None) -> str:
         """The switch's host name.
