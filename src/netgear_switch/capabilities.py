@@ -147,11 +147,17 @@ READ_OPERATIONS: tuple[Operation, ...] = (
         "get_services",
         OperationKind.READ,
         "Which management services (http/https/telnet/ssh) are enabled",
-        # CLI only so far: `show ip http`, `show telnetcon` and `show ip ssh`
-        # are measured, and the SNMP/HTTP/NSDP equivalents are unlocated rather
-        # than absent. The four models with no CLI backend therefore have no
-        # route to this yet, which the support table now shows as a hole.
-        backends=_CLI_BACKENDS,
+        # CLI and HTTP; the SNMP/NSDP equivalents remain unlocated rather than
+        # absent. HTTP was added 2026-08-03 off the four per-service config
+        # pages, live cross-checked against `show ip http` / `show ip ssh` /
+        # `show telnetcon` on gsm7252ps and m4300-24x -- every state agrees, and
+        # so does every port the pages print.
+        #
+        # A model is offered this only when ALL FOUR pages are located
+        # (_http_path_for defers to http_read._service_paths). gsm7228ps is the
+        # reason: two of its four pages parse, the other two cannot be asked, and
+        # reporting the two would read as "this switch has no SSH".
+        backends=frozenset({Backend.HTTP}) | _CLI_BACKENDS,
     ),
     Operation(
         "get_syslog",
@@ -451,6 +457,13 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
     }
     if op.name == "get_sensors":
         return spec.sysinfo_path if _supports_sensors(spec) else None
+    if op.name == "get_services":
+        # All four pages or none -- the reader's own predicate decides, so
+        # there is one definition of "this UI can be asked" rather than two.
+        from .http_read import _service_paths
+
+        paths = _service_paths(spec)
+        return paths[0][1] if paths else None
     if op.name == "get_hostname":
         # Only two identity pages carry the field (gs110emx's sysInfo.html and
         # gs105pe's switch_info.cgi); the reader's own predicate decides, so

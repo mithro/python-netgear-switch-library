@@ -1,0 +1,127 @@
+
+
+
+<!DOCTYPE html>
+<html>
+
+<head>
+   <meta http-equiv="X-UA-Compatible" content="IE=edge">
+<LINK REL=stylesheet HREF="/v1/base/style.css" TYPE="text/css">
+<link rel=stylesheet href="/v1/base/nanoscroller.css" TYPE="text/css">
+<META http-equiv="Pragma" content="no-cache">
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8"> 
+   <TITLE>NETGEAR M4300-24X</TITLE>     <!-- Cheetah Page Title		 -->
+   <script type="text/javascript" src="/v1/base/js/jquery-1.12.4.min.js"></script>
+<link rel=stylesheet href='/v1/base/chosen.css' type='text/css'>
+
+<link rel=stylesheet href='/v1/css/ng8xui.css' type='text/css'>
+
+<script type='text/javascript' src='/v1/base/js/nav_nls.js'></script>
+
+<script type='text/javascript' src='/v1/base/js/rollover.js'></script>
+
+<script type='text/javascript' src='/v1/base/js/browser.js'></script>
+
+<script type='text/javascript' src='/v1/base/js/chosen.jquery.js'></script>
+
+<script type='text/javascript' src='/v1/scripts/NetGearAppJS.js'></script>
+
+<script type="text/javascript"> Facet = new Image(176,56); Facet.src = '/v1/base/images/Pop-Up-Window-Facet-Graphic.png'; Ok_img = new Image(57,22); Ok_img.src = '/v1/base/images/Ok_on.gif'; Icon_close = new Image(14,14); Icon_close.src = '/v1/base/images/icon_close.png'; Progres = new Image(248,22); Progres.src = '/v1/base/images/progressbar.gif';</script>
+<script type='text/javascript' src='/v1/base/js/jquery-1.12.4.min.js'></script>
+
+<script type='text/javascript' src='/v1/base/js/xui_enhancements.js'></script>
+
+<script type='text/javascript' src='/v1/scripts/NetGearAppJS.js'></script>
+
+</head>
+<body onload="CheckError();https_init_controls()" class="overflowYHidden">
+<FORM method="post" ACTION="/v1/httpsConfiguration_rw.html">
+  <div class="mainBody mainContainer">
+    <table class="detailsContainer">
+      <tr>
+        <td><table class="tableStyle">
+            <tr>
+              <td colspan="3"><script>tbhdr("HTTPS Configuration",'httpsConfiguration')</script></td>
+            </tr>
+            <tr>
+              <td class="spacer100Percent paddingsubSectionBody">
+                <table class="tableStyle">
+                  <tr class="deftestme whiteSpaceNoWrap">
+                    <td class="defleft">Admin Mode</td>
+                    <td class="defRight" colspan="3"><INPUT type="radio" name="sslAdmin" id="sslAdminDisable" value="Disable" onClick="enableButtonLocal('btn_Cancel', 'btn_Apply')" checked="checked" disabled="disabled" >  Disable  <INPUT type="radio" name="sslAdmin" id="sslAdminEnable" value="Enable" onClick="enableButtonLocal('btn_Cancel', 'btn_Apply')" disabled="disabled" CHECKED>  Enable  </td>
+                  </tr>
+
+                  <tr class="deftestme whiteSpaceNoWrap">
+                    <td class="defleft">TLS Version</td>
+                    <td class="defRight" colspan="3">1.2</td>
+                  </tr>
+
+                  <tr class="deftestme whiteSpaceNoWrap">
+                    <td class="defLeft">HTTPS Port</td>
+                    <td class="defRight" colspan="3">
+                        <INPUT TYPE="TEXT" class="input" id="httpsPort" name="httpsPort" onKeyPress="enableButtonLocal('btn_Apply','btn_Cancel');" disabled="disabled" SIZE="17" MAXLENGTH="5" VALUE="443">
+                        <span class="argHelp"> (1025 to 65535) | Default: 443</span>
+                    </td>
+                  </tr>
+                  <tr class="deftestme whiteSpaceNoWrap">
+                    <td class="defLeft">HTTPS Session Soft Timeout (Minutes)</td>
+                    <td class="defRight" colspan="3">
+                        <INPUT TYPE="TEXT" class="input" id="httpsSoftTimeout" name="httpsSoftTimeout" onKeyPress="enableButtonLocal('btn_Apply','btn_Cancel');" disabled="disabled" SIZE="17" MAXLENGTH="2" VALUE="15">
+                        <span class="argHelp">
+                           (1 to 60)
+                        </span>
+                    </td>
+                  </tr>
+
+                  <tr class="deftestme whiteSpaceNoWrap">
+                    <td class="defLeft">HTTPS Session Hard Timeout (Hours)</td>
+                    <td class="defRight" colspan="3">
+                        <INPUT TYPE="TEXT" class="input" id="httpsHardTimeout" name="httpsHardTimeout" onKeyPress="enableButtonLocal('btn_Apply','btn_Cancel');" disabled="disabled" SIZE="17" MAXLENGTH="3" VALUE="24">
+                        <span class="argHelp">
+                           (1 to 168)
+                        </span>
+                    </td>
+                  </tr>
+                  <tr class="deftestme whiteSpaceNoWrap">
+                    <td class="defLeft">Maximum Number of HTTPS Sessions</td>
+                    <td class="defRight" colspan="3">
+                        <INPUT TYPE="TEXT" class="input" id="httpsMaxSessions" name="httpsMaxSessions" onKeyPress="enableButtonLocal('btn_Apply','btn_Cancel');" disabled="disabled" SIZE="17" MAXLENGTH="2" VALUE="16">
+                        <span class="argHelp"> 
+                           (0 to 16)
+                        </span>
+                    </td>
+                  </tr>
+<!-- USMWEB_IF_CHEETAH_SMART -->
+                  <tr class="deftestme whiteSpaceNoWrap">
+                    <td class="defLeft">Authentication List</td>
+                    <td class="defRight" colspan="3">HttpsList</td>
+                  </tr>
+
+                </table>
+              </td>
+              <td class="subSectionBodyDotRight">&nbsp;</td>
+            </tr>
+            <tr>
+              <td colspan="3" class="subSectionBottom">&nbsp;</td>
+            </tr>
+        </table></td>
+      </tr>
+    </table>
+  </div>
+  <script>
+    var str = CreateButtons('image', "Cancel", 'cancelform(this);refresh(this)', 'btn_Cancel');
+    str += CreateButtons('image', "Apply", 'submitformForHTTPS(this)', 'btn_Apply');
+    PaintButtons(str);
+  </script>
+      <INPUT TYPE="hidden" id="submt" NAME="submt" SIZE="16" MAXLENGTH="15" VALUE="">
+      <INPUT TYPE="hidden" id="cncel" NAME="cncel" SIZE="16" MAXLENGTH="15" VALUE="">
+      <INPUT TYPE="hidden" NAME="err_flag" SIZE="16" MAXLENGTH="15" VALUE="0">
+      <INPUT TYPE="hidden" NAME="err_msg" SIZE="128" MAXLENGTH="512" VALUE="">
+</FORM>
+<iframe TYPE="hidden" frameborder="no" name="hidden_frame" id="hidden_frame" src="" style="display: none;">
+</iframe>
+</body>
+</html>
+
+
+

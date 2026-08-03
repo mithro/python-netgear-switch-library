@@ -75,6 +75,35 @@ def _require_path(model_key: str, path: str | None, op: str) -> str:
     return path
 
 
+def _service_paths(spec: HttpModelSpec) -> list[tuple[str, str]] | None:
+    """``[(service, page path), ...]`` for this model, or ``None`` if ANY of the
+    four is missing.
+
+    All-or-nothing on purpose. The S3300 is the case that motivates it: its
+    https and telnet pages parse fine, but its httpConfiguration.html carries no
+    admin control and its sshConfiguration.html 404s. Returning the two that
+    work would report a switch with no SSH -- a confident wrong answer -- where
+    refusing says only what is true: this UI cannot be asked.
+    """
+    from .protocols.http.parse import SERVICE_NAMES
+
+    paths = [getattr(spec, f"{service}_service_path") for service in SERVICE_NAMES]
+    if any(path is None for path in paths):
+        return None
+    return list(zip(SERVICE_NAMES, paths, strict=True))
+
+
+def _require_service_paths(
+    model_key: str, spec: HttpModelSpec
+) -> list[tuple[str, str]]:
+    paths = _service_paths(spec)
+    if paths is None:
+        raise _unsupported(
+            model_key, "management-service state (http/https/telnet/ssh)"
+        )
+    return paths
+
+
 def _is_gs110emx_dialect(spec: HttpModelSpec) -> bool:
     from .protocols.http.endpoints import HtmlDialect
 
@@ -705,15 +734,16 @@ class HttpReader:
         return parse.parse_xui_users(self.session.get_page(path))
 
     def get_services(self) -> list[ServiceStatus]:
-        """This backend does not serve management-service state.
+        """Management-service state, one page per service.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name unless ALL FOUR pages are located for this model --
+        see ``_service_paths``.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "management-service state (http/https/telnet/ssh)"
-        )
+        paths = _require_service_paths(self.model.key, self._spec)
+        return [
+            parse.parse_service_page(self.session.get_page(path), service)
+            for service, path in paths
+        ]
 
     def get_syslog(self) -> SyslogConfig:
         """Remote-logging configuration, from this model's syslog page.
@@ -880,15 +910,16 @@ class AsyncHttpReader:
         return parse.parse_xui_users(await self.session.get_page(path))
 
     async def get_services(self) -> list[ServiceStatus]:
-        """This backend does not serve management-service state.
+        """Management-service state, one page per service.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name unless ALL FOUR pages are located for this model --
+        see ``_service_paths``.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "management-service state (http/https/telnet/ssh)"
-        )
+        paths = _require_service_paths(self.model.key, self._spec)
+        return [
+            parse.parse_service_page(await self.session.get_page(path), service)
+            for service, path in paths
+        ]
 
     async def get_syslog(self) -> SyslogConfig:
         """Remote-logging configuration, from this model's syslog page.

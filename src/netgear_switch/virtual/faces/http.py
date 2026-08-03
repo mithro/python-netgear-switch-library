@@ -496,6 +496,16 @@ class VirtualHttpFace:
             self.state, self.spec, form, err_msg=err
         )
 
+    def _service_for(self, path: str) -> str | None:
+        """Which management service ``path`` is the config page for, if any."""
+        from ...protocols.http.parse import SERVICE_NAMES
+
+        for service in SERVICE_NAMES:
+            configured = getattr(self.spec, f"{service}_service_path")
+            if configured is not None and path == configured:
+                return service if service in self.state.services else None
+        return None
+
     def _render_m4300_page(self, path: str) -> str | None:
         """Render an M4300 Cheetah /v1 read page from state, or ``None`` if
         this model is not an M4300 (so the caller falls through)."""
@@ -519,6 +529,13 @@ class VirtualHttpFace:
             return web_fastpath_xui.render_syslog(self.state, path)
         if path == self.spec.users_path:
             return web_fastpath_xui.render_users(self.state, path)
+        # The M4300 serves http/https as PLAIN named forms and ssh/telnet as
+        # XUI -- measured, see web_fastpath_xui._SERVICE_FORM_FIELDS.
+        service = self._service_for(path)
+        if service is not None:
+            if service in ("http", "https"):
+                return web_fastpath_xui.render_service_form(self.state, path, service)
+            return web_fastpath_xui.render_service_xui(self.state, path, service)
         if self.spec.lldp_path and path == self.spec.lldp_path:
             # lldpRemoteInventory.html is the SAME page (and the same XE cell
             # grid, with 1/0/N ifNames) on the M4300s as on gsm7252ps -- proven
@@ -604,6 +621,10 @@ class VirtualHttpFace:
             return web_fastpath_xui.render_syslog(self.state, path)
         if path == self.spec.users_path:
             return web_fastpath_xui.render_users(self.state, path)
+        # gsm7252ps renders ALL FOUR service pages as XUI (unlike the M4300).
+        service = self._service_for(path)
+        if service is not None:
+            return web_fastpath_xui.render_service_xui(self.state, path, service)
         return None
 
     def _render_token_page(self, path: str, form: dict[str, str]) -> str:

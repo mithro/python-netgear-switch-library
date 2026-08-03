@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ElementTree
+from dataclasses import dataclass
 from html import unescape
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ...errors import HttpUnexpectedPageError
@@ -47,6 +49,7 @@ from ...models import (
     PortStats,
     PortStatus,
     Sensor,
+    ServiceStatus,
     SwitchUser,
     SyslogConfig,
     SyslogServer,
@@ -58,7 +61,7 @@ from ...models import (
 from .types import FastpathMembership, HttpSysInfo, XuiFormPage, XuiListPage, XuiRow
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
 _ROW_RE = re.compile(r'<tr\s+class="portID">(.*?)</tr>', re.DOTALL | re.IGNORECASE)
 # GS110EMX interface_stats.html: real hardware NEVER closes a
@@ -1596,6 +1599,164 @@ def parse_xe_mgmt_ip(html: str) -> MgmtIpConfig:
     )
 
 
+# A page-level XUI scalar carries NO instance prefix (``NAME=v_1_1_1``), which
+# is exactly why ``parse_xe_rows`` skips them -- they are not table rows. The
+# service and syslog pages below read them by coordinate instead.
+_XE_SCALAR_RE = re.compile(r'NAME=v_(\d+_\d+_\d+) VALUE="([^"]*)"', re.IGNORECASE)
+
+
+# --- management-service pages (http / https / ssh / telnet) ----------------
+#
+# LIVE-MEASURED 2026-08-03 on gsm7252ps 10.1.5.22, gsm7228ps 10.1.5.11 and
+# m4300-24x 10.1.5.13. These pages come in TWO shapes, and -- this is the part
+# that dictates the design -- the shapes are MIXED WITHIN A SINGLE MODEL, so
+# the parser cannot be keyed by model or by html_dialect, only per service:
+#
+#   gsm7252ps  http/https/ssh/telnet  all four XUI labelled scalars
+#   m4300-24x  http/https             PLAIN named form (radios + text inputs)
+#              ssh/telnet             XUI
+#   gsm7228ps  https                  PLAIN;  telnet XUI
+#              http                   PLAIN but with NO admin control at all
+#              ssh                    HTTP 404
+#
+# So each service below carries BOTH addresses and the parser tries the XUI
+# coordinate first, then the named radio group.
+#
+# THE RADIO TRAP. On every plain-form page BOTH radios of the group carry a
+# checked attribute, spelled two different ways -- verbatim from m4300-24x:
+#
+#   <INPUT type="radio" name="httpAdmin" id="httpAdminDisable" value="Disable"
+#          ... checked="checked" disabled="disabled" >
+#   <INPUT type="radio" name="httpAdmin" id="httpAdminEnable"  value="Enable"
+#          ... disabled="disabled" CHECKED>
+#
+# A browser applies them in document order, so the LAST wins and the true state
+# is Enable. That reading is self-evidencing here: the page was fetched OVER
+# HTTP, so HTTP cannot be disabled. A parser taking the first match would report
+# every one of these switches as having HTTP off.
+_RADIO_RE_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _radio_group(html: str, name: str) -> list[tuple[str, bool]]:
+    """Every radio of group ``name``, in DOCUMENT ORDER, as (value, checked)."""
+    pattern = _RADIO_RE_CACHE.get(name)
+    if pattern is None:
+        pattern = re.compile(
+            rf'<INPUT\b(?=[^>]*\btype="radio")(?=[^>]*\bname="{re.escape(name)}")'
+            r"[^>]*>",
+            re.IGNORECASE,
+        )
+        _RADIO_RE_CACHE[name] = pattern
+    out: list[tuple[str, bool]] = []
+    for tag in pattern.findall(html):
+        value = re.search(r'\bvalue="([^"]*)"', tag, re.IGNORECASE)
+        if value is None:
+            continue
+        # Both spellings, and `checked` must be its own attribute -- a bare
+        # substring test would also match id="...Checked" style names.
+        checked = re.search(r'\bchecked\b(?:\s*=\s*"[^"]*")?', tag, re.IGNORECASE)
+        out.append((value.group(1), checked is not None))
+    return out
+
+
+def _checked_radio(html: str, name: str) -> str | None:
+    """The value the browser would show selected: the LAST checked radio."""
+    checked = [value for value, is_checked in _radio_group(html, name) if is_checked]
+    return checked[-1] if checked else None
+
+
+_PLAIN_FORM_RE_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _plain_form_value(html: str, name: str) -> str | None:
+    """A plain named text input's ``VALUE=``, or ``None`` if the page has none.
+
+    Deliberately NOT named ``_named_input_value``: this module already has a
+    function by that name for the gs110emx/gs105pe identity pages, further
+    down. The two are not interchangeable -- that one matches lowercase
+    ``value=`` case-SENSITIVELY, which never matches these FASTPATH pages'
+    uppercase ``VALUE="80"``, and a same-named second definition would simply
+    replace it at import time and break those parsers instead.
+    """
+    pattern = _PLAIN_FORM_RE_CACHE.get(name)
+    if pattern is None:
+        pattern = re.compile(
+            rf'<INPUT\b(?=[^>]*\bname="{re.escape(name)}")[^>]*\bVALUE="([^"]*)"',
+            re.IGNORECASE,
+        )
+        _PLAIN_FORM_RE_CACHE[name] = pattern
+    m = pattern.search(html)
+    return m.group(1) if m else None
+
+
+@dataclass(frozen=True)
+class _ServiceFields:
+    """Where one service's admin state and port live, in EITHER page shape."""
+
+    #: XUI scalar coordinate carrying Enable/Disable.
+    xui_admin: str
+    #: XUI scalar coordinate carrying the port, where the page prints one.
+    xui_port: str | None
+    #: Plain-form radio group name carrying Enable/Disable.
+    radio: str | None
+    #: Plain-form text input carrying the port.
+    form_port: str | None
+
+
+#: Per service, transcribed from the live pages named above. Each label is that
+#: page's own caption for the coordinate.
+_SERVICE_FIELDS: Mapping[str, _ServiceFields] = MappingProxyType(
+    {
+        # "HTTP Access". The XUI page prints NO port row, so xui_port is None
+        # and the port stays None there rather than being defaulted to 80.
+        "http": _ServiceFields("1_1_1", None, "httpAdmin", "httpPort"),
+        # "HTTPS Admin Mode" + "HTTPS Port" (443 on every switch measured).
+        "https": _ServiceFields("1_1_1", "1_4_1", "sslAdmin", "httpsPort"),
+        # "SSH Admin Mode". v_1_10_1 is the SSH Port -- present on m4300
+        # ('22'), ABSENT on gsm7252ps, which is exactly what
+        # ServiceStatus.port's docstring already recorded. No plain-form SSH
+        # page has been seen, so there is no radio fallback for it.
+        "ssh": _ServiceFields("1_1_1", "1_10_1", None, None),
+        # "Telnet Server Admin Mode" -- note the 2_x coordinate: this page's
+        # first section is the authentication lists, not the admin state.
+        "telnet": _ServiceFields("2_5_1", None, None, None),
+    }
+)
+
+#: The order get_services reports in, matching the CLI backend's.
+SERVICE_NAMES: tuple[str, ...] = ("http", "https", "ssh", "telnet")
+
+
+def parse_service_page(html: str, service: str) -> ServiceStatus:
+    """One service's config page -> its :class:`ServiceStatus`.
+
+    Tries the XUI coordinate, then the plain-form radio group. Raises
+    ``HttpUnexpectedPageError`` when NEITHER is present rather than reporting
+    the service as disabled -- a page that does not carry the control (the
+    S3300's httpConfiguration.html genuinely does not) says nothing about
+    whether the service is running, and a login redirect says nothing either.
+    """
+    fields = _SERVICE_FIELDS[service]
+    scalars = dict(_XE_SCALAR_RE.findall(html))
+    admin = scalars.get(fields.xui_admin)
+    if admin is not None:
+        port_text = scalars.get(fields.xui_port or "", "")
+    else:
+        admin = _checked_radio(html, fields.radio) if fields.radio else None
+        if admin is None:
+            raise HttpUnexpectedPageError(
+                f"{service} configuration page: no admin-state control found "
+                f"(neither XUI v_{fields.xui_admin} nor a "
+                f"{fields.radio!r} radio group)"
+            )
+        port_text = _plain_form_value(html, fields.form_port or "") or ""
+    return ServiceStatus(
+        name=service,
+        enabled=admin.strip().lower() == "enable",
+        port=_int(port_text),
+    )
+
+
 # --- userManagement.html (login accounts) ---------------------------------
 #
 # LIVE-CAPTURED 2026-08-03 from gsm7252ps 10.1.5.22 and m4300-24x 10.1.5.13,
@@ -1644,10 +1805,6 @@ def parse_xui_users(html: str) -> list[SwitchUser]:
 
 # --- syslogConfiguration.html (every FASTPATH model) ----------------------
 #
-# Page-level scalars carry NO instance prefix (``NAME=v_1_1_1``), so
-# ``parse_xe_rows`` deliberately skips them -- they are read by coordinate here.
-_XE_SCALAR_RE = re.compile(r'NAME=v_(\d+_\d+_\d+) VALUE="([^"]*)"', re.IGNORECASE)
-
 # Coordinates transcribed from a LIVE fetch of syslogConfiguration.html on all
 # four managed switches (2026-08-03): gsm7252ps 10.1.5.22, gsm7228ps/S3300
 # 10.1.5.11, m4300-24x 10.1.5.13 and m4300-16x 10.1.5.20. Each label below is

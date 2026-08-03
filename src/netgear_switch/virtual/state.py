@@ -203,6 +203,21 @@ class UserSim:
 
 
 @dataclass
+class ServiceSim:
+    """One management service's admin state, as its own config page reports it.
+
+    ``port`` is ``None`` where the page carries NO port field -- which is a real
+    per-page difference, not a gap in the mock: the m4300 SSH page publishes
+    ``v_1_10_1='22'`` while the gsm7252ps SSH page has no such coordinate at
+    all (measured 2026-08-03). Seeding 22 there would make the fake claim a
+    field the device does not print.
+    """
+
+    enabled: bool
+    port: int | None = None
+
+
+@dataclass
 class SyslogCollectorSim:
     """One remote syslog collector row, as the vendor host table reports it.
 
@@ -474,6 +489,10 @@ class VirtualSwitchState:
     #: model whose UI has no such page located, so its HTTP face 404s that URL
     #: exactly as the real switch does.
     users: list[UserSim] = field(default_factory=list)
+    #: Management-service admin state, keyed "http"/"https"/"ssh"/"telnet", as
+    #: each service's own config page reports it. Empty for a model whose pages
+    #: have not been located.
+    services: dict[str, ServiceSim] = field(default_factory=dict)
     nsdp_password: str = "password"
     # Write-auth scheme this mock advertises via AUTH_V2_ENCPASS (0x0014), and
     # the ONLY scheme it accepts on a WRITE_REQUEST:

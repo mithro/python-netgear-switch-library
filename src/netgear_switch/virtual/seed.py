@@ -31,6 +31,7 @@ from .state import (
     PoeSim,
     PortSim,
     SensorSim,
+    ServiceSim,
     SyslogCollectorSim,
     SyslogSim,
     UserSim,
@@ -1251,6 +1252,17 @@ def seed_gsm7252ps() -> VirtualSwitchState:
         # wording is that PAGE's, not the CLI's -- the same switch's
         # `show users` calls admin "Read/Write".
         users=[UserSim("admin", "Super User"), UserSim("guest", "Read Only")],
+        # MEASURED 2026-08-03 on 10.1.5.22, HTTP pages and `show ip http` /
+        # `show ip ssh` / `show telnetcon` agreeing. Telnet really is OFF here,
+        # independently confirmed by TCP 23 being refused. Neither this
+        # switch's http nor its ssh page prints a port, so both are None --
+        # NOT defaulted to 80/22, which would be inventing a field.
+        services={
+            "http": ServiceSim(enabled=True),
+            "https": ServiceSim(enabled=True, port=443),
+            "ssh": ServiceSim(enabled=True),
+            "telnet": ServiceSim(enabled=False),
+        },
         hostname="sw-netgear-gsm7252ps-s1.welland.mithis.com",
         nsdp_mac=b"\xe0\x91\xf5\x0c\xd6\xdb",  # captured System MAC Address
         # Illustrative sysDescr text -- NOT a captured real firmware string;
@@ -2439,6 +2451,18 @@ def seed_m4300_24x() -> VirtualSwitchState:
         # `show users` says "Privilege-15" where that one says "Read/Write".
         # The web UI is the consistent face; the CLI is not.
         users=[UserSim("admin", "Super User"), UserSim("guest", "Read Only")],
+        # MEASURED 2026-08-03 on 10.1.5.13, HTTP pages and CLI agreeing on
+        # every state and every port the pages print. Unlike the gsm7252ps this
+        # switch's http/https/ssh pages DO print their ports; its telnet page
+        # still does not (the CLI reports 23, the page has no such field), so
+        # telnet's port stays None here -- the mock must not print what the
+        # device does not.
+        services={
+            "http": ServiceSim(enabled=True, port=80),
+            "https": ServiceSim(enabled=True, port=443),
+            "ssh": ServiceSim(enabled=True, port=22),
+            "telnet": ServiceSim(enabled=True),
+        },
         hostname="sw-netgear-m4300-24x",
         model_key="m4300-24x",
         ports=ports,

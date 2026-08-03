@@ -230,6 +230,84 @@ def _xui_cell(inst: str, xid: str, value: str, *, text: bool = True) -> str:
     )
 
 
+# --- management-service pages ------------------------------------------------
+#
+# Two shapes, MIXED WITHIN A MODEL -- measured 2026-08-03, see
+# protocols/http/parse for the full map. gsm7252ps renders all four as XUI;
+# m4300 renders http/https as a plain named form and ssh/telnet as XUI. The mock
+# reproduces that split rather than picking one, because a fake that served only
+# XUI would let a parser that had never learned the plain form pass.
+#
+# The XUI admin coordinate per service, and the port coordinate where the real
+# page prints one (telnet's page prints NO port on either switch -- the CLI
+# reports it, the page does not, so the mock must not invent one).
+_SERVICE_XUI_COORDS = {
+    "http": ("1_1_1", None),
+    "https": ("1_1_1", "1_4_1"),
+    "ssh": ("1_1_1", "1_10_1"),
+    "telnet": ("2_5_1", None),
+}
+#: The plain-form radio group and port input per service.
+_SERVICE_FORM_FIELDS = {
+    "http": ("httpAdmin", "httpPort"),
+    "https": ("sslAdmin", "httpsPort"),
+}
+
+
+def render_service_xui(state: VirtualSwitchState, path: str, service: str) -> str:
+    """One service's config page in the XUI labelled-scalar shape."""
+    sim = state.services[service]
+    admin_coord, port_coord = _SERVICE_XUI_COORDS[service]
+    body = _labelled(
+        admin_coord,
+        f"{service.upper()} Admin Mode",
+        "Enable" if sim.enabled else "Disable",
+    )
+    if port_coord is not None and sim.port is not None:
+        body += _labelled(port_coord, f"{service.upper()} Port", str(sim.port))
+    return page(
+        path,
+        body,
+        buttons={"4_5_1": "CANCEL", "4_5_2": "APPLY"},
+        title=f"NetGear - {service.upper()} Configuration",
+    )
+
+
+def render_service_form(state: VirtualSwitchState, path: str, service: str) -> str:
+    """One service's config page in the PLAIN NAMED FORM shape.
+
+    Reproduces the firmware's double-checked radio group verbatim: BOTH radios
+    carry a checked attribute, spelled ``checked="checked"`` on the first and a
+    bare uppercase ``CHECKED`` on the second, and a browser takes the LAST. A
+    mock that marked only the true one would let a first-match parser pass here
+    and then misreport every real switch.
+    """
+    sim = state.services[service]
+    radio, port_field = _SERVICE_FORM_FIELDS[service]
+    selected = "Enable" if sim.enabled else "Disable"
+    # The NOT-selected value first, then the selected one -- last wins.
+    other = "Disable" if sim.enabled else "Enable"
+    radios = (
+        f'<INPUT type="radio" name="{radio}" id="{radio}{other}" '
+        f'value="{other}" checked="checked" disabled="disabled" >\n'
+        f'<INPUT type="radio" name="{radio}" id="{radio}{selected}" '
+        f'value="{selected}" disabled="disabled" CHECKED>\n'
+    )
+    port = (
+        f'<INPUT TYPE="TEXT" class="input" id="{port_field}" name="{port_field}" '
+        f'SIZE="17" MAXLENGTH="5" VALUE="{sim.port}">\n'
+        if sim.port is not None
+        else ""
+    )
+    return (
+        f"<HTML>\n<HEAD><TITLE>NETGEAR</TITLE></HEAD>\n<BODY CLASS=page>\n"
+        f'<FORM method=post ACTION="{path}">\n{radios}{port}'
+        '<INPUT TYPE="hidden" id="submt" NAME="submt" VALUE="">\n'
+        '<INPUT TYPE="hidden" NAME="err_flag" VALUE="0">\n'
+        "</FORM>\n</BODY>\n</HTML>\n"
+    )
+
+
 # --- userManagement.html -----------------------------------------------------
 #
 # The login-account grid. LIVE-CAPTURED 2026-08-03 from gsm7252ps 10.1.5.22 and

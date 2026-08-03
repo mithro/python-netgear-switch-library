@@ -356,6 +356,14 @@ class HttpModelSpec:
     # for this model's UI. Deliberately NOT ``userConfiguration.html``, which is
     # the SNMPv3 user page on every managed model -- see ``_FASTPATH_USERS``.
     users_path: str | None = None
+    # The four management-service config pages (``get_services``). All four must
+    # be populated for the op to be offered: reporting three of four would look
+    # like "this switch has no SSH" rather than "this UI does not say". See
+    # ``_FASTPATH_SERVICE_PAGES`` for what was measured on which host.
+    http_service_path: str | None = None
+    https_service_path: str | None = None
+    ssh_service_path: str | None = None
+    telnet_service_path: str | None = None
 
 
 # The managed (FASTPATH/Cheetah) "VLAN Membership" page, shared by every managed
@@ -425,6 +433,31 @@ _M4300_SYSLOG = f"/v1{_FASTPATH_SYSLOG}"
 # -- an unbuilt implementation to find, not a device limitation.
 _FASTPATH_USERS = "/userManagement.html"
 _M4300_USERS = f"/v1{_FASTPATH_USERS}"
+
+# The four management-service pages. Same filenames on both families; only the
+# ``/v1`` prefix differs. LIVE-MEASURED 2026-08-03 -- and the result is NOT
+# uniform, which is why these are four separate fields rather than one prefix:
+#
+#   gsm7252ps  all four answer, all four XUI. HTTP<->CLI agree exactly
+#              (http on, https on :443, ssh on, telnet OFF -- and telnet really
+#              is refused on TCP 23 there, an independent confirmation).
+#   m4300-24x  all four answer, MIXED shapes (http/https plain form, ssh/telnet
+#              XUI). HTTP<->CLI agree on all four states and on every port the
+#              pages print.
+#   gsm7228ps  CANNOT answer: its httpConfiguration.html carries no admin
+#              control at all (only timeouts/session counts), and
+#              GET /sshConfiguration.html -> HTTP 404. Its https and telnet
+#              pages DO parse correctly, but three-of-four would read as "this
+#              switch has no SSH", so all four stay None here and the op is
+#              refused by name. Finding the S3300's real pages is an unbuilt
+#              implementation, not a device limitation.
+_FASTPATH_SERVICE_PAGES = (
+    "/httpConfiguration.html",
+    "/httpsConfiguration.html",
+    "/sshConfiguration.html",
+    "/telnet.html",
+)
+_M4300_SERVICE_PAGES = tuple(f"/v1{p}" for p in _FASTPATH_SERVICE_PAGES)
 
 _FASTPATH_PORT_CONFIG = "/portsConfiguration.html"
 _FASTPATH_POE_CONFIG = "/poeInterfaceConfiguration.html"
@@ -791,6 +824,10 @@ _M4300 = HttpModelSpec(
     pvid_path="/v1/portPvidConfiguration.html",
     syslog_path=_M4300_SYSLOG,
     users_path=_M4300_USERS,
+    http_service_path=_M4300_SERVICE_PAGES[0],
+    https_service_path=_M4300_SERVICE_PAGES[1],
+    ssh_service_path=_M4300_SERVICE_PAGES[2],
+    telnet_service_path=_M4300_SERVICE_PAGES[3],
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,
@@ -928,6 +965,10 @@ _GSM7252PS = HttpModelSpec(
     pvid_path="/portPvidConfiguration.html",
     syslog_path=_FASTPATH_SYSLOG,
     users_path=_FASTPATH_USERS,
+    http_service_path=_FASTPATH_SERVICE_PAGES[0],
+    https_service_path=_FASTPATH_SERVICE_PAGES[1],
+    ssh_service_path=_FASTPATH_SERVICE_PAGES[2],
+    telnet_service_path=_FASTPATH_SERVICE_PAGES[3],
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,
