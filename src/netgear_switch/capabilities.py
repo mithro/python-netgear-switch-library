@@ -213,11 +213,15 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         #   CLI   round-trips on all four CLI models
         #
         # That closes the Plus-model hole this restriction used to expose: every
-        # registered model now has at least one backend that can rename it. HTTP
-        # is still absent -- two web UIs carry a switch_name field but the write
-        # is unbuilt -- so the restriction stays, and states what the library
-        # serves rather than what the devices can do.
-        backends=frozenset({Backend.SNMP, Backend.NSDP}) | _CLI_BACKENDS,
+        # registered model now has at least one backend that can rename it.
+        #
+        # HTTP joined them for the GoAhead XML API only (2026-08-03), where
+        # DeviceBasicInfo/deviceName IS the host name -- measured reading
+        # byte-for-byte what SNMP reports through sysName. The other dialects
+        # are filtered out by _http_path_for; the gs110emx and gs105pe identity
+        # pages carry a switch_name field but no captured write form.
+        backends=frozenset({Backend.SNMP, Backend.NSDP, Backend.HTTP})
+        | _CLI_BACKENDS,
     ),
     Operation(
         "set_syslog_enabled",
@@ -380,6 +384,7 @@ _XML_API_WRITES = {
     "cycle_poe": True,
     "clear_poe_fault": True,
     "set_port_description": True,
+    "set_hostname": True,
 }
 
 
@@ -427,6 +432,8 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         # Only the XML-API dialect has a grounded description write; every other
         # dialect is handled by the branch above returning None for it.
         "set_port_description": None,
+        # Same shape: only the XML-API dialect has a grounded host-name write.
+        "set_hostname": None,
         "upload_certificate": spec.cert_upload_path,
     }
     if op.name == "get_sensors":

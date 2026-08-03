@@ -2771,6 +2771,21 @@ def parse_goahead_base_mac(body: str) -> str | None:
     return mac.upper() or None
 
 
+def parse_goahead_hostname(body: str) -> str:
+    """GS728TPP ``SystemInfo`` (``DeviceBasicInfo``) -> the switch's host name.
+
+    ``DeviceBasicInfo/deviceName`` is the host name, not merely a cosmetic
+    label: MEASURED on the live switch (10.2.5.10, firmware 6.0.1.30,
+    2026-08-03) it reads ``sw-netgear-gs728tpp``, byte-for-byte what SNMP
+    reports through sysName.
+
+    Returns the raw value including ``""``. An empty name is a REAL state on a
+    switch that has never been named, so it must not be turned into None, which
+    the caller would read as "this backend cannot tell you".
+    """
+    return _gtext(_goahead_section(body, "DeviceBasicInfo"), "deviceName")
+
+
 def parse_goahead_mgmt_ip(body: str) -> MgmtIpConfig:
     """GS728TPP ``IPConf_master.xml`` -> management IP + gateway.
 

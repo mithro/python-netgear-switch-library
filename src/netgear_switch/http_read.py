@@ -386,14 +386,20 @@ def _with_fastpath_egress(
 def _has_sysinfo_hostname(spec: HttpModelSpec) -> bool:
     """Whether this dialect's identity page carries the switch's host name.
 
-    True only for the two whose parsers extract it -- gs110emx's
-    ``sysInfo.html`` (``switch_name`` input) and gs105pe's ``switch_info.cgi``.
-    The FASTPATH/XE, M4300 and GoAhead identity pages were checked and carry no
-    host-name field, so their models read the name over SNMP or the CLI, both of
-    which they have.
+    True for gs110emx's ``sysInfo.html`` (``switch_name`` input), gs105pe's
+    ``switch_info.cgi``, and the GoAhead ``DeviceBasicInfo`` section.
+
+    The GoAhead entry corrects a claim this docstring used to make. It said that
+    page carries no host-name field; it does -- ``DeviceBasicInfo/deviceName``,
+    MEASURED on the live GS728TPP (10.2.5.10, firmware 6.0.1.30, 2026-08-03)
+    reading ``sw-netgear-gs728tpp``, byte-for-byte what SNMP reports through
+    sysName. The FASTPATH/XE and M4300 identity pages really do lack one, so
+    those models still read the name over SNMP or the CLI.
     """
     return spec.sysinfo_path is not None and (
-        _is_gs110emx_dialect(spec) or _is_gs105pe_dialect(spec)
+        _is_gs110emx_dialect(spec)
+        or _is_gs105pe_dialect(spec)
+        or _is_goahead_dialect(spec)
     )
 
 
@@ -660,10 +666,12 @@ class HttpReader:
         if not _has_sysinfo_hostname(self._spec):
             raise _unsupported(self.model.key, "a host name field")
         assert self._spec.sysinfo_path is not None  # guaranteed by the guard
-        info = _parse_sysinfo(
-            self._spec, self.session.get_page(self._spec.sysinfo_path)
-        )
-        return info.switch_name
+        page = self.session.get_page(self._spec.sysinfo_path)
+        if _is_goahead_dialect(self._spec):
+            # A different section of a different page shape -- the GoAhead
+            # identity data is XML, not the HttpSysInfo form scrape.
+            return parse.parse_goahead_hostname(page)
+        return _parse_sysinfo(self._spec, page).switch_name
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         path = _mgmt_ip_path(self._spec)

@@ -1336,14 +1336,38 @@ class HttpWriter:
         return False
 
     def set_hostname(self, name: str, *, force: bool = False) -> None:
-        """This backend does not serve a host-name write.
+        """Set the host name, where this dialect's identity page carries one.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Implemented for the GoAhead XML API only: ``DeviceBasicInfo/deviceName``
+        is the host name there (MEASURED -- it reads byte-for-byte what SNMP
+        reports through sysName). The other dialects' identity pages either
+        carry no such field or have no captured write form, and are refused by
+        name rather than returned empty: an empty answer here would be
+        indistinguishable from a switch that genuinely has none.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose a host-name write"
+        del force  # renaming cannot strand a switch; reversible by writing back
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: this backend does not expose a "
+                "host-name write"
+            )
+        path = _require_path(
+            self.model.key, self._spec.sysinfo_path, "the system-information page"
         )
+        before = parse.parse_goahead_hostname(self.session.get_page(path))
+        # DeviceBasicInfo is a SCALAR section, so the body carries the field
+        # directly rather than a repeated <Entry>. The page's own JS rejects
+        # '&' in this field client-side; the value is XML-escaped here, and the
+        # switch's verdict is what the statusCode check reports.
+        self._goahead_write(
+            goahead.write_body("DeviceBasicInfo", "set", [{"deviceName": name}]),
+            f"hostname -> {name!r}",
+        )
+        after = parse.parse_goahead_hostname(self.session.get_page(path))
+        if after != name:
+            raise WriteVerificationError(
+                f"hostname did not read back as {name!r}", before=before, after=after
+            )
 
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.

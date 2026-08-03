@@ -376,6 +376,14 @@ def apply_write(state: VirtualSwitchState, xml_body: str) -> str:
                 state.poe[port].admin = admin == "1"
                 state.poe[port].detect = 2 if admin == "1" else 1
             handled = True
+        elif name == "DeviceBasicInfo":
+            # A SCALAR section: the fields sit directly under it, with no
+            # repeated <Entry>. deviceName is the switch's host name -- measured
+            # equal to SNMP sysName on the live switch.
+            new_name = section.findtext("deviceName")
+            if new_name is not None:
+                state.hostname = new_name.strip()
+            handled = True
         elif name == "Standard802_3List":
             for entry in section.findall("Entry"):
                 port = _iface_port(entry)
