@@ -53,9 +53,12 @@ The operations
      - The switch's configured host name.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_users`
      - ``list[SwitchUser]``
-     - Local login accounts. ``access_mode`` is the firmware's own wording —
-       the images disagree (``Privilege-15`` vs ``Read/Write``) — with a
-       normalised ``privileged`` flag beside it.
+     - Local login accounts. ``access_mode`` is the switch's own wording for
+       the account, kept verbatim because it differs by *face*, not just by
+       firmware: asked over the CLI the same admin account reads
+       ``Privilege-15`` on one image and ``Read/Write`` on another, while both
+       switches' web UIs call it ``Super User``. The normalised ``privileged``
+       flag beside it agrees across all three.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_services`
      - ``list[ServiceStatus]``
      - Whether http, https, telnet and ssh are enabled, and on which port
