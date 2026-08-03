@@ -47,10 +47,12 @@ from ...models import (
     PortStats,
     PortStatus,
     Sensor,
+    SwitchUser,
     SyslogConfig,
     SyslogServer,
     VLANInfo,
     VlanMode,
+    privileged_access,
     syslog_severity,
 )
 from .types import FastpathMembership, HttpSysInfo, XuiFormPage, XuiListPage, XuiRow
@@ -1592,6 +1594,52 @@ def parse_xe_mgmt_ip(html: str) -> MgmtIpConfig:
         gateway=None,
         base_mac=mac or None,
     )
+
+
+# --- userManagement.html (login accounts) ---------------------------------
+#
+# LIVE-CAPTURED 2026-08-03 from gsm7252ps 10.1.5.22 and m4300-24x 10.1.5.13,
+# whose pages are the same XUI row grid. Coordinates transcribed from each
+# page's OWN header row, quoted beside each below.
+#
+# NOT to be confused with ``userConfiguration.html``, which sounds like this
+# page and is not: on every managed switch that is the SNMPv3 user page (Access
+# Mode / Authentication Protocol / Encryption Protocol) listing no login
+# accounts at all. Reading it here would report SNMPv3 credentials as logins.
+_USER_NAME = "1_1_2"  # "User Name"      -> admin / guest
+_USER_ACCESS_MODE = "1_1_5"  # "Access Mode"    -> Super User / Read Only
+
+# The password columns ("Password"/"Confirm Password", 1_1_3/1_1_4) are ignored:
+# gsm7252ps renders them as a literal "********" and the M4300 as empty, so
+# neither carries a secret -- nor anything useful. SwitchUser has no password
+# field for the same reason.
+
+
+def parse_xui_users(html: str) -> list[SwitchUser]:
+    """``userManagement.html`` -> the switch's local login accounts.
+
+    Raises ``HttpUnexpectedPageError`` if the page carries no user rows. A
+    switch always has at least the account this very request authenticated as,
+    so an empty list means the fetch landed somewhere else -- "this switch has
+    no accounts" is not an answer any device would give.
+    """
+    users = [
+        SwitchUser(
+            name=name,
+            # Preserved verbatim: this page says "Super User" where the same
+            # switch's own CLI says "Read/Write" or "Privilege-15".
+            access_mode=row.get(_USER_ACCESS_MODE, "").strip(),
+            privileged=privileged_access(row.get(_USER_ACCESS_MODE, "")),
+        )
+        for row in parse_xe_rows(html)
+        if (name := row.get(_USER_NAME, "").strip())
+    ]
+    if not users:
+        raise HttpUnexpectedPageError(
+            "userManagement.html: no user rows on page (a switch always has at "
+            "least the account this request authenticated as)"
+        )
+    return users
 
 
 # --- syslogConfiguration.html (every FASTPATH model) ----------------------

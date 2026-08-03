@@ -128,13 +128,20 @@ READ_OPERATIONS: tuple[Operation, ...] = (
         "get_users",
         OperationKind.READ,
         "Local login accounts and their access level",
-        # CLI only, deliberately. The S3300's vendor SNMP user table holds ONE
-        # account where its own CLI lists two, so the two backends do not report
-        # the same set; claiming both serve this would assert an equivalence the
-        # hardware contradicts. Restricting it to the CLI makes no cross-backend
-        # claim at all, and leaves the SNMP question open rather than answered
-        # wrongly.
-        backends=_CLI_BACKENDS,
+        # CLI and HTTP. SNMP stays out, deliberately: the S3300's vendor SNMP
+        # user table holds ONE account where its own CLI lists two, so those two
+        # backends do not report the same set, and claiming SNMP serves this
+        # would assert an equivalence the hardware contradicts. Leaving it out
+        # makes no cross-backend claim at all rather than a wrong one.
+        #
+        # HTTP was added 2026-08-03 off userManagement.html, live-read on
+        # gsm7252ps and m4300-24x and cross-checked against each switch's own
+        # `show users` (same two accounts, same order). Models whose UI has no
+        # such page located -- every Plus SKU, the GS728TPP, and gsm7228ps,
+        # whose host 404s that URL -- are filtered out by _http_path_for on a
+        # null users_path, so the support table shows the hole instead of
+        # claiming coverage.
+        backends=frozenset({Backend.HTTP}) | _CLI_BACKENDS,
     ),
     Operation(
         "get_services",
@@ -426,6 +433,7 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         "get_macs": spec.mac_table_path,
         "get_lldp": spec.lldp_path,
         "get_syslog": spec.syslog_path,
+        "get_users": spec.users_path,
         "set_poe": spec.poe_config_path,
         "cycle_poe": spec.poe_config_path,
         "clear_poe_fault": spec.poe_config_path,

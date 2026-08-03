@@ -352,6 +352,10 @@ class HttpModelSpec:
     # page located for this model's UI. See ``_FASTPATH_SYSLOG`` below for how
     # the managed models' value was found and on which hosts it was verified.
     syslog_path: str | None = None
+    # Local login-account page (``get_users``). ``None`` = no such page located
+    # for this model's UI. Deliberately NOT ``userConfiguration.html``, which is
+    # the SNMPv3 user page on every managed model -- see ``_FASTPATH_USERS``.
+    users_path: str | None = None
 
 
 # The managed (FASTPATH/Cheetah) "VLAN Membership" page, shared by every managed
@@ -385,6 +389,7 @@ _M4300_VLAN_MEMBERSHIP_RW = f"/v1{_FASTPATH_VLAN_MEMBERSHIP_RW}"
 # The mgmt-IP page is where the two families genuinely diverge, so there is NO
 # shared constant for it -- see XuiMgmtIpFields' docstring for the measured
 # 404s/0.0.0.0s that make one impossible.
+
 # The remote-logging page, shared by every managed model. Found the same way the
 # VLAN-membership page was -- read out of the switch's own nav JS rather than
 # guessed -- and the two families emit that JS DIFFERENTLY, so both were read:
@@ -403,6 +408,23 @@ _M4300_VLAN_MEMBERSHIP_RW = f"/v1{_FASTPATH_VLAN_MEMBERSHIP_RW}"
 # 10.1.5.13 and 10.1.5.20 each answered 200 with a Syslog/Server Log title.
 _FASTPATH_SYSLOG = "/syslogConfiguration.html"
 _M4300_SYSLOG = f"/v1{_FASTPATH_SYSLOG}"
+
+# The LOGIN-ACCOUNT page. The obvious name is a trap: both families' nav trees
+# also list ``userConfiguration.html``, and on every managed switch that page is
+# the SNMPv3 user page --
+#     GET /userConfiguration.html   -> "User Name: admin", "SNMP V3 Access Mode:
+#                                       Read Write", "Authentication Protocol",
+#                                       "Encryption Protocol"
+# -- carrying no login accounts at all, so get_users would have reported SNMPv3
+# credentials as logins. The real page is ``userManagement.html``:
+#     10.1.5.22  -> 200, "NetGear - User Management",  admin/Super User + guest
+#     10.1.5.13  -> 200, "NETGEAR -  User Management", the same two rows
+# LIVE-FETCHED 2026-08-03. NOT set for gsm7228ps: that host answers
+#     GET /userManagement.html -> HTTP 404
+# so the S3300's login-account page is somewhere else and has not been located
+# -- an unbuilt implementation to find, not a device limitation.
+_FASTPATH_USERS = "/userManagement.html"
+_M4300_USERS = f"/v1{_FASTPATH_USERS}"
 
 _FASTPATH_PORT_CONFIG = "/portsConfiguration.html"
 _FASTPATH_POE_CONFIG = "/poeInterfaceConfiguration.html"
@@ -768,6 +790,7 @@ _M4300 = HttpModelSpec(
     vlan_membership_post_path=_M4300_VLAN_MEMBERSHIP_RW,
     pvid_path="/v1/portPvidConfiguration.html",
     syslog_path=_M4300_SYSLOG,
+    users_path=_M4300_USERS,
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,
@@ -904,6 +927,7 @@ _GSM7252PS = HttpModelSpec(
     vlan_membership_post_path=_FASTPATH_VLAN_MEMBERSHIP_RW,
     pvid_path="/portPvidConfiguration.html",
     syslog_path=_FASTPATH_SYSLOG,
+    users_path=_FASTPATH_USERS,
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,

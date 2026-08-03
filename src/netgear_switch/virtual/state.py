@@ -182,6 +182,27 @@ class PortSim:
 
 
 @dataclass
+class UserSim:
+    """One local login account, as the switch's own pages word it.
+
+    ``http_access_mode`` is stored VERBATIM rather than derived from a
+    privilege flag, because the same account is worded DIFFERENTLY depending on
+    which face is asked -- measured on 10.1.5.22 and 10.1.5.13, where admin
+    reads "Super User" on userManagement.html but "Read/Write" and
+    "Privilege-15" respectively through each switch's own `show users`. A mock
+    that stored one level and rendered it per face would be inventing the
+    wording; storing what each page really emits means the reader's own
+    word-to-privilege mapping is what gets exercised.
+
+    The CLI face has no `show users` yet. When it gains one it needs its own
+    field here, NOT this one: the two faces genuinely disagree.
+    """
+
+    name: str
+    http_access_mode: str
+
+
+@dataclass
 class SyslogCollectorSim:
     """One remote syslog collector row, as the vendor host table reports it.
 
@@ -449,6 +470,10 @@ class VirtualSwitchState:
     #: oid_map() projects it under <vendor base>.14 for those models only, which
     #: is what makes gs728tpp (no vendor OIDs) correctly unable to answer.
     syslog: SyslogSim = field(default_factory=SyslogSim)
+    #: Local login accounts, as userManagement.html lists them. Empty for a
+    #: model whose UI has no such page located, so its HTTP face 404s that URL
+    #: exactly as the real switch does.
+    users: list[UserSim] = field(default_factory=list)
     nsdp_password: str = "password"
     # Write-auth scheme this mock advertises via AUTH_V2_ENCPASS (0x0014), and
     # the ONLY scheme it accepts on a WRITE_REQUEST:
@@ -1250,9 +1275,7 @@ class VirtualSwitchState:
             # last one is why the writer can never express "untagged nowhere".
             native = int(value)
             if native not in self.vlans:
-                why = (
-                    "is out of range" if not 1 <= native <= 4093 else "does not exist"
-                )
+                why = "is out of range" if not 1 <= native <= 4093 else "does not exist"
                 raise CommitFailedError(
                     f"switchport native VLAN for port {port} must be an existing "
                     f"VLAN in 1..4093; {native} {why} (a real FASTPATH agent "

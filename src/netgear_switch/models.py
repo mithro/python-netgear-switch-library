@@ -177,20 +177,51 @@ class ServiceStatus:
     port: int | None = None
 
 
+#: Access-mode text meaning FULL privilege, in every vocabulary measured so far.
+#: There are three, and they do not agree -- the same two accounts on the same
+#: two switches read differently depending on which face you ask (2026-08-02 /
+#: 2026-08-03):
+#:
+#:   backend          m4300-24x admin   gsm7252ps admin   guest (both)
+#:   CLI `show users` Privilege-15      Read/Write        Privilege-1 / Read Only
+#:   web userManagement.html            Super User        Read Only
+#:
+#: Note the web UI is the CONSISTENT one: it says "Super User"/"Read Only" on
+#: both switches, where the CLI's wording splits by firmware family. A parser
+#: taught only one vocabulary would silently mis-report the others, so this
+#: table is shared by every backend rather than living in one parser.
+PRIVILEGED_ACCESS_MODES: frozenset[str] = frozenset(
+    {"privilege-15", "read/write", "super user"}
+)
+UNPRIVILEGED_ACCESS_MODES: frozenset[str] = frozenset(
+    {"privilege-1", "read only", "no access"}
+)
+
+
+def privileged_access(access_mode: str) -> bool | None:
+    """Whether ``access_mode`` is a full-privilege level, or ``None`` if the
+    word is one this library has not measured on a device."""
+    text = access_mode.strip().lower()
+    if text in PRIVILEGED_ACCESS_MODES:
+        return True
+    if text in UNPRIVILEGED_ACCESS_MODES:
+        return False
+    return None
+
+
 @dataclass(frozen=True)
 class SwitchUser:
     """One local login account on the switch."""
 
     name: str
-    #: The access mode exactly as this firmware words it. Kept verbatim because
-    #: the vocabulary is NOT the same across images: measured 2026-08-02, the
-    #: m4300-24x prints ``Privilege-15``/``Privilege-1`` where the gsm7252ps
-    #: prints ``Read/Write``/``Read Only`` for the same two accounts.
+    #: The access mode exactly as this firmware words it, on the FACE that was
+    #: asked. Kept verbatim because the vocabulary is not shared -- see
+    #: :data:`PRIVILEGED_ACCESS_MODES` for the three spellings measured so far.
     access_mode: str
     #: Whether ``access_mode`` is the full-privilege level, normalised across
-    #: both vocabularies so callers do not have to know which image they are on.
-    #: ``None`` when the text is neither spelling -- an unrecognised level is
-    #: reported honestly rather than guessed as unprivileged.
+    #: every measured vocabulary so callers do not have to know which image or
+    #: which backend they are on. ``None`` when the text is none of them -- an
+    #: unrecognised level is reported honestly rather than guessed.
     privileged: bool | None
     #: The three SNMPv3 columns the same table carries. ``None`` where the
     #: firmware prints nothing.

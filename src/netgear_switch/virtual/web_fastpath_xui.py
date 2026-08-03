@@ -215,6 +215,78 @@ def render_mgmt_ip(
 
 # --- syslogConfiguration.html ------------------------------------------------
 #
+def _xui_cell(inst: str, xid: str, value: str, *, text: bool = True) -> str:
+    """One data cell of an XUI row grid, shaped as the live pages emit it.
+
+    ``text=False`` renders the value into the hidden input only, not as visible
+    cell text -- which is what the real pages do for their action/index columns
+    and for the Severity Filter cell.
+    """
+    shown = value if text else ""
+    return (
+        f'<TD class="def alt0" p="1.0.10" id={xid}>'
+        f"<INPUT xid={xid} TYPE=hidden NAME={inst}.v_{xid} "
+        f'VALUE="{value}">{shown}</TD>\n'
+    )
+
+
+# --- userManagement.html -----------------------------------------------------
+#
+# The login-account grid. LIVE-CAPTURED 2026-08-03 from gsm7252ps 10.1.5.22 and
+# m4300-24x 10.1.5.13; column labels are those pages' own header cells.
+#
+# The password columns are rendered because the real pages render them, and
+# rendering what the device renders is the point -- but note WHAT they hold:
+# gsm7252ps emits a literal "********" and the M4300 emits "", so neither page
+# discloses anything, and a reader that tried to report a password would find
+# only asterisks. The mock reproduces the gsm7252ps spelling.
+_USER_HEADERS = {
+    "1_1_2": "User Name",
+    "1_1_13": "Edit Password",
+    "1_1_3": "Password",
+    "1_1_4": "Confirm   Password",
+    "1_1_5": "Access   Mode",
+    "1_1_6": "Lockout   Status",
+    "1_1_7": "Password   Expiration   Date",
+}
+
+
+def render_users(state: VirtualSwitchState, path: str) -> str:
+    """``userManagement.html``, rendered from ``state.users``."""
+    body = (
+        "<TR>\n"
+        + "".join(
+            f'<TD class="def_TH alt0" id={xid}>{label}</TD>\n'
+            for xid, label in _USER_HEADERS.items()
+        )
+        + "</TR>\n"
+    )
+    count = len(state.users)
+    for row0, user in enumerate(state.users):
+        inst = instance(row0, count)
+        body += (
+            "<TR>\n"
+            + _xui_cell(inst, "1_1_1", str(row0), text=False)
+            + _xui_cell(inst, "1_1_2", user.name)
+            + _xui_cell(inst, "1_1_13", "Disable", text=False)
+            + _xui_cell(inst, "1_1_3", "********", text=False)
+            + _xui_cell(inst, "1_1_4", "********", text=False)
+            # Verbatim from state: this page's wording is NOT the CLI's.
+            + _xui_cell(inst, "1_1_5", user.http_access_mode)
+            + _xui_cell(inst, "1_1_6", "FALSE", text=False)
+            + _xui_cell(inst, "1_1_7", "", text=False)
+            + "</TR>\n"
+        )
+    return page(
+        path,
+        body,
+        buttons={"3_1_1": "CANCEL", "3_2_1": "APPLY"},
+        title="NetGear - User Management",
+    )
+
+
+# --- syslogConfiguration.html ------------------------------------------------
+#
 # One page shape for every managed model. LIVE-CAPTURED 2026-08-03 from all four
 # (gsm7252ps 10.1.5.22, gsm7228ps 10.1.5.11, m4300-24x 10.1.5.13, m4300-16x
 # 10.1.5.20): the two families differ only in extras -- the M4300s add Cheetah
@@ -249,16 +321,6 @@ _SYSLOG_SEVERITY_WORDS = {
     6: "Info",
     7: "Debug",
 }
-
-
-def _syslog_cell(inst: str, xid: str, value: str, *, text: bool = True) -> str:
-    """One data cell, shaped exactly as the live page emits it."""
-    shown = value if text else ""
-    return (
-        f'<TD class="def alt0" p="1.0.10" id={xid}>'
-        f"<INPUT xid={xid} TYPE=hidden NAME={inst}.v_{xid} "
-        f'VALUE="{value}">{shown}</TD>\n'
-    )
 
 
 def render_syslog(state: VirtualSwitchState, path: str) -> str:
@@ -297,18 +359,18 @@ def render_syslog(state: VirtualSwitchState, path: str) -> str:
         inst = instance(row0, count)
         body += (
             "<TR>\n"
-            + _syslog_cell(inst, "2_1_6", str(row0 + 1), text=False)
-            + _syslog_cell(inst, "2_1_7", "IPv4")
-            + _syslog_cell(inst, "2_1_1", collector.host)
-            + _syslog_cell(inst, "2_1_2", "Active" if collector.status == 1 else "")
-            + _syslog_cell(inst, "2_1_3", str(collector.port))
-            + _syslog_cell(
+            + _xui_cell(inst, "2_1_6", str(row0 + 1), text=False)
+            + _xui_cell(inst, "2_1_7", "IPv4")
+            + _xui_cell(inst, "2_1_1", collector.host)
+            + _xui_cell(inst, "2_1_2", "Active" if collector.status == 1 else "")
+            + _xui_cell(inst, "2_1_3", str(collector.port))
+            + _xui_cell(
                 inst,
                 "2_1_4",
                 _SYSLOG_SEVERITY_WORDS[collector.severity],
                 text=False,
             )
-            + _syslog_cell(inst, "2_1_5", "Add", text=False)
+            + _xui_cell(inst, "2_1_5", "Add", text=False)
             + "</TR>\n"
         )
     return page(

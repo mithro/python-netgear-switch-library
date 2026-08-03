@@ -33,6 +33,7 @@ from .state import (
     SensorSim,
     SyslogCollectorSim,
     SyslogSim,
+    UserSim,
     VirtualSwitchState,
     VlanMembershipPageSim,
     VlanSim,
@@ -1246,6 +1247,10 @@ def seed_gsm7252ps() -> VirtualSwitchState:
             local_port=514,
             collectors=[SyslogCollectorSim("10.1.5.1", 514, 6)],
         ),
+        # MEASURED 2026-08-03 on 10.1.5.22's own userManagement.html. The
+        # wording is that PAGE's, not the CLI's -- the same switch's
+        # `show users` calls admin "Read/Write".
+        users=[UserSim("admin", "Super User"), UserSim("guest", "Read Only")],
         hostname="sw-netgear-gsm7252ps-s1.welland.mithis.com",
         nsdp_mac=b"\xe0\x91\xf5\x0c\xd6\xdb",  # captured System MAC Address
         # Illustrative sysDescr text -- NOT a captured real firmware string;
@@ -2429,6 +2434,11 @@ def seed_m4300_24x() -> VirtualSwitchState:
             local_port=514,
             collectors=[SyslogCollectorSim("10.1.5.1", 514, 6)],
         ),
+        # MEASURED 2026-08-03 on 10.1.5.13's own userManagement.html -- the
+        # SAME two words the gsm7252ps page uses, even though this switch's
+        # `show users` says "Privilege-15" where that one says "Read/Write".
+        # The web UI is the consistent face; the CLI is not.
+        users=[UserSim("admin", "Super User"), UserSim("guest", "Read Only")],
         hostname="sw-netgear-m4300-24x",
         model_key="m4300-24x",
         ports=ports,

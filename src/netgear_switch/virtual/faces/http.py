@@ -517,6 +517,8 @@ class VirtualHttpFace:
             return web_m4300.render_sysinfo(self.state)
         if path == self.spec.syslog_path:
             return web_fastpath_xui.render_syslog(self.state, path)
+        if path == self.spec.users_path:
+            return web_fastpath_xui.render_users(self.state, path)
         if self.spec.lldp_path and path == self.spec.lldp_path:
             # lldpRemoteInventory.html is the SAME page (and the same XE cell
             # grid, with 1/0/N ifNames) on the M4300s as on gsm7252ps -- proven
@@ -600,6 +602,8 @@ class VirtualHttpFace:
         if path == self.spec.syslog_path:
             # Same page on every managed model -- see web_fastpath_xui.
             return web_fastpath_xui.render_syslog(self.state, path)
+        if path == self.spec.users_path:
+            return web_fastpath_xui.render_users(self.state, path)
         return None
 
     def _render_token_page(self, path: str, form: dict[str, str]) -> str:

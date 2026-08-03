@@ -693,15 +693,16 @@ class HttpReader:
         return cfg
 
     def get_users(self) -> list[SwitchUser]:
-        """This backend does not serve local user accounts.
+        """Local login accounts, from this model's user-management page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely has no accounts.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "local user accounts (no such tag/page/table on this backend)"
+        path = _require_path(
+            self.model.key, self._spec.users_path, "local user accounts"
         )
+        return parse.parse_xui_users(self.session.get_page(path))
 
     def get_services(self) -> list[ServiceStatus]:
         """This backend does not serve management-service state.
@@ -867,15 +868,16 @@ class AsyncHttpReader:
         return cfg
 
     async def get_users(self) -> list[SwitchUser]:
-        """This backend does not serve local user accounts.
+        """Local login accounts, from this model's user-management page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely has no accounts.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "local user accounts (no such tag/page/table on this backend)"
+        path = _require_path(
+            self.model.key, self._spec.users_path, "local user accounts"
         )
+        return parse.parse_xui_users(await self.session.get_page(path))
 
     async def get_services(self) -> list[ServiceStatus]:
         """This backend does not serve management-service state.
