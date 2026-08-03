@@ -47,8 +47,11 @@ from ...models import (
     PortStats,
     PortStatus,
     Sensor,
+    SyslogConfig,
+    SyslogServer,
     VLANInfo,
     VlanMode,
+    syslog_severity,
 )
 from .types import FastpathMembership, HttpSysInfo, XuiFormPage, XuiListPage, XuiRow
 
@@ -1091,9 +1094,7 @@ def _expand_s3300_port_list(raw: str) -> frozenset[int]:
     return frozenset(ports)
 
 
-def _xe_vlan_rows(
-    html: str, expand: Callable[[str], frozenset[int]]
-) -> list[VLANInfo]:
+def _xe_vlan_rows(html: str, expand: Callable[[str], frozenset[int]]) -> list[VLANInfo]:
     """Shared body of the XE/S3300 vlanStatus parsers: one VLANInfo per row,
     differing only in how the Member Ports cell is expanded (``expand``).
 
@@ -1237,9 +1238,7 @@ def parse_s3300_macs(html: str) -> list[MacEntry]:
     exactly like the sibling parsers.
     """
     rows = [
-        r
-        for r in parse_xe_rows(html)
-        if _S3300_MAC_ADDR in r and _S3300_MAC_PORT in r
+        r for r in parse_xe_rows(html) if _S3300_MAC_ADDR in r and _S3300_MAC_PORT in r
     ]
     if not rows:
         raise HttpUnexpectedPageError(
@@ -1283,9 +1282,7 @@ def parse_s3300_mgmt(html: str) -> MgmtIpConfig:
     """
     m = re.search(r"Base MAC Address</td>\s*<td[^>]*>\s*([0-9A-Fa-f:]{17})", html)
     if m is None:
-        raise HttpUnexpectedPageError(
-            "sysInfo.html: no Base MAC Address cell found"
-        )
+        raise HttpUnexpectedPageError("sysInfo.html: no Base MAC Address cell found")
     return MgmtIpConfig(
         mode=IpMode.UNKNOWN,
         address=None,
@@ -1597,6 +1594,79 @@ def parse_xe_mgmt_ip(html: str) -> MgmtIpConfig:
     )
 
 
+# --- syslogConfiguration.html (every FASTPATH model) ----------------------
+#
+# Page-level scalars carry NO instance prefix (``NAME=v_1_1_1``), so
+# ``parse_xe_rows`` deliberately skips them -- they are read by coordinate here.
+_XE_SCALAR_RE = re.compile(r'NAME=v_(\d+_\d+_\d+) VALUE="([^"]*)"', re.IGNORECASE)
+
+# Coordinates transcribed from a LIVE fetch of syslogConfiguration.html on all
+# four managed switches (2026-08-03): gsm7252ps 10.1.5.22, gsm7228ps/S3300
+# 10.1.5.11, m4300-24x 10.1.5.13 and m4300-16x 10.1.5.20. Each label below is
+# that page's own visible header/field caption for the same coordinate.
+#
+# The two families' pages are NOT identical -- the M4300s are Cheetah, adding a
+# trailing ``<!-- baselogCfg_LogSyslogAdminStatus -->`` comment per cell plus two
+# scalars the GSMs lack (1_6_1 source interface, 1_7_1 USB file name) -- but the
+# COORDINATES they share are the same on all four, which is why one parser
+# serves both rather than a per-dialect pair. That was measured, not assumed:
+# the M4300 page was fetched and diffed against the GSM one before this was
+# written.
+_SYSLOG_ADMIN_STATUS = "1_1_1"  # "Admin Status"       -> Enable/Disable
+_SYSLOG_LOCAL_PORT = "1_2_1"  # "Local UDP Port"     -> 514
+_SYSLOG_HOST_ADDRESS = "2_1_1"  # "Host Address"       -> 10.1.5.1
+_SYSLOG_HOST_STATUS = "2_1_2"  # "Status"             -> Active
+_SYSLOG_HOST_PORT = "2_1_3"  # "Port"               -> 514
+_SYSLOG_HOST_SEVERITY = "2_1_4"  # "Severity Filter"    -> Info
+
+
+def parse_xui_syslog(html: str) -> SyslogConfig:
+    """``syslogConfiguration.html`` -> ``SyslogConfig`` (all FASTPATH models).
+
+    The collector rows are ordinary XUI table rows, so ``parse_xe_rows`` groups
+    them; the admin status and local port are page-level scalars, read by
+    coordinate above. A row whose coordinates are absent is skipped rather than
+    defaulted -- the blank ``g_2_1_*`` template row carries no instance prefix
+    and never reaches here in the first place.
+
+    Raises ``HttpUnexpectedPageError`` if the admin-status scalar is missing:
+    that is the one field every version of this page has, so its absence means
+    the fetch landed somewhere else (a login redirect, a 404 body) and an
+    ``enabled=False`` answer would be a fabrication.
+    """
+    scalars = dict(_XE_SCALAR_RE.findall(html))
+    admin = scalars.get(_SYSLOG_ADMIN_STATUS)
+    if admin is None:
+        raise HttpUnexpectedPageError(
+            "syslogConfiguration.html: no Admin Status field "
+            f"(NAME=v_{_SYSLOG_ADMIN_STATUS}) on page"
+        )
+    local_port = _int(scalars.get(_SYSLOG_LOCAL_PORT, ""))
+
+    servers: list[SyslogServer] = []
+    for row in parse_xe_rows(html):
+        host = row.get(_SYSLOG_HOST_ADDRESS, "").strip()
+        if not host:
+            continue
+        port = _int(row.get(_SYSLOG_HOST_PORT, ""))
+        servers.append(
+            SyslogServer(
+                host=host,
+                port=port if port is not None else 0,
+                # The web UI prints the severity WORD ("Info") where SNMP
+                # reports the number (6); syslog_severity() is the shared,
+                # measured map and RAISES on a word no device here has printed.
+                severity=syslog_severity(row.get(_SYSLOG_HOST_SEVERITY, "")),
+                active=row.get(_SYSLOG_HOST_STATUS, "").strip().lower() == "active",
+            )
+        )
+    return SyslogConfig(
+        enabled=admin.strip().lower() == "enable",
+        local_port=local_port if local_port is not None else 0,
+        servers=tuple(servers),
+    )
+
+
 def parse_poe_status(html: str) -> list[PoEStatus]:
     """getPoePortStatus.cgi ``portID`` rows: [1]=port,[2]=state,[3]=power_mw."""
     rows = _ROW_RE.findall(html)
@@ -1733,9 +1803,7 @@ _INPUT_RE = re.compile(r"<input\b([^>]*)>", re.IGNORECASE)
 # Each attribute, with or without a value: group 2 is None for a bare flag
 # (``SELECTED``, ``READONLY``), otherwise groups 3/4/5 hold the double-quoted,
 # single-quoted or unquoted value.
-_BARE_ATTR_RE = re.compile(
-    r"""([\w.-]+)(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?"""
-)
+_BARE_ATTR_RE = re.compile(r"""([\w.-]+)(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?""")
 _SELECT_RE = re.compile(r"<select\b([^>]*)>(.*?)</select>", re.IGNORECASE | re.DOTALL)
 _OPTION_RE = re.compile(r"<option\b([^>]*)>", re.IGNORECASE)
 _VLANID_SELECT_RE = re.compile(
@@ -2106,7 +2174,7 @@ def _xui_form_block(html: str, page: str) -> tuple[str, str]:
     m = _XUI_FORM_RE.search(html)
     if m is None:
         raise HttpUnexpectedPageError(
-            f"{page}: no <FORM ACTION=\"...(/a1)\"> -- this is not a FASTPATH XUI "
+            f'{page}: no <FORM ACTION="...(/a1)"> -- this is not a FASTPATH XUI '
             "write page (wrong URL, or the session bounced to the login page)"
         )
     return unescape(m.group(1)), html[m.end() :]
@@ -2225,9 +2293,7 @@ def parse_xui_list_page(html: str, *, page: str = "XUI list page") -> XuiListPag
         buttons=_xui_buttons(block),
         rows=tuple(rows),
         tokens={
-            n: unescape(v)
-            for n, v in form_fields.items()
-            if _XUI_TOKEN_RE.match(n)
+            n: unescape(v) for n, v in form_fields.items() if _XUI_TOKEN_RE.match(n)
         },
         nav=nav,
     )
@@ -2285,9 +2351,7 @@ def parse_xui_mgmt_ip(
     """
     fields, _cbs = _xui_inputs(_xui_form_block(html, page)[1])
     missing = [
-        f
-        for f in (address_field, netmask_field, gateway_field)
-        if f not in fields
+        f for f in (address_field, netmask_field, gateway_field) if f not in fields
     ]
     if missing:
         raise HttpUnexpectedPageError(

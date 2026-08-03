@@ -290,9 +290,7 @@ class VirtualHttpFace:
                     return
                 raw = self._raw()
                 with face._lock:
-                    response = web_gs728tpp.apply_write(
-                        face.state, raw.decode("utf-8")
-                    )
+                    response = web_gs728tpp.apply_write(face.state, raw.decode("utf-8"))
                 self._send(response)
 
             def do_GET(self) -> None:
@@ -313,13 +311,9 @@ class VirtualHttpFace:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    if (
-                        fp := face._render_fastpath_vlan_page(path, {})
-                    ) is not None:
+                    if (fp := face._render_fastpath_vlan_page(path, {})) is not None:
                         page = fp
-                    elif (
-                        xw := face._render_fastpath_xui_page(path, {})
-                    ) is not None:
+                    elif (xw := face._render_fastpath_xui_page(path, {})) is not None:
                         page = xw
                     elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, {})
@@ -371,13 +365,9 @@ class VirtualHttpFace:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    if (
-                        fp := face._render_fastpath_vlan_page(path, form)
-                    ) is not None:
+                    if (fp := face._render_fastpath_vlan_page(path, form)) is not None:
                         page = fp
-                    elif (
-                        xw := face._render_fastpath_xui_page(path, form)
-                    ) is not None:
+                    elif (xw := face._render_fastpath_xui_page(path, form)) is not None:
                         page = xw
                     elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, form)
@@ -432,9 +422,7 @@ class VirtualHttpFace:
             return web_gs105pe.render_vlan_membership(self.state, vid)
         return None
 
-    def _render_fastpath_xui_page(
-        self, path: str, form: dict[str, str]
-    ) -> str | None:
+    def _render_fastpath_xui_page(self, path: str, form: dict[str, str]) -> str | None:
         """Serve a managed model's XUI write page, applying the form first.
 
         Covers ``portsConfiguration.html`` (set_port_enabled),
@@ -468,9 +456,7 @@ class VirtualHttpFace:
             if self.spec.mgmt_ip_fields is None:
                 return None
             err = web_fastpath_xui.apply_mgmt_ip(self.state, self.spec, form)
-            return web_fastpath_xui.render_mgmt_ip(
-                self.state, self.spec, err_msg=err
-            )
+            return web_fastpath_xui.render_mgmt_ip(self.state, self.spec, err_msg=err)
         # `module` is deliberately Any -- it is one of three per-dialect renderer
         # modules chosen at runtime -- so the renderers' return type has to be
         # restated here for mypy. All of them are declared `-> str`.
@@ -482,9 +468,7 @@ class VirtualHttpFace:
         poe_html: str = module.render_poe(self.state, err_msg=err)
         return poe_html
 
-    def _render_fastpath_vlan_page(
-        self, path: str, form: dict[str, str]
-    ) -> str | None:
+    def _render_fastpath_vlan_page(self, path: str, form: dict[str, str]) -> str | None:
         """Serve the managed FASTPATH VLAN Membership page (GET page or its
         ``_rw.html`` form target), applying the form first when it carries the
         apply flag. ``None`` = not that page, so the caller falls through.
@@ -531,6 +515,8 @@ class VirtualHttpFace:
             return web_m4300.render_mac_table(self.state)
         if path == self.spec.sysinfo_path:
             return web_m4300.render_sysinfo(self.state)
+        if path == self.spec.syslog_path:
+            return web_fastpath_xui.render_syslog(self.state, path)
         if self.spec.lldp_path and path == self.spec.lldp_path:
             # lldpRemoteInventory.html is the SAME page (and the same XE cell
             # grid, with 1/0/N ifNames) on the M4300s as on gsm7252ps -- proven
@@ -578,6 +564,9 @@ class VirtualHttpFace:
             return web_gsm7228ps.render_lldp(self.state)
         if path == self.spec.sysinfo_path:
             return web_gsm7228ps.render_sysinfo(self.state)
+        if path == self.spec.syslog_path:
+            # Same page on every managed model -- see web_fastpath_xui.
+            return web_fastpath_xui.render_syslog(self.state, path)
         return None
 
     def _render_xe_page(self, path: str) -> str | None:
@@ -608,6 +597,9 @@ class VirtualHttpFace:
             return web_gsm7252ps.render_lldp(self.state)
         if path == self.spec.sysinfo_path:
             return web_gsm7252ps.render_sysinfo(self.state)
+        if path == self.spec.syslog_path:
+            # Same page on every managed model -- see web_fastpath_xui.
+            return web_fastpath_xui.render_syslog(self.state, path)
         return None
 
     def _render_token_page(self, path: str, form: dict[str, str]) -> str:

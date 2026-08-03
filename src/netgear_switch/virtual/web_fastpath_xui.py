@@ -81,7 +81,7 @@ def nav_rows(unit: str = "1", *, type_filter: str = "^Physical$") -> str:
     """The page's two ``class=deftestme`` list-navigation rows."""
     return (
         "<TR id=1_1 class=deftestme>\n"
-        '<TD class=defright id=1_1_1><INPUT xid=1_1_1 TYPE=hidden '
+        "<TD class=defright id=1_1_1><INPUT xid=1_1_1 TYPE=hidden "
         f'NAME=v_1_1_1 VALUE="{unit}"></TD>\n'
         '<TD id=1_1_2 style="display:none"><INPUT xid=1_1_2 TYPE=hidden '
         f'NAME={LIST_TYPE_FILTER} VALUE="{type_filter}"></TD>\n'
@@ -90,7 +90,7 @@ def nav_rows(unit: str = "1", *, type_filter: str = "^Physical$") -> str:
         'SIZE="10" MAXLENGTH="10" VALUE=""></td>\n'
         "</TR>\n"
         "<TR id=1_3 class=deftestme>\n"
-        '<TD class=defright id=1_3_1><INPUT xid=1_3_1 TYPE=hidden '
+        "<TD class=defright id=1_3_1><INPUT xid=1_3_1 TYPE=hidden "
         f'NAME=v_1_3_1 VALUE="{unit}"></TD>\n'
         '<td id="1_3_null"><INPUT type="text" '
         'id="inputBox_interface_1_3_null" name="inputBox_interface_1_3_null" '
@@ -193,9 +193,7 @@ def render_mgmt_ip(
     path = spec.mgmt_ip_path
     assert fields is not None  # caller checked
     assert path is not None  # caller checked
-    mode = (
-        fields.dhcp_value if state.mgmt.mode == "dhcp" else fields.static_value
-    )
+    mode = fields.dhcp_value if state.mgmt.mode == "dhcp" else fields.static_value
     body = (
         _labelled(fields.mode.removeprefix("v_"), "Configuration Method", mode)
         + _labelled(fields.address.removeprefix("v_"), "IP Address", state.mgmt.address)
@@ -215,11 +213,120 @@ def render_mgmt_ip(
     )
 
 
+# --- syslogConfiguration.html ------------------------------------------------
+#
+# One page shape for every managed model. LIVE-CAPTURED 2026-08-03 from all four
+# (gsm7252ps 10.1.5.22, gsm7228ps 10.1.5.11, m4300-24x 10.1.5.13, m4300-16x
+# 10.1.5.20): the two families differ only in extras -- the M4300s add Cheetah
+# ``<!-- baselogCfg_* -->`` comments and two scalars the GSMs lack -- while every
+# coordinate the reader uses is identical, which is why one renderer serves all
+# four.
+#
+# The blank ``g_2_1_*`` TEMPLATE row is rendered ON PURPOSE. Real firmware emits
+# it above the data rows, its fields named ``v_g_2_1_N`` with NO instance prefix,
+# and a parser that mistook it for a collector would report a phantom row with an
+# empty host. Leaving it out of the mock would make that bug untestable.
+_SYSLOG_HEADERS = {
+    "2_1_7": "IP Address Type",
+    "2_1_1": "Host Address",
+    "2_1_2": "Status",
+    "2_1_3": "Port",
+    "2_1_4": "Severity Filter",
+}
+
+#: The severity WORD the web UI prints for each standard number -- the inverse
+#: of ``models.SYSLOG_SEVERITY_NAMES``, capitalised as the pages render it
+#: ("Info" on all four switches, where SNMP's column reads 6). Written out
+#: rather than derived from that map so the mock is an INDEPENDENT source: a
+#: renderer that inverted the reader's own table could only ever agree with it.
+_SYSLOG_SEVERITY_WORDS = {
+    0: "Emergency",
+    1: "Alert",
+    2: "Critical",
+    3: "Error",
+    4: "Warning",
+    5: "Notice",
+    6: "Info",
+    7: "Debug",
+}
+
+
+def _syslog_cell(inst: str, xid: str, value: str, *, text: bool = True) -> str:
+    """One data cell, shaped exactly as the live page emits it."""
+    shown = value if text else ""
+    return (
+        f'<TD class="def alt0" p="1.0.10" id={xid}>'
+        f"<INPUT xid={xid} TYPE=hidden NAME={inst}.v_{xid} "
+        f'VALUE="{value}">{shown}</TD>\n'
+    )
+
+
+def render_syslog(state: VirtualSwitchState, path: str) -> str:
+    """``syslogConfiguration.html``, rendered from ``state.syslog``.
+
+    Counters (Messages Received/Relayed/Ignored) are rendered as the live pages
+    do but are NOT part of ``SyslogConfig``; they exist so the page the mock
+    serves has the same field set as the real one.
+    """
+    sim = state.syslog
+    body = (
+        _labelled(
+            "1_1_1", "Admin Status", "Enable" if sim.admin_mode == 1 else "Disable"
+        )
+        + _labelled("1_2_1", "Local UDP Port", str(sim.local_port))
+        + _labelled("1_3_1", "Messages Received", "9583")
+        + _labelled("1_5_1", "Messages Relayed", "15")
+        + _labelled("1_4_1", "Messages Ignored", "0")
+        + "<TR>\n"
+        + "".join(
+            f'<TD class="def_TH alt0" id={xid}>{label}</TD>\n'
+            for xid, label in _SYSLOG_HEADERS.items()
+        )
+        + "</TR>\n"
+        # The template row: instance-less field names, so it is not a data row.
+        + "<TR id=g_2_1>\n"
+        + "".join(
+            f'<TD><INPUT xid=g_{xid} TYPE=hidden NAME=v_g_{xid} VALUE=""></TD>\n'
+            for xid in ("2_1_6", *_SYSLOG_HEADERS)
+        )
+        + '<TD><INPUT xid=g_2_1_5 TYPE=hidden NAME=v_g_2_1_5 VALUE="Add"></TD>\n'
+        + "</TR>\n"
+    )
+    count = len(sim.collectors)
+    for row0, collector in enumerate(sim.collectors):
+        inst = instance(row0, count)
+        body += (
+            "<TR>\n"
+            + _syslog_cell(inst, "2_1_6", str(row0 + 1), text=False)
+            + _syslog_cell(inst, "2_1_7", "IPv4")
+            + _syslog_cell(inst, "2_1_1", collector.host)
+            + _syslog_cell(inst, "2_1_2", "Active" if collector.status == 1 else "")
+            + _syslog_cell(inst, "2_1_3", str(collector.port))
+            + _syslog_cell(
+                inst,
+                "2_1_4",
+                _SYSLOG_SEVERITY_WORDS[collector.severity],
+                text=False,
+            )
+            + _syslog_cell(inst, "2_1_5", "Add", text=False)
+            + "</TR>\n"
+        )
+    return page(
+        path,
+        body,
+        buttons={
+            "4_1_1": "ADD",
+            "4_3_1": "DELETE",
+            "4_4_1": "CANCEL",
+            "4_2_1": "APPLY",
+        },
+        title="NetGear - Syslog Configuration",
+    )
+
+
 def _bad_ipv4(text: str) -> bool:
     parts = text.split(".")
-    return len(parts) != 4 or not all(
-        p.isdigit() and 0 <= int(p) <= 255 for p in parts
-    )
+    return len(parts) != 4 or not all(p.isdigit() and 0 <= int(p) <= 255 for p in parts)
 
 
 def apply_mgmt_ip(

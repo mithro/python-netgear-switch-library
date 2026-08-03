@@ -715,15 +715,16 @@ class HttpReader:
         )
 
     def get_syslog(self) -> SyslogConfig:
-        """This backend does not serve remote-logging configuration.
+        """Remote-logging configuration, from this model's syslog page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely logs nowhere.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "remote-logging configuration"
+        path = _require_path(
+            self.model.key, self._spec.syslog_path, "remote-logging configuration"
         )
+        return parse.parse_xui_syslog(self.session.get_page(path))
 
 
 class AsyncHttpReader:
@@ -888,15 +889,16 @@ class AsyncHttpReader:
         )
 
     async def get_syslog(self) -> SyslogConfig:
-        """This backend does not serve remote-logging configuration.
+        """Remote-logging configuration, from this model's syslog page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely logs nowhere.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "remote-logging configuration"
+        path = _require_path(
+            self.model.key, self._spec.syslog_path, "remote-logging configuration"
         )
+        return parse.parse_xui_syslog(await self.session.get_page(path))
 
     async def get_hostname(self) -> str:
         """This backend does not serve a host name field.

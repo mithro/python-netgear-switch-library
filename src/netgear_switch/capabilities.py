@@ -150,14 +150,19 @@ READ_OPERATIONS: tuple[Operation, ...] = (
         "get_syslog",
         OperationKind.READ,
         "Remote-logging configuration and collectors",
-        # SNMP and the CLI are the two backends that READ this today, and the
-        # two agree field-for-field on live hardware. Restricting the op here
-        # states what the LIBRARY serves; it deliberately does NOT assert that
-        # a web UI cannot show syslog. No dialect's syslog page has been
-        # located or captured yet, so HTTP is an unbuilt implementation -- a
-        # bug to fix, in this project's terms, not a device limitation. NSDP
-        # has no logging tag in the exhaustive tag sweep of a live GS110EMX.
-        backends=frozenset({Backend.SNMP}) | _CLI_BACKENDS,
+        # SNMP, HTTP and the CLI all READ this, and all three agree
+        # field-for-field on live hardware.
+        #
+        # HTTP was added on 2026-08-03, replacing this comment's own claim that
+        # "no dialect's syslog page has been located or captured yet" -- which
+        # was true only of the search, not of the devices. Every managed switch
+        # publishes ``syslogConfiguration.html`` in its nav JS, and all four
+        # answered it live; the models WITHOUT it (the Plus SKUs and the
+        # GS728TPP) are filtered out by _http_path_for on a null syslog_path.
+        # NSDP genuinely has no logging tag -- that came from an exhaustive tag
+        # sweep of a live GS110EMX, so it is measured absence, not an unsearched
+        # one.
+        backends=frozenset({Backend.SNMP, Backend.HTTP}) | _CLI_BACKENDS,
     ),
     Operation(
         "nsdp_device",
@@ -220,8 +225,7 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         # byte-for-byte what SNMP reports through sysName. The other dialects
         # are filtered out by _http_path_for; the gs110emx and gs105pe identity
         # pages carry a switch_name field but no captured write form.
-        backends=frozenset({Backend.SNMP, Backend.NSDP, Backend.HTTP})
-        | _CLI_BACKENDS,
+        backends=frozenset({Backend.SNMP, Backend.NSDP, Backend.HTTP}) | _CLI_BACKENDS,
     ),
     Operation(
         "set_syslog_enabled",
@@ -421,6 +425,7 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         "get_vlans": spec.vlan_config_path,
         "get_macs": spec.mac_table_path,
         "get_lldp": spec.lldp_path,
+        "get_syslog": spec.syslog_path,
         "set_poe": spec.poe_config_path,
         "cycle_poe": spec.poe_config_path,
         "clear_poe_fault": spec.poe_config_path,

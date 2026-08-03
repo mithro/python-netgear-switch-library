@@ -47,6 +47,7 @@ from ...models import (
     SyslogConfig,
     SyslogServer,
     VLANInfo,
+    syslog_severity,
 )
 
 if TYPE_CHECKING:
@@ -776,21 +777,6 @@ def parse_users(text: str) -> list[SwitchUser]:
 # show logging / show logging hosts -> syslog configuration
 # ---------------------------------------------------------------------------
 
-#: Syslog severity names as FASTPATH prints them, to the standard numbers the
-#: SNMP columns carry. Cross-checked on m4300-24x: `show logging hosts` prints
-#: "info" where the SNMP severity column reads 6.
-_SEVERITY_NAMES = {
-    "emergency": 0,
-    "alert": 1,
-    "critical": 2,
-    "error": 3,
-    "warning": 4,
-    "notice": 5,
-    "info": 6,
-    "informational": 6,
-    "debug": 7,
-}
-
 
 def _colon_fields(text: str) -> dict[str, str]:
     """Parse ``Label   : value`` lines, which `show logging` uses.
@@ -846,7 +832,7 @@ def parse_syslog(logging_text: str, hosts_text: str) -> SyslogConfig:
             SyslogServer(
                 host=host,
                 port=int(port) if port.isdigit() else 0,
-                severity=_SEVERITY_NAMES.get(severity.lower(), 0),
+                severity=syslog_severity(severity),
                 active=status.lower() == "active",
             )
         )

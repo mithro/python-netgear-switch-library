@@ -160,7 +160,6 @@ def dialect_has_csrf_hash(dialect: HtmlDialect) -> bool:
     return dialect in {HtmlDialect.STANDARD, HtmlDialect.GS105PE}
 
 
-
 @dataclass(frozen=True)
 class XuiMgmtIpFields:
     """Which fields of a FASTPATH XUI management-IP page carry what.
@@ -349,6 +348,10 @@ class HttpModelSpec:
     # goes" are different questions, and a UI could answer them differently.
     # ``None`` = this model's UI is not an XML-API one.
     xml_write_path: str | None = None
+    # Remote-logging configuration page (``get_syslog``). ``None`` = no such
+    # page located for this model's UI. See ``_FASTPATH_SYSLOG`` below for how
+    # the managed models' value was found and on which hosts it was verified.
+    syslog_path: str | None = None
 
 
 # The managed (FASTPATH/Cheetah) "VLAN Membership" page, shared by every managed
@@ -382,6 +385,25 @@ _M4300_VLAN_MEMBERSHIP_RW = f"/v1{_FASTPATH_VLAN_MEMBERSHIP_RW}"
 # The mgmt-IP page is where the two families genuinely diverge, so there is NO
 # shared constant for it -- see XuiMgmtIpFields' docstring for the measured
 # 404s/0.0.0.0s that make one impossible.
+# The remote-logging page, shared by every managed model. Found the same way the
+# VLAN-membership page was -- read out of the switch's own nav JS rather than
+# guessed -- and the two families emit that JS DIFFERENTLY, so both were read:
+#
+#   GSM7252PS/GSM7228PS  GET /base/js/ng_sideNav.js
+#       str+=FrthLvl("lvl1","Syslog Configuration","syslogConfiguration.html",..)
+#   M4300 (both SKUs)    GET /v1/base/js/ng_sideNav.js
+#       str += SecLvl("lvl1",js_NLS_Syslog_Configuration,
+#                     "syslogConfiguration.html", showRow);
+#
+# (the M4300 nav passes its labels as ``js_NLS_*`` identifiers, not string
+# literals, so a leaf regex written for the GSM form silently matches nothing
+# there -- which is why the M4300 path was read rather than extrapolated).
+#
+# LIVE-FETCHED 2026-08-03 on all four managed switches: 10.1.5.22, 10.1.5.11,
+# 10.1.5.13 and 10.1.5.20 each answered 200 with a Syslog/Server Log title.
+_FASTPATH_SYSLOG = "/syslogConfiguration.html"
+_M4300_SYSLOG = f"/v1{_FASTPATH_SYSLOG}"
+
 _FASTPATH_PORT_CONFIG = "/portsConfiguration.html"
 _FASTPATH_POE_CONFIG = "/poeInterfaceConfiguration.html"
 _GSM72XX_MGMT_IP = "/ipConfiguration.html"
@@ -583,6 +605,7 @@ _GSM7228PS = HttpModelSpec(
     vlan_membership_path=_FASTPATH_VLAN_MEMBERSHIP,
     vlan_membership_post_path=_FASTPATH_VLAN_MEMBERSHIP_RW,
     pvid_path="/portPvidConfiguration.html",
+    syslog_path=_FASTPATH_SYSLOG,
     reboot_path=None,
     logout_path=None,
     is_epx_poe=False,
@@ -744,6 +767,7 @@ _M4300 = HttpModelSpec(
     vlan_membership_path=_M4300_VLAN_MEMBERSHIP,
     vlan_membership_post_path=_M4300_VLAN_MEMBERSHIP_RW,
     pvid_path="/v1/portPvidConfiguration.html",
+    syslog_path=_M4300_SYSLOG,
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,
@@ -879,6 +903,7 @@ _GSM7252PS = HttpModelSpec(
     vlan_membership_path=_FASTPATH_VLAN_MEMBERSHIP,
     vlan_membership_post_path=_FASTPATH_VLAN_MEMBERSHIP_RW,
     pvid_path="/portPvidConfiguration.html",
+    syslog_path=_FASTPATH_SYSLOG,
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,

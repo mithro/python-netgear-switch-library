@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class PoEDetect(enum.Enum):
@@ -206,6 +211,50 @@ class SyslogServer:
     severity: int
     #: The switch's own word for the row's state, "Active" in the CLI table.
     active: bool
+
+
+#: Syslog severity names as the switches PRINT them, mapped to the standard
+#: numbers the SNMP columns carry. Netgear spells the same value differently
+#: depending on which face you ask, so this is shared rather than per-backend:
+#: the FASTPATH CLI's `show logging hosts` prints "info" (lowercase) while the
+#: web UI's Severity Filter column prints "Info" -- MEASURED on the same
+#: collector row of the same switch (m4300-24x 10.1.5.13, 2026-08-03), where
+#: the SNMP severity column reads 6.
+#:
+#: "informational" is listed beside "info" because it is the word FASTPATH's
+#: own `logging host` command accepts; both are severity 6.
+SYSLOG_SEVERITY_NAMES: Mapping[str, int] = MappingProxyType(
+    {
+        "emergency": 0,
+        "alert": 1,
+        "critical": 2,
+        "error": 3,
+        "warning": 4,
+        "notice": 5,
+        "info": 6,
+        "informational": 6,
+        "debug": 7,
+    }
+)
+
+
+def syslog_severity(name: str) -> int:
+    """A switch's severity WORD -> its standard number, case-insensitively.
+
+    Raises ``ValueError`` on a word this library has not measured. That is
+    deliberate: the obvious alternative -- defaulting to 0 -- reports the
+    switch as forwarding EMERGENCIES ONLY, which is both wrong and invisible,
+    and 0 is indistinguishable from a genuine "emergency" row. An unrecognised
+    word means a firmware spells a level differently than any device measured
+    here, and the caller should see that rather than a plausible number.
+    """
+    try:
+        return SYSLOG_SEVERITY_NAMES[name.strip().lower()]
+    except KeyError:
+        raise ValueError(
+            f"unknown syslog severity {name!r}; measured names are "
+            f"{sorted(SYSLOG_SEVERITY_NAMES)}"
+        ) from None
 
 
 @dataclass(frozen=True)

@@ -1810,6 +1810,17 @@ def seed_gsm7228ps() -> VirtualSwitchState:
         # MEASURED 2026-08-02 on 10.1.5.11: the vendor admin-mode column
         # reads 2 (disabled) and the host table is EMPTY -- this switch has
         # no collector configured, which is why get_syslog returns none.
+        #
+        # DELIBERATELY KEPT even though the live switch has since moved on (a
+        # re-read on 2026-08-03 over SNMP, HTTP and the CLI all returned
+        # enabled + one collector). The switch's own buffered log dates the
+        # change -- ``<14> Aug  3 02:21:02 ... %% Configuration propagation
+        # successful for config type 0``, the only such entry in the buffer --
+        # so this is an operator reconfiguring a production device between two
+        # reads, NOT the reader drifting from the hardware. This row is also
+        # the fleet's only "logging configured nowhere" case, so re-seeding it
+        # to match the others would delete the coverage that a genuinely empty
+        # host table reads as empty. See tests/virtual/test_syslog_fidelity.py.
         syslog=SyslogSim(admin_mode=2, local_port=514, collectors=[]),
         hostname="sw-netgear-s3300-1",
         nsdp_mac=b"\x08\xbd\x43\x6b\xb8\xd8",  # captured base/System MAC

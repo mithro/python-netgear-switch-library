@@ -37,6 +37,19 @@ MEASURED = {
     # breaking, and the seed stays as recorded -- the mock's job is to reproduce
     # a state that was really observed, not to track a production device. Do not
     # "fix" this row to match a later live read without capturing that read.
+    #
+    # That is now EVIDENCED, not just asserted. Re-driven on 2026-08-03 over all
+    # three backends independently (SNMP, HTTP, CLI), 10.1.5.11 answers enabled
+    # + 10.1.5.1:514 severity 6 Active on each -- and the switch's own buffered
+    # log dates the change to between the two reads:
+    #     <14> Aug  3 02:21:02 sw-netgear-s3300-1-1 UNITMGR[emWeb]:
+    #     unitmgr.c(6932) 106831 %% Configuration propagation successful for
+    #     config type 0
+    # the only configuration-propagation entry in the buffer. Keeping this row
+    # also keeps the fleet's ONLY "logging configured nowhere" case: every other
+    # seeded model now has an identical collector, so re-seeding this one would
+    # delete the coverage that a genuinely empty host table reads as empty
+    # rather than as a failed walk.
     "gsm7228ps": (False, 514, []),
 }
 
