@@ -335,6 +335,32 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         )
 
     @mcp.tool()
+    def set_port_description(
+        port: int,
+        description: str,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
+        nsdp_interface: str | None = None,
+        backend: str | None = None,
+    ) -> dict[str, Any]:
+        """Set a port's description. Pass an empty string to clear it."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        chosen = _as_backend(backend)
+        return _write(
+            "set_port_description",
+            lambda: sw.set_port_description(
+                port, description, force=force, backend=chosen
+            ),
+        )
+
+    @mcp.tool()
     def set_hostname(
         name: str,
         force: bool = False,

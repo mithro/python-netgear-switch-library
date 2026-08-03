@@ -60,6 +60,7 @@ from .errors import (
     WriteVerificationError,
 )
 from .models import PoEDetect, VlanMode
+from .protocols.cli import parse
 from .protocols.cli.commands import cli_spec
 from .snmp_write import PoeCycleTimeouts
 from .transport.cli.session import CliTransportError
@@ -383,6 +384,45 @@ class CliWriter:
                 f"(got {got.value})",
                 before=self._port_mode(before, port),
                 after=got,
+            )
+
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Label ``port`` (``description '<text>'``), or clear it with ``""``.
+
+        The command form is the firmware's own: a live GSM7252PS (10.1.5.22,
+        2026-08-03) renders its 38 labelled ports in `show running-config` as
+        ``description 'eth0.rpi5-pmod'`` -- single-quoted -- and the negation is
+        the standard ``no description``.
+
+        Cosmetic, so no ``switchport mode general`` preamble is needed (unlike
+        the VLAN commands, whose effect depends on the port's mode) and it is
+        not force-gated beyond the protected-port guard.
+        """
+        self._guard(port, force)
+
+        def described() -> str | None:
+            # NOT get_ports: `show port all` carries no description column, so
+            # the reader honestly reports None there. This per-port command is
+            # the only one that reports a label back.
+            return parse.parse_port_description(
+                self.session.run(self._spec.port_description_show(port))
+            )
+
+        before = described()
+        self._in_mode(
+            [self._spec.configure_cmd, self._spec.interface(port)],
+            [self._spec.port_description(description)],
+        )
+        after = described()
+        want = description or None
+        if after != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r} "
+                f"(got {after!r})",
+                before=before,
+                after=after,
             )
 
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:

@@ -133,15 +133,24 @@ def _with_model(tags: list[Tag]) -> list[Tag]:
 
 
 def _ports(dev: NsdpDevice) -> list[PortStatus]:
-    # PORT_STATUS carries no name, but tag 0xB000 (PORT_NAME) does -- measured
-    # on three real GS110EMX units, see Tag.PORT_NAME. get_ports() requests both
-    # in one round trip, so the NSDP backend now reports the same operator
-    # descriptions the model's HTTP backend does instead of a blanket None.
-    names = {n.port_id: n.name for n in dev.port_names}
+    # Tag 0xB000 (PORT_NAME) is the operator's LABEL, not an interface
+    # identifier: its own docstring records that it was cross-checked
+    # byte-for-byte against each switch's ``port_settings.html`` **"Port
+    # Description"** column on three real GS110EMX units. So it belongs in
+    # ``description`` -- the field SNMP fills from ifAlias and the CLI from
+    # ``description '<text>'`` -- and NOT in ``name``, which every other backend
+    # uses for the interface IDENTIFIER (ifName "1/0/1", the web UI's "g1").
+    #
+    # It used to land in ``name``, which made the same label appear in different
+    # fields depending on the protocol, and left ``description`` blank on a
+    # backend that demonstrably has one. NSDP has no identifier to report --
+    # PORT_STATUS carries only a port number -- so ``name`` is honestly None.
+    labels = {n.port_id: n.name for n in dev.port_names}
     return [
         PortStatus(
             port=s.port_id,
-            name=names.get(s.port_id),
+            name=None,
+            description=labels.get(s.port_id),
             # NSDP PORT_STATUS reports link speed only; it cannot distinguish an
             # admin-disabled port from a link-down one, so admin_enabled is
             # reported True (the honest "not administratively removed" default).

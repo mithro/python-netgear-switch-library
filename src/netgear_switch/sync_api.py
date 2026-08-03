@@ -721,6 +721,24 @@ class SyncSwitch:
     ) -> None:
         self._write(lambda w: w.set_port_enabled(port, enabled, force=force), backend)
 
+    def set_port_description(
+        self,
+        port: int,
+        description: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Label a port. Pass ``""`` to clear the label.
+
+        Cosmetic: it moves no traffic and cannot strand a switch, so it is not
+        force-gated. ``force`` only overrides the protected-port guard, for
+        callers who have marked their uplinks protected.
+        """
+        self._write(
+            lambda w: w.set_port_description(port, description, force=force), backend
+        )
+
     def set_pvid(
         self,
         port: int,

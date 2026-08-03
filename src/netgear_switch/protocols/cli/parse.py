@@ -962,3 +962,30 @@ def parse_interface_counters(text: str, port: int) -> PortStats:
         rx_errors=_int(fields.get("Total Packets Received with MAC Errors", "")),
         tx_errors=_int(fields.get("Total Transmit Errors", "")),
     )
+
+
+def parse_port_description(text: str) -> str | None:
+    """The ``Description`` field of ``show port description <iface>``.
+
+    GROUNDED in live output from a GSM7252PS (10.1.5.22, 2026-08-03)::
+
+        Interface....... 1/0/8
+        ifIndex......... 8
+        Description.....
+        MAC address..... E0:91:F5:0C:D6:DD
+        Bit Offset Val.. 8
+
+    Returns ``None`` for an unset description (the label is present with an
+    empty value, exactly as above) so it matches what every other backend
+    reports for an absent label, rather than ``""``.
+
+    This command exists because ``show port all`` carries NO description column
+    -- which is why ``parse_port_status`` honestly reports ``description=None``
+    and why a CLI description write has to verify itself through here instead.
+    """
+    value = labelled_values(text).get("Description")
+    if value is None:
+        raise CliCommandError(
+            "show port description: no 'Description' field in the output"
+        )
+    return value or None

@@ -454,3 +454,38 @@ def render_interface_counters(state: VirtualSwitchState, port: int) -> str:
             _dotted("Time Since Counters Last Cleared", "1 day 0 hr 0 min 0 sec"),
         ]
     )
+
+
+def render_port_description(state: VirtualSwitchState, iface: str) -> str:
+    """``show port description <iface>``.
+
+    Layout transcribed from live output on a GSM7252PS (10.1.5.22,
+    2026-08-03)::
+
+        Interface....... 1/0/8
+        ifIndex......... 8
+        Description.....
+        MAC address..... E0:91:F5:0C:D6:DD
+        Bit Offset Val.. 8
+
+    An unset description prints the label with NOTHING after it -- which is why
+    the parser maps an empty value to None rather than "". A port the switch
+    does not have answers with the same rejection any unknown argument gets.
+    """
+    port = next(
+        (p for p in _phys_ports(state) if _iface(state, p) == iface),
+        None,
+    )
+    if port is None:
+        return "% Invalid input detected at '^' marker."
+    sim = state.ports[port]
+    mac = ":".join(f"{b:02X}" for b in state.nsdp_mac)
+    return "\n".join(
+        [
+            f"Interface....... {iface}",
+            f"ifIndex......... {port}",
+            f"Description..... {sim.description or ''}".rstrip(),
+            f"MAC address..... {mac}",
+            f"Bit Offset Val.. {port}",
+        ]
+    )

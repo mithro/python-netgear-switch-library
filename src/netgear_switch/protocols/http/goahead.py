@@ -238,13 +238,22 @@ def pvid_body(port_name: str, vlan: int) -> str:
 
 
 def port_config_body(
-    port_name: str, port_id: int, *, admin_enabled: bool | None = None
+    port_name: str,
+    port_id: int,
+    *,
+    admin_enabled: bool | None = None,
+    description: str | None = None,
 ) -> str:
-    """Port admin state, via the ports page's ``Standard802_3List`` object.
+    """Port admin state and/or description, via ``Standard802_3List``.
 
     The page sends ``adminState`` 1 (up) / 2 (down) and omits every field the
     operator did not change -- its JS sets them to ``undefined``, which the
     serialiser drops -- so this builder emits only what it is asked to change.
+
+    ``description`` is ``interfaceDescription``, the same element the read side
+    already parses. An EMPTY string is a real value here (it clears the label),
+    which is why the parameter defaults to None for "leave alone" rather than
+    using "" as the sentinel.
     """
     entry: dict[str, str] = {
         "interfaceName": port_name,
@@ -253,4 +262,6 @@ def port_config_body(
     }
     if admin_enabled is not None:
         entry["adminState"] = "1" if admin_enabled else "2"
+    if description is not None:
+        entry["interfaceDescription"] = description
     return write_body("Standard802_3List", "set", [{"Entry": entry}])

@@ -74,8 +74,13 @@ Absent data is ``None``, never a substitute
 
 A field a backend genuinely cannot read stays ``None``:
 
-* ``PortStatus.description`` is ``None`` on NSDP and HTTP backends, which have
-  no ``ifAlias`` equivalent — not ``""``.
+* ``PortStatus.description`` is ``None`` where the backend has no ``ifAlias``
+  equivalent — not ``""``. NSDP is **not** such a backend: tag 0xB000 carries
+  the operator's label and was cross-checked byte-for-byte against three real
+  GS110EMX units' own "Port Description" column, so it fills this field like
+  SNMP's ifAlias does. ``PortStatus.name`` is the opposite way round there:
+  NSDP reports a port NUMBER and no interface identifier, so ``name`` is None
+  over NSDP while SNMP gives ``1/0/1`` and the web UI ``g1``.
 * ``PoEStatus.power_mw`` is ``None`` on a switch with no vendor power column
   (the GS728TPP serves everything from standard MIBs and has no such column) —
   not ``0``.

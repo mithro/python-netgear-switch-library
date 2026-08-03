@@ -1148,6 +1148,17 @@ class VirtualSwitchState:
                 self.ports[port].link = False
             return
 
+        # ifAlias = the per-port description. An EMPTY value clears it, and
+        # oid_map() omits the row entirely when description is None -- which is
+        # what makes the reader report None rather than "". That round trip is
+        # the one the live transport could not do until an empty OCTET STRING
+        # learned to travel as an empty hex string.
+        port = _tail(oids.IF_ALIAS)
+        if port is not None and port in self.ports:
+            text = value.decode("latin-1") if isinstance(value, bytes) else str(value)
+            self.ports[port].description = text or None
+            return
+
         # pethPsePortAdminEnable = <table>.3.1.<port>
         poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
         if oid.startswith(poe_prefix) and oid[len(poe_prefix) :].isdigit():
@@ -1549,6 +1560,12 @@ class VirtualSwitchState:
             return oid.startswith(prefix) and oid[len(prefix) :].isdigit()
 
         if _is_col(oids.IF_ADMIN_STATUS):
+            return True
+        # ifAlias, the standard per-port description column. WRITABLE on real
+        # hardware: confirmed on a GS728TPP (10.2.5.10, firmware 6.0.1.30,
+        # 2026-08-03) -- a SET was accepted and read straight back through
+        # get_ports, and an empty value cleared it again.
+        if _is_col(oids.IF_ALIAS):
             return True
         poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
         if oid.startswith(poe_prefix) and oid[len(poe_prefix) :].isdigit():

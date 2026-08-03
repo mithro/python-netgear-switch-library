@@ -85,6 +85,7 @@ SEEDED_MODELS = (
 #: reserves for testing (4001-4008).
 _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     "set_port_enabled": ((1, True), {}),
+    "set_port_description": ((1, "capcheck"), {}),
     "set_poe": ((1, True), {}),
     "cycle_poe": ((1,), {}),
     "clear_poe_fault": ((1,), {}),

@@ -170,6 +170,21 @@ class CliModelSpec:
     vlan_tagging_cmd: str = "vlan tagging {vlan}"
     vlan_no_tagging_cmd: str = "no vlan tagging {vlan}"
     vlan_pvid_cmd: str = "vlan pvid {vlan}"
+    # Per-port description, in interface config mode. The single quotes are the
+    # firmware's OWN form, not a shell habit: READ OFF a live GSM7252PS
+    # (10.1.5.22, 2026-08-03) whose `show running-config` renders its 38 labelled
+    # ports as `description 'eth0.rpi5-pmod'`. Clearing one is `no description`,
+    # the standard FASTPATH negation.
+    port_description_cmd: str = "description '{text}'"
+    port_no_description_cmd: str = "no description"
+    # `show port all` has NO description column, so a description write cannot
+    # verify itself through get_ports. This per-port command is the one that
+    # carries it -- live output from 10.1.5.22 (2026-08-03):
+    #     Interface....... 1/0/8
+    #     ifIndex......... 8
+    #     Description.....
+    #     MAC address..... E0:91:F5:0C:D6:DD
+    port_description_show_cmd: str = "show port description {iface}"
     exit_cmd: str = "exit"
     # PoE, in interface config mode. Identical on every PoE-capable FASTPATH
     # image probed ("poe ?" -> <cr>/detection/high-power/power/priority/reset/
@@ -236,6 +251,16 @@ class CliModelSpec:
 
     def vlan_pvid(self, vlan: int) -> str:
         return self.vlan_pvid_cmd.format(vlan=vlan)
+
+    def port_description(self, text: str) -> str:
+        """Set or clear a port's description (interface config mode)."""
+        if not text:
+            return self.port_no_description_cmd
+        return self.port_description_cmd.format(text=text)
+
+    def port_description_show(self, port: int) -> str:
+        """The per-port command that reports a description back."""
+        return self.port_description_show_cmd.format(iface=self.iface(port))
 
     def poe_admin(self, *, on: bool) -> str:
         return self.poe_enable_cmd if on else self.poe_disable_cmd

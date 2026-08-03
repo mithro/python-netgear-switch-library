@@ -35,6 +35,7 @@ from .protocols.nsdp.protocol import Tag
 from .protocols.nsdp.write import (
     hostname_tlv,
     ipv4_tlv,
+    port_name_tlv,
     pvid_tlv,
     vlan_destroy_tlv,
     vlan_members_tlv,
@@ -167,6 +168,32 @@ class NsdpWriter:
                 f"host name is {after!r} after writing {name!r}",
                 before=before,
                 after=after,
+            )
+
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Set a port's description over NSDP tag 0xB000 (``PORT_NAME``).
+
+        The READ encoding is measured on three real GS110EMX units -- one TLV
+        per port, byte 0 the port number and the rest the description -- and the
+        write is that same shape (``port_name_tlv``). The write itself has NOT
+        been exercised against hardware: the three Plus units in this fleet were
+        powered off when it was attempted. Verify-after-write below is the guard
+        that makes that safe to ship -- a wrong shape cannot pass silently.
+        """
+        self._guard(port, force)
+        before = {p.port: p.description for p in self._reader.get_ports()}
+        self.client.write(
+            [port_name_tlv(port, description)], password=self._password
+        )
+        after = {p.port: p.description for p in self._reader.get_ports()}
+        want = description or None
+        if after.get(port) != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.get(port),
+                after=after.get(port),
             )
 
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
@@ -371,6 +398,24 @@ class AsyncNsdpWriter:
 
         if await self._vlan(vlan) is None:
             raise NsdpError(f"VLAN {vlan} does not exist")
+
+    async def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Async twin of ``NsdpWriter.set_port_description`` -- see it."""
+        self._guard(port, force)
+        before = {p.port: p.description for p in await self._reader.get_ports()}
+        await self.client.write(
+            [port_name_tlv(port, description)], password=self._password
+        )
+        after = {p.port: p.description for p in await self._reader.get_ports()}
+        want = description or None
+        if after.get(port) != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.get(port),
+                after=after.get(port),
+            )
 
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): PORT_PVID

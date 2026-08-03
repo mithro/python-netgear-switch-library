@@ -206,6 +206,27 @@ def _cmd_sensors(
     return EXIT_OK
 
 
+def _cmd_port_describe(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    text = args.description
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=(
+            f"clear the description on port {args.port}"
+            if text == ""
+            else f"describe port {args.port} as {text!r}"
+        ),
+        action=lambda: switch.set_port_description(
+            args.port, text, force=args.force
+        ),
+    )
+
+
 def _cmd_users(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
@@ -647,6 +668,16 @@ def build_parser() -> argparse.ArgumentParser:
     port.add_argument("state", choices=("up", "down"), help="admin state")
     safety.add_write_args(port)
     port.set_defaults(func=_cmd_port)
+
+    describe = sub.add_parser(
+        "describe",
+        parents=[child_gp],
+        help="set or clear a port's description (pass '' to clear)",
+    )
+    describe.add_argument("port", type=int, help="port number")
+    describe.add_argument("description", help="the label; '' clears it")
+    safety.add_write_args(describe)
+    describe.set_defaults(func=_cmd_port_describe)
 
     cycle_poe = sub.add_parser(
         "cycle-poe", parents=[child_gp], help="power-cycle a port's PoE"

@@ -69,6 +69,14 @@ _SWITCHPORT_MODE_RE = re.compile(r"^switchport mode (access|general|trunk)$")
 _PARTICIPATION_RE = re.compile(r"^vlan participation (include|exclude) (\d+)$")
 _TAGGING_RE = re.compile(r"^(no )?vlan tagging (\d+)$")
 _PVID_RE = re.compile(r"^vlan pvid (\d+)$")
+# Per-port description. The single-quoted form is the firmware's OWN: a live
+# GSM7252PS (10.1.5.22, 2026-08-03) renders its 38 labelled ports in
+# ``show running-config`` as ``description 'eth0.rpi5-pmod'``, and the negation
+# is the standard ``no description``. NOT mode-gated, unlike the VLAN commands:
+# a label is cosmetic and does not depend on the port's switchport mode.
+_DESCRIPTION_RE = re.compile(r"^description '([^']*)'$")
+_NO_DESCRIPTION_RE = re.compile(r"^no description$")
+_PORT_DESCRIPTION_SHOW_RE = re.compile(r"^show port description (\S+)$")
 _POE_RE = re.compile(r"^(no )?poe$")
 _POE_RESET_RE = re.compile(r"^poe reset$")
 _SHUTDOWN_RE = re.compile(r"^(no )?shutdown$")
@@ -299,6 +307,13 @@ class VirtualCliFace:
                 return _ACCEPTED  # accepted-but-inert, as above
             self.state.pvids[port] = vid
             return _ACCEPTED
+        m = _DESCRIPTION_RE.match(c)
+        if m:
+            self.state.ports[port].description = m.group(1) or None
+            return _ACCEPTED
+        if _NO_DESCRIPTION_RE.match(c):
+            self.state.ports[port].description = None
+            return _ACCEPTED
         return None
 
     def _config_command(self, c: str) -> str | None:
@@ -401,6 +416,9 @@ class VirtualCliFace:
             return cli_fastpath.render_version(self.state)
         if c == self.spec.port_status_cmd:
             return cli_fastpath.render_ports(self.state)
+        m = _PORT_DESCRIPTION_SHOW_RE.match(c)
+        if m:
+            return cli_fastpath.render_port_description(self.state, m.group(1))
         if c == self.spec.vlan_brief_cmd:
             return cli_fastpath.render_vlan_brief(self.state)
         if c == self.spec.pvid_cmd:

@@ -43,6 +43,7 @@ _OP_TO_COMMAND = {
     "nsdp_device": "nsdp-device",
     "set_poe": "poe",
     "set_port_enabled": "port",
+    "set_port_description": "describe",
     "set_pvid": "pvid",
     "set_vlan_membership": "vlan",
     "create_vlan": "vlan",

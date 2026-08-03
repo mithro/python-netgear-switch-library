@@ -748,6 +748,46 @@ class HttpWriter:
                 after=after,
             )
 
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Label a port through the ports page's ``interfaceDescription``.
+
+        XML-API only for now: that page carries the field and the read side
+        already parses it. The FASTPATH XUI port pages have a description column
+        too, but its cell id has not been captured, and guessing one would post
+        into an unknown cell.
+        """
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP port-description write is "
+                "built for this web UI dialect"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
+        )
+
+        def described(body: str) -> str | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.description for p in rows if p.port == port), None)
+
+        before = described(self.session.get_page(path))
+        self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, description=description
+            ),
+            f"port {port} description",
+        )
+        after = described(self.session.get_page(path))
+        want = description or None
+        if after != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before,
+                after=after,
+            )
+
     def _set_goahead_membership(self, vlan: int, port: int, mode: VlanMode) -> None:
         before = self._goahead_mode_of(vlan, port)
         self._goahead_write(
@@ -1416,6 +1456,40 @@ class AsyncHttpWriter:
         if port in untagged:
             return VlanMode.UNTAGGED
         return VlanMode.TAGGED if port in tagged else VlanMode.EXCLUDED
+
+    async def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Async twin of ``HttpWriter.set_port_description`` -- see it."""
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP port-description write is "
+                "built for this web UI dialect"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
+        )
+
+        def described(body: str) -> str | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.description for p in rows if p.port == port), None)
+
+        before = described(await self.session.get_page(path))
+        await self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, description=description
+            ),
+            f"port {port} description",
+        )
+        after = described(await self.session.get_page(path))
+        want = description or None
+        if after != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before,
+                after=after,
+            )
 
     async def _set_goahead_membership(
         self, vlan: int, port: int, mode: VlanMode

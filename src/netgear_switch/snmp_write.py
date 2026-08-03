@@ -548,6 +548,34 @@ class SnmpWriter:
                 after=after,
             )
 
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Set a port's ``ifAlias``, the standard per-port description column.
+
+        WRITABILITY MEASURED 2026-08-03 on a GS728TPP (10.2.5.10, firmware
+        6.0.1.30): a SET of ifAlias.17 was accepted and read straight back
+        through ``get_ports``.
+
+        Clearing it (``description=""``) is the case that needed transport work
+        rather than a new OID: ``snmpset ... s ""`` is refused by the net-snmp
+        CLI itself, so the transport sends an empty OCTET STRING as an empty hex
+        string instead (see ``_set_argv``). Without that, a description could be
+        set and never removed.
+        """
+        self._guard(port, force)
+        before = self._port_status(port)
+        self.client.set(SetVarbind(f"{oids.IF_ALIAS}.{port}", description, "s"))
+        after = self._port_status(port)
+        # The reader maps an empty alias to None, so compare on that footing.
+        want = description or None
+        if after is None or after.description != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.description if before else None,
+                after=after.description if after else None,
+            )
+
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)  # changing a port's PVID is disruptive
         # Precondition, like set_vlan_membership's: no SET is attempted, so
@@ -1032,6 +1060,22 @@ class AsyncSnmpWriter:
                 f"admin state for port {port} did not read back as {enabled}",
                 before=before,
                 after=after,
+            )
+
+    async def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Async twin of ``SnmpWriter.set_port_description`` -- see it."""
+        self._guard(port, force)
+        before = await self._port_status(port)
+        await self.client.set(SetVarbind(f"{oids.IF_ALIAS}.{port}", description, "s"))
+        after = await self._port_status(port)
+        want = description or None
+        if after is None or after.description != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.description if before else None,
+                after=after.description if after else None,
             )
 
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:

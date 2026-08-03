@@ -172,6 +172,24 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
     Operation("set_poe", OperationKind.WRITE, "Enable or disable PoE on a port"),
     Operation("cycle_poe", OperationKind.WRITE, "Power-cycle a PoE port"),
     Operation("clear_poe_fault", OperationKind.WRITE, "Clear a latched PoE fault"),
+    Operation(
+        "set_port_description",
+        OperationKind.WRITE,
+        "Set or clear a port's description",
+        # Every backend serves this, each grounded separately:
+        #   SNMP  ifAlias -- writable, confirmed on a GS728TPP (a SET was
+        #         accepted and read straight back)
+        #   NSDP  tag 0xB000 PORT_NAME -- the READ encoding is measured on three
+        #         GS110EMX units and the write is that same shape; the write
+        #         itself is unexercised (those units were powered off), so
+        #         verify-after-write is what makes it safe to offer
+        #   CLI   `description '<text>'` / `no description` -- the quoted form is
+        #         read off a live GSM7252PS's own running-config
+        #   HTTP  interfaceDescription on the GoAhead ports page. Only that
+        #         dialect: the FASTPATH XUI port pages have the column but its
+        #         cell id was never captured, and the writer refuses by name
+        #         rather than posting into a guessed cell.
+    ),
     Operation("set_pvid", OperationKind.WRITE, "Set a port's PVID"),
     Operation(
         "set_vlan_membership",
@@ -361,6 +379,7 @@ _XML_API_WRITES = {
     # uses on agents with no reset column.
     "cycle_poe": True,
     "clear_poe_fault": True,
+    "set_port_description": True,
 }
 
 
@@ -405,6 +424,9 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         "create_vlan": spec.vlan_config_path,
         "delete_vlan": spec.vlan_config_path,
         "set_port_enabled": spec.port_config_path,
+        # Only the XML-API dialect has a grounded description write; every other
+        # dialect is handled by the branch above returning None for it.
+        "set_port_description": None,
         "upload_certificate": spec.cert_upload_path,
     }
     if op.name == "get_sensors":

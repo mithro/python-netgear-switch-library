@@ -575,6 +575,19 @@ class AsyncSwitch:
             lambda w: w.set_port_enabled(port, enabled, force=force), backend
         )
 
+    async def set_port_description(
+        self,
+        port: int,
+        description: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Async twin of ``SyncSwitch.set_port_description`` -- see it."""
+        await self._write(
+            lambda w: w.set_port_description(port, description, force=force), backend
+        )
+
     async def set_pvid(
         self,
         port: int,
