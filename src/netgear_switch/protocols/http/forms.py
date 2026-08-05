@@ -172,7 +172,7 @@ def xui_row_apply_form(
         if name not in row.fields:
             raise KeyError(
                 f"row {row.prefix!r} does not render column {column!r} "
-                f"(it has {sorted(k[len(row.prefix):] for k in row.fields)})"
+                f"(it has {sorted(k[len(row.prefix) :] for k in row.fields)})"
             )
         body[name] = value
     if row.checkbox is not None:
@@ -271,3 +271,58 @@ def vlan_delete_form(
 
 def reboot_form(*, csrf_hash: str) -> dict[str, str]:
     return {"hash": csrf_hash}
+
+
+#: ``dhcp_mode`` on the GS110EMX sysInfo page: 1 = Enable (DHCP), 2 = Disable
+#: (static). Read off the live page's own ``<select name="dhcp_mode">``, whose
+#: current value the page carries as ``<tr data-select-value="N">`` -- the
+#: options themselves have no ``selected`` attribute, so it is the row
+#: attribute that says which one is in force.
+EMX_DHCP_ON = "1"
+EMX_DHCP_OFF = "2"
+
+
+def gs110emx_switch_info_form(
+    *,
+    switch_name: str,
+    dhcp_mode: str,
+    ip_address: str,
+    subnet_mask: str,
+    gateway_address: str,
+) -> dict[str, str]:
+    """The GS110EMX sysInfo POST body -- the WHOLE form, per the page's own JS.
+
+    Transcribed from ``submitSwitchInfoForm()`` in the switch's ``/function.js``
+    (read live from 10.1.5.27, 2026-08-05), which validates the name, then::
+
+        form1.elements["ACTION"].value = "Apply";
+        form1.submit();
+
+    -- an ordinary whole-form POST, with ``ACTION`` the only field the script
+    itself sets. Note the capital "Apply" here versus the lowercase "apply" the
+    port-admin page sends; both spellings appear in that file, per page.
+
+    EVERY OTHER FIELD MUST BE ECHOED FROM THE PAGE. This one form carries the
+    management addressing as well as the name, so a caller who omits or guesses
+    ``dhcp_mode``/``IP_ADDRESS``/``SUBNET_MASK``/``GATEWAY_ADDRESS`` does not
+    merely fail to rename the switch -- it reconfigures the address it is
+    talking to and strands the device. That is why this builder takes all of
+    them and has no defaults.
+
+    The ``Gambit`` session token is added by the transport, as for every other
+    request on this model.
+    """
+    return {
+        "switch_name": switch_name,
+        "dhcp_mode": dhcp_mode,
+        # The page's checkbox, disabled unless DHCP is being turned on; "0"
+        # is its value in the served markup and means "do not re-request a
+        # lease". Sending "1" would make the switch renew and possibly move.
+        "refresh": "0",
+        "IP_ADDRESS": ip_address,
+        "SUBNET_MASK": subnet_mask,
+        "GATEWAY_ADDRESS": gateway_address,
+        "refreshFlag": "0",
+        "errMsg": "",
+        "ACTION": "Apply",
+    }

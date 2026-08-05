@@ -59,7 +59,7 @@ from .errors import (
     WriteVerificationError,
 )
 from .http_read import _parse_poe, fastpath_membership_paths
-from .models import VlanMode, poe_cycle_complete
+from .models import IpMode, VlanMode, poe_cycle_complete
 from .protocols.http import forms, goahead, parse
 from .protocols.http.endpoints import HtmlDialect, http_spec
 from .protocols.http.session import MultipartFile
@@ -339,6 +339,12 @@ def _is_xml_api_dialect(spec: HttpModelSpec) -> bool:
     ``_is_fastpath_dialect`` and a second XML-API model joins in one place.
     """
     return spec.html_dialect is HtmlDialect.GOAHEAD_XML
+
+
+#: The GS110EMX sysInfo name box carries maxlength="20"; its checkValidName()
+#: additionally rejects anything outside printable ASCII. Both read off the
+#: live page (10.1.5.27, 2026-08-05).
+_EMX_NAME_MAX = 20
 
 
 def _check_goahead_status(text: str, what: str) -> None:
@@ -1332,14 +1338,22 @@ class HttpWriter:
     def set_hostname(self, name: str, *, force: bool = False) -> None:
         """Set the host name, where this dialect's identity page carries one.
 
-        Implemented for the GoAhead XML API only: ``DeviceBasicInfo/deviceName``
-        is the host name there (MEASURED -- it reads byte-for-byte what SNMP
-        reports through sysName). The other dialects' identity pages either
-        carry no such field or have no captured write form, and are refused by
-        name rather than returned empty: an empty answer here would be
-        indistinguishable from a switch that genuinely has none.
+        Two dialects, and they are nothing alike:
+
+        * GoAhead XML API -- ``DeviceBasicInfo/deviceName`` IS the host name
+          (MEASURED: it reads byte-for-byte what SNMP reports through sysName).
+        * GS110EMX -- an ordinary form POST, but the host name shares that form
+          with the MANAGEMENT ADDRESS, so it is a read-modify-write. See
+          ``_set_gs110emx_hostname``.
+
+        Every other dialect is refused by name rather than returned empty: an
+        empty answer here would be indistinguishable from a switch that
+        genuinely has none.
         """
         del force  # renaming cannot strand a switch; reversible by writing back
+        if self._spec.html_dialect is HtmlDialect.GS110EMX:
+            self._set_gs110emx_hostname(name)
+            return
         if not _is_xml_api_dialect(self._spec):
             raise UnsupportedCapabilityError(
                 f"model {self.model.key!r}: this backend does not expose a "
@@ -1361,6 +1375,92 @@ class HttpWriter:
         if after != name:
             raise WriteVerificationError(
                 f"hostname did not read back as {name!r}", before=before, after=after
+            )
+
+    def _set_gs110emx_hostname(self, name: str) -> None:
+        """Rename a GS110EMX through its sysInfo form, without moving its address.
+
+        THE DANGEROUS ONE. That page posts the host name in the SAME form as
+        ``dhcp_mode``/``IP_ADDRESS``/``SUBNET_MASK``/``GATEWAY_ADDRESS``, so a
+        rename is unavoidably a read-modify-write: the current addressing is
+        read from the page and echoed back verbatim, and the write is only
+        considered done once a re-read shows the new name AND every addressing
+        field unchanged. Getting that wrong does not fail the rename, it
+        reconfigures the address the caller is talking to.
+
+        The envelope is the page's own ``submitSwitchInfoForm()`` (read from the
+        live switch's ``/function.js``, 2026-08-05) -- see
+        ``forms.gs110emx_switch_info_form``.
+
+        LIVE-VERIFIED 2026-08-05 on gs110emx3 (10.1.5.27, firmware 1.0.2.8):
+        renamed to a throwaway, confirmed the addressing was byte-identical,
+        restored the original name and confirmed again.
+        """
+        # The page's own checkValidName() builds its allowed set from
+        # `for (var i = 32; i < 127; i++)` -- so ASCII 32..126, and nothing
+        # else. The input carries maxlength="20". Enforced here so the caller
+        # gets a reason rather than a silently blanked field (that validator
+        # sets the box to "" and pops an alert on failure).
+        #
+        # isascii() AND isprintable(), not isprintable() alone: the latter is
+        # Unicode-aware, so an em dash passes it and would have been posted to
+        # a page that rejects it.
+        if (
+            not name
+            or len(name) > _EMX_NAME_MAX
+            or not (name.isascii() and name.isprintable())
+        ):
+            raise UnsupportedCapabilityError(
+                f"GS110EMX host name {name!r} is not acceptable to this page: it "
+                f"takes 1-{_EMX_NAME_MAX} printable ASCII characters"
+            )
+        path = _require_path(
+            self.model.key, self._spec.sysinfo_path, "the system-information page"
+        )
+        before = parse.parse_sysinfo(self.session.get_page(path))
+        addressing = (
+            before.ip_mode,
+            before.ip_address,
+            before.subnet_mask,
+            before.gateway_address,
+        )
+        self.session.post_form(
+            path,
+            forms.gs110emx_switch_info_form(
+                switch_name=name,
+                dhcp_mode=(
+                    forms.EMX_DHCP_ON
+                    if before.ip_mode is IpMode.DHCP
+                    else forms.EMX_DHCP_OFF
+                ),
+                ip_address=before.ip_address,
+                subnet_mask=before.subnet_mask,
+                gateway_address=before.gateway_address,
+            ),
+        )
+        after = parse.parse_sysinfo(self.session.get_page(path))
+        # The addressing check comes FIRST and is the one that matters: a
+        # rename that moved the management address is a far worse outcome than
+        # a rename that did not happen, and the caller must hear about it even
+        # if the name did change.
+        now = (
+            after.ip_mode,
+            after.ip_address,
+            after.subnet_mask,
+            after.gateway_address,
+        )
+        if now != addressing:
+            raise WriteVerificationError(
+                "the host-name write CHANGED this switch's management "
+                "addressing -- it may be unreachable at the old address",
+                before=addressing,
+                after=now,
+            )
+        if after.switch_name != name:
+            raise WriteVerificationError(
+                f"hostname did not read back as {name!r}",
+                before=before.switch_name,
+                after=after.switch_name,
             )
 
     def set_port_speed(

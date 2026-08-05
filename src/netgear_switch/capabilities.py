@@ -506,6 +506,7 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
     """
     from .http_read import _has_sysinfo_hostname, _mgmt_ip_path, _supports_sensors
     from .http_write import _is_xml_api_dialect
+    from .protocols.http.endpoints import HtmlDialect
 
     if _is_xml_api_dialect(spec) and op.kind is OperationKind.WRITE:
         # On an XML-API UI every write POSTs to one endpoint and the BODY
@@ -554,8 +555,13 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         # add_syslog_collector for what the page does and does not tell us.
         "add_syslog_collector": None,
         "remove_syslog_collector": None,
-        # Same shape: only the XML-API dialect has a grounded host-name write.
-        "set_hostname": None,
+        # The GS110EMX sysInfo form carries switch_name, so that dialect has a
+        # grounded (and live-verified) host-name write; every other non-XML-API
+        # dialect is None. gs105pe's switch_info.cgi has the same field but its
+        # own CSRF-hash envelope, which has not been driven.
+        "set_hostname": (
+            spec.sysinfo_path if spec.html_dialect is HtmlDialect.GS110EMX else None
+        ),
         "upload_certificate": spec.cert_upload_path,
     }
     if op.name == "get_sensors":
