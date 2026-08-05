@@ -327,10 +327,14 @@ def test_a_switch_that_accepts_and_ignores_is_caught() -> None:
     [
         ("netgear_switch.snmp_write", "SnmpWriter", "NEGOTIATED"),
         ("netgear_switch.nsdp_write", "NsdpWriter", "negotiated link"),
-        ("netgear_switch.http_write", "HttpWriter", "no web-UI speed/duplex"),
+        # HTTP is absent here because it SERVES this op on the GoAhead XML API.
+        # Its per-dialect refusal is asserted in test_port_speed_http.py, which
+        # drives a real gsm7252ps web UI rather than a bare class.
     ],
 )
-def test_every_other_backend_refuses_by_name(module: str, cls: str, match: str) -> None:
+def test_the_two_remaining_backends_refuse_by_name(
+    module: str, cls: str, match: str
+) -> None:
     """Principle 2's mechanism: a backend that cannot serve an op SAYS SO.
 
     Not absent from the class -- absent would surface as an AttributeError out

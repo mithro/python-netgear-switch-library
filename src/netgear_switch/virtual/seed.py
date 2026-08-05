@@ -2751,6 +2751,14 @@ def seed_gs728tpp() -> VirtualSwitchState:
     reports power_mw=None (vs HTTP's live 0)."""
     up = {2, 5, 12, 23, 24, 26, 28}
     speed100 = {5, 12, 23}
+    # CONFIGURED speed, from the same capture (tests/fixtures/http/
+    # gs728tpp_ports.xml): the 24 copper ports auto-negotiate
+    # (autoNegotiationAdminEnabled 1) while the four SFP uplinks 25-28 are
+    # FORCED to 1000 full (2). Every one of the 28 reports speedAdmin 1000 and
+    # duplexAdminMode 3 regardless, so the flag is the only thing telling the
+    # two apart -- which is exactly what the decoder has to get right, and what
+    # a seed with a uniform value could never exercise.
+    forced_1000 = {25, 26, 27, 28}
     ports = {
         p: PortSim(
             name=f"g{p}",
@@ -2762,6 +2770,7 @@ def seed_gs728tpp() -> VirtualSwitchState:
             # 2026-08-03 across all 28 ports on both backends at once.
             serves_etherlike=True,
             flow_control=False,
+            autoneg_admin="2" if p in forced_1000 else "1",
         )
         for p in range(1, 29)
     }

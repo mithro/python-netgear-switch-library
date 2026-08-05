@@ -46,6 +46,7 @@ from ...models import (
     MgmtIpConfig,
     PoEDetect,
     PoEStatus,
+    PortSpeed,
     PortStats,
     PortStatus,
     Sensor,
@@ -2779,6 +2780,33 @@ _GOAHEAD_DUPLEX_OPER = {"2": True}
 _GOAHEAD_FLOW_CONTROL = {"1": True, "2": False}
 
 
+def _goahead_speed_config(entry: ElementTree.Element) -> PortSpeed | None:
+    """The CONFIGURED speed of one ``Standard802_3List`` Entry.
+
+    Decoded exactly as the page's own JS decodes it for display::
+
+        if (field.autoNegotiationAdminEnabled == "1") str = "Auto";
+        else str = field.speedAdmin + "M" + (duplexAdminMode=="3" ? " Full"
+                                                                 : " Half");
+
+    ``autoNegotiationAdminEnabled`` is authoritative and ``speedAdmin`` is
+    IGNORED while it is 1 -- which is not a detail one could skip. In the live
+    capture every auto-negotiating port carries ``speedAdmin`` 1000 alongside
+    ``autoNegotiationAdminEnabled`` 1, so decoding on the rate alone would
+    report the whole switch as forced to 1000.
+    """
+    autoneg = _gtext(entry, "autoNegotiationAdminEnabled")
+    if autoneg == "1":
+        return PortSpeed(autonegotiate=True)
+    if autoneg != "2":
+        return None  # neither code the page knows: honestly unknown
+    rate = _int(_gtext(entry, "speedAdmin"))
+    duplex = _gtext(entry, "duplexAdminMode")
+    if rate is None or duplex not in {"2", "3"}:
+        return None
+    return PortSpeed(autonegotiate=False, speed_mbps=rate, full_duplex=duplex == "3")
+
+
 def parse_goahead_ports(body: str) -> list[PortStatus]:
     """GS728TPP ``Standard802_3List`` -> per-port status.
 
@@ -2809,6 +2837,7 @@ def parse_goahead_ports(body: str) -> list[PortStatus]:
                 flow_control=_GOAHEAD_FLOW_CONTROL.get(
                     _gtext(e, "flowControlOperType")
                 ),
+                speed_config=_goahead_speed_config(e),
             )
         )
     if not out:

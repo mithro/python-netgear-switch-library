@@ -72,7 +72,13 @@ def _port_entry(state: VirtualSwitchState, port: int) -> str:
         f"<linkState>{_LINK[sim.link]}</linkState>"
         f"<speedOper>{sim.speed}</speedOper>"
         f"<duplexOperMode>{'2' if sim.link else '4'}</duplexOperMode>"
-        f"<duplexAdminMode>3</duplexAdminMode>"
+        # The three configured-speed fields, from state rather than hardcoded --
+        # a write has to be able to move them. autoNegotiationAdminEnabled is
+        # the authoritative one; speedAdmin keeps reporting a rate beside it.
+        f"<speedAdmin>{sim.speed_admin}</speedAdmin>"
+        f"<duplexAdminMode>{sim.duplex_admin_mode}</duplexAdminMode>"
+        f"<autoNegotiationAdminEnabled>{sim.autoneg_admin}"
+        "</autoNegotiationAdminEnabled>"
         f"<flowControlOperType>{'1' if sim.flow_control else '2'}</flowControlOperType>"
         f"<flowControlAdminType>{'1' if sim.flow_control else '2'}"
         "</flowControlAdminType></Entry>"
@@ -397,6 +403,29 @@ def apply_write(state: VirtualSwitchState, xml_body: str) -> str:
                 desc = entry.findtext("interfaceDescription")
                 if desc is not None:
                     state.ports[port].description = desc.strip() or None
+                # Speed/duplex: the page sends all three together or none of
+                # them (its JS marks each `undefined` when the operator did not
+                # touch the control), so they are applied as a unit.
+                autoneg = (entry.findtext("autoNegotiationAdminEnabled") or "").strip()
+                rate = (entry.findtext("speedAdmin") or "").strip()
+                duplex = (entry.findtext("duplexAdminMode") or "").strip()
+                if autoneg in ("1", "2") and rate and duplex in ("2", "3"):
+                    sim = state.ports[port]
+                    sim.autoneg_admin = autoneg
+                    sim.duplex_admin_mode = duplex
+                    # Forcing a rate does NOT re-negotiate the link, so
+                    # ``speed``/``link`` are untouched -- the same separation
+                    # the FASTPATH face keeps between Physical Mode and
+                    # Physical Status.
+                    #
+                    # Returning to auto sends speedAdmin="0", but the live
+                    # switch reports a REAL rate there while negotiating (1000
+                    # on every port of the capture), so the previous value is
+                    # kept rather than storing the 0. That preserves the
+                    # property the decoder has to cope with: speedAdmin says
+                    # something plausible even when it means nothing. What a
+                    # DOWN auto port reports there was never observed.
+                    sim.speed_admin = rate if autoneg == "2" else sim.speed_admin
             handled = True
 
     if not handled:

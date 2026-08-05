@@ -212,18 +212,24 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         "set_port_speed",
         OperationKind.WRITE,
         "Force a port's speed/duplex, or restore auto-negotiation",
-        # CLI only, and each of the other three refuses BY NAME rather than
-        # being quietly absent (see each writer's set_port_speed):
+        # CLI and HTTP. The other two refuse BY NAME rather than being quietly
+        # absent (see each writer's set_port_speed):
         #   SNMP  ifSpeed/ifHighSpeed report the NEGOTIATED rate; the MAU-MIB
         #         columns that would carry the setting have not been walked, so
         #         their presence is unknown rather than absent
         #   NSDP  the per-port speed byte is a LINK-STATE code (0x00 means DOWN)
-        #   HTTP  the FASTPATH XUI page has a Speed control whose cell id was
-        #         never captured; the GoAhead XML API has the fields and is next
         #
-        # The CLI grammar itself is proven by execution on gsm7252ps 10.1.5.22
-        # port 1/0/8 (2026-08-03), including the switch REFUSING a forced 1000.
-        backends=_CLI_BACKENDS,
+        # The CLI grammar is proven by execution on gsm7252ps 10.1.5.22 port
+        # 1/0/8 (2026-08-03), including the switch REFUSING a forced 1000. HTTP
+        # is the GoAhead XML API only, transcribed from the ports page's own
+        # submit JS; _http_path_for filters every other dialect out, because the
+        # FASTPATH XUI Speed control's cell id was never captured.
+        #
+        # The two backends deliberately DISAGREE about a forced 1000 -- the CLI
+        # grammar omits it, the GoAhead dropdown offers it -- and each says so
+        # for its own measured reason. That is what per-backend grounding looks
+        # like when it is done properly rather than harmonised into a guess.
+        backends=frozenset({Backend.HTTP}) | _CLI_BACKENDS,
     ),
     Operation("set_pvid", OperationKind.WRITE, "Set a port's PVID"),
     Operation(
@@ -419,6 +425,9 @@ _XML_API_WRITES = {
     "clear_poe_fault": True,
     "set_port_description": True,
     "set_hostname": True,
+    # Standard802_3List's autoNegotiationAdminEnabled/speedAdmin/
+    # duplexAdminMode, encoded exactly as the ports page's own submit JS does.
+    "set_port_speed": True,
 }
 
 
@@ -468,6 +477,9 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         # Only the XML-API dialect has a grounded description write; every other
         # dialect is handled by the branch above returning None for it.
         "set_port_description": None,
+        # Same shape: the FASTPATH XUI Speed control's cell id was never
+        # captured, so only the XML-API branch above answers for this op.
+        "set_port_speed": None,
         # Same shape: only the XML-API dialect has a grounded host-name write.
         "set_hostname": None,
         "upload_certificate": spec.cert_upload_path,

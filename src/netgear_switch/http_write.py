@@ -1366,20 +1366,61 @@ class HttpWriter:
     def set_port_speed(
         self, port: int, speed: PortSpeed, *, force: bool = False
     ) -> None:
-        """This backend cannot configure a port's speed on this UI.
+        """Set a port's speed/duplex through the ports page's admin fields.
 
-        The FASTPATH XUI port-configuration page HAS a Speed control, but
-        its cell id was never captured, and this writer will not POST into
-        a guessed coordinate -- the same stance ``set_port_description``
-        takes on the same page. The GoAhead XML API (gs728tpp) publishes
-        the fields for it (``Standard802_3List``:
-        speedAdmin/duplexAdminMode/autoNegotiationAdminEnabled) and is the
-        next dialect to gain this write.
+        XML-API only. That page's ``Standard802_3List`` carries
+        ``autoNegotiationAdminEnabled``/``speedAdmin``/``duplexAdminMode``, the
+        read side already parses them, and the exact encoding is transcribed
+        from the page's own submit JS (see ``goahead.port_speed_body``). The
+        FASTPATH XUI port pages have a Speed control too, but its cell id has
+        not been captured, and guessing one would post into an unknown cell.
+
+        A rate the page's own dropdown does not offer is refused by name.
+        That list is device evidence, not a house rule: the ``slctPortSpeed``
+        ``<option>`` set is 10/100 half-or-full, 1000 FULL ONLY, and Auto. Note
+        this UI DOES offer a forced 1000 where the FASTPATH CLI does not --
+        which is exactly why that refusal lives in ``CliWriter`` and not in
+        ``PortSpeed``.
+
+        Disruptive -- applying a speed bounces the link -- so it honours
+        ``protected_ports``.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: no web-UI speed/duplex write form has "
-            "been captured for this dialect"
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP speed/duplex write form has "
+                "been captured for this web UI dialect"
+            )
+        if (
+            not speed.autonegotiate
+            and (speed.speed_mbps, speed.full_duplex)
+            not in goahead.GOAHEAD_FORCED_SPEEDS
+        ):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: this web UI offers no "
+                f"{speed} choice (its Speed control lists 10/100 half or full, "
+                "1000 full, and Auto)"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
         )
+
+        def configured(body: str) -> PortSpeed | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.speed_config for p in rows if p.port == port), None)
+
+        before = configured(self.session.get_page(path))
+        self._goahead_write(
+            goahead.port_speed_body(goahead.port_interface_name(port), port, speed),
+            f"port {port} speed -> {speed}",
+        )
+        after = configured(self.session.get_page(path))
+        if after != speed:
+            raise WriteVerificationError(
+                f"speed for port {port} did not read back as {speed}",
+                before=before,
+                after=after,
+            )
 
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
@@ -1998,20 +2039,43 @@ class AsyncHttpWriter:
     async def set_port_speed(
         self, port: int, speed: PortSpeed, *, force: bool = False
     ) -> None:
-        """This backend cannot configure a port's speed on this UI.
-
-        The FASTPATH XUI port-configuration page HAS a Speed control, but
-        its cell id was never captured, and this writer will not POST into
-        a guessed coordinate -- the same stance ``set_port_description``
-        takes on the same page. The GoAhead XML API (gs728tpp) publishes
-        the fields for it (``Standard802_3List``:
-        speedAdmin/duplexAdminMode/autoNegotiationAdminEnabled) and is the
-        next dialect to gain this write.
-        """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: no web-UI speed/duplex write form has "
-            "been captured for this dialect"
+        """Async twin of ``HttpWriter.set_port_speed`` -- see it."""
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP speed/duplex write form has "
+                "been captured for this web UI dialect"
+            )
+        if (
+            not speed.autonegotiate
+            and (speed.speed_mbps, speed.full_duplex)
+            not in goahead.GOAHEAD_FORCED_SPEEDS
+        ):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: this web UI offers no "
+                f"{speed} choice (its Speed control lists 10/100 half or full, "
+                "1000 full, and Auto)"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
         )
+
+        def configured(body: str) -> PortSpeed | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.speed_config for p in rows if p.port == port), None)
+
+        before = configured(await self.session.get_page(path))
+        await self._goahead_write(
+            goahead.port_speed_body(goahead.port_interface_name(port), port, speed),
+            f"port {port} speed -> {speed}",
+        )
+        after = configured(await self.session.get_page(path))
+        if after != speed:
+            raise WriteVerificationError(
+                f"speed for port {port} did not read back as {speed}",
+                before=before,
+                after=after,
+            )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.

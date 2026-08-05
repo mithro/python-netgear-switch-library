@@ -192,6 +192,21 @@ class PortSim:
     # while its link is DOWN leaves Physical Status blank and Physical Mode at
     # "100 Full", which is precisely the divergence the two fields exist for.
     physical_mode: str = "Auto"
+    # The SAME configured speed as ``physical_mode`` above, in the GoAhead web
+    # UI's own three-element encoding. Kept as separate RAW fields rather than
+    # rendered from one shared value, for the same reason: a mock that computes
+    # what the parser decodes can only ever agree with it.
+    #
+    # The defaults are what the live GS728TPP (10.2.5.10, firmware 6.0.1.30)
+    # returned for EVERY port: autoneg 1 with speedAdmin 1000 sitting beside it.
+    # That pairing is the interesting part -- speedAdmin is meaningful only
+    # while autoneg is 2, so a decoder reading the rate alone would call this
+    # whole switch "forced to 1000". No FASTPATH model serves these fields and
+    # no GoAhead model serves ``physical_mode``, so the two never disagree on
+    # one device.
+    autoneg_admin: str = "1"  # 1 = negotiating, 2 = forced
+    speed_admin: str = "1000"  # Mbit/s; only meaningful while autoneg is 2
+    duplex_admin_mode: str = "3"  # 3 = full, 2 = half (NOT duplexOperMode's enum)
 
 
 @dataclass

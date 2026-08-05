@@ -156,18 +156,29 @@ never be confirmed.
    switch.set_port_speed(8, PortSpeed.forced(100, full_duplex=True), force=True)
    switch.set_port_speed(8, PortSpeed.auto(), force=True)   # and back
 
-**1000 Mbit/s cannot be forced.** 1000BASE-T requires auto-negotiation, and the
-firmware encodes that by leaving 1000 out of its forced ``speed`` grammar
-entirely while keeping it among the advertised rates. Asking for it raises
-:py:obj:`~netgear_switch.errors.CliCommandError` before anything is sent, naming the reason —
-rather than passing the request on for the switch to answer with a bare
-``% Invalid input``.
+**The two backends disagree about a forced 1000, and both are right.**
 
-Which *other* rates a port accepts follows its PHY, not its firmware: a 1G
-copper port offered 10/100/10G while a 10GBASE-T port on another model offered
-100/10G. The library therefore keeps no rate table and sends what you ask for;
-a rate the port does not have comes back as ``CliCommandError`` carrying the
-switch's own words.
+*Over the CLI*, asking for one raises :py:obj:`~netgear_switch.errors.CliCommandError` before
+anything is sent. 1000BASE-T requires auto-negotiation, and the FASTPATH
+grammar encodes that by leaving 1000 out of its forced ``speed`` command
+entirely while keeping it among ``speed auto``'s advertised rates.
+
+*Over the GoAhead web UI* (GS728TPP) it is accepted, because that page's own
+Speed control offers "1000M Full Duplex" — and the live switch really does run
+its four SFP uplinks that way. Fibre 1000BASE-X carries no such requirement.
+Harmonising the two into a single rule would have made one of them wrong about
+real hardware, so each backend answers for its own device.
+
+Which *other* rates are available differs the same way, and for the same
+reason — the PHY, not the firmware:
+
+* **CLI**: no rate table is kept at all. A 1G copper port offered 10/100/10G
+  while a 10GBASE-T port on another model offered 100/10G, so the library sends
+  what you ask for and surfaces the switch's own ``% Invalid input`` as
+  ``CliCommandError``.
+* **HTTP**: the page publishes its choices as a dropdown, so the library
+  validates against that captured list (10/100 half or full, 1000 full, Auto)
+  and refuses anything else with :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError`.
 
 Certificates
 ------------

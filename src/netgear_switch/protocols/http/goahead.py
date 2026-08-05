@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import TypeAlias
 
-    from ...models import VlanMode
+    from ...models import PortSpeed, VlanMode
 
     #: One node of a wcd write body: text, a nested element, or repeated
     #: elements. Type-check-only, so the recursion needs no runtime resolution.
@@ -265,3 +265,77 @@ def port_config_body(
     if description is not None:
         entry["interfaceDescription"] = description
     return write_body("Standard802_3List", "set", [{"Entry": entry}])
+
+
+#: The speed/duplex choices this UI offers, READ OFF the page's own
+#: ``slctPortSpeed`` ``<option>`` list (captured in
+#: ``tests/fixtures/http/gs728tpp_ports.xml``)::
+#:
+#:     10H  10M Half Duplex      100H 100M Half Duplex     0 Auto
+#:     10F  10M Full Duplex      100F 100M Full Duplex
+#:                               1000F 1000M Full Duplex
+#:
+#: Two things fall out that a guess would have got wrong. This UI DOES offer a
+#: forced 1000 -- unlike the FASTPATH CLI, whose grammar omits it -- which is
+#: why the forced-1000 refusal lives in the CLI writer and not in ``PortSpeed``.
+#: And there is no ``1000H``: gigabit half-duplex is not a thing the page will
+#: let an operator ask for, so neither will this builder.
+GOAHEAD_FORCED_SPEEDS: frozenset[tuple[int, bool]] = frozenset(
+    {
+        (10, False),
+        (10, True),
+        (100, False),
+        (100, True),
+        (1000, True),
+    }
+)
+
+#: ``duplexAdminMode`` as the page's SUBMIT path writes it: 3 = full, 2 = half
+#: (``duplexAdmin = (duplexCode == "H") ? "2" : "3"``). Deliberately NOT the
+#: same enum as ``duplexOperMode`` on the read side, where 2 means full -- see
+#: ``parse._GOAHEAD_DUPLEX_OPER``.
+DUPLEX_ADMIN_FULL = "3"
+DUPLEX_ADMIN_HALF = "2"
+#: ``autoNegotiationAdminEnabled``: 1 = negotiating, 2 = forced.
+AUTONEG_ON = "1"
+AUTONEG_OFF = "2"
+
+
+def port_speed_body(port_name: str, port_id: int, speed: PortSpeed) -> str:
+    """Port speed/duplex via ``Standard802_3List``, exactly as the page sends it.
+
+    Transcribed from the submit builder in the page's own JS, which turns one
+    dropdown value into three elements::
+
+        var autoNegAdmin = (speedAdmin == "0") ? "1" : "2";
+        if (speedAdmin == "0") duplexAdmin = "3";
+        else { duplexAdmin = (last char == "H") ? "2" : "3";
+               speedAdmin = parseInt(speedAdmin, 10); }
+
+    So AUTO sends ``autoNegotiationAdminEnabled=1, speedAdmin=0,
+    duplexAdminMode=3`` -- note it sends a speed of 0 rather than omitting the
+    field -- and a forced choice sends ``autoNegotiationAdminEnabled=2`` with
+    the parsed rate and the duplex code.
+    """
+    if speed.autonegotiate:
+        rate, autoneg, duplex = "0", AUTONEG_ON, DUPLEX_ADMIN_FULL
+    else:
+        assert speed.speed_mbps is not None  # PortSpeed.__post_init__ ensures it
+        rate, autoneg = str(speed.speed_mbps), AUTONEG_OFF
+        duplex = DUPLEX_ADMIN_FULL if speed.full_duplex else DUPLEX_ADMIN_HALF
+    return write_body(
+        "Standard802_3List",
+        "set",
+        [
+            {
+                "Entry": {
+                    "interfaceName": port_name,
+                    "interfaceType": INTERFACE_PHYSICAL,
+                    "interfaceID": str(port_id),
+                    "autoNegotiationAdminEnabled": autoneg,
+                    "speedAdmin": rate,
+                    "duplexAdminMode": duplex,
+                }
+            }
+        ],
+    )

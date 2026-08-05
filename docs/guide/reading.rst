@@ -21,7 +21,9 @@ The operations
        the operator-set description (``ifAlias``) where the backend can read
        one. ``speed_config`` carries the port's **configured** speed/duplex,
        which is a different question from the negotiated ``speed_mbps`` —
-       see :ref:`speed-vs-negotiated`.
+       see :ref:`speed-vs-negotiated`. The CLI and the GoAhead web UI both
+       report it; SNMP and NSDP leave it ``None``, because ``ifSpeed`` and
+       NSDP's port record are both the negotiated rate.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_stats`
      - ``list[PortStats]``
      - RX/TX bytes, packets and errors. Any counter a backend cannot read is
