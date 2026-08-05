@@ -866,6 +866,10 @@ def parse_syslog(
             port=ports.get(index, 0),
             severity=severities.get(index, 0),
             active=statuses.get(index) == _HOST_STATUS_ACTIVE,
+            # The OID instance IS the table's row index, and it is the handle a
+            # RowStatus destroy addresses -- so it is surfaced rather than
+            # dropped. Sparse, exactly as the CLI table shows it.
+            index=index,
         )
         for index, address in sorted(addresses.items())
         if address.strip()

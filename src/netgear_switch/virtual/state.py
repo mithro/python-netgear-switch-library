@@ -897,12 +897,17 @@ class VirtualSwitchState:
         if v is not None:
             m[f"{v.base}.14.1.4.1.0"] = ("INTEGER", str(self.syslog.admin_mode))
             m[f"{v.base}.14.1.4.3.0"] = ("Gauge32", str(self.syslog.local_port))
-            for index, col in enumerate(self.syslog.collectors, start=1):
-                m[f"{v.base}.14.1.4.5.1.2.{index}"] = ("INTEGER", "1")
-                m[f"{v.base}.14.1.4.5.1.3.{index}"] = ("OCTETSTR", col.host)
-                m[f"{v.base}.14.1.4.5.1.4.{index}"] = ("Gauge32", str(col.port))
-                m[f"{v.base}.14.1.4.5.1.5.{index}"] = ("INTEGER", str(col.severity))
-                m[f"{v.base}.14.1.4.5.1.7.{index}"] = ("INTEGER", str(col.status))
+            # col.index, NOT the enumeration position: the real table is SPARSE
+            # (Index 1 and 3 with nothing at 2, measured on m4300-24x
+            # 10.1.5.13) and the OID instance IS that index, which is what a
+            # RowStatus destroy addresses.
+            for col in self.syslog.collectors:
+                i = col.index
+                m[f"{v.base}.14.1.4.5.1.2.{i}"] = ("INTEGER", "1")
+                m[f"{v.base}.14.1.4.5.1.3.{i}"] = ("OCTETSTR", col.host)
+                m[f"{v.base}.14.1.4.5.1.4.{i}"] = ("Gauge32", str(col.port))
+                m[f"{v.base}.14.1.4.5.1.5.{i}"] = ("INTEGER", str(col.severity))
+                m[f"{v.base}.14.1.4.5.1.7.{i}"] = ("INTEGER", str(col.status))
 
         for port, sim in self.ports.items():
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")
@@ -1400,6 +1405,35 @@ class VirtualSwitchState:
             if oid == f"{v.dhcp_mode_unverified}.0":
                 self.mgmt.mode = "static" if int(value) == 2 else "dhcp"
                 return
+            # Remote-logging admin mode (1 = enabled, 2 = not), the column
+            # set_syslog_enabled writes.
+            if oid == v.syslog_admin_mode:
+                self.syslog.admin_mode = int(value)
+                return
+            # Syslog host RowStatus. MEASURED on m4300-24x 10.1.5.13
+            # (2026-08-05): this agent honours destroy(6) on an existing row but
+            # refuses to CREATE one through every mechanism -- createAndGo(4)
+            # and createAndWait(5) answer inconsistentValue, and writing the
+            # value columns at a free index answers commitFailed. The mock
+            # reproduces BOTH halves so the writer's asymmetric support (remove
+            # yes, add no) is checked against a fake that behaves the same way.
+            index = _tail(v.syslog_host_status)
+            if index is not None:
+                row = next(
+                    (c for c in self.syslog.collectors if c.index == index), None
+                )
+                if row is None:
+                    # No such row: creating one is what the agent refuses.
+                    raise InconsistentValueError(
+                        f"syslog host row {index} does not exist -- this agent "
+                        f"refuses to create one (measured: createAndGo and "
+                        f"createAndWait both answer inconsistentValue)"
+                    )
+                if int(value) == 6:  # destroy
+                    self.syslog.collectors.remove(row)
+                    return
+                row.status = int(value)
+                return
 
         # Unhandled writable OID: deliberate no-op (verify-after-write catches it).
 
@@ -1678,6 +1712,14 @@ class VirtualSwitchState:
             v.mgmt_write_netmask_unverified,
             v.mgmt_write_gateway_unverified,
         ):
+            return True
+        # Remote-logging admin mode, and the syslog host RowStatus column.
+        # Both writable on real hardware (m4300-24x 10.1.5.13, 2026-08-05, with
+        # the Read/Write community): the admin mode is what set_syslog_enabled
+        # writes, and the RowStatus column accepts destroy(6) on an existing
+        # row -- while refusing to CREATE one, which apply_write models by
+        # raising InconsistentValueError for an index that is not there.
+        if oid == v.syslog_admin_mode or _is_col(v.syslog_host_status):
             return True
         return oid == f"{v.dhcp_mode_unverified}.0"
 

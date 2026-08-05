@@ -295,7 +295,8 @@ def test_a_switch_that_accepts_and_ignores_is_caught() -> None:
 @pytest.mark.parametrize(
     ("module", "cls"),
     [
-        ("netgear_switch.snmp_write", "SnmpWriter"),
+        # SNMP is absent here because it SERVES remove (destroy(6) works) and
+        # refuses add for its own measured reason -- both covered below.
         ("netgear_switch.nsdp_write", "NsdpWriter"),
         ("netgear_switch.http_write", "HttpWriter"),
     ],
@@ -311,3 +312,54 @@ def test_every_other_backend_refuses_by_name(module: str, cls: str, op: str) -> 
     writer.model = get_model(_MODEL)
     with pytest.raises(UnsupportedCapabilityError, match="syslog-collector row"):
         getattr(writer, op)(THROWAWAY)
+
+
+# --- SNMP: destroy works, create does not ------------------------------------
+
+
+def _snmp(mock: VirtualSwitch):
+    from netgear_switch.snmp_read import SnmpReader
+    from netgear_switch.snmp_write import SnmpWriter
+    from netgear_switch.transport.sync.snmp_netsnmp_cli import NetsnmpCliClient
+
+    model = get_model(_MODEL)
+    client = NetsnmpCliClient(f"{mock.host}:{mock.port}", mock.community)
+    return SnmpReader(client, model), SnmpWriter(client, model)
+
+
+def test_snmp_destroys_a_row_but_will_not_create_one() -> None:
+    """The agent's asymmetry, measured on m4300-24x 10.1.5.13 (2026-08-05).
+
+    Five creation mechanisms all refused -- createAndGo(4) and createAndWait(5)
+    with inconsistentValue, the value columns alone and active(1) with
+    commitFailed -- while a single SET of RowStatus destroy(6) on an EXISTING
+    row removed it, confirmed through the switch's own `show logging hosts`.
+
+    So the library serves remove over SNMP and refuses add, and the fake
+    reproduces both halves rather than being uniformly permissive.
+    """
+    with VirtualSwitch(model=_MODEL) as mock:
+        reader, writer = _snmp(mock)
+        assert [s.host for s in reader.get_syslog().servers] == [LIVE_COLLECTOR]
+
+        with pytest.raises(UnsupportedCapabilityError, match="refuses to create"):
+            writer.add_syslog_collector(THROWAWAY)
+
+        writer.remove_syslog_collector(LIVE_COLLECTOR)
+        assert reader.get_syslog().servers == ()
+
+
+def test_snmp_surfaces_the_row_index_it_destroys_by() -> None:
+    """The OID instance IS the row index, and the reader must expose it --
+    a destroy addressed by list position would hit the wrong row on the sparse
+    tables real switches carry."""
+    with VirtualSwitch(model=_MODEL) as mock:
+        reader, _ = _snmp(mock)
+        assert [s.index for s in reader.get_syslog().servers] == [1]
+
+
+def test_snmp_removing_an_absent_collector_is_refused() -> None:
+    with VirtualSwitch(model=_MODEL) as mock:
+        _, writer = _snmp(mock)
+        with pytest.raises(UnsupportedCapabilityError, match="no syslog collector"):
+            writer.remove_syslog_collector(THROWAWAY)

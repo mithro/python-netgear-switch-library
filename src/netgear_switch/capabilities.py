@@ -339,12 +339,16 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         "remove_syslog_collector",
         OperationKind.WRITE,
         "Remove a remote syslog collector",
-        # CLI only. `logging host remove <index>` -- a SUBCOMMAND, not the
-        # negation it looks like; `no logging host ...` is rejected by the
-        # device in every spelling. Addresses the 1-based Index column of
-        # `show logging hosts`, so the writer resolves the index from a fresh
-        # read immediately before the write: removing row 1 renumbers the rest.
-        backends=_CLI_BACKENDS,
+        # CLI *and* SNMP, and the asymmetry with add is the AGENT's, measured
+        # rather than assumed: it refuses to CREATE a syslog host row through
+        # every mechanism but honours RowStatus destroy(6) on an existing one
+        # (live on m4300-24x 10.1.5.13, 2026-08-05).
+        #
+        # CLI: `logging host remove <index>` -- a SUBCOMMAND, not the negation
+        # it looks like; `no logging host ...` is rejected in every spelling.
+        # Both backends address the table's OWN Index, which is SPARSE, so both
+        # read it fresh rather than counting rows.
+        backends=frozenset({Backend.SNMP}) | _CLI_BACKENDS,
     ),
     Operation(
         "upload_certificate",

@@ -57,6 +57,12 @@ def _poe_admin_oid(port: int) -> str:
 # commitFailed, as did := a VLAN id that does not exist.
 _DEFAULT_VLAN = 1
 
+#: SMI RowStatus ``destroy``. The one row-status value the FASTPATH syslog host
+#: table honours: creation is refused through every mechanism (see
+#: ``SnmpWriter.add_syslog_collector``) while destroy works, LIVE-VERIFIED on
+#: m4300-24x 10.1.5.13 2026-08-05.
+_ROW_DESTROY = "6"
+
 
 def _vlan_bitmap(vlans: Iterable[int]) -> bytes:
     """Encode VLAN ids into a switchport VLAN bitmap (512 B, 4096 VLANs).
@@ -833,34 +839,78 @@ class SnmpWriter:
     def add_syslog_collector(
         self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
     ) -> None:
-        """This backend cannot add a syslog collector.
+        """This agent will not CREATE a syslog host row. MEASURED, not assumed.
 
-        Refused by name. The vendor host table is READ here, but a
-        RowStatus create/destroy against it has never been driven --
-        and that is not a safe thing to assume: the GS728TPP agent
-        refuses VLAN row creation across all five RowStatus
-        mechanisms. Use a CLI backend, where the command form is the
-        device's own running-config line.
+        Probed on m4300-24x 10.1.5.13 (FASTPATH 12.0.13.8, 2026-08-05) with the
+        Read/Write community, against a free index. Five mechanisms, five
+        refusals, with the agent's own SMI error-status::
+
+            createAndGo(4) + every column, one PDU -> inconsistentValue
+            createAndWait(5) alone                 -> inconsistentValue
+            createAndGo(4) alone                   -> inconsistentValue
+            the value columns alone (auto-create?) -> commitFailed
+            active(1) at a row that does not exist -> commitFailed
+
+        The same agent ACCEPTS a SET of every column of an EXISTING row, and
+        accepts ``destroy`` -- see ``remove_syslog_collector`` -- so this is the
+        agent declining row creation specifically, not a permissions problem.
+        (The first run of that probe used the READ community and "refused"
+        everything, which is CLAUDE.md principle 4's own example. Ask the switch
+        with ``show snmpcommunity``.)
+
+        Same shape as the GS728TPP's refusal to create a VLAN row. Add over a
+        CLI backend, where the command is the device's own running-config line.
         """
         raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend has no grounded "
-            "syslog-collector row write"
+            f"model {self.model.key!r}: this agent refuses to create a syslog "
+            "host row (measured: createAndGo/createAndWait -> inconsistentValue, "
+            "value-columns-only -> commitFailed); add it over a CLI backend"
         )
 
     def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
-        """This backend cannot remove a syslog collector.
+        """Remove a collector by writing RowStatus ``destroy(6)`` to its row.
 
-        Refused by name. The vendor host table is READ here, but a
-        RowStatus create/destroy against it has never been driven --
-        and that is not a safe thing to assume: the GS728TPP agent
-        refuses VLAN row creation across all five RowStatus
-        mechanisms. Use a CLI backend, where the command form is the
-        device's own running-config line.
+        LIVE-VERIFIED on m4300-24x 10.1.5.13 (2026-08-05): a throwaway
+        collector added over the CLI was destroyed with a single SET of
+        ``<base>.14.1.4.5.1.7.<index> = 6``, and the switch's own
+        ``show logging hosts`` confirmed the row was gone.
+
+        Note the asymmetry, which is the agent's and not this library's: it
+        DESTROYS rows but refuses to CREATE them (see ``add_syslog_collector``).
+
+        ``<index>`` is the table's own row index -- the OID instance, which
+        ``get_syslog`` surfaces as ``SyslogServer.index``. It is SPARSE, so it
+        is read fresh here and never derived from a row's position; deriving it
+        addresses the wrong row, and the agent accepts that as a silent no-op.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend has no grounded "
-            "syslog-collector row write"
+        del force  # redirecting logs cannot strand a switch
+        _require_snmp(self.model)
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only"
+            )
+        before = self._reader.get_syslog()
+        row = next((s for s in before.servers if s.host == host), None)
+        if row is None:
+            raise UnsupportedCapabilityError(
+                f"no syslog collector for {host!r} to remove"
+            )
+        if row.index is None:  # pragma: no cover -- the SNMP reader always fills it
+            raise UnsupportedCapabilityError(
+                f"the syslog collector for {host!r} carries no table index"
+            )
+        vo = oids.vendor_oids(self.model)
+        self.client.set(
+            SetVarbind(f"{vo.syslog_host_status}.{row.index}", _ROW_DESTROY, "i")
         )
+        after = self._reader.get_syslog()
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after destroy",
+                before=before.servers,
+                after=after.servers,
+            )
 
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """Turn remote syslog on or off.
@@ -1377,34 +1427,44 @@ class AsyncSnmpWriter:
     async def add_syslog_collector(
         self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
     ) -> None:
-        """This backend cannot add a syslog collector.
-
-        Refused by name. The vendor host table is READ here, but a
-        RowStatus create/destroy against it has never been driven --
-        and that is not a safe thing to assume: the GS728TPP agent
-        refuses VLAN row creation across all five RowStatus
-        mechanisms. Use a CLI backend, where the command form is the
-        device's own running-config line.
-        """
+        """Async twin of ``SnmpWriter.add_syslog_collector`` -- see it for the
+        five measured refusals."""
         raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend has no grounded "
-            "syslog-collector row write"
+            f"model {self.model.key!r}: this agent refuses to create a syslog "
+            "host row (measured: createAndGo/createAndWait -> inconsistentValue, "
+            "value-columns-only -> commitFailed); add it over a CLI backend"
         )
 
     async def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
-        """This backend cannot remove a syslog collector.
-
-        Refused by name. The vendor host table is READ here, but a
-        RowStatus create/destroy against it has never been driven --
-        and that is not a safe thing to assume: the GS728TPP agent
-        refuses VLAN row creation across all five RowStatus
-        mechanisms. Use a CLI backend, where the command form is the
-        device's own running-config line.
-        """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend has no grounded "
-            "syslog-collector row write"
+        """Async twin of ``SnmpWriter.remove_syslog_collector`` -- see it."""
+        del force
+        _require_snmp(self.model)
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only"
+            )
+        before = await self._reader.get_syslog()
+        row = next((s for s in before.servers if s.host == host), None)
+        if row is None:
+            raise UnsupportedCapabilityError(
+                f"no syslog collector for {host!r} to remove"
+            )
+        if row.index is None:  # pragma: no cover -- the reader always fills it
+            raise UnsupportedCapabilityError(
+                f"the syslog collector for {host!r} carries no table index"
+            )
+        vo = oids.vendor_oids(self.model)
+        await self.client.set(
+            SetVarbind(f"{vo.syslog_host_status}.{row.index}", _ROW_DESTROY, "i")
         )
+        after = await self._reader.get_syslog()
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after destroy",
+                before=before.servers,
+                after=after.servers,
+            )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """Async twin of ``SnmpWriter.set_syslog_enabled`` -- see there."""
