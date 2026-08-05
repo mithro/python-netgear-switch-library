@@ -328,11 +328,14 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         # all four FASTPATH models (2026-08-05, read-only):
         #     logging host "10.1.5.1" ipv4 514 info
         # LIVE-VERIFIED on all four by adding and removing a TEST-NET-1 address.
-        # The other three refuse by name -- SNMP's vendor host table has never
-        # had a RowStatus create driven against it, NSDP has no logging surface
-        # at all (measured tag sweep), and no FASTPATH-XUI row-add POST has ever
-        # been captured (the M4300 page declares the row-status cell but not the
-        # submission envelope).
+        # CLI ONLY, and both other candidates refuse for MEASURED reasons:
+        #   SNMP  the agent will not create a row -- five mechanisms, all
+        #         refused with captured SMI errors (see SnmpWriter)
+        #   HTTP  the M4300 page's template row is reachable and the body can be
+        #         built, but the firmware answers "Failed to Set 'Host Address'"
+        #         and the table does not change (see HttpWriter). Its DELETE on
+        #         the same page works and IS offered.
+        #   NSDP  no logging surface at all.
         backends=_CLI_BACKENDS,
     ),
     Operation(
@@ -348,7 +351,11 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         # it looks like; `no logging host ...` is rejected in every spelling.
         # Both backends address the table's OWN Index, which is SPARSE, so both
         # read it fresh rather than counting rows.
-        backends=frozenset({Backend.SNMP}) | _CLI_BACKENDS,
+        #
+        # HTTP (M4300 XUI) needs no index at all: it marks the target row's own
+        # write-only row-status cell "Delete" and clicks the page's Delete
+        # button, addressing the row by its rendered fields.
+        backends=frozenset({Backend.SNMP, Backend.HTTP}) | _CLI_BACKENDS,
     ),
     Operation(
         "upload_certificate",
@@ -427,9 +434,14 @@ def _snmp_support(model: SwitchModel, op: Operation) -> tuple[Support, str]:
             f"model {model.key!r} registers no Netgear vendor OID subtree, and "
             "the management-IP write columns are vendor-only",
         )
-    if op.name in ("get_syslog", "set_syslog_enabled") and not oids.has_vendor_oids(
-        model
-    ):
+    if op.name in (
+        "get_syslog",
+        "set_syslog_enabled",
+        # The RowStatus destroy writes <vendor base>.14.1.4.5.1.7, so a model
+        # with no vendor subtree (gs728tpp) cannot serve it either -- and
+        # SnmpWriter.remove_syslog_collector refuses it by name for that reason.
+        "remove_syslog_collector",
+    ) and not oids.has_vendor_oids(model):
         # Logging lives at <vendor base>.14 on both vendor families, so a model
         # whose agent registers no 4526 subtree at all (gs728tpp -- a walk of
         # 1.3.6.1.4.1.4526 answers noSuchObject) has nothing to read OR write.
@@ -555,10 +567,18 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         # XML-API one, whose ports page reports the field but offers no control
         # for it (the _XML_API_WRITES entry is absent for the same reason).
         "set_flow_control": None,
-        # No captured FASTPATH-XUI row-add POST exists; see each writer's
-        # add_syslog_collector for what the page does and does not tell us.
+        # Only the M4300 XUI pages render the v_g_* template row AND inline the
+        # cell metadata the write depends on; the other dialects' syslog pages
+        # do neither, so they are refused rather than posted at on an
+        # assumption. HttpWriter._syslog_page enforces the same rule, so there
+        # is one definition of "this UI can be written".
+        # The add is refused on every dialect -- the M4300 firmware rejects the
+        # body (see HttpWriter.add_syslog_collector) and the others render no
+        # usable template row at all.
         "add_syslog_collector": None,
-        "remove_syslog_collector": None,
+        "remove_syslog_collector": (
+            spec.syslog_path if spec.html_dialect is HtmlDialect.M4300 else None
+        ),
         # The GS110EMX sysInfo form carries switch_name, so that dialect has a
         # grounded (and live-verified) host-name write; every other non-XML-API
         # dialect is None. gs105pe's switch_info.cgi has the same field but its

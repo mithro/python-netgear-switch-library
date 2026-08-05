@@ -401,7 +401,7 @@ _SYSLOG_SEVERITY_WORDS = {
 }
 
 
-def render_syslog(state: VirtualSwitchState, path: str) -> str:
+def render_syslog(state: VirtualSwitchState, path: str, *, err_msg: str = "") -> str:
     """``syslogConfiguration.html``, rendered from ``state.syslog``.
 
     Counters (Messages Received/Relayed/Ignored) are rendered as the live pages
@@ -429,15 +429,28 @@ def render_syslog(state: VirtualSwitchState, path: str) -> str:
             f'<TD><INPUT xid=g_{xid} TYPE=hidden NAME=v_g_{xid} VALUE=""></TD>\n'
             for xid in ("2_1_6", *_SYSLOG_HEADERS)
         )
-        + '<TD><INPUT xid=g_2_1_5 TYPE=hidden NAME=v_g_2_1_5 VALUE="Add"></TD>\n'
+        # VALUE="" -- the real page renders every template cell empty. "Add" is
+        # the element LABEL (xeData.xeleValue_2_1_5), not the input's value, and
+        # a mock that pre-filled it would let a writer that forgot to set the
+        # row-status pass.
+        + '<TD style="display:none"><INPUT xid=g_2_1_5 TYPE=hidden '
+        + 'NAME=v_g_2_1_5 VALUE=""></TD>\n'
         + "</TR>\n"
     )
     count = len(sim.collectors)
     for row0, collector in enumerate(sim.collectors):
         inst = instance(row0, count)
+        # The REAL row shape: <TR p="..."> plus the row's own gecb checkbox.
+        # It used to be a bare <TR>, which parse_xui_list_page skips entirely --
+        # so the page read fine through parse_xe_rows while offering the WRITER
+        # no rows at all to address. The M4300 spells the checkbox "gecb_2_1"
+        # on this page (live).
         body += (
-            "<TR>\n"
-            + _xui_cell(inst, "2_1_6", str(row0 + 1), text=False)
+            f'<TR p="{inst}0" id=2_1>\n'
+            f'<td class="def alt0 geRight">'
+            f'<INPUT id="2_1_null" type="checkbox" name="{inst}.gecb_2_1" xgc >'
+            f"</td>\n"
+            + _xui_cell(inst, "2_1_6", str(collector.index), text=False)
             + _xui_cell(inst, "2_1_7", "IPv4")
             + _xui_cell(inst, "2_1_1", collector.host)
             + _xui_cell(inst, "2_1_2", "Active" if collector.status == 1 else "")
@@ -448,19 +461,24 @@ def render_syslog(state: VirtualSwitchState, path: str) -> str:
                 _SYSLOG_SEVERITY_WORDS[collector.severity],
                 text=False,
             )
-            + _xui_cell(inst, "2_1_5", "Add", text=False)
+            # Empty, as the live row is: 2_1_5 is WRITE-only, so the page
+            # renders no value in it (2_1_2 is the readable "Active" mirror).
+            + _xui_cell(inst, "2_1_5", "", text=False)
             + "</TR>\n"
         )
     return page(
         path,
         body,
+        # Title-case, as the live M4300 page renders them (the writer echoes
+        # page.buttons[...], so the label must be the device's).
         buttons={
-            "4_1_1": "ADD",
-            "4_3_1": "DELETE",
-            "4_4_1": "CANCEL",
-            "4_2_1": "APPLY",
+            "4_1_1": "Add",
+            "4_3_1": "Delete",
+            "4_4_1": "Cancel",
+            "4_2_1": "Apply",
         },
         title="NetGear - Syslog Configuration",
+        err_msg=err_msg,
     )
 
 
@@ -531,4 +549,53 @@ def apply_port_admin(
             continue
         state.ports[ports[row0]].admin = value == "Enable"
     del count
+    return ""
+
+
+#: The severity WORD the web UI's enum carries -> the standard number. The page
+#: spells them Title-case ("Info"); the CLI spells the same value lowercase.
+_SYSLOG_SEVERITY_NUMBERS = {w: n for n, w in _SYSLOG_SEVERITY_WORDS.items()}
+
+
+def apply_syslog_rows(state: VirtualSwitchState, form: Mapping[str, str]) -> str:
+    """Apply a syslog-page row ADD or DELETE, returning ``err_msg`` ("" = ok).
+
+    Reproduces what the live M4300 page does, both halves:
+
+    * ADD -- the ``v_g_2_1_*`` template row with its write-only row-status
+      (``v_g_2_1_5``) set to "Active". A new row takes the next FREE index and
+      leaves existing rows where they are, which is what makes the table sparse.
+    * DELETE -- a data row whose own ``v_2_1_5`` is set to "Delete".
+
+    A template row submitted WITHOUT the row-status is ignored, exactly as the
+    firmware ignores a blank global row that was never activated -- that is the
+    case a writer which forgot to set it would otherwise appear to pass.
+    """
+    address = (form.get("v_g_2_1_1") or "").strip()
+    if address:
+        # THE ADD IS REFUSED, and the fake must refuse it too. Driven live
+        # against m4300-24x 10.1.5.13 on 2026-08-05: the firmware answers a
+        # filled template row with HTTP 200 and
+        # ``Error! Failed to Set 'Host Address' with '<addr>'``, leaving the
+        # table unchanged (verified through the switch's own CLI). Supplying the
+        # IP Address Type and sending the enums as INDICES moves which fields
+        # fail, but never gets the address to stick.
+        #
+        # A fake that accepted the add would make HttpWriter's refusal look
+        # like a library limitation rather than the device's answer -- and would
+        # green-light an implementation that does not work on hardware.
+        return f"Error! Failed to Set 'Host Address' with '{address}'"
+
+    # DELETE: an instance-prefixed row whose row-status cell says so.
+    for name, value in form.items():
+        if not name.endswith(".v_2_1_5") or value.strip() != "Delete":
+            continue
+        prefix = name[: -len("v_2_1_5")]
+        target = (form.get(prefix + "v_2_1_1") or "").strip()
+        row = next((c for c in state.syslog.collectors if c.host == target), None)
+        if row is None:
+            return f"Error! Logging Host {target} is non-existent."
+        # Survivors KEEP their index -- that is what makes the table sparse.
+        state.syslog.collectors.remove(row)
+        return ""
     return ""

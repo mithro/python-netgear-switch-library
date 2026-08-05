@@ -341,6 +341,14 @@ def _is_xml_api_dialect(spec: HttpModelSpec) -> bool:
     return spec.html_dialect is HtmlDialect.GOAHEAD_XML
 
 
+#: The syslog page's Add/Apply and Delete buttons. Read off the served M4300
+#: page: v_4_1_1 "Add" (client-side -- its action array has no target cell, it
+#: just reveals the blank row), v_4_2_1 "Apply", v_4_3_1 "Delete", v_4_4_1
+#: "Cancel". The APPLY button is what commits a filled template row.
+_XUI_SYSLOG_APPLY = "v_4_2_1"
+_XUI_SYSLOG_DELETE = "v_4_3_1"
+
+
 #: The GS110EMX sysInfo name box carries maxlength="20"; its checkValidName()
 #: additionally rejects anything outside printable ASCII. Both read off the
 #: live page (10.1.5.27, 2026-08-05).
@@ -1541,39 +1549,109 @@ class HttpWriter:
             "control but carries no control to change it"
         )
 
+    def _syslog_path(self) -> str:
+        return _require_path(
+            self.model.key, self._spec.syslog_path, "remote-logging configuration"
+        )
+
+    def _syslog_page(self) -> XuiListPage:
+        """The syslog page as an XUI list, or refuse by name.
+
+        Only the two M4300 pages inline the cell metadata this write depends on
+        and render the template row; gsm7252ps/gsm7228ps declare nine xeData
+        entries and load the rest from a resource no capture has followed, so
+        their coordinates are NOT established and they are refused here rather
+        than posted at on the assumption they match.
+        """
+        if self._spec.html_dialect is not HtmlDialect.M4300:
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no syslog-collector row write is "
+                "grounded for this web UI dialect (only the M4300 pages render "
+                "the template row and declare their cell metadata)"
+            )
+        page = parse.parse_xui_list_page(
+            self.session.get_page(self._syslog_path()), page="syslog configuration"
+        )
+        if not page.template:
+            raise HttpUnexpectedPageError(
+                "the syslog page renders no v_g_* template row, so a collector "
+                "cannot be added through it"
+            )
+        return page
+
     def add_syslog_collector(
         self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
     ) -> None:
-        """This backend cannot add a syslog collector.
+        """This UI will not accept a collector ADD -- established, not assumed.
 
-        Refused by name. The M4300 syslog page DOES declare the
-        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
-        whose DELETE button writes "Delete" and whose APPLY writes
-        "Active" -- but no POST for a FASTPATH-XUI row add has ever
-        been captured, and the existing XUI write path covers only the
-        CSRF-hash dialects. The envelope would have to be invented.
-        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        The template row is real and reachable: the page renders
+        ``v_g_2_1_1``..``v_g_2_1_7`` in the served HTML, and this library can
+        build the body. What the FIRMWARE does with it, driven live against
+        m4300-24x 10.1.5.13 on 2026-08-05, is refuse -- HTTP 200 with
+        ``Error! Failed to Set '<field>' with '<value>'`` lines, and the
+        collector table unchanged (checked through the switch's own CLI, which
+        is an independent witness):
+
+        * the body as first built  -> failed on 'Host Address' and 'Port'
+        * + IP Address Type "IPv4" -> those two passed; the two ENUMS then
+          failed ('IP Address Type', 'Severity Filter')
+        * + enums as INDICES instead of labels (xa_2_1_4 lists
+          Emergency..Debug in standard syslog order, xa_2_1_7 lists
+          Unknown,IPv4,IPv6,DNS, so IPv4 = 1) -> the enums passed and
+          'Host Address' failed again
+        * + row-status "Add" instead of "Active" (the page's own
+          xeleValue_2_1_5) -> unchanged
+
+        So three of the four fields can be made to stick and the address cannot,
+        which says something in the create path is still unaccounted for. Rather
+        than keep guessing at a production switch -- the trial-and-error
+        principle 4 exists to stop -- this refuses, and the remaining step is
+        ONE capture of a real browser Add submission to diff against.
+
+        The DELETE path on the same page DOES work and is live-verified; see
+        ``remove_syslog_collector``. Add over a CLI backend.
         """
         raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend has no grounded "
-            "syslog-collector row write"
+            f"model {self.model.key!r}: this web UI refuses a collector add "
+            "(measured: HTTP 200 + \"Failed to Set 'Host Address'\"); the page's "
+            "delete works, and the CLI backend adds"
         )
 
     def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
-        """This backend cannot remove a syslog collector.
+        """Remove a collector by marking its row-status ``Delete``.
 
-        Refused by name. The M4300 syslog page DOES declare the
-        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
-        whose DELETE button writes "Delete" and whose APPLY writes
-        "Active" -- but no POST for a FASTPATH-XUI row add has ever
-        been captured, and the existing XUI write path covers only the
-        CSRF-hash dialects. The envelope would have to be invented.
-        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        The page's Delete action array writes ``"Delete"`` into the same
+        write-only cell an Add sets to ``"Active"`` (``xa_4_3_1`` ->
+        ``"2_1_5|g_2_1_5"``). The row is addressed by its OWN rendered fields
+        and checkbox, so no index arithmetic is involved -- unlike the CLI and
+        SNMP routes, whose sparse table index bit once already.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend has no grounded "
-            "syslog-collector row write"
+        del force
+        page = self._syslog_page()
+        before = parse.parse_xui_syslog(self.session.get_page(self._syslog_path()))
+        if not any(s.host == host for s in before.servers):
+            raise HttpUnexpectedPageError(f"no syslog collector for {host!r} to remove")
+        row = page.row_for(f"v_{parse.SYSLOG_HOST_ADDRESS}", host)
+        if row is None:
+            raise HttpUnexpectedPageError(
+                f"the syslog page renders no row for {host!r}"
+            )
+        self.session.post_form(
+            page.action,
+            forms.xui_row_delete_form(
+                page,
+                row,
+                status_column=parse.SYSLOG_HOST_ROW_STATUS,
+                button=_XUI_SYSLOG_DELETE,
+            ),
         )
+        after = parse.parse_xui_syslog(self.session.get_page(self._syslog_path()))
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after delete",
+                before=before.servers,
+                after=after.servers,
+            )
 
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.

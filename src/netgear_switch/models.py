@@ -368,6 +368,39 @@ SYSLOG_SEVERITY_WORDS: Mapping[int, str] = MappingProxyType(
 )
 
 
+#: The same severities as the WEB UI spells them. Title-case, not the CLI's
+#: lowercase -- both read off real output on the same switch (m4300-24x
+#: 10.1.5.13): `show logging hosts` prints "info" while
+#: syslogConfiguration.html's Severity Filter enum offers "Info". Pinned rather
+#: than derived with ``.capitalize()``, because a formula that happens to agree
+#: today is exactly what stops being checked.
+SYSLOG_SEVERITY_LABELS: Mapping[int, str] = MappingProxyType(
+    {
+        0: "Emergency",
+        1: "Alert",
+        2: "Critical",
+        3: "Error",
+        4: "Warning",
+        5: "Notice",
+        6: "Info",
+        7: "Debug",
+    }
+)
+
+
+def syslog_severity_label(level: int) -> str:
+    """A severity NUMBER -> the word the WEB UI's enum carries.
+
+    See ``syslog_severity_word`` for the CLI's spelling of the same value.
+    """
+    try:
+        return SYSLOG_SEVERITY_LABELS[level]
+    except KeyError:
+        raise ValueError(
+            f"syslog severity {level!r} is outside the standard range 0-7"
+        ) from None
+
+
 def syslog_severity_word(level: int) -> str:
     """A severity NUMBER -> the word a switch command carries.
 

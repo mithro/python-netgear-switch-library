@@ -893,13 +893,14 @@ class SnmpWriter:
         before = self._reader.get_syslog()
         row = next((s for s in before.servers if s.host == host), None)
         if row is None:
-            raise UnsupportedCapabilityError(
-                f"no syslog collector for {host!r} to remove"
-            )
+            # A PRECONDITION failure, not a capability limit -- the backend can
+            # serve this op, the switch simply has no such row. Raising
+            # UnsupportedCapabilityError here would make the capability table
+            # say "SNMP cannot remove collectors on this model", which is false
+            # and is exactly what the capability guard caught.
+            raise SnmpError(f"no syslog collector for {host!r} to remove")
         if row.index is None:  # pragma: no cover -- the SNMP reader always fills it
-            raise UnsupportedCapabilityError(
-                f"the syslog collector for {host!r} carries no table index"
-            )
+            raise SnmpError(f"the syslog collector for {host!r} carries no table index")
         vo = oids.vendor_oids(self.model)
         self.client.set(
             SetVarbind(f"{vo.syslog_host_status}.{row.index}", _ROW_DESTROY, "i")
@@ -1447,13 +1448,9 @@ class AsyncSnmpWriter:
         before = await self._reader.get_syslog()
         row = next((s for s in before.servers if s.host == host), None)
         if row is None:
-            raise UnsupportedCapabilityError(
-                f"no syslog collector for {host!r} to remove"
-            )
+            raise SnmpError(f"no syslog collector for {host!r} to remove")
         if row.index is None:  # pragma: no cover -- the reader always fills it
-            raise UnsupportedCapabilityError(
-                f"the syslog collector for {host!r} carries no table index"
-            )
+            raise SnmpError(f"the syslog collector for {host!r} carries no table index")
         vo = oids.vendor_oids(self.model)
         await self.client.set(
             SetVarbind(f"{vo.syslog_host_status}.{row.index}", _ROW_DESTROY, "i")

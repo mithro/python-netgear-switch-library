@@ -295,10 +295,11 @@ def test_a_switch_that_accepts_and_ignores_is_caught() -> None:
 @pytest.mark.parametrize(
     ("module", "cls"),
     [
-        # SNMP is absent here because it SERVES remove (destroy(6) works) and
-        # refuses add for its own measured reason -- both covered below.
+        # Only NSDP refuses BOTH ops outright, and it is the one that can be
+        # driven off a bare class. SNMP serves remove (destroy(6)) and HTTP
+        # serves remove too, each refusing add for its own measured reason --
+        # all four cases are covered by the dedicated tests below.
         ("netgear_switch.nsdp_write", "NsdpWriter"),
-        ("netgear_switch.http_write", "HttpWriter"),
     ],
 )
 def test_every_other_backend_refuses_by_name(module: str, cls: str, op: str) -> None:
@@ -359,7 +360,122 @@ def test_snmp_surfaces_the_row_index_it_destroys_by() -> None:
 
 
 def test_snmp_removing_an_absent_collector_is_refused() -> None:
+    """A PRECONDITION failure -- see the dedicated test below for why the type
+    matters."""
+    from netgear_switch.protocols.snmp.client import SnmpError
+
     with VirtualSwitch(model=_MODEL) as mock:
         _, writer = _snmp(mock)
-        with pytest.raises(UnsupportedCapabilityError, match="no syslog collector"):
+        with pytest.raises(SnmpError, match="no syslog collector"):
             writer.remove_syslog_collector(THROWAWAY)
+
+
+# --- HTTP: the M4300 page deletes, but will not add --------------------------
+
+
+def _http(mock: VirtualSwitch):
+    from netgear_switch._dispatch import build_sync_http_client
+    from netgear_switch.http_read import HttpReader
+    from netgear_switch.http_write import HttpWriter
+
+    model = get_model(_MODEL)
+    client = build_sync_http_client(
+        f"{mock.host}:{mock.http_port}", mock.http_password, model
+    )
+    return HttpReader(client, model), HttpWriter(client, model)
+
+
+def test_the_syslog_page_renders_a_template_row() -> None:
+    """The row an ADD would fill, and the reason this was called impossible.
+
+    It is in the SERVED page all along, named ``v_g_2_1_N``. Two rounds of
+    "this needs a browser capture" came from searching for ``g_2_1_N``.
+    """
+    import pathlib
+
+    from netgear_switch.protocols.http.parse import parse_xui_list_page
+
+    html = (
+        pathlib.Path(__file__).parent
+        / "fixtures"
+        / "http"
+        / "m4300_24x_syslog_configuration.html"
+    ).read_text()
+    page = parse_xui_list_page(html, page="syslog")
+    assert sorted(page.template) == [f"v_g_2_1_{n}" for n in range(1, 8)]
+    assert set(page.template.values()) == {""}  # every cell blank
+    # ... and the data row parses too, which it did NOT until the fake grew the
+    # real <TR p="..."> shape.
+    assert page.row_for("v_2_1_1", "10.1.5.1") is not None
+
+
+def test_http_deletes_but_refuses_to_add() -> None:
+    """Both halves measured on m4300-24x 10.1.5.13 (2026-08-05).
+
+    DELETE works -- it marks an existing row's write-only row-status and clicks
+    Delete, live-verified. ADD does not: the firmware answers HTTP 200 with
+    ``Error! Failed to Set 'Host Address'`` and leaves the table alone, through
+    every variation tried (address type supplied, enums as indices, row-status
+    "Add" instead of "Active").
+    """
+    with VirtualSwitch(model=_MODEL) as mock:
+        reader, writer = _http(mock)
+        assert [s.host for s in reader.get_syslog().servers] == [LIVE_COLLECTOR]
+
+        with pytest.raises(UnsupportedCapabilityError, match="refuses a collector add"):
+            writer.add_syslog_collector(THROWAWAY)
+
+        writer.remove_syslog_collector(LIVE_COLLECTOR)
+        assert reader.get_syslog().servers == ()
+
+
+def test_the_fake_refuses_the_add_the_firmware_refuses() -> None:
+    """Driven at the page, below the writer's own guard.
+
+    A fake that accepted the add would make the writer's refusal look like a
+    library limitation rather than the device's answer -- and would green-light
+    an implementation that does not work on hardware.
+    """
+    from netgear_switch.virtual import web_fastpath_xui
+
+    with VirtualSwitch(model=_MODEL) as mock:
+        err = web_fastpath_xui.apply_syslog_rows(
+            mock.state,
+            {"v_g_2_1_1": THROWAWAY, "v_g_2_1_3": "514", "v_g_2_1_5": "Active"},
+        )
+    assert "Failed to Set 'Host Address'" in err
+
+
+def test_a_missing_collector_is_a_precondition_not_a_capability_limit() -> None:
+    """The distinction the capability guard caught me conflating.
+
+    ``remove_syslog_collector`` on a switch that has no such collector must NOT
+    raise ``UnsupportedCapabilityError`` -- that type means "this backend cannot
+    do this on this model", and the published support matrix is generated from
+    it. Raising it here made the table claim SNMP could not remove collectors on
+    gsm7228ps and m4300-16x, whose seeds simply carry none.
+    """
+    from netgear_switch.protocols.snmp.client import SnmpError
+
+    with VirtualSwitch(model=_MODEL) as mock:
+        _, writer = _snmp(mock)
+        with pytest.raises(SnmpError, match="no syslog collector"):
+            writer.remove_syslog_collector(THROWAWAY)
+        # ... and specifically NOT the capability error.
+        try:
+            writer.remove_syslog_collector(THROWAWAY)
+        except UnsupportedCapabilityError:  # pragma: no cover
+            pytest.fail("a missing row must not read as an unsupported capability")
+        except SnmpError:
+            pass
+
+
+def test_a_model_with_no_vendor_subtree_cannot_destroy_a_row() -> None:
+    """gs728tpp's agent publishes no 4526 subtree at all, so the RowStatus
+    column does not exist there -- refused by name, not attempted."""
+    from netgear_switch.snmp_write import SnmpWriter
+
+    writer = SnmpWriter.__new__(SnmpWriter)
+    writer.model = get_model("gs728tpp")
+    with pytest.raises(UnsupportedCapabilityError, match="vendor OID"):
+        writer.remove_syslog_collector(LIVE_COLLECTOR)

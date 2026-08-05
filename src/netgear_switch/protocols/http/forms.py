@@ -326,3 +326,78 @@ def gs110emx_switch_info_form(
         "errMsg": "",
         "ACTION": "Apply",
     }
+
+
+# --- XUI row ADD / DELETE (the syslog collector table) -----------------------
+#
+# These pages carry a blank TEMPLATE row alongside the data rows -- inputs named
+# ``v_g_<table>_<tr>_<col>``, rendered inside ``display:none`` cells with every
+# value empty. An ADD fills that row in and clicks APPLY; a DELETE marks an
+# existing row and clicks DELETE. The page's own action arrays say so:
+#
+#     xa_4_2_1 (APPLY)  -> "2_1_5|g_2_1_5" = "Active"
+#     xa_4_3_1 (DELETE) -> "2_1_5|g_2_1_5" = "Delete"
+#
+# so cell 5 is the WRITE-ONLY row-status (``xp_2_1_5 = "write-only"``,
+# ``xc = "hidden"``, ``xdt = L7_ROW_STATUS_t``) while cell 2 is the READ-ONLY
+# one the table displays. Both read off the served M4300 page, 2026-08-05.
+XUI_ROW_STATUS_ACTIVE = "Active"
+XUI_ROW_STATUS_DELETE = "Delete"
+
+
+def xui_row_add_form(
+    page: XuiListPage,
+    values: Mapping[str, str],
+    *,
+    status_column: str,
+    button: str,
+) -> dict[str, str]:
+    """The POST body that ADDS a row, by filling the page's template row.
+
+    ``values`` is keyed by BARE column (``"2_1_1"``); the ``v_g_`` prefix is
+    added here so a caller cannot address a data row by mistake. A column the
+    template does not render raises rather than being invented -- the template
+    row is the device's own declaration of which columns a new row has.
+
+    ``status_column`` is the write-only row-status cell (``"2_1_5"`` on the
+    syslog page); it is set to ``Active``, which is what the page's Apply action
+    array writes. The whole template row is echoed, including the columns the
+    caller did not set, because the firmware renders them all and a body that
+    dropped them would be submitting a different row than the page describes.
+    """
+    if not page.template:
+        raise KeyError("this page renders no v_g_* template row, so it cannot add")
+    body = dict(page.tokens)
+    body.update(page.nav)
+    body.update(page.template)
+    for column, value in values.items():
+        name = f"v_g_{column}"
+        if name not in page.template:
+            raise KeyError(
+                f"the template row does not render column {column!r} "
+                f"(it has {sorted(k[4:] for k in page.template)})"
+            )
+        body[name] = value
+    body[f"v_g_{status_column}"] = XUI_ROW_STATUS_ACTIVE
+    body.update(page.hidden)
+    body["submit_flag"] = XUI_OPERATION_SUBMIT
+    body["err_flag"] = "0"
+    body["err_msg"] = ""
+    body[button] = page.buttons[button]
+    return body
+
+
+def xui_row_delete_form(
+    page: XuiListPage, row: XuiRow, *, status_column: str, button: str
+) -> dict[str, str]:
+    """The POST body that DELETES one row, by marking its row-status cell.
+
+    Same envelope as ``xui_row_apply_form`` -- only this row's fields, plus its
+    checkbox -- with the write-only row-status set to ``Delete`` and the page's
+    Delete button clicked.
+    """
+    # xui_row_apply_form keys ``changes`` by the FULL cell name ("v_2_1_5"),
+    # while ``status_column`` is the bare coordinate the readers use ("2_1_5").
+    return xui_row_apply_form(
+        page, row, {f"v_{status_column}": XUI_ROW_STATUS_DELETE}, button=button
+    )

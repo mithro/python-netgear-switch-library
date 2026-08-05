@@ -69,7 +69,13 @@ _PATH_FIELDS: tuple[str, ...] = tuple(
 # firmware every one of these pages GETs at ``<page>.html`` and POSTs to
 # ``<page>.html/a1`` (its second form's ACTION), so the mock must serve BOTH or
 # a faithful writer's apply would 404 against it while working on hardware.
-_XUI_WRITE_PATH_FIELDS = ("port_config_path", "poe_config_path", "mgmt_ip_path")
+_XUI_WRITE_PATH_FIELDS = (
+    "port_config_path",
+    "poe_config_path",
+    "mgmt_ip_path",
+    # The syslog page posts collector row add/delete to its own /a1.
+    "syslog_path",
+)
 
 
 def _xui_write_paths(spec: HttpModelSpec) -> dict[str, str]:
@@ -437,6 +443,14 @@ class VirtualHttpFace:
         """
         writes = _xui_write_paths(self.spec)
         page_path = writes.get(path, path)
+        if page_path == self.spec.syslog_path:
+            # Collector row add/delete. Only the M4300 pages carry the metadata
+            # the writer depends on, and the writer refuses the other dialects,
+            # so the fake must not accept them either.
+            if self.spec.html_dialect is not HtmlDialect.M4300:
+                return None
+            err = web_fastpath_xui.apply_syslog_rows(self.state, form)
+            return web_fastpath_xui.render_syslog(self.state, page_path, err_msg=err)
         if page_path not in (
             self.spec.port_config_path,
             self.spec.poe_config_path,

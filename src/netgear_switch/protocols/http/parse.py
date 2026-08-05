@@ -1820,10 +1820,29 @@ def parse_xui_users(html: str) -> list[SwitchUser]:
 # written.
 _SYSLOG_ADMIN_STATUS = "1_1_1"  # "Admin Status"       -> Enable/Disable
 _SYSLOG_LOCAL_PORT = "1_2_1"  # "Local UDP Port"     -> 514
-_SYSLOG_HOST_ADDRESS = "2_1_1"  # "Host Address"       -> 10.1.5.1
+# Public because the WRITER addresses the same cells (see http_write). The
+# column map is the page's own xeData, read off the served M4300 page
+# 2026-08-05 -- note the field-name HTML comments TRAIL their cell, so reading
+# them as leading labels shifts every column by one:
+#   2_1_1 Host Address (string)      2_1_5 row-status, WRITE-ONLY, hidden
+#   2_1_2 Status, row-status, READ-ONLY   2_1_6 Host Index (uint, hidden)
+#   2_1_3 Port (uint)                2_1_7 IP Address Type (enum)
+#   2_1_4 Severity Filter (enum)
+SYSLOG_HOST_ADDRESS = "2_1_1"  # "Host Address"       -> 10.1.5.1
+SYSLOG_HOST_PORT = "2_1_3"  # "Port"               -> 514
+SYSLOG_HOST_SEVERITY = "2_1_4"  # "Severity Filter"    -> Info
+#: The cell an ADD sets to "Active" and a DELETE sets to "Delete". NOT 2_1_2,
+#: which is the read-only mirror the table displays.
+SYSLOG_HOST_ROW_STATUS = "2_1_5"
+#: "Host Index" -- the table's own row handle, which SNMP walks as the OID
+#: instance and the CLI prints in its Index column. Surfaced so all three
+#: backends report the same SyslogServer for the same row; without it the
+#: cross-backend equivalence test fails on index=None vs index=1.
+SYSLOG_HOST_INDEX = "2_1_6"
+_SYSLOG_HOST_ADDRESS = SYSLOG_HOST_ADDRESS
 _SYSLOG_HOST_STATUS = "2_1_2"  # "Status"             -> Active
-_SYSLOG_HOST_PORT = "2_1_3"  # "Port"               -> 514
-_SYSLOG_HOST_SEVERITY = "2_1_4"  # "Severity Filter"    -> Info
+_SYSLOG_HOST_PORT = SYSLOG_HOST_PORT
+_SYSLOG_HOST_SEVERITY = SYSLOG_HOST_SEVERITY
 
 
 def parse_xui_syslog(html: str) -> SyslogConfig:
@@ -1855,8 +1874,10 @@ def parse_xui_syslog(html: str) -> SyslogConfig:
         if not host:
             continue
         port = _int(row.get(_SYSLOG_HOST_PORT, ""))
+        index = _int(row.get(SYSLOG_HOST_INDEX, ""))
         servers.append(
             SyslogServer(
+                index=index,
                 host=host,
                 port=port if port is not None else 0,
                 # The web UI prints the severity WORD ("Info") where SNMP
@@ -2374,6 +2395,14 @@ _XUI_NAV_ROW_RE = re.compile(
 # apply them to every port).
 _XUI_PAGE_FIELD_RE = re.compile(r"^v_\d+_\d+_\d+$")
 
+#: The blank TEMPLATE ("global") row an ADD fills in: ``v_g_<table>_<tr>_<col>``.
+#: The framework's own ``getTableId``/``getTrId`` in ``/scripts/xui_load.js``
+#: special-case this xid shape (``xid.indexOf("g_") != -1`` then slice positions
+#: 2..3 and 2..5), which is what identifies it as the global-edit row rather
+#: than a data row. Deliberately NOT matched by ``_XUI_PAGE_FIELD_RE`` above --
+#: a per-row apply must never carry it.
+_XUI_TEMPLATE_RE = re.compile(r"^v_g_(\d+)_(\d+)_(\d+)$")
+
 
 def _xui_form_block(html: str, page: str) -> tuple[str, str]:
     """``(action, inner HTML)`` of the page's write form, or raise."""
@@ -2502,6 +2531,14 @@ def parse_xui_list_page(html: str, *, page: str = "XUI list page") -> XuiListPag
             n: unescape(v) for n, v in form_fields.items() if _XUI_TOKEN_RE.match(n)
         },
         nav=nav,
+        # The blank ADD row. It carries no <unit>.<row>.<count>. prefix, so it
+        # lands in form_fields rather than in rows -- which is where it went
+        # unnoticed: it is named ``v_g_2_1_1``, not ``g_2_1_1``, and a search
+        # for the latter finds nothing and reads as "this page has no template
+        # row" (it cost two rounds of "needs a browser capture" to find).
+        template={
+            n: unescape(v) for n, v in form_fields.items() if _XUI_TEMPLATE_RE.match(n)
+        },
     )
 
 

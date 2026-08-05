@@ -150,6 +150,18 @@ class XuiListPage:
     # ``HttpModelSpec.cert_upload_form_fields``.
     tokens: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     nav: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    #: The page's blank ``v_g_<table>_<tr>_<col>`` TEMPLATE row, keyed by its
+    #: FULL field name. This is the row an ADD fills in: the firmware renders it
+    #: with every value empty inside ``display:none`` cells, and the page's Apply
+    #: button writes the row-status into it (``xa_4_2_1`` targets
+    #: ``"2_1_5|g_2_1_5"`` with ``"Active"``; Delete targets the same pair with
+    #: ``"Delete"``).
+    #:
+    #: Empty for a page that renders no template row -- which is most of them,
+    #: and is why this is a separate field rather than being folded into
+    #: ``rows``: a one-row apply must never mention it, and the existing
+    #: ``xui_row_apply_form`` deliberately does not.
+    template: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
 
     def row_for(self, column: str, value: str) -> XuiRow | None:
         """The row whose ``column`` renders ``value`` (e.g. the ifName cell)."""
