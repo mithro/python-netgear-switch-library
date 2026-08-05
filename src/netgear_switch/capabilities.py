@@ -275,8 +275,26 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         # HTTP joined them for the GoAhead XML API only (2026-08-03), where
         # DeviceBasicInfo/deviceName IS the host name -- measured reading
         # byte-for-byte what SNMP reports through sysName. The other dialects
-        # are filtered out by _http_path_for; the gs110emx and gs105pe identity
-        # pages carry a switch_name field but no captured write form.
+        # are filtered out by _http_path_for.
+        #
+        # CORRECTION 2026-08-05: this used to say the gs110emx and gs105pe
+        # identity pages carry "a switch_name field but no captured write
+        # form". That is wrong -- both committed fixtures contain a complete
+        # POST form around it:
+        #
+        #   gs110emx_sysinfo.html      <form method="post"
+        #       ACTION="/iss/specific/sysInfo.html">  switch_name, dhcp_mode,
+        #       IP_ADDRESS, SUBNET_MASK, GATEWAY_ADDRESS, Gambit, refreshFlag
+        #   gs105pe_switch_info.html   <form method="post"
+        #       action="/switch_info.cgi">  switch_name, dhcpMode, ip_address,
+        #       subnet_mask, gateway_address, hash
+        #
+        # It is still NOT offered, for a different and better reason: that one
+        # form submits the host name TOGETHER with the management IP, so a
+        # rename must read-modify-write every other field back verbatim, and a
+        # mistake strands the switch on an address nobody can reach. Both units
+        # are powered off, so it cannot be proven -- and this is the one write
+        # where shipping unproven is not acceptable. See task #67.
         backends=frozenset({Backend.SNMP, Backend.NSDP, Backend.HTTP}) | _CLI_BACKENDS,
     ),
     Operation(
