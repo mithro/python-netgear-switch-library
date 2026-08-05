@@ -77,6 +77,24 @@ _PVID_RE = re.compile(r"^vlan pvid (\d+)$")
 _DESCRIPTION_RE = re.compile(r"^description '([^']*)'$")
 _NO_DESCRIPTION_RE = re.compile(r"^no description$")
 _PORT_DESCRIPTION_SHOW_RE = re.compile(r"^show port description (\S+)$")
+# Per-port speed/duplex. TWO grammars meaning opposite things, both executed on
+# the real gsm7252ps (10.1.5.22 port 1/0/8, 2026-08-03) -- ``speed 100
+# full-duplex`` moved Physical Mode to "100 Full", ``speed auto`` moved it back.
+_SPEED_AUTO_RE = re.compile(r"^speed auto$")
+_SPEED_FORCED_RE = re.compile(r"^speed (\d+G?) (full|half)-duplex$")
+# MEASURED REFUSAL, and the reason this mock is not merely permissive: the same
+# live port answered ``speed 1000 full-duplex`` with "% Invalid input detected
+# at '^' marker." and left Physical Mode UNCHANGED. 1000BASE-T requires
+# auto-negotiation, so the firmware keeps 1000 out of the forced grammar while
+# offering it in ``speed auto [10] [100] [1000] [10G]``.
+_NO_FORCED_RATE = 1000
+# NOT modelled, and deliberately so: which OTHER rates a port will force is a
+# property of its PHY, not of the firmware -- gsm7252ps 1/0/8 enumerated
+# 10/100/10G while m4300-24x 1/0/15 enumerated 100/10G (no 10). Only those two
+# ports were ever enumerated, on two of the four CLI models, so a per-model rate
+# table here would be inventing three quarters of itself. The library does not
+# pre-validate rates either (it sends, and raises whatever the device answers),
+# so mock and library agree on exactly the rule that was measured.
 _POE_RE = re.compile(r"^(no )?poe$")
 _POE_RESET_RE = re.compile(r"^poe reset$")
 _SHUTDOWN_RE = re.compile(r"^(no )?shutdown$")
@@ -90,10 +108,12 @@ _IP_GATEWAY_RE = re.compile(rf"^ip default-gateway {_IP}$")
 # Mode names for the mode stack (see VirtualCliFace._modes).
 _VLAN_DB, _CONFIG, _INTERFACE = "vlan-db", "config", "interface"
 
-# Rejection texts. Their exact wording is NOT ground truth (no capture of a
-# rejected FASTPATH config command exists here); what IS proven, and what the
-# library relies on, is only that a rejected command answers with SOMETHING and
-# an accepted one answers with NOTHING.
+# Rejection texts. This exact wording IS now ground truth for at least one
+# case: a live gsm7252ps (10.1.5.22, 2026-08-03) answered ``speed 1000
+# full-duplex`` with precisely "% Invalid input detected at '^' marker.". It is
+# still not established that every other rejection here is worded the same way;
+# what IS proven, and all the library relies on, is that a rejected command
+# answers with SOMETHING and an accepted one answers with NOTHING.
 _INVALID = "% Invalid input detected at '^' marker."
 _ACCEPTED = ""
 
@@ -306,6 +326,20 @@ class VirtualCliFace:
             if not self._general(port):
                 return _ACCEPTED  # accepted-but-inert, as above
             self.state.pvids[port] = vid
+            return _ACCEPTED
+        if _SPEED_AUTO_RE.match(c):
+            self.state.ports[port].physical_mode = "Auto"
+            return _ACCEPTED
+        m = _SPEED_FORCED_RE.match(c)
+        if m:
+            rate, duplex = m.group(1), m.group(2)
+            if rate == str(_NO_FORCED_RATE):
+                return _INVALID  # measured: the switch has no forced 1000
+            # Physical Mode ONLY. The negotiated rate (``speed``, rendered in
+            # the Physical Status column) is untouched, because forcing the
+            # configuration of a DOWN port negotiates nothing -- exactly what
+            # the live port did.
+            self.state.ports[port].physical_mode = f"{rate} {duplex.capitalize()}"
             return _ACCEPTED
         m = _DESCRIPTION_RE.match(c)
         if m:

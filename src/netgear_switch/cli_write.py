@@ -68,7 +68,7 @@ from .transport.cli.session import CliTransportError
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from .models import PoEStatus, PortStatus, VLANInfo
+    from .models import PoEStatus, PortSpeed, PortStatus, VLANInfo
     from .registry import SwitchModel
     from .transport.cli.session import CliSession
 
@@ -421,6 +421,67 @@ class CliWriter:
             raise WriteVerificationError(
                 f"description for port {port} did not read back as {want!r} "
                 f"(got {after!r})",
+                before=before,
+                after=after,
+            )
+
+    def _speed_config(self, port: int) -> PortSpeed | None:
+        """``port``'s CONFIGURED speed, from `show port all`'s Physical Mode.
+
+        Deliberately the Physical MODE column, not Physical Status: the latter
+        is what the link negotiated and is blank on a down port, which is the
+        only kind of port this writer is meant to touch.
+        """
+        status = next((p for p in self._reader.get_ports() if p.port == port), None)
+        if status is None:
+            raise CliCommandError(f"switch reports no port {port}")
+        return status.speed_config
+
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """Force ``port``'s speed/duplex, or return it to auto-negotiation.
+
+        DISRUPTIVE: changing either setting bounces the link, so this honours
+        ``protected_ports`` exactly as ``set_pvid`` does.
+
+        Both command forms were PROVEN BY EXECUTION on gsm7252ps 10.1.5.22 port
+        1/0/8 (link-down, undescribed, 2026-08-03) and the port restored to a
+        byte-identical running-config afterwards -- ``speed 100 full-duplex``
+        moved Physical Mode to ``100 Full``, ``speed auto`` moved it back.
+
+        A forced 1000 is refused HERE, before anything is sent, because it is
+        not a rate this grammar has: 1000BASE-T makes auto-negotiation
+        mandatory, and the firmware encodes that by omitting 1000 from the
+        forced rates while keeping it among the advertised ones. Measured, not
+        inferred -- ``speed 1000 full-duplex`` on the port above answered
+        "% Invalid input detected at '^' marker." and left Physical Mode
+        untouched. Refusing by name says WHY; letting it through would produce
+        the same failure with none of the explanation.
+
+        Every OTHER rate is sent unchecked, deliberately: the forced rates a
+        port offers follow its PHY rather than the firmware (1/0/8 offered
+        10/100/10G, an m4300-24x 10GBASE-T port offered 100/10G), so the switch
+        is the only authority worth asking. One it rejects comes back as
+        ``CliCommandError`` carrying the device's own words.
+        """
+        self._guard(port, force)
+        if not speed.autonegotiate and speed.speed_mbps == 1000:
+            raise CliCommandError(
+                "1000 Mbit/s cannot be FORCED on this firmware -- 1000BASE-T "
+                "requires auto-negotiation, so the CLI offers 1000 only as an "
+                "advertised rate. Use PortSpeed.auto() instead."
+            )
+        before = self._speed_config(port)
+        self._in_mode(
+            [self._spec.configure_cmd, self._spec.interface(port)],
+            [self._spec.port_speed(speed)],
+        )
+        after = self._speed_config(port)
+        if after != speed:
+            raise WriteVerificationError(
+                f"speed for port {port} did not read back as {speed} (got "
+                f"{after if after is not None else 'an unreadable Physical Mode'})",
                 before=before,
                 after=after,
             )

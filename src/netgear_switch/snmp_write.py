@@ -35,7 +35,7 @@ from .snmp_read import AsyncSnmpReader, SnmpReader
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Sequence
 
-    from .models import PoEStatus, PortStatus, VLANInfo
+    from .models import PoEStatus, PortSpeed, PortStatus, VLANInfo
     from .protocols.snmp.client import AsyncSnmpWriteClient, SnmpWriteClient
     from .registry import SwitchModel
 
@@ -794,6 +794,26 @@ class SnmpWriter:
                 after=after,
             )
 
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated. What SNMP offers here is
+        ``ifSpeed``/``ifHighSpeed``, and those report the rate the link
+        NEGOTIATED -- writing one would be writing a counter, not a
+        setting. The column that would genuinely serve this is MAU-MIB's
+        ``ifMauDefaultType``/``ifMauAutoNegAdminStatus`` (mib-2.26); no
+        switch here has been walked for it, so its presence is UNKNOWN
+        rather than absent, and the 2026-08-03 OID sweep does not settle it
+        (that sweep covered the 4526 VENDOR subtree only). Use a CLI
+        backend, or establish the MAU subtree first.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: SNMP exposes only the NEGOTIATED port "
+            "rate (ifSpeed); no configured speed/duplex column has been located"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """Turn remote syslog on or off.
 
@@ -1269,6 +1289,26 @@ class AsyncSnmpWriter:
                 before=before,
                 after=after,
             )
+
+    async def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated. What SNMP offers here is
+        ``ifSpeed``/``ifHighSpeed``, and those report the rate the link
+        NEGOTIATED -- writing one would be writing a counter, not a
+        setting. The column that would genuinely serve this is MAU-MIB's
+        ``ifMauDefaultType``/``ifMauAutoNegAdminStatus`` (mib-2.26); no
+        switch here has been walked for it, so its presence is UNKNOWN
+        rather than absent, and the 2026-08-03 OID sweep does not settle it
+        (that sweep covered the 4526 VENDOR subtree only). Use a CLI
+        backend, or establish the MAU subtree first.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: SNMP exposes only the NEGOTIATED port "
+            "rate (ifSpeed); no configured speed/duplex column has been located"
+        )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """Async twin of ``SnmpWriter.set_syslog_enabled`` -- see there."""

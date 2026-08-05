@@ -154,6 +154,7 @@ if TYPE_CHECKING:
         MacEntry,
         MgmtIpConfig,
         PoEStatus,
+        PortSpeed,
         PortStats,
         PortStatus,
         Sensor,
@@ -738,6 +739,30 @@ class SyncSwitch:
         self._write(
             lambda w: w.set_port_description(port, description, force=force), backend
         )
+
+    def set_port_speed(
+        self,
+        port: int,
+        speed: PortSpeed,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Force a port's speed/duplex, or return it to auto-negotiation.
+
+        Disruptive -- applying either bounces the link -- so ``force`` is what
+        overrides the protected-port guard, as for ``set_pvid``.
+
+        Served over the FASTPATH CLI. The read that pairs with it is
+        ``PortStatus.speed_config``, NOT ``speed_mbps``: the first is what the
+        port is configured to, the second what its link negotiated, and on a
+        down port only the first has an answer.
+
+        A forced 1000 Mbit/s is refused by name: 1000BASE-T requires
+        auto-negotiation, and the firmware's ``speed`` grammar omits it
+        accordingly (measured -- the switch answers "% Invalid input").
+        """
+        self._write(lambda w: w.set_port_speed(port, speed, force=force), backend)
 
     def set_pvid(
         self,

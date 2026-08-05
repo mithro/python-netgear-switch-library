@@ -23,6 +23,12 @@ The operations
        wait for it to deliver again.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.clear_poe_fault`
      - Clear a latched PoE fault on a port.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_port_description`
+     - Set or clear a port's label. Pass ``""`` to clear it.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_port_speed`
+     - Force a port's speed and duplex, or restore auto-negotiation. See
+       :ref:`speed-vs-negotiated` — the field this write verifies against is
+       *not* ``PortStatus.speed_mbps``.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_pvid`
      - Set a port's PVID (native VLAN).
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_vlan_membership`
@@ -121,6 +127,47 @@ You do not have to know any of this to call ``set_vlan_membership``. The detail
 is here because it explains why the same call can behave differently across two
 switches from the same family, and why this project refuses to extrapolate
 between SKUs.
+
+.. _speed-vs-negotiated:
+
+Configured speed is not negotiated speed
+----------------------------------------
+
+``set_port_speed`` writes the port's *configuration*; :py:obj:`~netgear_switch.models.PortStatus`
+reports both that and the result, in two separate fields:
+
+* ``speed_config`` — a :py:obj:`~netgear_switch.models.PortSpeed`: what the port is **set** to
+  (``show port``'s "Physical Mode" column). Answers even while the link is down.
+* ``speed_mbps`` / ``full_duplex`` — what the link actually **negotiated**
+  ("Physical Status"). ``None`` while the link is down, because a down port has
+  negotiated nothing.
+
+They are separate because they genuinely disagree, and disagree hardest exactly
+where this library operates. A port forced to 100 Mbit/s with no cable in it
+reports ``speed_config=PortSpeed.forced(100, full_duplex=True)`` and
+``speed_mbps=None``. ``set_port_speed`` verifies itself against the first;
+verifying against the second would mean a write to any link-down port could
+never be confirmed.
+
+.. code-block:: python
+
+   from netgear_switch import PortSpeed
+
+   switch.set_port_speed(8, PortSpeed.forced(100, full_duplex=True), force=True)
+   switch.set_port_speed(8, PortSpeed.auto(), force=True)   # and back
+
+**1000 Mbit/s cannot be forced.** 1000BASE-T requires auto-negotiation, and the
+firmware encodes that by leaving 1000 out of its forced ``speed`` grammar
+entirely while keeping it among the advertised rates. Asking for it raises
+:py:obj:`~netgear_switch.errors.CliCommandError` before anything is sent, naming the reason —
+rather than passing the request on for the switch to answer with a bare
+``% Invalid input``.
+
+Which *other* rates a port accepts follows its PHY, not its firmware: a 1G
+copper port offered 10/100/10G while a 10GBASE-T port on another model offered
+100/10G. The library therefore keeps no rate table and sends what you ask for;
+a rate the port does not have comes back as ``CliCommandError`` carrying the
+switch's own words.
 
 Certificates
 ------------

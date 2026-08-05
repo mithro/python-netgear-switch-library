@@ -32,6 +32,68 @@ class IpMode(enum.Enum):
 
 
 @dataclass(frozen=True)
+class PortSpeed:
+    """A port's CONFIGURED speed/duplex -- what it is SET to, not what it got.
+
+    Deliberately NOT folded into ``PortStatus.speed_mbps``, which is the
+    OPERATIONAL rate the link actually came up at. The two answer different
+    questions and neither substitutes for the other: a port configured ``auto``
+    can be running at 100 Mbit/s, and a port forced to 100 Mbit/s full-duplex
+    still reports no operational rate at all while its link is down. Overloading
+    one field would have made "what did I configure?" unanswerable exactly when
+    it matters most -- on a down port, which is the only kind this library is
+    allowed to reconfigure.
+
+    ``autonegotiate`` is the whole of the configuration when it is True:
+    ``speed_mbps`` and ``full_duplex`` are then None, because an auto port has
+    no configured rate -- it has whatever it negotiates. A FORCED configuration
+    carries both, because every firmware measured here requires the duplex to be
+    named alongside the rate (``speed 100 full-duplex``).
+
+    NOT representable, deliberately: auto-negotiation with a restricted
+    ADVERTISED rate list (FASTPATH's ``speed auto [10] [100] [1000] [10G]``).
+    The grammar accepts it, but ``show port``'s Physical Mode column reports a
+    bare ``Auto`` for it -- measured on gsm7252ps 10.1.5.22 port 1/0/8,
+    2026-08-03, where ``speed auto 1000`` read back identically to ``speed
+    auto``. Offering it would mean offering a write this library cannot verify
+    it made, so it is left out until a read that can distinguish the two (the
+    running-config line) is built.
+    """
+
+    autonegotiate: bool
+    speed_mbps: int | None = None
+    full_duplex: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.autonegotiate:
+            if self.speed_mbps is not None or self.full_duplex is not None:
+                raise ValueError(
+                    "an auto-negotiating port has no configured rate or duplex; "
+                    "leave speed_mbps and full_duplex as None"
+                )
+        elif self.speed_mbps is None or self.full_duplex is None:
+            raise ValueError(
+                "a forced port configuration needs BOTH a rate and a duplex "
+                "(the firmware's own grammar requires them together)"
+            )
+
+    @classmethod
+    def auto(cls) -> PortSpeed:
+        """Auto-negotiate (the factory default on every switch measured here)."""
+        return cls(autonegotiate=True)
+
+    @classmethod
+    def forced(cls, speed_mbps: int, *, full_duplex: bool) -> PortSpeed:
+        """Force a fixed rate and duplex, disabling auto-negotiation."""
+        return cls(autonegotiate=False, speed_mbps=speed_mbps, full_duplex=full_duplex)
+
+    def __str__(self) -> str:
+        if self.autonegotiate:
+            return "auto"
+        return f"{self.speed_mbps}M {'full' if self.full_duplex else 'half'}-duplex"
+
+
+@dataclass(frozen=True)
 class PortStatus:
     port: int
     name: str | None
@@ -54,6 +116,13 @@ class PortStatus:
     #: Whether IEEE 802.3x flow control is enabled on the port ("Flow Mode" in
     #: `show port all`). ``None`` where the backend does not report it.
     flow_control: bool | None = None
+    #: The port's CONFIGURED speed/duplex -- ``show port``'s "Physical Mode"
+    #: column, as opposed to the "Physical Status" column the three fields above
+    #: come from. ``None`` where the backend cannot tell, which is every backend
+    #: but the CLI so far: SNMP's ifSpeed and the Plus models' NSDP port record
+    #: both report the NEGOTIATED rate only, and no vendor column carrying the
+    #: admin setting has been located on any of them.
+    speed_config: PortSpeed | None = None
 
 
 @dataclass(frozen=True)

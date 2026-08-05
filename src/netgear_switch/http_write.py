@@ -67,7 +67,7 @@ from .protocols.http.session import MultipartFile
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from .models import PoEStatus
+    from .models import PoEStatus, PortSpeed
     from .protocols.http.endpoints import HttpModelSpec, XuiMgmtIpFields
     from .protocols.http.session import AsyncHttpSession, HttpSession
     from .protocols.http.types import FastpathMembership, XuiListPage, XuiRow
@@ -602,9 +602,7 @@ class HttpWriter:
         return VlanMode.EXCLUDED
 
     def _goahead_vlan_ids(self) -> set[int]:
-        path = _require_path(
-            self.model.key, self._spec.vlan_config_path, "VLAN config"
-        )
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
         return set(parse.parse_goahead_vlan_names(self.session.get_page(path)))
 
     def _require_vlan_exists(self, vlan: int) -> None:
@@ -633,9 +631,7 @@ class HttpWriter:
 
     def _goahead_create_vlan(self, vlan: int, name: str) -> None:
         before = self._goahead_vlan_ids()
-        self._goahead_write(
-            goahead.vlan_create_body(vlan, name), f"create VLAN {vlan}"
-        )
+        self._goahead_write(goahead.vlan_create_body(vlan, name), f"create VLAN {vlan}")
         after = self._goahead_vlan_ids()
         if vlan not in after:
             raise WriteVerificationError(
@@ -791,9 +787,7 @@ class HttpWriter:
     def _set_goahead_membership(self, vlan: int, port: int, mode: VlanMode) -> None:
         before = self._goahead_mode_of(vlan, port)
         self._goahead_write(
-            goahead.vlan_membership_body(
-                vlan, goahead.port_interface_name(port), mode
-            ),
+            goahead.vlan_membership_body(vlan, goahead.port_interface_name(port), mode),
             f"VLAN {vlan} membership for port {port} -> {mode.value}",
         )
         after = self._goahead_mode_of(vlan, port)
@@ -1369,6 +1363,24 @@ class HttpWriter:
                 f"hostname did not read back as {name!r}", before=before, after=after
             )
 
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed on this UI.
+
+        The FASTPATH XUI port-configuration page HAS a Speed control, but
+        its cell id was never captured, and this writer will not POST into
+        a guessed coordinate -- the same stance ``set_port_description``
+        takes on the same page. The GoAhead XML API (gs728tpp) publishes
+        the fields for it (``Standard802_3List``:
+        speedAdmin/duplexAdminMode/autoNegotiationAdminEnabled) and is the
+        next dialect to gain this write.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: no web-UI speed/duplex write form has "
+            "been captured for this dialect"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
 
@@ -1520,9 +1532,7 @@ class AsyncHttpWriter:
     ) -> None:
         before = await self._goahead_mode_of(vlan, port)
         await self._goahead_write(
-            goahead.vlan_membership_body(
-                vlan, goahead.port_interface_name(port), mode
-            ),
+            goahead.vlan_membership_body(vlan, goahead.port_interface_name(port), mode),
             f"VLAN {vlan} membership for port {port} -> {mode.value}",
         )
         after = await self._goahead_mode_of(vlan, port)
@@ -1534,12 +1544,8 @@ class AsyncHttpWriter:
             )
 
     async def _goahead_vlan_ids(self) -> set[int]:
-        path = _require_path(
-            self.model.key, self._spec.vlan_config_path, "VLAN config"
-        )
-        return set(
-            parse.parse_goahead_vlan_names(await self.session.get_page(path))
-        )
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
+        return set(parse.parse_goahead_vlan_names(await self.session.get_page(path)))
 
     async def _set_goahead_port_enabled(
         self, path: str, port: int, enabled: bool
@@ -1698,9 +1704,7 @@ class AsyncHttpWriter:
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
         await self._require_vlan_exists(vlan)
         if _is_xml_api_dialect(self._spec):
-            before = dict(
-                parse.parse_goahead_pvids(await self.session.get_page(path))
-            )
+            before = dict(parse.parse_goahead_pvids(await self.session.get_page(path)))
             await self._goahead_write(
                 goahead.pvid_body(goahead.port_interface_name(port), vlan),
                 f"PVID for port {port} -> {vlan}",
@@ -1989,6 +1993,24 @@ class AsyncHttpWriter:
         """
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: this backend does not expose a host-name write"
+        )
+
+    async def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed on this UI.
+
+        The FASTPATH XUI port-configuration page HAS a Speed control, but
+        its cell id was never captured, and this writer will not POST into
+        a guessed coordinate -- the same stance ``set_port_description``
+        takes on the same page. The GoAhead XML API (gs728tpp) publishes
+        the fields for it (``Standard802_3List``:
+        speedAdmin/duplexAdminMode/autoNegotiationAdminEnabled) and is the
+        next dialect to gain this write.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: no web-UI speed/duplex write form has "
+            "been captured for this dialect"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

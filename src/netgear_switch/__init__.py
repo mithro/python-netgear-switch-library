@@ -76,6 +76,7 @@ from .models import (
     MgmtIpConfig,
     PoEDetect,
     PoEStatus,
+    PortSpeed,
     PortStats,
     PortStatus,
     Sensor,
@@ -133,6 +134,7 @@ __all__ = [  # noqa: RUF022 -- grouped by source module below, not alphabetical
     "HttpUnexpectedPageError",
     # models
     "PortStatus",
+    "PortSpeed",
     "PoEStatus",
     "PoEDetect",
     "VLANInfo",

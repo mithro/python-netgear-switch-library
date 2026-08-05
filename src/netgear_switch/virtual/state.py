@@ -179,6 +179,19 @@ class PortSim:
     # full_duplex/flow_control as None, which is the honest reading of an
     # absent column, and exactly what the real GSM7252PS produces.
     serves_etherlike: bool = False
+    # The port's CONFIGURED speed/duplex -- `show port`'s "Physical Mode"
+    # column, which is a DIFFERENT thing from ``speed`` above (that one is the
+    # negotiated rate the "Physical Status" column reports). Kept as the raw
+    # device text so the mock does not re-derive the cell with the same helper
+    # the parser uses: a mock that formats what the code under test parses can
+    # only ever agree with it. "Auto" is what every real port on every switch
+    # captured here reports, and 1/0/8 on the live gsm7252ps read back exactly
+    # "100 Full" after ``speed 100 full-duplex`` (2026-08-03).
+    #
+    # Note this is deliberately NOT coupled to ``speed``: forcing a port to 100
+    # while its link is DOWN leaves Physical Status blank and Physical Mode at
+    # "100 Full", which is precisely the divergence the two fields exist for.
+    physical_mode: str = "Auto"
 
 
 @dataclass

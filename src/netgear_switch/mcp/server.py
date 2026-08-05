@@ -33,7 +33,7 @@ from ..errors import (
     NetgearSwitchError,
     UnsupportedCapabilityError,
 )
-from ..models import VlanMode
+from ..models import PortSpeed, VlanMode
 from ..registry import Backend
 
 if TYPE_CHECKING:
@@ -361,6 +361,49 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         )
 
     @mcp.tool()
+    def set_port_speed(
+        port: int,
+        rate: str,
+        duplex: str = "full",
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
+        nsdp_interface: str | None = None,
+        backend: str | None = None,
+    ) -> dict[str, Any]:
+        """Force a port's speed/duplex, or restore auto-negotiation.
+
+        ``rate`` is "auto", or a forced rate spelled as the switch spells it
+        ("100", "10G"). 1000 cannot be FORCED -- 1000BASE-T requires
+        auto-negotiation and the firmware's grammar omits it. Disruptive:
+        applying either setting bounces the link.
+        """
+        if rate.strip().lower() == "auto":
+            speed = PortSpeed.auto()
+        else:
+            token = rate.strip().upper()
+            try:
+                mbps = int(token[:-1]) * 1000 if token.endswith("G") else int(token)
+            except ValueError:
+                return {
+                    "ok": False,
+                    "error": f"not a port rate: {rate!r} (try 'auto', '100', '10G')",
+                }
+            speed = PortSpeed.forced(mbps, full_duplex=duplex == "full")
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        chosen = _as_backend(backend)
+        return _write(
+            "set_port_speed",
+            lambda: sw.set_port_speed(port, speed, force=force, backend=chosen),
+        )
+
+    @mcp.tool()
     def set_hostname(
         name: str,
         force: bool = False,
@@ -426,9 +469,7 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         chosen = _as_backend(backend)
         return _write(
             "set_port_enabled",
-            lambda: sw.set_port_enabled(
-                port, enabled, force=force, backend=chosen
-            ),
+            lambda: sw.set_port_enabled(port, enabled, force=force, backend=chosen),
         )
 
     @mcp.tool()

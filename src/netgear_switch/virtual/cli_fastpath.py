@@ -190,7 +190,7 @@ def render_ports(state: VirtualSwitchState) -> str:
                 _iface(state, p),
                 "",
                 "Enable" if sim.admin else "Disable",
-                "Auto",
+                sim.physical_mode,
                 phys_status,
                 "Up" if sim.link else "Down",
                 "Enable",

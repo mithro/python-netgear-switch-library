@@ -52,7 +52,7 @@ from netgear_switch.capabilities import (
     operation,
     support,
 )
-from netgear_switch.models import VlanMode
+from netgear_switch.models import PortSpeed, VlanMode
 from netgear_switch.protocols.cli.commands import CLI_BACKENDS
 from netgear_switch.protocols.http import endpoints
 from netgear_switch.protocols.http.endpoints import http_spec
@@ -86,6 +86,10 @@ SEEDED_MODELS = (
 _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     "set_port_enabled": ((1, True), {}),
     "set_port_description": ((1, "capcheck"), {}),
+    # PortSpeed.auto() rather than a forced rate: auto is what every seeded port
+    # already reports, so driving the capability gate cannot depend on the mock
+    # accepting a particular rate on a particular model's PHY.
+    "set_port_speed": ((1, PortSpeed.auto()), {}),
     "set_poe": ((1, True), {}),
     "cycle_poe": ((1,), {}),
     "clear_poe_fault": ((1,), {}),
@@ -374,8 +378,7 @@ def test_every_switch_operation_has_a_capability_entry() -> None:
     known = {op.name for op in OPERATIONS}
     missing = public - known - _NOT_CAPABILITY_GATED
     assert not missing, (
-        f"SyncSwitch operations with no capabilities.Operation entry: "
-        f"{sorted(missing)}"
+        f"SyncSwitch operations with no capabilities.Operation entry: {sorted(missing)}"
     )
 
 

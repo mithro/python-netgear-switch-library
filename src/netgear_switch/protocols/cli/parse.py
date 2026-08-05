@@ -39,6 +39,7 @@ from ...models import (
     MgmtIpConfig,
     PoEDetect,
     PoEStatus,
+    PortSpeed,
     PortStats,
     PortStatus,
     Sensor,
@@ -282,6 +283,34 @@ def _duplex(phys_status: str) -> bool | None:
     return None
 
 
+def parse_physical_mode(cell: str) -> PortSpeed | None:
+    """The "Physical Mode" cell -> the port's CONFIGURED speed, or None.
+
+    This is the column ``set_port_speed`` verifies itself against, and it is a
+    DIFFERENT column from "Physical Status": Physical Mode is what the port is
+    set to, Physical Status what it negotiated. On a down port the first still
+    reads ``Auto``/``100 Full`` while the second is blank -- which is the whole
+    reason the two are separate fields (see ``models.PortSpeed``).
+
+    Values measured live 2026-08-03 on gsm7252ps 10.1.5.22 port 1/0/8: ``Auto``
+    by default, ``100 Full`` after ``speed 100 full-duplex``. ``None`` for a
+    blank cell, and for a word no measured firmware emits -- the writer's
+    verify-after-write is what makes an undecodable value loud, rather than
+    every ``get_ports`` on unfamiliar firmware raising.
+    """
+    text = cell.strip()
+    if not text:
+        return None
+    if text.lower() == "auto":
+        return PortSpeed(autonegotiate=True)
+    # Same "<rate> <duplex>" shape the Physical Status column uses, so it goes
+    # through the same two measured parsers rather than a second regex.
+    rate, duplex = _speed_mbps(text), _duplex(text)
+    if rate is None or duplex is None:
+        return None
+    return PortSpeed(autonegotiate=False, speed_mbps=rate, full_duplex=duplex)
+
+
 def parse_port_status(text: str) -> list[PortStatus]:
     """``show port all`` -> per physical-port ``PortStatus``.
 
@@ -322,6 +351,9 @@ def parse_port_status(text: str) -> list[PortStatus]:
                     if len(cells) > _PORT_LINK + 1
                     else None
                 ),
+                # NOT gated on link_up, unlike the three fields above: the
+                # CONFIGURED mode is reported whether or not the port is up.
+                speed_config=parse_physical_mode(cells[_PORT_PHYS_MODE]),
             )
         )
     return out

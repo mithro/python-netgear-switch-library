@@ -10,7 +10,7 @@ import traceback
 from typing import TYPE_CHECKING, TypedDict
 
 from netgear_switch.errors import NetgearSwitchError
-from netgear_switch.models import VlanMode
+from netgear_switch.models import PortSpeed, VlanMode
 from netgear_switch.registry import MODELS, Backend
 
 from . import capture, safety
@@ -206,6 +206,46 @@ def _cmd_sensors(
     return EXIT_OK
 
 
+def _parse_rate(text: str) -> int:
+    """``"100"`` -> 100, ``"10G"`` -> 10000. Raises ValueError on anything else.
+
+    The ``G`` suffix is the switch's own spelling (``speed 10G full-duplex``),
+    so accepting it here means the operator can type what the device prints.
+    """
+    token = text.strip().upper()
+    if token.endswith("G"):
+        return int(token[:-1]) * 1000
+    return int(token)
+
+
+def _cmd_port_speed(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    if args.rate.lower() == "auto":
+        speed = PortSpeed.auto()
+        what = f"set port {args.port} to auto-negotiate"
+    else:
+        try:
+            rate = _parse_rate(args.rate)
+        except ValueError:
+            print(
+                f"error: not a port rate: {args.rate!r} (try 'auto', '100' or '10G')",
+                file=ctx.err,
+            )
+            return EXIT_USAGE
+        speed = PortSpeed.forced(rate, full_duplex=args.duplex == "full")
+        what = f"force port {args.port} to {rate} Mbit/s {args.duplex}-duplex"
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=what,
+        action=lambda: switch.set_port_speed(args.port, speed, force=args.force),
+    )
+
+
 def _cmd_port_describe(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
@@ -221,9 +261,7 @@ def _cmd_port_describe(
             if text == ""
             else f"describe port {args.port} as {text!r}"
         ),
-        action=lambda: switch.set_port_description(
-            args.port, text, force=args.force
-        ),
+        action=lambda: switch.set_port_description(args.port, text, force=args.force),
     )
 
 
@@ -678,6 +716,26 @@ def build_parser() -> argparse.ArgumentParser:
     describe.add_argument("description", help="the label; '' clears it")
     safety.add_write_args(describe)
     describe.set_defaults(func=_cmd_port_describe)
+
+    speed = sub.add_parser(
+        "speed",
+        parents=[child_gp],
+        help="force a port's speed/duplex, or restore auto-negotiation",
+    )
+    speed.add_argument("port", type=int, help="port number")
+    speed.add_argument(
+        "rate",
+        help="'auto', or a forced rate spelled as the switch does: 100, 10G. "
+        "1000 cannot be forced -- 1000BASE-T requires auto-negotiation",
+    )
+    speed.add_argument(
+        "--duplex",
+        choices=("full", "half"),
+        default="full",
+        help="duplex for a forced rate (default: full; ignored for 'auto')",
+    )
+    safety.add_write_args(speed)
+    speed.set_defaults(func=_cmd_port_speed)
 
     cycle_poe = sub.add_parser(
         "cycle-poe", parents=[child_gp], help="power-cycle a port's PoE"

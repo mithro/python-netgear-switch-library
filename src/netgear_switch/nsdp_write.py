@@ -43,7 +43,7 @@ from .protocols.nsdp.write import (
 from .registry import Backend
 
 if TYPE_CHECKING:
-    from .models import VLANInfo
+    from .models import PortSpeed, VLANInfo
     from .protocols.nsdp.client import AsyncNsdpWriteClient, NsdpWriteClient
     from .registry import SwitchModel
     from .snmp_write import PoeCycleTimeouts
@@ -184,9 +184,7 @@ class NsdpWriter:
         """
         self._guard(port, force)
         before = {p.port: p.description for p in self._reader.get_ports()}
-        self.client.write(
-            [port_name_tlv(port, description)], password=self._password
-        )
+        self.client.write([port_name_tlv(port, description)], password=self._password)
         after = {p.port: p.description for p in self._reader.get_ports()}
         want = description or None
         if after.get(port) != want:
@@ -351,6 +349,23 @@ class NsdpWriter:
                 before=before,
                 after=after,
             )
+
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated: NSDP's per-port speed
+        byte is a LINK-STATE code, not a setting -- its own value 0x00 is
+        ``DOWN`` (see ``protocols.nsdp.types.LinkSpeed``), which a
+        configuration field could not mean. No speed/duplex ADMIN tag has
+        been identified in the tag inventory captured from live GS110EMX
+        units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP publishes the negotiated link "
+            "speed only; no speed/duplex admin tag has been identified"
+        )
 
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
@@ -559,6 +574,23 @@ class AsyncNsdpWriter:
         """
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: this backend does not expose a host-name write"
+        )
+
+    async def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated: NSDP's per-port speed
+        byte is a LINK-STATE code, not a setting -- its own value 0x00 is
+        ``DOWN`` (see ``protocols.nsdp.types.LinkSpeed``), which a
+        configuration field could not mean. No speed/duplex ADMIN tag has
+        been identified in the tag inventory captured from live GS110EMX
+        units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP publishes the negotiated link "
+            "speed only; no speed/duplex admin tag has been identified"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

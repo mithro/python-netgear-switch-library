@@ -92,6 +92,7 @@ if TYPE_CHECKING:
         MacEntry,
         MgmtIpConfig,
         PoEStatus,
+        PortSpeed,
         PortStats,
         PortStatus,
         Sensor,
@@ -587,6 +588,24 @@ class AsyncSwitch:
         await self._write(
             lambda w: w.set_port_description(port, description, force=force), backend
         )
+
+    async def set_port_speed(
+        self,
+        port: int,
+        speed: PortSpeed,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Async twin of ``SyncSwitch.set_port_speed`` -- see it.
+
+        Every async backend refuses this: the operation is served over the
+        FASTPATH CLI, and all three CLI transports (paramiko SSH, telnet,
+        pyserial console) are synchronous, so ``AsyncSwitch`` has no CLI
+        backend at all. Kept present so the refusal names the backend rather
+        than surfacing as ``AttributeError``.
+        """
+        await self._write(lambda w: w.set_port_speed(port, speed, force=force), backend)
 
     async def set_pvid(
         self,

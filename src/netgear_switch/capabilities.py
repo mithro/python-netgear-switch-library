@@ -208,6 +208,23 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         #         cell id was never captured, and the writer refuses by name
         #         rather than posting into a guessed cell.
     ),
+    Operation(
+        "set_port_speed",
+        OperationKind.WRITE,
+        "Force a port's speed/duplex, or restore auto-negotiation",
+        # CLI only, and each of the other three refuses BY NAME rather than
+        # being quietly absent (see each writer's set_port_speed):
+        #   SNMP  ifSpeed/ifHighSpeed report the NEGOTIATED rate; the MAU-MIB
+        #         columns that would carry the setting have not been walked, so
+        #         their presence is unknown rather than absent
+        #   NSDP  the per-port speed byte is a LINK-STATE code (0x00 means DOWN)
+        #   HTTP  the FASTPATH XUI page has a Speed control whose cell id was
+        #         never captured; the GoAhead XML API has the fields and is next
+        #
+        # The CLI grammar itself is proven by execution on gsm7252ps 10.1.5.22
+        # port 1/0/8 (2026-08-03), including the switch REFUSING a forced 1000.
+        backends=_CLI_BACKENDS,
+    ),
     Operation("set_pvid", OperationKind.WRITE, "Set a port's PVID"),
     Operation(
         "set_vlan_membership",

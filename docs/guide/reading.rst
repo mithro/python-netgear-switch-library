@@ -19,7 +19,9 @@ The operations
      - ``list[PortStatus]``
      - Port number, ``ifName``, admin state, link state, speed in Mbit/s, and
        the operator-set description (``ifAlias``) where the backend can read
-       one.
+       one. ``speed_config`` carries the port's **configured** speed/duplex,
+       which is a different question from the negotiated ``speed_mbps`` —
+       see :ref:`speed-vs-negotiated`.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_stats`
      - ``list[PortStats]``
      - RX/TX bytes, packets and errors. Any counter a backend cannot read is

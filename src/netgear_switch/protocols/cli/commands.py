@@ -53,11 +53,27 @@ from ...registry import Backend
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from ...models import PortSpeed
     from ...registry import SwitchModel
 
 # The three CLI transports all speak the same FASTPATH CLI; a model that has any
 # of them uses this spec set.
 CLI_BACKENDS = frozenset({Backend.SSH, Backend.TELNET, Backend.CONSOLE})
+
+
+def fastpath_rate(mbps: int) -> str:
+    """How FASTPATH spells a port rate in a ``speed`` command: 10000 -> "10G".
+
+    The two spellings are not a guess: a live gsm7252ps offered ``10``, ``100``
+    and ``10G`` as the forced rates on 1/0/8 (2026-08-03), so sub-gigabit rates
+    go as bare Mbit/s and gigabit multiples take the ``G`` suffix. Rates outside
+    that measured set are still formatted by the same rule and SENT -- the
+    device answers "% Invalid input" for one it does not have, which the writer
+    raises verbatim (see ``CliModelSpec.port_speed_forced_cmd``).
+    """
+    if mbps >= 1000 and mbps % 1000 == 0:
+        return f"{mbps // 1000}G"
+    return str(mbps)
 
 
 @dataclass(frozen=True)
@@ -185,6 +201,26 @@ class CliModelSpec:
     #     Description.....
     #     MAC address..... E0:91:F5:0C:D6:DD
     port_description_show_cmd: str = "show port description {iface}"
+    # Per-port speed/duplex, in interface config mode. TWO grammars that mean
+    # OPPOSITE things, both PROVEN BY EXECUTION on gsm7252ps 10.1.5.22 port
+    # 1/0/8 (link-down, undescribed, 2026-08-03) and restored afterwards:
+    #
+    #   speed <rate> <full-duplex|half-duplex>   FORCE, auto-negotiation off
+    #   speed auto                               AUTO-NEGOTIATE
+    #
+    # The forced rates each port offers are a property of its PHY, not of the
+    # firmware -- 1/0/8 (1G copper) offered 10/100/10G while m4300-24x 1/0/15
+    # (10GBASE-T) offered 100/10G -- so NO per-model rate table is kept here.
+    # An unsupported rate is SENT and the device's own "% Invalid input" is what
+    # surfaces, through the writer's treat-any-output-as-failure rule; the
+    # switch is a better authority on its own ports than a table we maintain.
+    #
+    # The ONE rate refused before sending is a forced 1000 (see
+    # ``cli_write.CliWriter.set_port_speed``): 1000BASE-T makes auto-negotiation
+    # mandatory, and the firmware encodes that by leaving 1000 out of the forced
+    # grammar entirely while keeping it in ``speed auto [10] [100] [1000] [10G]``.
+    port_speed_auto_cmd: str = "speed auto"
+    port_speed_forced_cmd: str = "speed {rate} {duplex}-duplex"
     exit_cmd: str = "exit"
     # PoE, in interface config mode. Identical on every PoE-capable FASTPATH
     # image probed ("poe ?" -> <cr>/detection/high-power/power/priority/reset/
@@ -261,6 +297,16 @@ class CliModelSpec:
     def port_description_show(self, port: int) -> str:
         """The per-port command that reports a description back."""
         return self.port_description_show_cmd.format(iface=self.iface(port))
+
+    def port_speed(self, speed: PortSpeed) -> str:
+        """The interface-config command that applies ``speed`` (see the fields)."""
+        if speed.autonegotiate:
+            return self.port_speed_auto_cmd
+        assert speed.speed_mbps is not None  # PortSpeed.__post_init__ guarantees it
+        return self.port_speed_forced_cmd.format(
+            rate=fastpath_rate(speed.speed_mbps),
+            duplex="full" if speed.full_duplex else "half",
+        )
 
     def poe_admin(self, *, on: bool) -> str:
         return self.poe_enable_cmd if on else self.poe_disable_cmd
