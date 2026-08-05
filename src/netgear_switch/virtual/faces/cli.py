@@ -111,7 +111,20 @@ _SHUTDOWN_RE = re.compile(r"^(no )?shutdown$")
 _LOGGING_HOST_ADD_RE = re.compile(
     r'^logging host "([^"]+)" (ipv4|ipv6|dns) (\d+) (\w+)$'
 )
-_LOGGING_HOST_REMOVE_RE = re.compile(r"^no logging host (\d+)$")
+# REMOVAL IS A SUBCOMMAND, NOT A NEGATION. This mock used to accept
+# `no logging host <index>` -- which the REAL gsm7252ps rejects outright
+# ("% Invalid input detected at '^' marker.", measured 2026-08-05, and it left
+# a throwaway collector stranded on the switch until the right verb was found).
+# The device's own `logging host ?` lists `remove` and `reconfigure` as
+# subcommands. Accepting the negation here is exactly the lenient-fake failure
+# principle 5 exists to prevent, so the negation is now REJECTED too.
+_LOGGING_HOST_REMOVE_RE = re.compile(r"^logging host remove (\d+)$")
+#: The negation, MEASURED as rejected on 10.1.5.22 with the exact text below --
+#: in every spelling tried (bare index, quoted address, unquoted address, and
+#: both with a trailing `ipv4`). Matched explicitly so the mock answers it the
+#: way the device does, rather than falling through to the generic
+#: "Command not found" and being merely accidentally-not-wrong.
+_LOGGING_HOST_NEGATION_RE = re.compile(r"^no logging host\b.*$")
 _LOGGING_SYSLOG_RE = re.compile(r"^(no )?logging syslog$")
 _IP = r"(\d+\.\d+\.\d+\.\d+)"
 # Older images (gsm7252ps, gsm7228ps): ONE privileged-EXEC command.
@@ -439,6 +452,8 @@ class VirtualCliFace:
                     SyslogCollectorSim(host=address, port=int(port), severity=severity)
                 )
                 return _ACCEPTED
+            if _LOGGING_HOST_NEGATION_RE.match(c):
+                return _INVALID  # removal is a subcommand, not a negation
             m = _LOGGING_HOST_REMOVE_RE.match(c)
             if m:
                 index = int(m.group(1))

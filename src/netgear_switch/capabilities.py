@@ -327,6 +327,7 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         # CLI only. The command form is VERBATIM from `show running-config` on
         # all four FASTPATH models (2026-08-05, read-only):
         #     logging host "10.1.5.1" ipv4 514 info
+        # LIVE-VERIFIED on all four by adding and removing a TEST-NET-1 address.
         # The other three refuse by name -- SNMP's vendor host table has never
         # had a RowStatus create driven against it, NSDP has no logging surface
         # at all (measured tag sweep), and no FASTPATH-XUI row-add POST has ever
@@ -338,10 +339,11 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         "remove_syslog_collector",
         OperationKind.WRITE,
         "Remove a remote syslog collector",
-        # CLI only, same grounding. `no logging host <index>` addresses the
-        # 1-based Index column of `show logging hosts`, so the writer resolves
-        # the index from a fresh read immediately before the write -- removing
-        # row 1 renumbers every row after it.
+        # CLI only. `logging host remove <index>` -- a SUBCOMMAND, not the
+        # negation it looks like; `no logging host ...` is rejected by the
+        # device in every spelling. Addresses the 1-based Index column of
+        # `show logging hosts`, so the writer resolves the index from a fresh
+        # read immediately before the write: removing row 1 renumbers the rest.
         backends=_CLI_BACKENDS,
     ),
     Operation(

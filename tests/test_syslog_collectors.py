@@ -80,9 +80,28 @@ def test_severity_travels_as_a_word() -> None:
         spec.logging_host_add("10.1.5.1", 514, 9)
 
 
-def test_removal_addresses_the_index_not_the_address() -> None:
+def test_removal_is_a_subcommand_not_a_negation() -> None:
+    """The inference that cost a live switch its clean state.
+
+    ``no logging host <index>`` is the obvious FASTPATH negation and it is
+    WRONG: a live gsm7252ps rejected it, and every address spelling too, leaving
+    a throwaway collector stranded until ``logging host ?`` revealed that
+    removal is a SUBCOMMAND.
+    """
     spec = cli_spec(get_model(_MODEL))
-    assert spec.logging_host_remove(1) == "no logging host 1"
+    assert spec.logging_host_remove(1) == "logging host remove 1"
+
+
+def test_the_fake_rejects_the_negation_the_real_switch_rejects() -> None:
+    """Principle 5: the mock ACCEPTED `no logging host 2` while the device
+    refused it, which is precisely why the bug reached hardware."""
+    with VirtualSwitch(_MODEL) as mock:
+        session = mock.cli_session()
+        session.run("configure")
+        assert "Invalid input" in session.run("no logging host 1")
+        session.run("exit")
+        # ... and the collector is still there, exactly as on the live switch.
+        assert LIVE_COLLECTOR in session.run("show logging hosts")
 
 
 def test_enable_command_is_the_bare_running_config_line() -> None:

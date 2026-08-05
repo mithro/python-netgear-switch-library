@@ -928,11 +928,25 @@ class CliWriter:
     def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
         """Remove the remote syslog collector for ``host``.
 
-        ``no logging host <index>`` -- addressed by the 1-based INDEX from
-        ``show logging hosts``, not by address, because that table's Index
-        column is the row handle the firmware exposes. The index is therefore
-        resolved from a fresh read immediately before the write, never cached:
-        removing row 1 renumbers everything after it.
+        ``logging host remove <index>`` -- a SUBCOMMAND, not a negation, and
+        addressed by the 1-based INDEX from ``show logging hosts`` rather than
+        by address. The index is resolved from a fresh read immediately before
+        the write, never cached: removing row 1 renumbers everything after it.
+
+        The obvious ``no logging host <index>`` is WRONG and was corrected the
+        expensive way -- a live gsm7252ps rejected it, and every address
+        spelling too, leaving a throwaway collector on the switch until
+        ``logging host ?`` showed ``remove``/``reconfigure`` as subcommands.
+        The verify-after-write did its job (the failure was loud and the state
+        was recoverable), but the lesson is that a FASTPATH negation is not a
+        safe inference.
+
+        LIVE-VERIFIED 2026-08-05 on all four CLI models -- gsm7252ps 10.1.5.22,
+        m4300-24x 10.1.5.13, m4300-16x 10.1.5.20 and gsm7228ps 10.1.5.11 (over
+        telnet 60000) -- each by adding 192.0.2.1 (TEST-NET-1, routes nowhere),
+        reading it back, removing it, and proving ``show logging hosts``
+        byte-identical to its prior state with the production 10.1.5.1
+        collector untouched throughout. No ``write memory``.
 
         Refuses up front if no such collector exists, rather than sending a
         removal for a row that is not there.

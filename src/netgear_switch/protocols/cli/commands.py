@@ -164,17 +164,29 @@ class CliModelSpec:
     # so the address is QUOTED, the address-kind token is explicit, and the
     # severity travels as a WORD. `logging syslog` is the remote-logging enable.
     #
-    # The two `no` forms are the standard FASTPATH negation and are INFERRED,
-    # not captured: running-config never prints a negation, and `?` cannot be
-    # used to check (bare `no logging host` may itself be complete, and `?`
-    # EXECUTES commands that accept <cr>). They are safe to send because
-    # CliWriter treats any output as failure, so a wrong form surfaces as the
-    # device's own rejection rather than a silent no-op.
+    # REMOVAL IS NOT A NEGATION. `no logging host <index>` was the obvious
+    # inference and it is WRONG -- a live gsm7252ps (10.1.5.22, 2026-08-05)
+    # answered "% Invalid input detected at '^' marker." to it, and to
+    # `no logging host <address>` in every quoted/unquoted/typed spelling. The
+    # device's own help settles it:
     #
-    # `no logging host` takes the INDEX from `show logging hosts`, not the
-    # address -- that table's Index column is the row handle.
+    #     (Config)# logging host ?
+    #     <hostaddress|hostname>   Enter Logging Host IP Address or Hostname
+    #     reconfigure              Logging Host Reconfiguration
+    #     remove                   Logging Host Removal
+    #
+    # so removal is a SUBCOMMAND, `logging host remove <index>`, taking the
+    # 1-based Index from `show logging hosts`. Confirmed by executing it: the
+    # throwaway row went away and the table returned byte-identical to prior.
+    #
+    # (That help probe is safe despite the #72 `?` hazard: bare `logging host`
+    # is INCOMPLETE -- it requires an address -- so the trailing newline is
+    # rejected rather than executed, exactly like `speed`.)
+    #
+    # `no logging syslog` remains inferred; only the positive form appears in
+    # running-config. A wrong form is raised, never swallowed.
     logging_host_add_cmd: str = 'logging host "{address}" {kind} {port} {severity}'
-    logging_host_remove_cmd: str = "no logging host {index}"
+    logging_host_remove_cmd: str = "logging host remove {index}"
     logging_syslog_cmd: str = "logging syslog"
     logging_no_syslog_cmd: str = "no logging syslog"
 
