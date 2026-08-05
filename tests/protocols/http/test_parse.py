@@ -42,10 +42,12 @@ def test_parse_login_rand_and_hash() -> None:
 # --- physical GS110EMX (tests/fixtures/http/gs110emx_*.html), not a  ---
 # --- synthetic fixture -- see endpoints.py's _GS110EMX docstring.   ---
 
-_GAMBIT_TOKEN = (
-    "dhrelggkcbjfjgcfnbcfeekfbajfkejgpfkehbnfgbbaigdaggifhedafagfjehbdfljdbhk"
-    "dgcahblfgbgalehadftkkjegeaje"
-)
+#: Redacted placeholder. Three of these fixtures carried a REAL Gambit SESSION
+#: TOKEN from the 2026-07-30 capture until 2026-08-05; the other four already
+#: used this placeholder, so the convention now matches across all seven.
+#: Nothing depends on the value -- these tests prove the parser finds the
+#: FIELD, not what a long-dead session happened to contain.
+_GAMBIT_TOKEN = "GAMBITTOKEN"
 
 
 def test_parse_login_rand_gs110emx() -> None:
@@ -696,9 +698,7 @@ def test_parse_s3300_mgmt_is_base_mac_only() -> None:
     assert mgmt.netmask is None
     assert mgmt.gateway is None
     assert (
-        mgmt.base_mac
-        == _s3300_capture()["mgmt_ip"]["base_mac"]
-        == "08:BD:43:6B:B8:D8"
+        mgmt.base_mac == _s3300_capture()["mgmt_ip"]["base_mac"] == "08:BD:43:6B:B8:D8"
     )
 
 
@@ -764,16 +764,16 @@ def test_s3300_shares_xe_parsers_for_ports_stats_pvids_poe_lldp() -> None:
             assert poe[cp["port"]].detect.value == cp["detect"] == "delivering"
 
     stats = {
-        s.port: s
-        for s in parse.parse_xe_stats(_read("gsm7228ps_portStatistics.html"))
+        s.port: s for s in parse.parse_xe_stats(_read("gsm7228ps_portStatistics.html"))
     }
     # Per-port packet counters are live MONOTONIC counters; the HTTP page fetch
     # and the SNMP walk were moments apart, so the active uplink ports (49/51)
     # legitimately differ. Only the port SET and the counter shape are
     # cross-checked (counters are not parity-pinned, like MACs/LLDP).
     assert set(stats) == {s["port"] for s in cap["stats"]} == set(range(1, 53))
-    assert all(s.rx_packets is not None and s.tx_packets is not None
-               for s in stats.values())
+    assert all(
+        s.rx_packets is not None and s.tx_packets is not None for s in stats.values()
+    )
 
     lldp = {
         n.local_port: n
