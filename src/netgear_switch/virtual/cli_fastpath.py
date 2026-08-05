@@ -563,8 +563,12 @@ def render_logging_hosts(state: VirtualSwitchState) -> str:
         "----- ------------------------ ---------- ------ --------- ----- "
         "-------- -----",
     ]
-    for i, c in enumerate(state.syslog.collectors, start=1):
+    for c in state.syslog.collectors:
         word = _SEVERITY_WORDS.get(c.severity, str(c.severity))
         status = "Active" if c.status == 1 else "Inactive"
-        rows.append(f"{i:<5} {c.host:<24} {word:<10} {c.port:<6} {status:<9} udp")
+        # c.index, NOT the loop position. The real table's Index column is
+        # SPARSE -- 1 and 3 with nothing at 2, measured on m4300-24x 10.1.5.13
+        # -- and a mock that renumbered densely could never expose the
+        # position-for-index bug that shipped.
+        rows.append(f"{c.index:<5} {c.host:<24} {word:<10} {c.port:<6} {status:<9} udp")
     return "\n".join(rows)

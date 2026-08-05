@@ -448,8 +448,15 @@ class VirtualCliFace:
                 # CliWriter refuses a duplicate before sending anything. The
                 # mock reproduces the append so that refusal has something real
                 # to prevent.
-                self.state.syslog.collectors.append(
-                    SyslogCollectorSim(host=address, port=int(port), severity=severity)
+                # A NEW index, never a renumbering: real FASTPATH hands out the
+                # next free slot and leaves existing rows where they are, which
+                # is how the table becomes sparse after a removal.
+                collectors = self.state.syslog.collectors
+                nxt = max((c.index for c in collectors), default=0) + 1
+                collectors.append(
+                    SyslogCollectorSim(
+                        host=address, port=int(port), severity=severity, index=nxt
+                    )
                 )
                 return _ACCEPTED
             if _LOGGING_HOST_NEGATION_RE.match(c):
@@ -458,9 +465,13 @@ class VirtualCliFace:
             if m:
                 index = int(m.group(1))
                 collectors = self.state.syslog.collectors
-                if not 1 <= index <= len(collectors):
-                    return _INVALID  # no such row
-                del collectors[index - 1]
+                row = next((c for c in collectors if c.index == index), None)
+                if row is None:
+                    # The device's own words, measured on 10.1.5.13.
+                    return f"Error! Logging Host with index of {index} is non-existent."
+                collectors.remove(row)
+                # Survivors KEEP their index -- that is what makes the table
+                # sparse, and what a position-based remover gets wrong.
                 return _ACCEPTED
             m = _INTERFACE_RE.match(c)
             if m:

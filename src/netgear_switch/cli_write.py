@@ -929,9 +929,15 @@ class CliWriter:
         """Remove the remote syslog collector for ``host``.
 
         ``logging host remove <index>`` -- a SUBCOMMAND, not a negation, and
-        addressed by the 1-based INDEX from ``show logging hosts`` rather than
-        by address. The index is resolved from a fresh read immediately before
-        the write, never cached: removing row 1 renumbers everything after it.
+        addressed by the table's OWN Index column rather than by address. Read
+        from a fresh table immediately before the write, never cached.
+
+        THE INDEX IS SPARSE, and it is not the row's position. Measured on
+        m4300-24x 10.1.5.13 (2026-08-05): after some churn the table held Index
+        1 and Index 3, with nothing at 2. This method used to enumerate the
+        rows and count -- which addressed Index 2, a row that did not exist.
+        The switch ACCEPTED that removal as a no-op and the collector survived,
+        so the bug was silent until the table was read column-wise.
 
         The obvious ``no logging host <index>`` is WRONG and was corrected the
         expensive way -- a live gsm7252ps rejected it, and every address
@@ -953,11 +959,18 @@ class CliWriter:
         """
         del force
         before = self._syslog()
-        index = next(
-            (i for i, s in enumerate(before.servers, start=1) if s.host == host), None
-        )
-        if index is None:
+        row = next((s for s in before.servers if s.host == host), None)
+        if row is None:
             raise CliCommandError(f"no syslog collector for {host!r} to remove")
+        index = row.index
+        if index is None:
+            # Cannot happen through the CLI reader, which always fills it; a
+            # SyslogConfig from another backend would land here rather than
+            # having an index invented for it.
+            raise CliCommandError(
+                f"the syslog collector for {host!r} carries no table index, so "
+                "it cannot be addressed for removal"
+            )
         self._in_mode(
             [self._spec.configure_cmd], [self._spec.logging_host_remove(index)]
         )

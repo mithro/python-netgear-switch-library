@@ -880,13 +880,20 @@ def parse_syslog(logging_text: str, hosts_text: str) -> SyslogConfig:
         # rule under it do not, which is what filters them out.
         if len(cells) < 5 or not cells[0].isdigit():
             continue
-        _index, host, severity, port, status = cells[:5]
+        index, host, severity, port, status = cells[:5]
         servers.append(
             SyslogServer(
                 host=host,
                 port=int(port) if port.isdigit() else 0,
                 severity=syslog_severity(severity),
                 active=status.lower() == "active",
+                # The table's OWN Index, kept rather than discarded: it is the
+                # handle `logging host remove <index>` addresses, and it is
+                # SPARSE. Measured on m4300-24x 10.1.5.13 (2026-08-05), where
+                # the rows were Index 1 and Index 3 with nothing at 2 -- so a
+                # remover using the row's POSITION would have addressed the
+                # wrong row (and did, until this was found).
+                index=int(index),
             )
         )
     return SyslogConfig(enabled=enabled, local_port=local_port, servers=tuple(servers))

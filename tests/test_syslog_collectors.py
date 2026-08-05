@@ -213,18 +213,56 @@ def test_removing_an_absent_collector_is_refused() -> None:
         writer.remove_syslog_collector(THROWAWAY)
 
 
-def test_the_index_is_resolved_fresh_because_removal_renumbers() -> None:
-    """Row 1's removal renumbers everything after it, so a cached index would
-    delete the wrong collector."""
-    writer = _writer()
-    writer.add_syslog_collector("192.0.2.2")
-    writer.add_syslog_collector("192.0.2.3")
-    assert _hosts(writer) == (LIVE_COLLECTOR, "192.0.2.2", "192.0.2.3")
+def test_the_table_index_is_sparse_and_is_not_the_row_position() -> None:
+    """The bug that shipped, and the measurement that caught it.
 
-    writer.remove_syslog_collector(LIVE_COLLECTOR)  # was index 1
-    assert _hosts(writer) == ("192.0.2.2", "192.0.2.3")
-    writer.remove_syslog_collector("192.0.2.3")  # now index 2, was 3
-    assert _hosts(writer) == ("192.0.2.2",)
+    On m4300-24x 10.1.5.13 (2026-08-05) the table held Index 1 and Index 3 with
+    nothing at 2 -- FASTPATH hands out the next free slot and leaves survivors
+    where they are. ``remove_syslog_collector`` counted rows instead of reading
+    the Index column, so it addressed Index 2: a row that did not exist. The
+    switch ACCEPTED that removal as a no-op and the collector survived, which
+    is why nothing failed loudly.
+    """
+    writer = _writer()
+    writer.add_syslog_collector("192.0.2.2")  # index 2
+    writer.add_syslog_collector("192.0.2.3")  # index 3
+    writer.remove_syslog_collector("192.0.2.2")  # leaves a HOLE at 2
+
+    servers = writer._reader.get_syslog().servers
+    assert [s.host for s in servers] == [LIVE_COLLECTOR, "192.0.2.3"]
+    # The survivor kept index 3 while being the SECOND row.
+    assert [s.index for s in servers] == [1, 3]
+
+    # A position-based remover would send `logging host remove 2` here and the
+    # collector would survive. This must actually remove it.
+    writer.remove_syslog_collector("192.0.2.3")
+    assert _hosts(writer) == (LIVE_COLLECTOR,)
+
+
+def test_the_fake_refuses_a_nonexistent_index_the_way_the_switch_does() -> None:
+    """Measured wording from 10.1.5.13. A mock that silently accepted it would
+    reproduce the exact silence that hid the position-for-index bug."""
+    with VirtualSwitch(_MODEL) as mock:
+        session = mock.cli_session()
+        session.run("configure")
+        out = session.run("logging host remove 2")  # nothing at index 2
+        session.run("exit")
+    assert "non-existent" in out
+
+
+def test_a_collector_without_an_index_cannot_be_removed() -> None:
+    """A SyslogConfig from a backend that does not publish the index must not
+    have one invented for it."""
+    from netgear_switch.models import SyslogConfig, SyslogServer
+
+    writer = _writer()
+    writer._reader.get_syslog = lambda: SyslogConfig(  # type: ignore[method-assign]
+        enabled=True,
+        local_port=514,
+        servers=(SyslogServer(host=THROWAWAY, port=514, severity=6, active=True),),
+    )
+    with pytest.raises(CliCommandError, match="no table index"):
+        writer.remove_syslog_collector(THROWAWAY)
 
 
 def test_enable_round_trips() -> None:

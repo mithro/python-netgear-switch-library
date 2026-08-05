@@ -259,6 +259,12 @@ class SyslogCollectorSim:
     port: int
     severity: int
     status: int = 1
+    #: The row's index in the switch's own host table. SPARSE on real
+    #: hardware -- m4300-24x 10.1.5.13 held Index 1 and Index 3 with nothing
+    #: at 2 (2026-08-05) -- so the mock stores it rather than deriving it from
+    #: list position. A fake that renumbered densely could never catch a
+    #: position-for-index bug, which is exactly the bug that got shipped.
+    index: int = 1
 
 
 @dataclass

@@ -311,6 +311,17 @@ class SyslogServer:
     severity: int
     #: The switch's own word for the row's state, "Active" in the CLI table.
     active: bool
+    #: The row's index in the switch's own host table, where the backend
+    #: reports one -- the handle a removal addresses. ``None`` from backends
+    #: that do not expose it (SNMP walks it as the OID instance, HTTP's page
+    #: does not print it).
+    #:
+    #: It is SPARSE, and that is not a detail: measured on m4300-24x
+    #: (10.1.5.13, 2026-08-05) the table held Index 1 and Index 3 with nothing
+    #: at 2. Deriving it from a row's POSITION -- which is the obvious thing to
+    #: do, and what this library did until that measurement -- addresses the
+    #: wrong row as soon as anything has ever been removed.
+    index: int | None = None
 
 
 #: Syslog severity names as the switches PRINT them, mapped to the standard
