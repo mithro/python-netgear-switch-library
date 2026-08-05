@@ -1088,6 +1088,11 @@ def seed_gsm7252ps() -> VirtualSwitchState:
             rx_errors=rx_errs,
             tx_errors=tx_errs,
             description=description,
+            # Flow Mode reads "Disable" on all 52 ports of this model's own
+            # `show port all` capture. It was left at the True default while the
+            # CLI face happened to print a hardcoded "Disable" -- so the mock
+            # agreed with the device by accident and disagreed with itself.
+            flow_control=False,
         )
     # Two of the capture's non-physical interfaces (it has 65: one CPU port
     # and 64 LAGs). They must never appear on a web-UI page. Both are
@@ -1709,6 +1714,9 @@ def seed_gsm7228ps() -> VirtualSwitchState:
             rx_errors=rx_e,
             tx_errors=tx_e,
             description=description,
+            # "Disable" on all 52 ports of this model's `show port all`
+            # capture -- see the note in seed_gsm7252ps.
+            flow_control=False,
         )
 
     # member/untagged are the EXACT captured ifIndex sets: physical ports plus
@@ -2301,6 +2309,11 @@ def seed_m4300_24x() -> VirtualSwitchState:
             tx_octets=tx_bytes,
             rx_errors=rx_errors,
             tx_errors=0,
+            # "Disable" in the Flow Mode column of this model's own
+            # `show port all` capture -- see the note in seed_gsm7252ps. This
+            # SKU is also where reading that column by POSITION went wrong: the
+            # M4300 table appends a "Stack Capable" column after Flow Mode.
+            flow_control=False,
         )
     # Representative non-physical ifIndexes (see module docstring above):
     # the CPU interface, one real in-use LAG + one unused placeholder LAG,
@@ -2577,6 +2590,9 @@ def seed_m4300_16x() -> VirtualSwitchState:
             tx_octets=tx_bytes,
             rx_errors=0,
             tx_errors=0,
+            # "Disable" on all 16 ports of this model's own `show port all`
+            # capture -- see the note in seed_gsm7252ps.
+            flow_control=False,
         )
     ports[769] = PortSim(
         name="CPU Interface:  0/15/1", admin=True, link=True, speed=0, if_type=1

@@ -90,6 +90,9 @@ _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     # already reports, so driving the capability gate cannot depend on the mock
     # accepting a particular rate on a particular model's PHY.
     "set_port_speed": ((1, PortSpeed.auto()), {}),
+    # False is what every FASTPATH seed now carries (their captures all read
+    # "Disable"), so this drives the gate without depending on a state change.
+    "set_flow_control": ((1, False), {}),
     "set_poe": ((1, True), {}),
     "cycle_poe": ((1,), {}),
     "clear_poe_fault": ((1,), {}),

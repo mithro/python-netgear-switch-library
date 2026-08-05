@@ -764,6 +764,22 @@ class SyncSwitch:
         """
         self._write(lambda w: w.set_port_speed(port, speed, force=force), backend)
 
+    def set_flow_control(
+        self,
+        port: int,
+        enabled: bool,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Turn IEEE 802.3x flow control on or off for a port.
+
+        Served over the FASTPATH CLI. The read that pairs with it is
+        ``PortStatus.flow_control``, which on that backend is the CONFIGURED
+        setting -- ``show port``'s Flow Mode column moves on a link-down port.
+        """
+        self._write(lambda w: w.set_flow_control(port, enabled, force=force), backend)
+
     def set_pvid(
         self,
         port: int,

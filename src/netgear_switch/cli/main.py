@@ -246,6 +246,21 @@ def _cmd_port_speed(
     )
 
 
+def _cmd_flow_control(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    on = args.state == "on"
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"turn flow control {'on' if on else 'off'} for port {args.port}",
+        action=lambda: switch.set_flow_control(args.port, on, force=args.force),
+    )
+
+
 def _cmd_port_describe(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
@@ -736,6 +751,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     safety.add_write_args(speed)
     speed.set_defaults(func=_cmd_port_speed)
+
+    flow_control = sub.add_parser(
+        "flow-control",
+        parents=[child_gp],
+        help="turn IEEE 802.3x flow control on or off for a port",
+    )
+    flow_control.add_argument("port", type=int, help="port number")
+    flow_control.add_argument("state", choices=("on", "off"), help="flow-control state")
+    safety.add_write_args(flow_control)
+    flow_control.set_defaults(func=_cmd_flow_control)
 
     cycle_poe = sub.add_parser(
         "cycle-poe", parents=[child_gp], help="power-cycle a port's PoE"

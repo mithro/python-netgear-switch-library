@@ -486,6 +486,45 @@ class CliWriter:
                 after=after,
             )
 
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """Turn IEEE 802.3x flow control on or off for ``port``.
+
+        ``flowcontrol`` / ``no flowcontrol`` in interface config mode -- bare
+        toggles, and PROVEN as a round trip on gsm7252ps 10.1.5.22 port 1/0/8
+        (2026-08-03): the first added a ``flowcontrol`` line to running-config
+        and moved Flow Mode from Disable to Enable, the second removed it and
+        returned the column, with the port left byte-identical.
+
+        Verified against `show port all`'s Flow Mode column, which is the
+        CONFIGURED setting: it moved on a port whose link was DOWN throughout,
+        so it cannot be reporting a negotiated result.
+
+        Disruptive enough to honour ``protected_ports``: enabling pause frames
+        changes how a link behaves under congestion.
+        """
+        self._guard(port, force)
+        before = self._flow_control(port)
+        self._in_mode(
+            [self._spec.configure_cmd, self._spec.interface(port)],
+            [self._spec.port_flow_control(enabled=enabled)],
+        )
+        after = self._flow_control(port)
+        if after is not enabled:
+            raise WriteVerificationError(
+                f"flow control for port {port} did not read back as {enabled}",
+                before=before,
+                after=after,
+            )
+
+    def _flow_control(self, port: int) -> bool | None:
+        """``port``'s Flow Mode column, or raise if the switch has no such port."""
+        status = next((p for p in self._reader.get_ports() if p.port == port), None)
+        if status is None:
+            raise CliCommandError(f"switch reports no port {port}")
+        return status.flow_control
+
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         """Set ``port``'s ingress PVID to ``vlan`` (``vlan pvid <vid>``).
 

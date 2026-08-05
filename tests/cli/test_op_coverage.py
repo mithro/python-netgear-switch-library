@@ -45,6 +45,7 @@ _OP_TO_COMMAND = {
     "set_port_enabled": "port",
     "set_port_description": "describe",
     "set_port_speed": "speed",
+    "set_flow_control": "flow-control",
     "set_pvid": "pvid",
     "set_vlan_membership": "vlan",
     "create_vlan": "vlan",

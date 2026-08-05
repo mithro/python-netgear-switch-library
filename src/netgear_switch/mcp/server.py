@@ -404,6 +404,34 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         )
 
     @mcp.tool()
+    def set_flow_control(
+        port: int,
+        enabled: bool,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
+        nsdp_interface: str | None = None,
+        backend: str | None = None,
+    ) -> dict[str, Any]:
+        """Turn IEEE 802.3x flow control on or off for a port.
+
+        Served over the FASTPATH CLI only. Disruptive: pause frames change how
+        the link behaves under congestion.
+        """
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        chosen = _as_backend(backend)
+        return _write(
+            "set_flow_control",
+            lambda: sw.set_flow_control(port, enabled, force=force, backend=chosen),
+        )
+
+    @mcp.tool()
     def set_hostname(
         name: str,
         force: bool = False,

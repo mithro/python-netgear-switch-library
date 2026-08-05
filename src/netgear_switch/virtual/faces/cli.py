@@ -95,6 +95,10 @@ _NO_FORCED_RATE = 1000
 # table here would be inventing three quarters of itself. The library does not
 # pre-validate rates either (it sends, and raises whatever the device answers),
 # so mock and library agree on exactly the rule that was measured.
+# 802.3x flow control -- a bare toggle, round-tripped live on gsm7252ps
+# 10.1.5.22 port 1/0/8 (2026-08-03): `flowcontrol` moved Flow Mode from Disable
+# to Enable and added a running-config line, `no flowcontrol` undid both.
+_FLOW_CONTROL_RE = re.compile(r"^(no )?flowcontrol$")
 _POE_RE = re.compile(r"^(no )?poe$")
 _POE_RESET_RE = re.compile(r"^poe reset$")
 _SHUTDOWN_RE = re.compile(r"^(no )?shutdown$")
@@ -326,6 +330,12 @@ class VirtualCliFace:
             if not self._general(port):
                 return _ACCEPTED  # accepted-but-inert, as above
             self.state.pvids[port] = vid
+            return _ACCEPTED
+        m = _FLOW_CONTROL_RE.match(c)
+        if m:
+            # Configured state only: the link is not renegotiated, exactly as
+            # observed on the live DOWN port whose Flow Mode still moved.
+            self.state.ports[port].flow_control = m.group(1) is None
             return _ACCEPTED
         if _SPEED_AUTO_RE.match(c):
             self.state.ports[port].physical_mode = "Auto"

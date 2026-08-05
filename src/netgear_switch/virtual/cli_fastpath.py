@@ -195,7 +195,10 @@ def render_ports(state: VirtualSwitchState) -> str:
                 "Up" if sim.link else "Down",
                 "Enable",
                 "Enable",
-                "Disable",
+                # From STATE, not hardcoded. It used to be a literal "Disable",
+                # which matched every capture by luck and made the CLI face
+                # incapable of showing a flow-control write at all.
+                "Enable" if sim.flow_control else "Disable",
             ]
         )
     return _table(headers, widths, rows)

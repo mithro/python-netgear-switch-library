@@ -231,6 +231,22 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         # like when it is done properly rather than harmonised into a guess.
         backends=frozenset({Backend.HTTP}) | _CLI_BACKENDS,
     ),
+    Operation(
+        "set_flow_control",
+        OperationKind.WRITE,
+        "Turn IEEE 802.3x flow control on or off for a port",
+        # CLI only, and the other three refuse by name for reasons that differ:
+        #   SNMP  dot3PauseAdminMode is READ on the one model that publishes it,
+        #         but no SET has ever been issued against it here
+        #   NSDP  the flow-control byte is read; no write tag is identified
+        #   HTTP  MEASURED absence -- the GoAhead ports page publishes
+        #         flowControlAdminType/OperType but has NO control for either,
+        #         and its submit builder emits no flow-control field at all
+        #
+        # The CLI form is a bare `flowcontrol` / `no flowcontrol` toggle,
+        # round-tripped on gsm7252ps 10.1.5.22 port 1/0/8 (2026-08-03).
+        backends=_CLI_BACKENDS,
+    ),
     Operation("set_pvid", OperationKind.WRITE, "Set a port's PVID"),
     Operation(
         "set_vlan_membership",
@@ -480,6 +496,10 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         # Same shape: the FASTPATH XUI Speed control's cell id was never
         # captured, so only the XML-API branch above answers for this op.
         "set_port_speed": None,
+        # No dialect has a captured flow-control write form -- including the
+        # XML-API one, whose ports page reports the field but offers no control
+        # for it (the _XML_API_WRITES entry is absent for the same reason).
+        "set_flow_control": None,
         # Same shape: only the XML-API dialect has a grounded host-name write.
         "set_hostname": None,
         "upload_certificate": spec.cert_upload_path,

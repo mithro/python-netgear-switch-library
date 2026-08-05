@@ -607,6 +607,23 @@ class AsyncSwitch:
         """
         await self._write(lambda w: w.set_port_speed(port, speed, force=force), backend)
 
+    async def set_flow_control(
+        self,
+        port: int,
+        enabled: bool,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Async twin of ``SyncSwitch.set_flow_control`` -- see it.
+
+        Like ``set_port_speed``, every async backend refuses: this op is served
+        over the CLI, whose three transports are all synchronous.
+        """
+        await self._write(
+            lambda w: w.set_flow_control(port, enabled, force=force), backend
+        )
+
     async def set_pvid(
         self,
         port: int,

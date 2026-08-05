@@ -247,11 +247,18 @@ def parse_version(text: str, models: Mapping[str, SwitchModel]) -> DetectedModel
 #   Link Status | Link Trap | LACP Mode | Flow Mode
 _PORT_INTF, _PORT_TYPE, _PORT_ADMIN = 0, 1, 2
 _PORT_PHYS_MODE, _PORT_PHYS_STATUS, _PORT_LINK = 3, 4, 5
-# Flow Mode is the LAST column of `show port all` (Intf, Type, Admin Mode,
-# Physical Mode, Physical Status, Link Status, Link Trap, LACP Mode, Flow
-# Mode). Indexed from the end so a firmware that omits an intermediate
-# column cannot silently shift it.
-_PORT_FLOW = -1
+# Flow Mode is looked up BY HEADER NAME, like parse_poe's columns, because it
+# is not at a fixed offset from either end. It used to be read as cells[-1] --
+# "the last column, so an omitted intermediate column cannot shift it" -- and
+# that reasoning is exactly backwards for a firmware that APPENDS one. The
+# M4300 images do: their table ends
+#   ... | LACP Mode | Flow Mode | Stack Capable
+# so cells[-1] there is "Yes"/"No" from Stack Capable, and every M4300 port
+# reported flow_control=False no matter what its Flow Mode said. It happened to
+# be the right answer only because "Yes" is not "Enable" and flow control was
+# in fact off on every captured port -- an accident that would have turned into
+# a false verify-after-write the moment anyone enabled it.
+_PORT_FLOW_HEADER = "flow"
 
 _SPEED_RE = re.compile(r"(\d+)\s*([GgMm]?)")
 
@@ -317,11 +324,22 @@ def parse_port_status(text: str) -> list[PortStatus]:
     ``admin_enabled`` = Admin Mode == "Enable"; ``link_up`` = Link Status ==
     "Up"; ``speed_mbps`` and ``full_duplex`` both from Physical Status, which
     carries them together ("1000 Full"); ``flow_control`` from the Flow Mode
-    column. All three are ``None`` on a down port, which has negotiated nothing.
+    column, found by header name (see ``_PORT_FLOW_HEADER``). All three are
+    ``None`` on a down port, which has negotiated nothing.
+    ``speed_config`` comes from Physical Mode and is reported whether the port
+    is up or down -- it is a setting, not a negotiation result.
     ``lag N`` aggregation rows are skipped (not physical ports).
     ``description`` is honestly ``None``: this command carries no ifAlias
     column.
     """
+    flow_col = next(
+        (
+            i
+            for i, name in enumerate(header_columns(text))
+            if _PORT_FLOW_HEADER in name.lower()
+        ),
+        None,
+    )
     out: list[PortStatus] = []
     for cells in iter_table_rows(text):
         if len(cells) <= _PORT_LINK:
@@ -347,8 +365,8 @@ def parse_port_status(text: str) -> list[PortStatus]:
                     else None
                 ),
                 flow_control=(
-                    cells[_PORT_FLOW].strip().lower() == "enable"
-                    if len(cells) > _PORT_LINK + 1
+                    cells[flow_col].strip().lower() == "enable"
+                    if flow_col is not None and flow_col < len(cells)
                     else None
                 ),
                 # NOT gated on link_up, unlike the three fields above: the

@@ -221,6 +221,17 @@ class CliModelSpec:
     # grammar entirely while keeping it in ``speed auto [10] [100] [1000] [10G]``.
     port_speed_auto_cmd: str = "speed auto"
     port_speed_forced_cmd: str = "speed {rate} {duplex}-duplex"
+    # IEEE 802.3x flow control, in interface config mode -- a BARE TOGGLE
+    # (``flowcontrol ?`` answers ``<cr>`` only). PROVEN as a full round trip on
+    # gsm7252ps 10.1.5.22 port 1/0/8, 2026-08-03, though not deliberately: a
+    # context-help probe executed the bare command, adding ``flowcontrol`` to
+    # that port's running-config and moving its Flow Mode column from Disable to
+    # Enable; ``no flowcontrol`` removed the line and returned the column. Both
+    # directions were confirmed by diffing ``show running-config interface
+    # 1/0/8``, and the port was restored byte-identically. (That accident is why
+    # ``?`` is never used as a read-only probe in this project any more.)
+    port_flow_control_cmd: str = "flowcontrol"
+    port_no_flow_control_cmd: str = "no flowcontrol"
     exit_cmd: str = "exit"
     # PoE, in interface config mode. Identical on every PoE-capable FASTPATH
     # image probed ("poe ?" -> <cr>/detection/high-power/power/priority/reset/
@@ -307,6 +318,10 @@ class CliModelSpec:
             rate=fastpath_rate(speed.speed_mbps),
             duplex="full" if speed.full_duplex else "half",
         )
+
+    def port_flow_control(self, *, enabled: bool) -> str:
+        """Turn 802.3x flow control on or off (interface config mode)."""
+        return self.port_flow_control_cmd if enabled else self.port_no_flow_control_cmd
 
     def poe_admin(self, *, on: bool) -> str:
         return self.poe_enable_cmd if on else self.poe_disable_cmd

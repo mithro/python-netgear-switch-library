@@ -814,6 +814,22 @@ class SnmpWriter:
             "rate (ifSpeed); no configured speed/duplex column has been located"
         )
 
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name. EtherLike-MIB's ``dot3PauseAdminMode`` is the
+        column that would serve this, and it is READ on the one model that
+        publishes it (the GS728TPP) -- but no SET has ever been issued
+        against it here, so whether the agent accepts one is unknown. This
+        library does not offer a write it has never seen succeed.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: no SNMP flow-control write has been "
+            "established (dot3PauseAdminMode is read-only in this library)"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """Turn remote syslog on or off.
 
@@ -1308,6 +1324,22 @@ class AsyncSnmpWriter:
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: SNMP exposes only the NEGOTIATED port "
             "rate (ifSpeed); no configured speed/duplex column has been located"
+        )
+
+    async def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name. EtherLike-MIB's ``dot3PauseAdminMode`` is the
+        column that would serve this, and it is READ on the one model that
+        publishes it (the GS728TPP) -- but no SET has ever been issued
+        against it here, so whether the agent accepts one is unknown. This
+        library does not offer a write it has never seen succeed.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: no SNMP flow-control write has been "
+            "established (dot3PauseAdminMode is read-only in this library)"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

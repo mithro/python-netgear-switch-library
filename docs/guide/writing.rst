@@ -29,6 +29,10 @@ The operations
      - Force a port's speed and duplex, or restore auto-negotiation. See
        :ref:`speed-vs-negotiated` — the field this write verifies against is
        *not* ``PortStatus.speed_mbps``.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_flow_control`
+     - Turn IEEE 802.3x flow control on or off for a port. CLI only — no web
+       UI captured so far carries a control for it, including the one whose
+       ports page *reports* the field.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_pvid`
      - Set a port's PVID (native VLAN).
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_vlan_membership`

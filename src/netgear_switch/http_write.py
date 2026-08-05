@@ -1422,6 +1422,25 @@ class HttpWriter:
                 after=after,
             )
 
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control on this UI.
+
+        Refused by name, and this one is a MEASURED absence rather than an
+        unsearched one. The GoAhead ports page publishes
+        ``flowControlAdminType``/``flowControlOperType`` but has no control
+        for either: its ``slct*`` selects are Admin Mode and Port Speed
+        only, and its submit builder emits no flow-control field at all
+        (see tests/fixtures/http/gs728tpp_ports.xml). Flow control lives on
+        a different page of that UI which has not been captured, and the
+        FASTPATH XUI equivalent has not either.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this web UI's ports page reports flow "
+            "control but carries no control to change it"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
 
@@ -2076,6 +2095,25 @@ class AsyncHttpWriter:
                 before=before,
                 after=after,
             )
+
+    async def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control on this UI.
+
+        Refused by name, and this one is a MEASURED absence rather than an
+        unsearched one. The GoAhead ports page publishes
+        ``flowControlAdminType``/``flowControlOperType`` but has no control
+        for either: its ``slct*`` selects are Admin Mode and Port Speed
+        only, and its submit builder emits no flow-control field at all
+        (see tests/fixtures/http/gs728tpp_ports.xml). Flow control lives on
+        a different page of that UI which has not been captured, and the
+        FASTPATH XUI equivalent has not either.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this web UI's ports page reports flow "
+            "control but carries no control to change it"
+        )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.

@@ -367,6 +367,20 @@ class NsdpWriter:
             "speed only; no speed/duplex admin tag has been identified"
         )
 
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name: NSDP's PORT_STATUS carries a flow-control byte
+        that this library READS, but no write TLV for it has been
+        identified in the tag inventory captured from live GS110EMX units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP reports flow control but no "
+            "write tag for it has been identified"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
 
@@ -591,6 +605,20 @@ class AsyncNsdpWriter:
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: NSDP publishes the negotiated link "
             "speed only; no speed/duplex admin tag has been identified"
+        )
+
+    async def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name: NSDP's PORT_STATUS carries a flow-control byte
+        that this library READS, but no write TLV for it has been
+        identified in the tag inventory captured from live GS110EMX units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP reports flow control but no "
+            "write tag for it has been identified"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
