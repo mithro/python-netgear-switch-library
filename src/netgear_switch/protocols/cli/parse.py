@@ -850,11 +850,28 @@ def parse_syslog(logging_text: str, hosts_text: str) -> SyslogConfig:
     are parsed by taking the first five whitespace-separated fields and ignoring
     anything after ``Status``, so neither shape can shift a value into the wrong
     field -- the same class of trap as the VLAN PortList width.
+
+    RAISES if ``logging_text`` is not a logging block at all. This used to
+    return ``SyslogConfig(enabled=False, local_port=0, servers=())`` for ANY
+    unparseable input -- so a switch answering "Command not found" was reported
+    as "remote logging is off, no collectors, source port 0". That is a
+    confident wrong answer to a question that was never answered, and a
+    fabricated 0 besides; principle 1 wants the failure, not a plausible blank.
     """
     fields = _colon_fields(logging_text)
-    enabled = fields.get("Syslog Logging", "").strip().lower() == "enabled"
-    port_text = fields.get("Logging Client Local Port", "").strip()
-    local_port = int(port_text) if port_text.isdigit() else 0
+    if "Syslog Logging" not in fields or "Logging Client Local Port" not in fields:
+        raise CliCommandError(
+            "`show logging` did not return a logging block (no 'Syslog Logging'"
+            f"/'Logging Client Local Port' line); the device said: "
+            f"{logging_text.strip()[:200]!r}"
+        )
+    enabled = fields["Syslog Logging"].strip().lower() == "enabled"
+    port_text = fields["Logging Client Local Port"].strip()
+    if not port_text.isdigit():
+        raise CliCommandError(
+            f"`show logging` reported a non-numeric local port {port_text!r}"
+        )
+    local_port = int(port_text)
 
     servers: list[SyslogServer] = []
     for line in hosts_text.splitlines():

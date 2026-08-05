@@ -886,6 +886,44 @@ class SyncSwitch:
         """
         self._write(lambda w: w.set_syslog_enabled(enabled, force=force), backend)
 
+    def add_syslog_collector(
+        self,
+        host: str,
+        *,
+        port: int = 514,
+        severity: int = 6,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Add a remote syslog collector, and read it back to confirm.
+
+        Served over the FASTPATH CLI. ``severity`` is the standard syslog
+        number (0 emergency .. 7 debug); the switch forwards messages at or
+        above it. Refuses if a collector for ``host`` already exists, because
+        the firmware would otherwise add a second row for the same address and
+        silently duplicate delivery.
+        """
+        self._write(
+            lambda w: w.add_syslog_collector(
+                host, port=port, severity=severity, force=force
+            ),
+            backend,
+        )
+
+    def remove_syslog_collector(
+        self,
+        host: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Remove a remote syslog collector, and read back to confirm it is gone.
+
+        Served over the FASTPATH CLI. Refuses if no collector for ``host`` is
+        configured, rather than removing a row that is not there.
+        """
+        self._write(lambda w: w.remove_syslog_collector(host, force=force), backend)
+
     def set_hostname(
         self, name: str, *, force: bool = False, backend: Backend | None = None
     ) -> None:

@@ -61,6 +61,8 @@ _OP_TO_COMMAND = {
     "set_hostname": "hostname",
     "get_syslog": "syslog",
     "set_syslog_enabled": "syslog",
+    "add_syslog_collector": "syslog",
+    "remove_syslog_collector": "syslog",
 }
 
 

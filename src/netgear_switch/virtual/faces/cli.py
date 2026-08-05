@@ -40,9 +40,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from ...models import syslog_severity
 from ...registry import get_model
 from .. import cli_fastpath
-from ..state import ScpCertDeploy, VlanSim
+from ..state import ScpCertDeploy, SyslogCollectorSim, VlanSim
 
 if TYPE_CHECKING:
     from ...protocols.cli.commands import CliModelSpec
@@ -95,6 +96,7 @@ _NO_FORCED_RATE = 1000
 # table here would be inventing three quarters of itself. The library does not
 # pre-validate rates either (it sends, and raises whatever the device answers),
 # so mock and library agree on exactly the rule that was measured.
+
 # 802.3x flow control -- a bare toggle, round-tripped live on gsm7252ps
 # 10.1.5.22 port 1/0/8 (2026-08-03): `flowcontrol` moved Flow Mode from Disable
 # to Enable and added a running-config line, `no flowcontrol` undid both.
@@ -102,6 +104,15 @@ _FLOW_CONTROL_RE = re.compile(r"^(no )?flowcontrol$")
 _POE_RE = re.compile(r"^(no )?poe$")
 _POE_RESET_RE = re.compile(r"^poe reset$")
 _SHUTDOWN_RE = re.compile(r"^(no )?shutdown$")
+# Remote logging, in GLOBAL config mode. The add form is VERBATIM from every
+# FASTPATH switch's own running-config (2026-08-05):
+#     logging host "10.1.5.1" ipv4 514 info
+# The removal addresses the 1-based INDEX from `show logging hosts`.
+_LOGGING_HOST_ADD_RE = re.compile(
+    r'^logging host "([^"]+)" (ipv4|ipv6|dns) (\d+) (\w+)$'
+)
+_LOGGING_HOST_REMOVE_RE = re.compile(r"^no logging host (\d+)$")
+_LOGGING_SYSLOG_RE = re.compile(r"^(no )?logging syslog$")
 _IP = r"(\d+\.\d+\.\d+\.\d+)"
 # Older images (gsm7252ps, gsm7228ps): ONE privileged-EXEC command.
 _NETWORK_PARMS_RE = re.compile(rf"^network parms {_IP} {_IP}(?: {_IP})?$")
@@ -407,6 +418,35 @@ class VirtualCliFace:
                 # silently given a name with quotes embedded in it.
                 self.state.hostname = m.group(1).strip().strip('"')
                 return _ACCEPTED
+            m = _LOGGING_SYSLOG_RE.match(c)
+            if m:
+                # admin_mode is the device's own enum, 1 = enabled / 2 = not.
+                self.state.syslog.admin_mode = 1 if m.group(1) is None else 2
+                return _ACCEPTED
+            m = _LOGGING_HOST_ADD_RE.match(c)
+            if m:
+                address, _kind, port, word = m.groups()
+                try:
+                    severity = syslog_severity(word)
+                except ValueError:
+                    return _INVALID  # a word this firmware would not accept
+                # A real switch appends a SECOND row for an address it already
+                # has rather than replacing the first -- which is exactly why
+                # CliWriter refuses a duplicate before sending anything. The
+                # mock reproduces the append so that refusal has something real
+                # to prevent.
+                self.state.syslog.collectors.append(
+                    SyslogCollectorSim(host=address, port=int(port), severity=severity)
+                )
+                return _ACCEPTED
+            m = _LOGGING_HOST_REMOVE_RE.match(c)
+            if m:
+                index = int(m.group(1))
+                collectors = self.state.syslog.collectors
+                if not 1 <= index <= len(collectors):
+                    return _INVALID  # no such row
+                del collectors[index - 1]
+                return _ACCEPTED
             m = _INTERFACE_RE.match(c)
             if m:
                 port = cli_fastpath.port_for_iface(self.state, m.group(1))
@@ -479,6 +519,12 @@ class VirtualCliFace:
             return cli_fastpath.render_network(self.state)
         if c == self.spec.hosts_cmd:
             return cli_fastpath.render_hosts(self.state)
+        # Order matters: `show logging hosts` starts with `show logging`, so the
+        # longer command must be tested first or it would never be reached.
+        if c == self.spec.logging_hosts_cmd:
+            return cli_fastpath.render_logging_hosts(self.state)
+        if c == self.spec.logging_cmd:
+            return cli_fastpath.render_logging(self.state)
         m = _SHOW_VLAN_ID_RE.match(c)
         if m:
             return cli_fastpath.render_vlan_detail(self.state, int(m.group(1)))

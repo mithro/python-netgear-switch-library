@@ -312,7 +312,37 @@ WRITE_OPERATIONS: tuple[Operation, ...] = (
         # ``support(model, backend, "set_syslog_enabled")`` raised KeyError and
         # the published support matrix simply omitted it -- an operation the
         # library offers and the capability table did not know about.
-        backends=frozenset({Backend.SNMP}),
+        #
+        # The CLI joined it on 2026-08-05, closing a parity gap: `logging
+        # syslog` is printed VERBATIM in every FASTPATH switch's own
+        # running-config, so the command form was learned read-only rather than
+        # probed. (The `no` negation is the standard FASTPATH form and is
+        # inferred; a wrong one is rejected loudly by CliWriter._run.)
+        backends=frozenset({Backend.SNMP}) | _CLI_BACKENDS,
+    ),
+    Operation(
+        "add_syslog_collector",
+        OperationKind.WRITE,
+        "Add a remote syslog collector",
+        # CLI only. The command form is VERBATIM from `show running-config` on
+        # all four FASTPATH models (2026-08-05, read-only):
+        #     logging host "10.1.5.1" ipv4 514 info
+        # The other three refuse by name -- SNMP's vendor host table has never
+        # had a RowStatus create driven against it, NSDP has no logging surface
+        # at all (measured tag sweep), and no FASTPATH-XUI row-add POST has ever
+        # been captured (the M4300 page declares the row-status cell but not the
+        # submission envelope).
+        backends=_CLI_BACKENDS,
+    ),
+    Operation(
+        "remove_syslog_collector",
+        OperationKind.WRITE,
+        "Remove a remote syslog collector",
+        # CLI only, same grounding. `no logging host <index>` addresses the
+        # 1-based Index column of `show logging hosts`, so the writer resolves
+        # the index from a fresh read immediately before the write -- removing
+        # row 1 renumbers every row after it.
+        backends=_CLI_BACKENDS,
     ),
     Operation(
         "upload_certificate",
@@ -518,6 +548,10 @@ def _http_path_for(spec: HttpModelSpec, op: Operation) -> str | None:
         # XML-API one, whose ports page reports the field but offers no control
         # for it (the _XML_API_WRITES entry is absent for the same reason).
         "set_flow_control": None,
+        # No captured FASTPATH-XUI row-add POST exists; see each writer's
+        # add_syslog_collector for what the page does and does not tell us.
+        "add_syslog_collector": None,
+        "remove_syslog_collector": None,
         # Same shape: only the XML-API dialect has a grounded host-name write.
         "set_hostname": None,
         "upload_certificate": spec.cert_upload_path,

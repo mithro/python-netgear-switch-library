@@ -68,7 +68,7 @@ from .transport.cli.session import CliTransportError
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from .models import PoEStatus, PortSpeed, PortStatus, VLANInfo
+    from .models import PoEStatus, PortSpeed, PortStatus, SyslogConfig, VLANInfo
     from .registry import SwitchModel
     from .transport.cli.session import CliSession
 
@@ -861,13 +861,96 @@ class CliWriter:
             # Expected: the switch tore the session down while rebooting.
             return
 
-    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
-        """This backend does not serve a remote-logging toggle.
+    # --- remote logging -----------------------------------------------------
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+    def _syslog(self) -> SyslogConfig:
+        return self._reader.get_syslog()
+
+    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """Turn remote logging on or off (``logging syslog`` in global config).
+
+        The positive form is VERBATIM from every switch's own
+        ``show running-config`` (all four FASTPATH models print the bare line
+        ``logging syslog``, read 2026-08-05). The negation is the standard
+        FASTPATH ``no`` and is inferred -- see ``logging_no_syslog_cmd``; a
+        wrong form is rejected by the device and raised, never swallowed.
+
+        Not force-gated: it changes where log messages go, not how traffic is
+        switched, and is reversible by writing the old value back.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "a remote-logging toggle"
+        del force
+        before = self._syslog()
+        self._in_mode(
+            [self._spec.configure_cmd], [self._spec.logging_syslog(enabled=enabled)]
         )
+        after = self._syslog()
+        if after.enabled is not enabled:
+            raise WriteVerificationError(
+                f"remote logging did not read back as enabled={enabled}",
+                before=before.enabled,
+                after=after.enabled,
+            )
+
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """Add a remote syslog collector.
+
+        ``logging host "<address>" <ipv4|ipv6|dns> <port> <severity-word>``,
+        which is VERBATIM the line all four FASTPATH models print in their own
+        ``show running-config`` (read 2026-08-05 -- read-only, no `?`).
+
+        Refuses up front if a collector for ``host`` already exists: FASTPATH
+        would otherwise add a SECOND row for the same address, and the caller
+        who asked for "send logs here" would silently get duplicate delivery.
+        A precondition failure, so no command is sent (mirroring ``set_pvid``).
+
+        Not force-gated, for the same reason as ``set_syslog_enabled``.
+        """
+        del force
+        before = self._syslog()
+        if any(s.host == host for s in before.servers):
+            raise CliCommandError(f"a syslog collector for {host!r} already exists")
+        self._in_mode(
+            [self._spec.configure_cmd],
+            [self._spec.logging_host_add(host, port, severity)],
+        )
+        after = self._syslog()
+        added = next((s for s in after.servers if s.host == host), None)
+        if added is None or added.port != port or added.severity != severity:
+            raise WriteVerificationError(
+                f"syslog collector {host!r} did not read back as "
+                f"port={port} severity={severity}",
+                before=before.servers,
+                after=after.servers,
+            )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """Remove the remote syslog collector for ``host``.
+
+        ``no logging host <index>`` -- addressed by the 1-based INDEX from
+        ``show logging hosts``, not by address, because that table's Index
+        column is the row handle the firmware exposes. The index is therefore
+        resolved from a fresh read immediately before the write, never cached:
+        removing row 1 renumbers everything after it.
+
+        Refuses up front if no such collector exists, rather than sending a
+        removal for a row that is not there.
+        """
+        del force
+        before = self._syslog()
+        index = next(
+            (i for i, s in enumerate(before.servers, start=1) if s.host == host), None
+        )
+        if index is None:
+            raise CliCommandError(f"no syslog collector for {host!r} to remove")
+        self._in_mode(
+            [self._spec.configure_cmd], [self._spec.logging_host_remove(index)]
+        )
+        after = self._syslog()
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after removal",
+                before=before.servers,
+                after=after.servers,
+            )

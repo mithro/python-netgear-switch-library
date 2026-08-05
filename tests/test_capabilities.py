@@ -106,6 +106,14 @@ _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     # a name is a different command (`no hostname`) that is not implemented.
     "set_hostname": (("capcheck",), {}),
     "set_syslog_enabled": ((True,), {}),
+    # TEST-NET-1 (RFC 5737): routes nowhere, so even a mock that grew a real
+    # socket could not send anywhere. Absent from every seed, so the add's
+    # duplicate guard cannot be what refuses it.
+    "add_syslog_collector": (("192.0.2.1",), {}),
+    # Present on every seed that has collectors at all -- the address the live
+    # captures carry -- so the remove drives the write rather than the
+    # not-configured precondition.
+    "remove_syslog_collector": (("10.1.5.1",), {}),
 }
 
 #: Not driven. ``upload_certificate_scp`` runs a multi-command deploy sequence

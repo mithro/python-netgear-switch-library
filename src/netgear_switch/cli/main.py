@@ -319,6 +319,42 @@ def _cmd_syslog_set(
     )
 
 
+def _cmd_syslog_add(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=(
+            f"add syslog collector {args.address} "
+            f"(port {args.port}, severity {args.severity})"
+        ),
+        action=lambda: switch.add_syslog_collector(
+            args.address,
+            port=args.port,
+            severity=args.severity,
+            force=args.force,
+        ),
+    )
+
+
+def _cmd_syslog_remove(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"remove syslog collector {args.address}",
+        action=lambda: switch.remove_syslog_collector(args.address, force=args.force),
+    )
+
+
 def _cmd_hostname(
     args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
 ) -> int:
@@ -892,6 +928,30 @@ def build_parser() -> argparse.ArgumentParser:
     syslog_set.add_argument("state", choices=("on", "off"))
     safety.add_write_args(syslog_set)
     syslog_set.set_defaults(func=_cmd_syslog_set)
+    syslog_add = syslog_sub.add_parser(
+        "add", parents=[child_gp], help="add a remote syslog collector"
+    )
+    syslog_add.add_argument("address", help="collector IP address or hostname")
+    syslog_add.add_argument(
+        "--port", type=int, default=514, help="collector UDP port (default: 514)"
+    )
+    syslog_add.add_argument(
+        "--severity",
+        type=int,
+        default=6,
+        choices=range(8),
+        metavar="0-7",
+        help="forward messages at or above this severity "
+        "(0 emergency .. 7 debug; default: 6 info)",
+    )
+    safety.add_write_args(syslog_add)
+    syslog_add.set_defaults(func=_cmd_syslog_add)
+    syslog_remove = syslog_sub.add_parser(
+        "remove", parents=[child_gp], help="remove a remote syslog collector"
+    )
+    syslog_remove.add_argument("address", help="collector IP address or hostname")
+    safety.add_write_args(syslog_remove)
+    syslog_remove.set_defaults(func=_cmd_syslog_remove)
 
     cap = sub.add_parser(
         "capture",

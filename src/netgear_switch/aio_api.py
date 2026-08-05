@@ -719,11 +719,44 @@ class AsyncSwitch:
     ) -> None:
         """Turn remote syslog on or off.
 
-        Served over SNMP. Adding or removing a COLLECTOR is a separate,
-        unbuilt operation -- it needs a row-status write that has not
-        been driven against hardware.
+        Served over SNMP here. The CLI serves it too, but not asynchronously --
+        all three CLI transports are synchronous, so ``AsyncSwitch`` has no CLI
+        backend.
         """
         await self._write(lambda w: w.set_syslog_enabled(enabled, force=force), backend)
+
+    async def add_syslog_collector(
+        self,
+        host: str,
+        *,
+        port: int = 514,
+        severity: int = 6,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Async twin of ``SyncSwitch.add_syslog_collector`` -- see it.
+
+        Every async backend refuses: this op is served over the CLI, whose
+        transports are all synchronous.
+        """
+        await self._write(
+            lambda w: w.add_syslog_collector(
+                host, port=port, severity=severity, force=force
+            ),
+            backend,
+        )
+
+    async def remove_syslog_collector(
+        self,
+        host: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Async twin of ``SyncSwitch.remove_syslog_collector`` -- see it."""
+        await self._write(
+            lambda w: w.remove_syslog_collector(host, force=force), backend
+        )
 
     async def set_hostname(
         self, name: str, *, force: bool = False, backend: Backend | None = None

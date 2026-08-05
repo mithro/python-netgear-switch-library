@@ -404,6 +404,67 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         )
 
     @mcp.tool()
+    def add_syslog_collector(
+        host_address: str,
+        port: int = 514,
+        severity: int = 6,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
+        nsdp_interface: str | None = None,
+        backend: str | None = None,
+    ) -> dict[str, Any]:
+        """Add a remote syslog collector (FASTPATH CLI only).
+
+        ``host_address`` is where logs are SENT; ``host`` stays the switch
+        selector. ``severity`` is the standard syslog number, 0 emergency to
+        7 debug, and the switch forwards messages at or above it.
+        """
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        chosen = _as_backend(backend)
+        return _write(
+            "add_syslog_collector",
+            lambda: sw.add_syslog_collector(
+                host_address,
+                port=port,
+                severity=severity,
+                force=force,
+                backend=chosen,
+            ),
+        )
+
+    @mcp.tool()
+    def remove_syslog_collector(
+        host_address: str,
+        force: bool = False,
+        switch: str | None = None,
+        host: str | None = None,
+        model: str | None = None,
+        config: str | None = None,
+        community: str | None = None,
+        http_password: str | None = None,
+        nsdp_interface: str | None = None,
+        backend: str | None = None,
+    ) -> dict[str, Any]:
+        """Remove a remote syslog collector (FASTPATH CLI only)."""
+        sw = resolver(
+            switch, host, model, config, community, http_password, nsdp_interface
+        )
+        chosen = _as_backend(backend)
+        return _write(
+            "remove_syslog_collector",
+            lambda: sw.remove_syslog_collector(
+                host_address, force=force, backend=chosen
+            ),
+        )
+
+    @mcp.tool()
     def set_flow_control(
         port: int,
         enabled: bool,

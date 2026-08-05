@@ -381,6 +381,34 @@ class NsdpWriter:
             "write tag for it has been identified"
         )
 
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
 
@@ -619,6 +647,34 @@ class AsyncNsdpWriter:
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: NSDP reports flow control but no "
             "write tag for it has been identified"
+        )
+
+    async def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    async def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

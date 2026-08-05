@@ -338,6 +338,41 @@ SYSLOG_SEVERITY_NAMES: Mapping[str, int] = MappingProxyType(
 )
 
 
+#: The canonical WORD each severity number is written back as. The inverse of
+#: SYSLOG_SEVERITY_NAMES is not a function -- 6 has two spellings there -- so
+#: the one a command may carry is pinned rather than derived. "info" is the
+#: spelling every switch's own running-config uses (`logging host "10.1.5.1"
+#: ipv4 514 info`, read off all four FASTPATH models 2026-08-05).
+SYSLOG_SEVERITY_WORDS: Mapping[int, str] = MappingProxyType(
+    {
+        0: "emergency",
+        1: "alert",
+        2: "critical",
+        3: "error",
+        4: "warning",
+        5: "notice",
+        6: "info",
+        7: "debug",
+    }
+)
+
+
+def syslog_severity_word(level: int) -> str:
+    """A severity NUMBER -> the word a switch command carries.
+
+    Raises on anything outside 0-7 rather than emitting the integer: syslog
+    severities are a closed set, and a command built from an out-of-range value
+    would be rejected by the device with a message that names the command
+    rather than the caller's mistake.
+    """
+    try:
+        return SYSLOG_SEVERITY_WORDS[level]
+    except KeyError:
+        raise ValueError(
+            f"syslog severity {level!r} is outside the standard range 0-7"
+        ) from None
+
+
 def syslog_severity(name: str) -> int:
     """A switch's severity WORD -> its standard number, case-insensitively.
 

@@ -1441,6 +1441,40 @@ class HttpWriter:
             "control but carries no control to change it"
         )
 
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name. The M4300 syslog page DOES declare the
+        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
+        whose DELETE button writes "Delete" and whose APPLY writes
+        "Active" -- but no POST for a FASTPATH-XUI row add has ever
+        been captured, and the existing XUI write path covers only the
+        CSRF-hash dialects. The envelope would have to be invented.
+        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name. The M4300 syslog page DOES declare the
+        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
+        whose DELETE button writes "Delete" and whose APPLY writes
+        "Active" -- but no POST for a FASTPATH-XUI row add has ever
+        been captured, and the existing XUI write path covers only the
+        CSRF-hash dialects. The envelope would have to be invented.
+        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
 
@@ -2113,6 +2147,40 @@ class AsyncHttpWriter:
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: this web UI's ports page reports flow "
             "control but carries no control to change it"
+        )
+
+    async def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name. The M4300 syslog page DOES declare the
+        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
+        whose DELETE button writes "Delete" and whose APPLY writes
+        "Active" -- but no POST for a FASTPATH-XUI row add has ever
+        been captured, and the existing XUI write path covers only the
+        CSRF-hash dialects. The envelope would have to be invented.
+        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    async def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name. The M4300 syslog page DOES declare the
+        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
+        whose DELETE button writes "Delete" and whose APPLY writes
+        "Active" -- but no POST for a FASTPATH-XUI row add has ever
+        been captured, and the existing XUI write path covers only the
+        CSRF-hash dialects. The envelope would have to be invented.
+        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

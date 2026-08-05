@@ -43,11 +43,13 @@ listens on 60000, not 23) for models that expose TELNET but not SSH.
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, TypedDict
 
 from ...errors import UnsupportedCapabilityError
+from ...models import syslog_severity_word
 from ...registry import Backend
 
 if TYPE_CHECKING:
@@ -59,6 +61,21 @@ if TYPE_CHECKING:
 # The three CLI transports all speak the same FASTPATH CLI; a model that has any
 # of them uses this spec set.
 CLI_BACKENDS = frozenset({Backend.SSH, Backend.TELNET, Backend.CONSOLE})
+
+
+def address_kind(address: str) -> str:
+    """The address-KIND token a ``logging host`` line carries: ipv4/ipv6/dns.
+
+    The live line is ``logging host "10.1.5.1" ipv4 514 info`` -- the kind is an
+    explicit argument, not something the firmware infers, so it has to be
+    derived from the address. Anything that is not a literal IP is ``dns``,
+    which is what the host table's own column is headed
+    ("IP Address/Hostname").
+    """
+    try:
+        return f"ipv{ipaddress.ip_address(address).version}"
+    except ValueError:
+        return "dns"
 
 
 def fastpath_rate(mbps: int) -> str:
@@ -135,6 +152,31 @@ class CliModelSpec:
     # Global-config directive. Quoted on the wire by the device's own
     # running-config output ('hostname "sw-netgear-m4300-24x"').
     hostname_config_cmd: str = "hostname {name}"
+    # Remote logging, in GLOBAL config mode. READ OFF each switch's own
+    # `show running-config` on 2026-08-05 -- the device printing its own command
+    # sequence back, which is how the exact form was learned without a single
+    # write and without `?` (see the hazard at port_speed_*). All four models
+    # emit these two lines character for character:
+    #
+    #     logging host "10.1.5.1" ipv4 514 info
+    #     logging syslog
+    #
+    # so the address is QUOTED, the address-kind token is explicit, and the
+    # severity travels as a WORD. `logging syslog` is the remote-logging enable.
+    #
+    # The two `no` forms are the standard FASTPATH negation and are INFERRED,
+    # not captured: running-config never prints a negation, and `?` cannot be
+    # used to check (bare `no logging host` may itself be complete, and `?`
+    # EXECUTES commands that accept <cr>). They are safe to send because
+    # CliWriter treats any output as failure, so a wrong form surfaces as the
+    # device's own rejection rather than a silent no-op.
+    #
+    # `no logging host` takes the INDEX from `show logging hosts`, not the
+    # address -- that table's Index column is the row handle.
+    logging_host_add_cmd: str = 'logging host "{address}" {kind} {port} {severity}'
+    logging_host_remove_cmd: str = "no logging host {index}"
+    logging_syslog_cmd: str = "logging syslog"
+    logging_no_syslog_cmd: str = "no logging syslog"
 
     # --- physical-interface naming -----------------------------------------
     # How this model's firmware ADDRESSES one physical port in a command
@@ -318,6 +360,22 @@ class CliModelSpec:
             rate=fastpath_rate(speed.speed_mbps),
             duplex="full" if speed.full_duplex else "half",
         )
+
+    def logging_host_add(self, address: str, port: int, severity: int) -> str:
+        """The `logging host` line for one collector, as running-config shows it."""
+        return self.logging_host_add_cmd.format(
+            address=address,
+            kind=address_kind(address),
+            port=port,
+            severity=syslog_severity_word(severity),
+        )
+
+    def logging_host_remove(self, index: int) -> str:
+        """Remove the collector at ``index`` (1-based, per `show logging hosts`)."""
+        return self.logging_host_remove_cmd.format(index=index)
+
+    def logging_syslog(self, *, enabled: bool) -> str:
+        return self.logging_syslog_cmd if enabled else self.logging_no_syslog_cmd
 
     def port_flow_control(self, *, enabled: bool) -> str:
         """Turn 802.3x flow control on or off (interface config mode)."""

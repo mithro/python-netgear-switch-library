@@ -830,6 +830,38 @@ class SnmpWriter:
             "established (dot3PauseAdminMode is read-only in this library)"
         )
 
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name. The vendor host table is READ here, but a
+        RowStatus create/destroy against it has never been driven --
+        and that is not a safe thing to assume: the GS728TPP agent
+        refuses VLAN row creation across all five RowStatus
+        mechanisms. Use a CLI backend, where the command form is the
+        device's own running-config line.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name. The vendor host table is READ here, but a
+        RowStatus create/destroy against it has never been driven --
+        and that is not a safe thing to assume: the GS728TPP agent
+        refuses VLAN row creation across all five RowStatus
+        mechanisms. Use a CLI backend, where the command form is the
+        device's own running-config line.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """Turn remote syslog on or off.
 
@@ -1340,6 +1372,38 @@ class AsyncSnmpWriter:
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: no SNMP flow-control write has been "
             "established (dot3PauseAdminMode is read-only in this library)"
+        )
+
+    async def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name. The vendor host table is READ here, but a
+        RowStatus create/destroy against it has never been driven --
+        and that is not a safe thing to assume: the GS728TPP agent
+        refuses VLAN row creation across all five RowStatus
+        mechanisms. Use a CLI backend, where the command form is the
+        device's own running-config line.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    async def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name. The vendor host table is READ here, but a
+        RowStatus create/destroy against it has never been driven --
+        and that is not a safe thing to assume: the GS728TPP agent
+        refuses VLAN row creation across all five RowStatus
+        mechanisms. Use a CLI backend, where the command form is the
+        device's own running-config line.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
