@@ -1593,13 +1593,13 @@ class HttpWriter:
         is an independent witness):
 
         * the body as first built  -> failed on 'Host Address' and 'Port'
-        * + IP Address Type "IPv4" -> those two passed; the two ENUMS then
+        * plus IP Address Type "IPv4" -> those two passed; the two ENUMS then
           failed ('IP Address Type', 'Severity Filter')
-        * + enums as INDICES instead of labels (xa_2_1_4 lists
+        * plus enums as INDICES instead of labels (xa_2_1_4 lists
           Emergency..Debug in standard syslog order, xa_2_1_7 lists
           Unknown,IPv4,IPv6,DNS, so IPv4 = 1) -> the enums passed and
           'Host Address' failed again
-        * + row-status "Add" instead of "Active" (the page's own
+        * plus row-status "Add" instead of "Active" (the page's own
           xeleValue_2_1_5) -> unchanged
 
         So three of the four fields can be made to stick and the address cannot,

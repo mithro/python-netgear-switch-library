@@ -1729,7 +1729,7 @@ SERVICE_NAMES: tuple[str, ...] = ("http", "https", "ssh", "telnet")
 
 
 def parse_service_page(html: str, service: str) -> ServiceStatus:
-    """One service's config page -> its :class:`ServiceStatus`.
+    """One service's config page -> its :class:`~netgear_switch.models.ServiceStatus`.
 
     Tries the XUI coordinate, then the plain-form radio group. Raises
     ``HttpUnexpectedPageError`` when NEITHER is present rather than reporting

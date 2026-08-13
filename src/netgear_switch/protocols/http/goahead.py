@@ -55,7 +55,11 @@ if TYPE_CHECKING:
 # identical to _build_gs728tpp_cert_xml so its proven output is unchanged.
 _ESCAPES = {'"': "&quot;", "'": "&apos;"}
 
-#: interfaceType in every VLAN/port object: 1 = physical port, 2 = LAG.
+#: interfaceType in every VLAN/port object -- 1 = physical port, 2 = LAG.
+#: (No ``:`` after the name, deliberately. Napoleon reads a ONE-LINE ``#:``
+#: comment shaped ``x: y`` as "type x, described as y", which rendered a
+#: nonsense "Type: interfaceType in every VLAN/port object" field on the page
+#: and failed the nitpicky build. The two-line comment below is unaffected.)
 INTERFACE_PHYSICAL = "1"
 INTERFACE_LAG = "2"
 
@@ -203,7 +207,7 @@ def vlan_delete_body(vlan: int) -> str:
 
     The shape is taken verbatim from ``VlanConfig.Reset``, which posts a
     literal string rather than building it through the framework -- so it
-    states the delete envelope exactly:
+    states the delete envelope exactly::
 
         <DeviceConfiguration><VLANInterfaceList action="restoreAll"/>
           <VLANList action="delete"><VLAN><VLANID>4-4093</VLANID></VLAN>
