@@ -23,6 +23,16 @@ The operations
        wait for it to deliver again.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.clear_poe_fault`
      - Clear a latched PoE fault on a port.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_port_description`
+     - Set or clear a port's label. Pass ``""`` to clear it.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_port_speed`
+     - Force a port's speed and duplex, or restore auto-negotiation. See
+       :ref:`speed-vs-negotiated` — the field this write verifies against is
+       *not* ``PortStatus.speed_mbps``.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_flow_control`
+     - Turn IEEE 802.3x flow control on or off for a port. CLI only — no web
+       UI captured so far carries a control for it, including the one whose
+       ports page *reports* the field.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_pvid`
      - Set a port's PVID (native VLAN).
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_vlan_membership`
@@ -33,6 +43,10 @@ The operations
      - Delete a VLAN.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_mgmt_ip`
      - Set the management address, netmask and gateway.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_hostname`
+     - Set the switch's host name.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.set_syslog_enabled`
+     - Turn remote logging on or off. Does not change the collector list.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.upload_certificate` / :py:obj:`~netgear_switch.sync_api.SyncSwitch.upload_certificate_scp`
      - Install an HTTPS server certificate — over the web UI, or by FASTPATH
        ``copy scp://``.
@@ -117,6 +131,58 @@ You do not have to know any of this to call ``set_vlan_membership``. The detail
 is here because it explains why the same call can behave differently across two
 switches from the same family, and why this project refuses to extrapolate
 between SKUs.
+
+.. _speed-vs-negotiated:
+
+Configured speed is not negotiated speed
+----------------------------------------
+
+``set_port_speed`` writes the port's *configuration*; :py:obj:`~netgear_switch.models.PortStatus`
+reports both that and the result, in two separate fields:
+
+* ``speed_config`` — a :py:obj:`~netgear_switch.models.PortSpeed`: what the port is **set** to
+  (``show port``'s "Physical Mode" column). Answers even while the link is down.
+* ``speed_mbps`` / ``full_duplex`` — what the link actually **negotiated**
+  ("Physical Status"). ``None`` while the link is down, because a down port has
+  negotiated nothing.
+
+They are separate because they genuinely disagree, and disagree hardest exactly
+where this library operates. A port forced to 100 Mbit/s with no cable in it
+reports ``speed_config=PortSpeed.forced(100, full_duplex=True)`` and
+``speed_mbps=None``. ``set_port_speed`` verifies itself against the first;
+verifying against the second would mean a write to any link-down port could
+never be confirmed.
+
+.. code-block:: python
+
+   from netgear_switch import PortSpeed
+
+   switch.set_port_speed(8, PortSpeed.forced(100, full_duplex=True), force=True)
+   switch.set_port_speed(8, PortSpeed.auto(), force=True)   # and back
+
+**The two backends disagree about a forced 1000, and both are right.**
+
+*Over the CLI*, asking for one raises :py:obj:`~netgear_switch.errors.CliCommandError` before
+anything is sent. 1000BASE-T requires auto-negotiation, and the FASTPATH
+grammar encodes that by leaving 1000 out of its forced ``speed`` command
+entirely while keeping it among ``speed auto``'s advertised rates.
+
+*Over the GoAhead web UI* (GS728TPP) it is accepted, because that page's own
+Speed control offers "1000M Full Duplex" — and the live switch really does run
+its four SFP uplinks that way. Fibre 1000BASE-X carries no such requirement.
+Harmonising the two into a single rule would have made one of them wrong about
+real hardware, so each backend answers for its own device.
+
+Which *other* rates are available differs the same way, and for the same
+reason — the PHY, not the firmware:
+
+* **CLI**: no rate table is kept at all. A 1G copper port offered 10/100/10G
+  while a 10GBASE-T port on another model offered 100/10G, so the library sends
+  what you ask for and surfaces the switch's own ``% Invalid input`` as
+  ``CliCommandError``.
+* **HTTP**: the page publishes its choices as a dropdown, so the library
+  validates against that captured list (10/100 half or full, 1000 full, Auto)
+  and refuses anything else with :py:obj:`~netgear_switch.errors.UnsupportedCapabilityError`.
 
 Certificates
 ------------

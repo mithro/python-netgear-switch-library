@@ -259,3 +259,40 @@ def test_non_timeout_set_error_is_passed_through_unchanged(monkeypatch):
         c.set(SetVarbind("1.3.6.1.2.1.17.7.1.4.3.1.2.90", b"\x00", "x"))
     assert "commitFailed" in str(exc.value)
     assert "write community" not in str(exc.value)
+
+
+def test_empty_string_set_is_sent_as_an_empty_hex_string(monkeypatch):
+    """Clearing a text column must not be rejected by our own CLI wrapper.
+
+    ``snmpset ... s ""`` is refused by net-snmp itself with "Needs value",
+    before a packet is sent -- so a caller clearing ifAlias (or any text
+    column) could never succeed. Hit live on 2026-08-03 while restoring a
+    GS728TPP port's description after a write probe: the switch had accepted
+    the description and there was no way to remove it again. An empty OCTET
+    STRING goes out as an empty HEX string, which net-snmp accepts and the
+    agent applied.
+    """
+    seen: list[list[str]] = []
+
+    def fake_runner(argv, **_kw):
+        seen.append(list(argv))
+        return _FakeProc(0, "", "")
+
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.2.5.10", "private", runner=fake_runner)
+    c.set(SetVarbind("1.3.6.1.2.1.31.1.1.1.18.17", "", "s"))
+    assert seen[-1][-3:] == ["1.3.6.1.2.1.31.1.1.1.18.17", "x", ""]
+
+
+def test_non_empty_string_set_still_uses_the_string_type(monkeypatch):
+    """The empty-string rule must not leak into ordinary text writes."""
+    seen: list[list[str]] = []
+
+    def fake_runner(argv, **_kw):
+        seen.append(list(argv))
+        return _FakeProc(0, "", "")
+
+    monkeypatch.setattr(_WHICH, lambda b: f"/usr/bin/{b}")
+    c = NetsnmpCliClient("10.2.5.10", "private", runner=fake_runner)
+    c.set(SetVarbind("1.3.6.1.2.1.31.1.1.1.18.17", "uplink", "s"))
+    assert seen[-1][-3:] == ["1.3.6.1.2.1.31.1.1.1.18.17", "s", "uplink"]

@@ -185,9 +185,13 @@ back to another protocol — see :doc:`concepts`.
          # has no SSH/telnet/console backend. Use SyncSwitch, or:
          #   await asyncio.to_thread(sync_switch.get_vlans, backend=Backend.SSH)
 
-That the three agree is asserted, not assumed —
-``tests/test_cross_backend_equivalence.py`` compares them for every model with
-more than one backend. They agree on the *physical* ports; SNMP also reports
+That they agree is asserted, not assumed, and by two suites rather than one:
+``tests/test_cross_backend_equivalence.py`` compares HTTP against NSDP or SNMP,
+while ``tests/virtual/test_cli_cross_backend.py`` and
+``tests/virtual/test_cli_gsm7228ps_parity.py`` bring the FASTPATH CLI into the
+same comparison — the CLI is deliberately absent from the first file, so citing
+it alone would overstate what is checked. They agree on the *physical* ports;
+SNMP also reports
 internal and link-aggregation interfaces that a web UI's port table does not
 list, and one model has a VLAN where SNMP shows configured members and the
 web UI shows current ones. Both are real properties of the interfaces, and the

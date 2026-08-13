@@ -69,7 +69,13 @@ _PATH_FIELDS: tuple[str, ...] = tuple(
 # firmware every one of these pages GETs at ``<page>.html`` and POSTs to
 # ``<page>.html/a1`` (its second form's ACTION), so the mock must serve BOTH or
 # a faithful writer's apply would 404 against it while working on hardware.
-_XUI_WRITE_PATH_FIELDS = ("port_config_path", "poe_config_path", "mgmt_ip_path")
+_XUI_WRITE_PATH_FIELDS = (
+    "port_config_path",
+    "poe_config_path",
+    "mgmt_ip_path",
+    # The syslog page posts collector row add/delete to its own /a1.
+    "syslog_path",
+)
 
 
 def _xui_write_paths(spec: HttpModelSpec) -> dict[str, str]:
@@ -252,15 +258,12 @@ class VirtualHttpFace:
                     return
                 decoded = unquote(self.path)
                 if "wcd?" in decoded:
-                    # Real hardware refuses an unauthenticated wcd read (it
-                    # redirects to the login page); mirror that so the suite
-                    # catches a client that reads before logging in. The
-                    # transport sets sessionID=virtualsid as a cookie post-login.
+                    # Real hardware answers an unauthenticated wcd read with
+                    # HTTP 200 and statusCode 4 -- NOT a redirect (captured; see
+                    # web_gs728tpp.unauthenticated_response). The transport sets
+                    # sessionID=virtualsid as a cookie post-login.
                     if "sessionID=virtualsid" not in self.headers.get("Cookie", ""):
-                        self.send_response(302)
-                        self.send_header("Location", f"/{face._session_path}/")
-                        self.send_header("Content-Length", "0")
-                        self.end_headers()
+                        self._send(web_gs728tpp.unauthenticated_response())
                         return
                     with face._lock:
                         page = web_gs728tpp.render_wcd(
@@ -274,28 +277,26 @@ class VirtualHttpFace:
                 self._send("<html><body>Not Found</body></html>", 404)
 
             def _goahead_post(self) -> None:
-                """Serve the GoAhead XML_API write flow: a POST of the
-                ``SSLCryptoCertificateImportList`` XML to ``<sess>/wcd`` records
-                the certificate and returns a wcd statusCode. Any other POST
-                404s (the mock never fabricates a page)."""
+                """Serve the GoAhead XML_API write flow.
+
+                EVERY write on this UI is a POST of an XML body to
+                ``<sess>/wcd``; the object name and ``action`` attribute inside
+                the body select the operation -- VLAN create/delete, VLAN
+                membership, PVID, PoE admin, port admin, certificate import.
+                A POST to any other path 404s (the mock never fabricates a
+                page)."""
                 path_only = self.path.split("?", 1)[0]
-                # Real hardware refuses an unauthenticated write (redirects to
-                # login); mirror that so the suite catches a client that uploads
-                # before logging in.
+                # Real hardware answers an unauthenticated write the same way it
+                # answers an unauthenticated read: HTTP 200, statusCode 4.
                 if "sessionID=virtualsid" not in self.headers.get("Cookie", ""):
-                    self.send_response(302)
-                    self.send_header("Location", f"/{face._session_path}/")
-                    self.send_header("Content-Length", "0")
-                    self.end_headers()
+                    self._send(web_gs728tpp.unauthenticated_response())
                     return
                 if not path_only.endswith("/wcd"):
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 raw = self._raw()
                 with face._lock:
-                    response = web_gs728tpp.apply_cert_import(
-                        face.state, raw.decode("utf-8")
-                    )
+                    response = web_gs728tpp.apply_write(face.state, raw.decode("utf-8"))
                 self._send(response)
 
             def do_GET(self) -> None:
@@ -316,13 +317,9 @@ class VirtualHttpFace:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    if (
-                        fp := face._render_fastpath_vlan_page(path, {})
-                    ) is not None:
+                    if (fp := face._render_fastpath_vlan_page(path, {})) is not None:
                         page = fp
-                    elif (
-                        xw := face._render_fastpath_xui_page(path, {})
-                    ) is not None:
+                    elif (xw := face._render_fastpath_xui_page(path, {})) is not None:
                         page = xw
                     elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, {})
@@ -374,13 +371,9 @@ class VirtualHttpFace:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
                 with face._lock:
-                    if (
-                        fp := face._render_fastpath_vlan_page(path, form)
-                    ) is not None:
+                    if (fp := face._render_fastpath_vlan_page(path, form)) is not None:
                         page = fp
-                    elif (
-                        xw := face._render_fastpath_xui_page(path, form)
-                    ) is not None:
+                    elif (xw := face._render_fastpath_xui_page(path, form)) is not None:
                         page = xw
                     elif face.spec.session_token_field is not None:
                         page = face._render_token_page(path, form)
@@ -435,9 +428,7 @@ class VirtualHttpFace:
             return web_gs105pe.render_vlan_membership(self.state, vid)
         return None
 
-    def _render_fastpath_xui_page(
-        self, path: str, form: dict[str, str]
-    ) -> str | None:
+    def _render_fastpath_xui_page(self, path: str, form: dict[str, str]) -> str | None:
         """Serve a managed model's XUI write page, applying the form first.
 
         Covers ``portsConfiguration.html`` (set_port_enabled),
@@ -452,6 +443,14 @@ class VirtualHttpFace:
         """
         writes = _xui_write_paths(self.spec)
         page_path = writes.get(path, path)
+        if page_path == self.spec.syslog_path:
+            # Collector row add/delete. Only the M4300 pages carry the metadata
+            # the writer depends on, and the writer refuses the other dialects,
+            # so the fake must not accept them either.
+            if self.spec.html_dialect is not HtmlDialect.M4300:
+                return None
+            err = web_fastpath_xui.apply_syslog_rows(self.state, form)
+            return web_fastpath_xui.render_syslog(self.state, page_path, err_msg=err)
         if page_path not in (
             self.spec.port_config_path,
             self.spec.poe_config_path,
@@ -471,9 +470,7 @@ class VirtualHttpFace:
             if self.spec.mgmt_ip_fields is None:
                 return None
             err = web_fastpath_xui.apply_mgmt_ip(self.state, self.spec, form)
-            return web_fastpath_xui.render_mgmt_ip(
-                self.state, self.spec, err_msg=err
-            )
+            return web_fastpath_xui.render_mgmt_ip(self.state, self.spec, err_msg=err)
         # `module` is deliberately Any -- it is one of three per-dialect renderer
         # modules chosen at runtime -- so the renderers' return type has to be
         # restated here for mypy. All of them are declared `-> str`.
@@ -485,9 +482,7 @@ class VirtualHttpFace:
         poe_html: str = module.render_poe(self.state, err_msg=err)
         return poe_html
 
-    def _render_fastpath_vlan_page(
-        self, path: str, form: dict[str, str]
-    ) -> str | None:
+    def _render_fastpath_vlan_page(self, path: str, form: dict[str, str]) -> str | None:
         """Serve the managed FASTPATH VLAN Membership page (GET page or its
         ``_rw.html`` form target), applying the form first when it carries the
         apply flag. ``None`` = not that page, so the caller falls through.
@@ -515,6 +510,16 @@ class VirtualHttpFace:
             self.state, self.spec, form, err_msg=err
         )
 
+    def _service_for(self, path: str) -> str | None:
+        """Which management service ``path`` is the config page for, if any."""
+        from ...protocols.http.parse import SERVICE_NAMES
+
+        for service in SERVICE_NAMES:
+            configured = getattr(self.spec, f"{service}_service_path")
+            if configured is not None and path == configured:
+                return service if service in self.state.services else None
+        return None
+
     def _render_m4300_page(self, path: str) -> str | None:
         """Render an M4300 Cheetah /v1 read page from state, or ``None`` if
         this model is not an M4300 (so the caller falls through)."""
@@ -534,6 +539,17 @@ class VirtualHttpFace:
             return web_m4300.render_mac_table(self.state)
         if path == self.spec.sysinfo_path:
             return web_m4300.render_sysinfo(self.state)
+        if path == self.spec.syslog_path:
+            return web_fastpath_xui.render_syslog(self.state, path)
+        if path == self.spec.users_path:
+            return web_fastpath_xui.render_users(self.state, path)
+        # The M4300 serves http/https as PLAIN named forms and ssh/telnet as
+        # XUI -- measured, see web_fastpath_xui._SERVICE_FORM_FIELDS.
+        service = self._service_for(path)
+        if service is not None:
+            if service in ("http", "https"):
+                return web_fastpath_xui.render_service_form(self.state, path, service)
+            return web_fastpath_xui.render_service_xui(self.state, path, service)
         if self.spec.lldp_path and path == self.spec.lldp_path:
             # lldpRemoteInventory.html is the SAME page (and the same XE cell
             # grid, with 1/0/N ifNames) on the M4300s as on gsm7252ps -- proven
@@ -581,6 +597,9 @@ class VirtualHttpFace:
             return web_gsm7228ps.render_lldp(self.state)
         if path == self.spec.sysinfo_path:
             return web_gsm7228ps.render_sysinfo(self.state)
+        if path == self.spec.syslog_path:
+            # Same page on every managed model -- see web_fastpath_xui.
+            return web_fastpath_xui.render_syslog(self.state, path)
         return None
 
     def _render_xe_page(self, path: str) -> str | None:
@@ -611,6 +630,15 @@ class VirtualHttpFace:
             return web_gsm7252ps.render_lldp(self.state)
         if path == self.spec.sysinfo_path:
             return web_gsm7252ps.render_sysinfo(self.state)
+        if path == self.spec.syslog_path:
+            # Same page on every managed model -- see web_fastpath_xui.
+            return web_fastpath_xui.render_syslog(self.state, path)
+        if path == self.spec.users_path:
+            return web_fastpath_xui.render_users(self.state, path)
+        # gsm7252ps renders ALL FOUR service pages as XUI (unlike the M4300).
+        service = self._service_for(path)
+        if service is not None:
+            return web_fastpath_xui.render_service_xui(self.state, path, service)
         return None
 
     def _render_token_page(self, path: str, form: dict[str, str]) -> str:

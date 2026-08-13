@@ -18,6 +18,8 @@ import xml.etree.ElementTree as ElementTree
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
 
+from .state import VlanSim
+
 if TYPE_CHECKING:
     from .state import VirtualSwitchState
 
@@ -40,23 +42,57 @@ def _mac_text(mac_bytes: tuple[int, ...]) -> str:
     return ":".join(f"{b:02x}" for b in mac_bytes)
 
 
-def render_ports(state: VirtualSwitchState) -> str:
-    rows = "".join(
-        f"<Entry><interfaceName>g{p}</interfaceName>"
-        f"<interfaceType>1</interfaceType><interfaceID>{p}</interfaceID>"
+def _physical_ports(state: VirtualSwitchState) -> list[int]:
+    """Just the PHYSICAL ports, in order.
+
+    The seed carries ifIndex-keyed entries for the eight LAG pseudo-interfaces
+    (``po 1``..``po 8`` at 1000-1007, ifType 161) because the switch's Q-BRIDGE
+    bitmaps really do include them. The real wcd pages list ONLY physical ports:
+    a live ``Standard802_3List`` fetch returns 28 ``<Entry>`` rows, and the
+    per-port ``VLANInterfaceList`` likewise. Rendering the LAGs would make the
+    HTTP reader report interfaces the web UI never shows -- and disagree with
+    SNMP, which filters them by ifType."""
+    from ..registry import get_model
+
+    port_count = get_model(state.model_key).port_count
+    return [p for p in sorted(state.ports) if p <= port_count]
+
+
+def _port_entry(state: VirtualSwitchState, port: int) -> str:
+    sim = state.ports[port]
+    # duplexOperMode 2 while up / 4 while down, and flowControlOperType
+    # 1 enabled / 2 disabled -- the codes the live switch returns, decoded
+    # against SNMP (see parse._GOAHEAD_DUPLEX_OPER and _GOAHEAD_FLOW_CONTROL).
+    return (
+        f"<Entry><interfaceName>g{port}</interfaceName>"
+        f"<interfaceType>1</interfaceType><interfaceID>{port}</interfaceID>"
         f"<interfaceDescription>{escape(sim.description or '')}"
         "</interfaceDescription>"
         f"<adminState>{_ADMIN[sim.admin]}</adminState>"
         f"<linkState>{_LINK[sim.link]}</linkState>"
-        f"<speedOper>{sim.speed}</speedOper></Entry>"
-        for p, sim in sorted(state.ports.items())
+        f"<speedOper>{sim.speed}</speedOper>"
+        f"<duplexOperMode>{'2' if sim.link else '4'}</duplexOperMode>"
+        # The three configured-speed fields, from state rather than hardcoded --
+        # a write has to be able to move them. autoNegotiationAdminEnabled is
+        # the authoritative one; speedAdmin keeps reporting a rate beside it.
+        f"<speedAdmin>{sim.speed_admin}</speedAdmin>"
+        f"<duplexAdminMode>{sim.duplex_admin_mode}</duplexAdminMode>"
+        f"<autoNegotiationAdminEnabled>{sim.autoneg_admin}"
+        "</autoNegotiationAdminEnabled>"
+        f"<flowControlOperType>{'1' if sim.flow_control else '2'}</flowControlOperType>"
+        f"<flowControlAdminType>{'1' if sim.flow_control else '2'}"
+        "</flowControlAdminType></Entry>"
     )
+
+
+def render_ports(state: VirtualSwitchState) -> str:
+    rows = "".join(_port_entry(state, p) for p in _physical_ports(state))
     return _wcd(f'<Standard802_3List type="section">{rows}</Standard802_3List>')
 
 
 def render_pvids_membership(state: VirtualSwitchState) -> str:
     rows = ""
-    for p, _sim in sorted(state.ports.items()):
+    for p in _physical_ports(state):
         entries = "".join(
             f"<VLANEntry><VLANID>{vid}</VLANID>"
             f"<taggingMode>{'1' if p in vlan.untagged else '2'}</taggingMode>"
@@ -233,6 +269,167 @@ def apply_cert_import(state: VirtualSwitchState, xml_body: str) -> str:
     if not certificate or not private_key:
         return _status_response(2, "missing certificate or privateKey")
     state.uploaded_cert = certificate
+    return _status_response(0, "")
+
+
+def unauthenticated_response() -> str:
+    """What the switch answers a ``wcd`` request with no valid session.
+
+    CAPTURED from the live GS728TPP (10.2.5.10, firmware 6.0.1.30) by issuing a
+    request with a stale sessionID cookie. Note what it is NOT: not a 302, not
+    a 401, and not an empty body -- it is **HTTP 200** carrying a normal
+    ``<ResponseData>`` envelope whose ActionStatus says statusCode 4. That
+    detail is the whole point of reproducing it: a mock that redirected instead
+    would let the client's session-expiry handling look correct while missing
+    the case real hardware actually produces.
+    """
+    return (
+        "<?xml version='1.0' encoding='UTF-8'?>\n<ResponseData>\n<ActionStatus>\n"
+        "<version>1.0</version>\n<requestURL>wcd</requestURL>\n"
+        "<statusCode>4</statusCode>\n<deviceStatusCode>0</deviceStatusCode>\n"
+        "<statusString>Request Is not authenticated</statusString>\n"
+        "</ActionStatus>\n</ResponseData>\n"
+    )
+
+
+def _iface_port(entry: ElementTree.Element) -> int | None:
+    """``<interfaceName>g17</interfaceName>`` -> 17; a LAG or junk -> None."""
+    name = (entry.findtext("interfaceName") or "").strip()
+    if not name.startswith("g") or not name[1:].isdigit():
+        return None
+    return int(name[1:])
+
+
+def apply_write(state: VirtualSwitchState, xml_body: str) -> str:
+    """Apply one ``POST wcd`` write body and return the wcd status response.
+
+    The real UI writes EVERYTHING through this one endpoint, with the object
+    name and the ``action`` attribute selecting the operation -- so the mock
+    must dispatch the same way rather than recognising one special upload.
+    Each branch mirrors what the switch was observed to do on 10.2.5.10
+    (firmware 6.0.1.30) when the library drove that exact body.
+
+    An unrecognised object is a NON-zero statusCode, never a silent success:
+    a writer that posts a body this firmware has no handler for must fail
+    loudly here too.
+    """
+    if "<!DOCTYPE" in xml_body or "<!ENTITY" in xml_body:
+        return _status_response(3, "DTD/entity declaration rejected")
+    try:
+        root = ElementTree.fromstring(xml_body)
+    except ElementTree.ParseError as exc:
+        return _status_response(1, f"malformed XML: {exc}")
+
+    if root.find("./SSLCryptoCertificateImportList/Entry") is not None:
+        return apply_cert_import(state, xml_body)
+
+    handled = False
+    for section in root:
+        action = section.get("action", "set")
+        name = section.tag
+        if name == "VLANList":
+            for vlan_el in section.findall("VLAN"):
+                vid_text = (vlan_el.findtext("VLANID") or "").strip()
+                if not vid_text.isdigit():
+                    return _status_response(2, f"bad VLANID {vid_text!r}")
+                vid = int(vid_text)
+                if action == "delete":
+                    state.vlans.pop(vid, None)
+                else:
+                    vname = (vlan_el.findtext("VLANName") or "").strip()
+                    if vid in state.vlans:
+                        state.vlans[vid].name = vname
+                    else:
+                        state.vlans[vid] = VlanSim(name=vname)
+            handled = True
+        elif name == "VLANMembershipList":
+            for vlan_el in section.findall("VLAN"):
+                vid = int((vlan_el.findtext("VLANID") or "0").strip() or 0)
+                vlan = state.vlans.get(vid)
+                if vlan is None:
+                    return _status_response(2, f"no such VLAN {vid}")
+                for member in vlan_el.findall("./MembershipList/VLANMember"):
+                    port = _iface_port(member)
+                    if port is None:
+                        continue
+                    if action == "delete":
+                        vlan.member.discard(port)
+                        vlan.untagged.discard(port)
+                    else:
+                        vlan.member.add(port)
+                        # taggingMode 1 = untagged, 2 = tagged.
+                        if (member.findtext("taggingMode") or "").strip() == "1":
+                            vlan.untagged.add(port)
+                        else:
+                            vlan.untagged.discard(port)
+            handled = True
+        elif name == "VLANInterfaceList":
+            for iface in section.findall("Interface"):
+                port = _iface_port(iface)
+                pvid = (iface.findtext("PVID") or "").strip()
+                if port is not None and pvid.isdigit():
+                    state.pvids[port] = int(pvid)
+            handled = True
+        elif name == "PoEPSEInterfaceList":
+            for iface in section.findall("Interface"):
+                port = _iface_port(iface)
+                admin = (iface.findtext("adminEnable") or "").strip()
+                if port is None or port not in state.poe or admin not in ("1", "2"):
+                    continue
+                # Device coherence, as the real switch shows: admin off ->
+                # detect disabled(1); admin on with nothing attached -> the
+                # port resumes SEARCHING(2) rather than delivering.
+                state.poe[port].admin = admin == "1"
+                state.poe[port].detect = 2 if admin == "1" else 1
+            handled = True
+        elif name == "DeviceBasicInfo":
+            # A SCALAR section: the fields sit directly under it, with no
+            # repeated <Entry>. deviceName is the switch's host name -- measured
+            # equal to SNMP sysName on the live switch.
+            new_name = section.findtext("deviceName")
+            if new_name is not None:
+                state.hostname = new_name.strip()
+            handled = True
+        elif name == "Standard802_3List":
+            for entry in section.findall("Entry"):
+                port = _iface_port(entry)
+                admin = (entry.findtext("adminState") or "").strip()
+                if port is None or port not in state.ports:
+                    continue
+                if admin in ("1", "2"):
+                    state.ports[port].admin = admin == "1"
+                    if admin == "2":
+                        state.ports[port].link = False
+                desc = entry.findtext("interfaceDescription")
+                if desc is not None:
+                    state.ports[port].description = desc.strip() or None
+                # Speed/duplex: the page sends all three together or none of
+                # them (its JS marks each `undefined` when the operator did not
+                # touch the control), so they are applied as a unit.
+                autoneg = (entry.findtext("autoNegotiationAdminEnabled") or "").strip()
+                rate = (entry.findtext("speedAdmin") or "").strip()
+                duplex = (entry.findtext("duplexAdminMode") or "").strip()
+                if autoneg in ("1", "2") and rate and duplex in ("2", "3"):
+                    sim = state.ports[port]
+                    sim.autoneg_admin = autoneg
+                    sim.duplex_admin_mode = duplex
+                    # Forcing a rate does NOT re-negotiate the link, so
+                    # ``speed``/``link`` are untouched -- the same separation
+                    # the FASTPATH face keeps between Physical Mode and
+                    # Physical Status.
+                    #
+                    # Returning to auto sends speedAdmin="0", but the live
+                    # switch reports a REAL rate there while negotiating (1000
+                    # on every port of the capture), so the previous value is
+                    # kept rather than storing the 0. That preserves the
+                    # property the decoder has to cope with: speedAdmin says
+                    # something plausible even when it means nothing. What a
+                    # DOWN auto port reports there was never observed.
+                    sim.speed_admin = rate if autoneg == "2" else sim.speed_admin
+            handled = True
+
+    if not handled:
+        return _status_response(2, f"no handler for {[s.tag for s in root]}")
     return _status_response(0, "")
 
 

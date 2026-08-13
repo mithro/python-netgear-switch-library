@@ -152,20 +152,29 @@ def test_get_ports_maps_speed_and_link():
 
 
 def test_get_ports_reports_port_descriptions_from_tag_b000():
-    """NSDP DOES carry per-port names -- ``name=None`` was a missing read.
+    """NSDP DOES carry per-port labels, and they belong in ``description``.
 
     Tag 0xB000 was found by an exhaustive tag sweep and confirmed against three
-    real GS110EMX units' own Port Status pages (2026-07-30). ``get_ports`` asks
-    for it alongside PORT_STATUS in the same round trip.
+    real GS110EMX units' own Port Status pages (2026-07-30) -- specifically
+    their **"Port Description"** column. ``get_ports`` asks for it alongside
+    PORT_STATUS in the same round trip.
+
+    It lands in ``description``, the field SNMP fills from ifAlias and the CLI
+    from ``description '<text>'``. It used to land in ``name``, which meant the
+    same operator label appeared in a different field depending on which
+    protocol you asked -- while ``description`` read None on a backend that
+    demonstrably has one. ``name`` is now honestly None here: NSDP PORT_STATUS
+    carries a port NUMBER and no interface identifier for it to hold.
     """
     ports = {p.port: p for p in _reader().get_ports()}
-    assert ports[1].name == "uplink"
-    assert ports[9].name == "Nicole's Room"
+    assert ports[1].description == "uplink"
+    assert ports[9].description == "Nicole's Room"
+    assert ports[1].name is None, "NSDP has no ifName equivalent to report"
     # A bare 1-byte TLV means "no description", which must stay None rather than
     # becoming an "" a caller cannot tell apart from a real empty description.
-    assert ports[3].name is None
+    assert ports[3].description is None
     # A port with no PORT_NAME TLV at all is also None, never a KeyError.
-    assert ports[10].name is None
+    assert ports[10].description is None
 
 
 def test_get_ports_requests_the_name_tag_in_the_same_round_trip():

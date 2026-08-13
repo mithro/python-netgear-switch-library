@@ -98,7 +98,7 @@ def index_str_column(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, str]:
 ETHERNET_CSMACD = 6  # ifType value for a physical Ethernet port
 
 
-def _physical_ports(if_types: Sequence[SnmpRow]) -> set[int] | None:
+def physical_ports(if_types: Sequence[SnmpRow]) -> set[int] | None:
     """The set of physical (ethernetCsmacd) ifIndexes from an ifType walk.
 
     Returns ``None`` when the walk is EMPTY -- the caller then keeps every
@@ -116,6 +116,13 @@ def _physical_ports(if_types: Sequence[SnmpRow]) -> set[int] | None:
     return {idx for idx, t in type_map.items() if t == ETHERNET_CSMACD}
 
 
+#: dot3StatsDuplexStatus -> PortStatus.full_duplex. 1 (unknown) maps to None
+#: rather than False: "the agent does not know" and "this link is half duplex"
+#: are different answers. MEASURED on the GS728TPP -- every link-up port reads
+#: 3, every link-down port reads 1.
+_DUPLEX_STATUS = {2: False, 3: True}
+
+
 def parse_port_status(
     admin: Sequence[SnmpRow],
     oper: Sequence[SnmpRow],
@@ -123,7 +130,17 @@ def parse_port_status(
     names: Sequence[SnmpRow],
     aliases: Sequence[SnmpRow],
     if_types: Sequence[SnmpRow] = (),
+    duplex: Sequence[SnmpRow] = (),
+    pause: Sequence[SnmpRow] = (),
 ) -> list[PortStatus]:
+    """Per-port status. ``duplex``/``pause`` are the EtherLike-MIB columns.
+
+    Both are optional because they are genuinely absent on some agents (see
+    ``oids.DOT3_STATS_DUPLEX_STATUS``): the GS728TPP serves them, the GSM7252PS
+    does not publish those columns at all. A port with no row stays ``None``,
+    which is what the CLI backend already reports where its own table omits the
+    value -- absence is never rendered as False.
+    """
     from . import oids
 
     admin_map = index_int_column(admin, oids.IF_ADMIN_STATUS)
@@ -135,7 +152,10 @@ def parse_port_status(
     # description set" -> honest None, never a fabricated "".
     alias_map = index_str_column(aliases, oids.IF_ALIAS)
 
-    physical = _physical_ports(if_types)
+    duplex_map = index_int_column(duplex, oids.DOT3_STATS_DUPLEX_STATUS)
+    pause_map = index_int_column(pause, oids.DOT3_PAUSE_OPER_MODE)
+
+    physical = physical_ports(if_types)
     ports = sorted(set(admin_map) | set(oper_map))
     if physical is not None:
         ports = [p for p in ports if p in physical]
@@ -143,12 +163,17 @@ def parse_port_status(
     for p in ports:
         link_up = oper_map.get(p) == 1
         mbps = speed_map.get(p)
+        pause_mode = pause_map.get(p)
         result.append(
             PortStatus(
                 port=p,
                 name=name_map.get(p) or None,
                 admin_enabled=admin_map.get(p) == 1,
                 link_up=link_up,
+                full_duplex=_DUPLEX_STATUS.get(duplex_map.get(p, 0)),
+                # dot3PauseOperMode 1 is "disabled"; 2/3/4 are the enabled
+                # directions, and any of them means pause frames are in use.
+                flow_control=None if pause_mode is None else pause_mode != 1,
                 # A DOWN port has no operational speed: ifHighSpeed keeps
                 # reporting the configured rate on a down port (verified on the
                 # gsm7252ps: 10000 on down 1/0/52), which is NOT an operational
@@ -185,7 +210,7 @@ def parse_port_stats(
     # physical ports for the same reason get_ports does -- otherwise SNMP
     # get_stats emits the M4300's 130 phantom LAG/CPU/VLAN interfaces that the
     # web portStatistics page never lists, breaking HTTP<->SNMP stats parity.
-    physical = _physical_ports(if_types)
+    physical = physical_ports(if_types)
     ports = sorted(
         set(rx_b) | set(tx_b) | set(rx_p) | set(tx_p) | set(rx_e) | set(tx_e)
     )
@@ -253,20 +278,90 @@ def _vlan_bitmap_map(rows: Sequence[SnmpRow], base_oid: str) -> dict[int, bytes 
     return out
 
 
+def _current_vlan_bitmap_map(
+    rows: Sequence[SnmpRow], base_oid: str
+) -> dict[int, bytes | str]:
+    """{vlan_id: bitmap} for a ``dot1qVlanCurrentTable`` bitmap column.
+
+    Separate from ``_vlan_bitmap_map`` because the two tables are indexed
+    differently: the STATIC table is indexed by ``dot1qVlanIndex`` alone, while
+    the CURRENT table is indexed by ``dot1qVlanTimeMark.dot1qVlanIndex`` (RFC
+    2674). Live on the GS728TPP (10.2.5.10, firmware 6.0.1.30) every row is
+    ``...4.2.1.4.0.<vlan>`` -- time mark 0. A suffix that is not exactly two
+    numeric components is drift and raises, rather than being silently dropped.
+    """
+    out: dict[int, bytes | str] = {}
+    for row in rows:
+        s = _suffix(row, base_oid)
+        if s is None:
+            continue
+        parts = s.split(".")
+        if len(parts) != 2 or not all(p.isdigit() for p in parts):
+            raise SnmpError(f"malformed dot1qVlanCurrentTable index {s!r} at {row.oid}")
+        if not isinstance(row.value, (bytes, str)):
+            # Present but the wrong SNMP type on the wire: drift, not absence.
+            raise SnmpError(f"malformed VLAN port bitmap type at {row.oid}")
+        out[int(parts[1])] = row.value
+    return out
+
+
 def parse_vlans(
     names: Sequence[SnmpRow],
     egress: Sequence[SnmpRow],
     untagged: Sequence[SnmpRow],
+    if_types: Sequence[SnmpRow] = (),
+    current_egress: Sequence[SnmpRow] = (),
+    current_untagged: Sequence[SnmpRow] = (),
 ) -> list[VLANInfo]:
+    """VLANs from the Q-BRIDGE static table, completed by the current table.
+
+    ``if_types`` filters membership to physical ports, exactly as
+    ``parse_port_status``/``parse_pvids`` already do. Without it a LAG shows up
+    as a phantom member port: VERIFIED on the GS728TPP (10.2.5.10, firmware
+    6.0.1.30), whose 126-byte PortList sets bit 1000 -- ``po 1``, ifType
+    161 (ieee8023adLag), confirmed identity-mapped via dot1dBasePortIfIndex --
+    in 11 of its 13 VLANs. The switch has 28 ports, so "member port 1000" is
+    not something a caller can act on, and the HTTP backend never reports it.
+
+    ``current_egress``/``current_untagged`` add VLANs the STATIC table omits.
+    That is not a hypothetical: the same GS728TPP publishes only 12 static rows
+    (ids 2..99) while ``dot1qVlanCurrentTable`` has 13 -- VLAN 1, the default
+    VLAN, exists ONLY there, with ``dot1qVlanStatus = 1 (other)`` rather than
+    2 (permanent). Reading the static table alone silently loses the VLAN that
+    carries this switch's own management ports (24/25/27, untagged), which the
+    web UI does list. Such a VLAN has no ``dot1qVlanStaticName`` row, so its
+    name is None -- matching what the HTTP backend reports for it.
+
+    The static bitmaps win where both tables have the VLAN: they are the
+    CONFIGURED membership. On the live GS728TPP the two agreed byte-for-byte
+    for all 12 shared VLANs, so this ordering was measured, not assumed.
+    """
     from . import oids
+
+    physical = physical_ports(if_types)
+
+    def ports_of(bitmap: bytes | str) -> frozenset[int]:
+        decoded = decode_port_bitmap(bitmap)
+        return decoded if physical is None else frozenset(decoded & physical)
 
     name_map = index_str_column(names, oids.DOT1Q_VLAN_STATIC_NAME)
     egress_map = _vlan_bitmap_map(egress, oids.DOT1Q_VLAN_STATIC_EGRESS)
     untag_map = _vlan_bitmap_map(untagged, oids.DOT1Q_VLAN_STATIC_UNTAGGED)
+    cur_egress_map = _current_vlan_bitmap_map(
+        current_egress, oids.DOT1Q_VLAN_CURRENT_EGRESS
+    )
+    cur_untag_map = _current_vlan_bitmap_map(
+        current_untagged, oids.DOT1Q_VLAN_CURRENT_UNTAGGED
+    )
     result: list[VLANInfo] = []
-    for vid in sorted(name_map):
-        member = decode_port_bitmap(egress_map.get(vid, ""))
-        untag = decode_port_bitmap(untag_map.get(vid, ""))
+    for vid in sorted(set(name_map) | set(cur_egress_map)):
+        static_row = vid in name_map
+        member = ports_of(
+            egress_map.get(vid, "") if static_row else cur_egress_map.get(vid, "")
+        )
+        untag = ports_of(
+            untag_map.get(vid, "") if static_row else cur_untag_map.get(vid, "")
+        )
         result.append(
             VLANInfo(
                 vlan_id=vid,
@@ -285,7 +380,7 @@ def parse_pvids(
     from . import oids
 
     pvids = index_int_column(rows, oids.DOT1Q_PVID)
-    physical = _physical_ports(if_types)
+    physical = physical_ports(if_types)
     if physical is None:
         return sorted(pvids.items())
     # DOT1Q_PVID is keyed by dot1dBasePort. On every real Netgear switch the
@@ -771,6 +866,10 @@ def parse_syslog(
             port=ports.get(index, 0),
             severity=severities.get(index, 0),
             active=statuses.get(index) == _HOST_STATUS_ACTIVE,
+            # The OID instance IS the table's row index, and it is the handle a
+            # RowStatus destroy addresses -- so it is surfaced rather than
+            # dropped. Sparse, exactly as the CLI table shows it.
+            index=index,
         )
         for index, address in sorted(addresses.items())
         if address.strip()

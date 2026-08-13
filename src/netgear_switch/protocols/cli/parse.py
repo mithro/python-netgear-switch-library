@@ -39,6 +39,7 @@ from ...models import (
     MgmtIpConfig,
     PoEDetect,
     PoEStatus,
+    PortSpeed,
     PortStats,
     PortStatus,
     Sensor,
@@ -47,6 +48,8 @@ from ...models import (
     SyslogConfig,
     SyslogServer,
     VLANInfo,
+    privileged_access,
+    syslog_severity,
 )
 
 if TYPE_CHECKING:
@@ -244,11 +247,18 @@ def parse_version(text: str, models: Mapping[str, SwitchModel]) -> DetectedModel
 #   Link Status | Link Trap | LACP Mode | Flow Mode
 _PORT_INTF, _PORT_TYPE, _PORT_ADMIN = 0, 1, 2
 _PORT_PHYS_MODE, _PORT_PHYS_STATUS, _PORT_LINK = 3, 4, 5
-# Flow Mode is the LAST column of `show port all` (Intf, Type, Admin Mode,
-# Physical Mode, Physical Status, Link Status, Link Trap, LACP Mode, Flow
-# Mode). Indexed from the end so a firmware that omits an intermediate
-# column cannot silently shift it.
-_PORT_FLOW = -1
+# Flow Mode is looked up BY HEADER NAME, like parse_poe's columns, because it
+# is not at a fixed offset from either end. It used to be read as cells[-1] --
+# "the last column, so an omitted intermediate column cannot shift it" -- and
+# that reasoning is exactly backwards for a firmware that APPENDS one. The
+# M4300 images do: their table ends
+#   ... | LACP Mode | Flow Mode | Stack Capable
+# so cells[-1] there is "Yes"/"No" from Stack Capable, and every M4300 port
+# reported flow_control=False no matter what its Flow Mode said. It happened to
+# be the right answer only because "Yes" is not "Enable" and flow control was
+# in fact off on every captured port -- an accident that would have turned into
+# a false verify-after-write the moment anyone enabled it.
+_PORT_FLOW_HEADER = "flow"
 
 _SPEED_RE = re.compile(r"(\d+)\s*([GgMm]?)")
 
@@ -280,17 +290,56 @@ def _duplex(phys_status: str) -> bool | None:
     return None
 
 
+def parse_physical_mode(cell: str) -> PortSpeed | None:
+    """The "Physical Mode" cell -> the port's CONFIGURED speed, or None.
+
+    This is the column ``set_port_speed`` verifies itself against, and it is a
+    DIFFERENT column from "Physical Status": Physical Mode is what the port is
+    set to, Physical Status what it negotiated. On a down port the first still
+    reads ``Auto``/``100 Full`` while the second is blank -- which is the whole
+    reason the two are separate fields (see ``models.PortSpeed``).
+
+    Values measured live 2026-08-03 on gsm7252ps 10.1.5.22 port 1/0/8: ``Auto``
+    by default, ``100 Full`` after ``speed 100 full-duplex``. ``None`` for a
+    blank cell, and for a word no measured firmware emits -- the writer's
+    verify-after-write is what makes an undecodable value loud, rather than
+    every ``get_ports`` on unfamiliar firmware raising.
+    """
+    text = cell.strip()
+    if not text:
+        return None
+    if text.lower() == "auto":
+        return PortSpeed(autonegotiate=True)
+    # Same "<rate> <duplex>" shape the Physical Status column uses, so it goes
+    # through the same two measured parsers rather than a second regex.
+    rate, duplex = _speed_mbps(text), _duplex(text)
+    if rate is None or duplex is None:
+        return None
+    return PortSpeed(autonegotiate=False, speed_mbps=rate, full_duplex=duplex)
+
+
 def parse_port_status(text: str) -> list[PortStatus]:
     """``show port all`` -> per physical-port ``PortStatus``.
 
     ``admin_enabled`` = Admin Mode == "Enable"; ``link_up`` = Link Status ==
     "Up"; ``speed_mbps`` and ``full_duplex`` both from Physical Status, which
     carries them together ("1000 Full"); ``flow_control`` from the Flow Mode
-    column. All three are ``None`` on a down port, which has negotiated nothing.
+    column, found by header name (see ``_PORT_FLOW_HEADER``). All three are
+    ``None`` on a down port, which has negotiated nothing.
+    ``speed_config`` comes from Physical Mode and is reported whether the port
+    is up or down -- it is a setting, not a negotiation result.
     ``lag N`` aggregation rows are skipped (not physical ports).
     ``description`` is honestly ``None``: this command carries no ifAlias
     column.
     """
+    flow_col = next(
+        (
+            i
+            for i, name in enumerate(header_columns(text))
+            if _PORT_FLOW_HEADER in name.lower()
+        ),
+        None,
+    )
     out: list[PortStatus] = []
     for cells in iter_table_rows(text):
         if len(cells) <= _PORT_LINK:
@@ -316,10 +365,13 @@ def parse_port_status(text: str) -> list[PortStatus]:
                     else None
                 ),
                 flow_control=(
-                    cells[_PORT_FLOW].strip().lower() == "enable"
-                    if len(cells) > _PORT_LINK + 1
+                    cells[flow_col].strip().lower() == "enable"
+                    if flow_col is not None and flow_col < len(cells)
                     else None
                 ),
+                # NOT gated on link_up, unlike the three fields above: the
+                # CONFIGURED mode is reported whether or not the port is up.
+                speed_config=parse_physical_mode(cells[_PORT_PHYS_MODE]),
             )
         )
     return out
@@ -716,22 +768,6 @@ def parse_services(
 # show users -> local login accounts
 # ---------------------------------------------------------------------------
 
-#: Access-mode text meaning full privilege, in BOTH vocabularies FASTPATH uses.
-#: Measured 2026-08-02: m4300-24x prints "Privilege-15"/"Privilege-1" while
-#: gsm7252ps prints "Read/Write"/"Read Only" for the same admin/guest pair. A
-#: parser that knew only one spelling would silently mis-report the other image.
-_PRIVILEGED_ACCESS = frozenset({"privilege-15", "read/write"})
-_UNPRIVILEGED_ACCESS = frozenset({"privilege-1", "read only", "no access"})
-
-
-def _privileged(access_mode: str) -> bool | None:
-    text = access_mode.strip().lower()
-    if text in _PRIVILEGED_ACCESS:
-        return True
-    if text in _UNPRIVILEGED_ACCESS:
-        return False
-    return None
-
 
 def parse_users(text: str) -> list[SwitchUser]:
     """``show users`` -> the switch's local login accounts.
@@ -749,9 +785,10 @@ def parse_users(text: str) -> list[SwitchUser]:
     legitimately contains a space (``Read Only``, ``Read/Write``) and a naive
     split would tear it in half.
 
-    The ACCESS-MODE VOCABULARY differs by firmware -- see ``_PRIVILEGED_ACCESS``
-    -- so the raw text is preserved on ``SwitchUser.access_mode`` and only the
-    normalised ``privileged`` flag interprets it.
+    The ACCESS-MODE VOCABULARY differs by firmware -- see
+    ``models.PRIVILEGED_ACCESS_MODES`` -- so the raw text is preserved on
+    ``SwitchUser.access_mode`` and only the normalised ``privileged`` flag
+    interprets it.
     """
     users: list[SwitchUser] = []
     for cells in iter_table_rows(text):
@@ -763,7 +800,7 @@ def parse_users(text: str) -> list[SwitchUser]:
             SwitchUser(
                 name=name,
                 access_mode=access,
-                privileged=_privileged(access),
+                privileged=privileged_access(access),
                 snmpv3_access=snmp_access or None,
                 snmpv3_auth=snmp_auth or None,
                 snmpv3_encryption=snmp_enc or None,
@@ -775,21 +812,6 @@ def parse_users(text: str) -> list[SwitchUser]:
 # ---------------------------------------------------------------------------
 # show logging / show logging hosts -> syslog configuration
 # ---------------------------------------------------------------------------
-
-#: Syslog severity names as FASTPATH prints them, to the standard numbers the
-#: SNMP columns carry. Cross-checked on m4300-24x: `show logging hosts` prints
-#: "info" where the SNMP severity column reads 6.
-_SEVERITY_NAMES = {
-    "emergency": 0,
-    "alert": 1,
-    "critical": 2,
-    "error": 3,
-    "warning": 4,
-    "notice": 5,
-    "info": 6,
-    "informational": 6,
-    "debug": 7,
-}
 
 
 def _colon_fields(text: str) -> dict[str, str]:
@@ -828,11 +850,28 @@ def parse_syslog(logging_text: str, hosts_text: str) -> SyslogConfig:
     are parsed by taking the first five whitespace-separated fields and ignoring
     anything after ``Status``, so neither shape can shift a value into the wrong
     field -- the same class of trap as the VLAN PortList width.
+
+    RAISES if ``logging_text`` is not a logging block at all. This used to
+    return ``SyslogConfig(enabled=False, local_port=0, servers=())`` for ANY
+    unparseable input -- so a switch answering "Command not found" was reported
+    as "remote logging is off, no collectors, source port 0". That is a
+    confident wrong answer to a question that was never answered, and a
+    fabricated 0 besides; principle 1 wants the failure, not a plausible blank.
     """
     fields = _colon_fields(logging_text)
-    enabled = fields.get("Syslog Logging", "").strip().lower() == "enabled"
-    port_text = fields.get("Logging Client Local Port", "").strip()
-    local_port = int(port_text) if port_text.isdigit() else 0
+    if "Syslog Logging" not in fields or "Logging Client Local Port" not in fields:
+        raise CliCommandError(
+            "`show logging` did not return a logging block (no 'Syslog Logging'"
+            f"/'Logging Client Local Port' line); the device said: "
+            f"{logging_text.strip()[:200]!r}"
+        )
+    enabled = fields["Syslog Logging"].strip().lower() == "enabled"
+    port_text = fields["Logging Client Local Port"].strip()
+    if not port_text.isdigit():
+        raise CliCommandError(
+            f"`show logging` reported a non-numeric local port {port_text!r}"
+        )
+    local_port = int(port_text)
 
     servers: list[SyslogServer] = []
     for line in hosts_text.splitlines():
@@ -841,13 +880,20 @@ def parse_syslog(logging_text: str, hosts_text: str) -> SyslogConfig:
         # rule under it do not, which is what filters them out.
         if len(cells) < 5 or not cells[0].isdigit():
             continue
-        _index, host, severity, port, status = cells[:5]
+        index, host, severity, port, status = cells[:5]
         servers.append(
             SyslogServer(
                 host=host,
                 port=int(port) if port.isdigit() else 0,
-                severity=_SEVERITY_NAMES.get(severity.lower(), 0),
+                severity=syslog_severity(severity),
                 active=status.lower() == "active",
+                # The table's OWN Index, kept rather than discarded: it is the
+                # handle `logging host remove <index>` addresses, and it is
+                # SPARSE. Measured on m4300-24x 10.1.5.13 (2026-08-05), where
+                # the rows were Index 1 and Index 3 with nothing at 2 -- so a
+                # remover using the row's POSITION would have addressed the
+                # wrong row (and did, until this was found).
+                index=int(index),
             )
         )
     return SyslogConfig(enabled=enabled, local_port=local_port, servers=tuple(servers))
@@ -962,3 +1008,30 @@ def parse_interface_counters(text: str, port: int) -> PortStats:
         rx_errors=_int(fields.get("Total Packets Received with MAC Errors", "")),
         tx_errors=_int(fields.get("Total Transmit Errors", "")),
     )
+
+
+def parse_port_description(text: str) -> str | None:
+    """The ``Description`` field of ``show port description <iface>``.
+
+    GROUNDED in live output from a GSM7252PS (10.1.5.22, 2026-08-03)::
+
+        Interface....... 1/0/8
+        ifIndex......... 8
+        Description.....
+        MAC address..... E0:91:F5:0C:D6:DD
+        Bit Offset Val.. 8
+
+    Returns ``None`` for an unset description (the label is present with an
+    empty value, exactly as above) so it matches what every other backend
+    reports for an absent label, rather than ``""``.
+
+    This command exists because ``show port all`` carries NO description column
+    -- which is why ``parse_port_status`` honestly reports ``description=None``
+    and why a CLI description write has to verify itself through here instead.
+    """
+    value = labelled_values(text).get("Description")
+    if value is None:
+        raise CliCommandError(
+            "show port description: no 'Description' field in the output"
+        )
+    return value or None

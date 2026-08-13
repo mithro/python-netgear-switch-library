@@ -79,6 +79,10 @@ class SnmpReader:
         self.model = model
 
     def get_ports(self) -> list[PortStatus]:
+        # The two EtherLike columns are walked unconditionally: an agent that
+        # does not serve them answers an empty subtree, which parse_port_status
+        # renders as None. See oids.DOT3_STATS_DUPLEX_STATUS for which models
+        # were measured to have them and which do not.
         w = self.client.walk
         return parse.parse_port_status(
             w(oids.IF_ADMIN_STATUS),
@@ -87,6 +91,8 @@ class SnmpReader:
             w(oids.IF_NAME),
             w(oids.IF_ALIAS),
             w(oids.IF_TYPE),
+            w(oids.DOT3_STATS_DUPLEX_STATUS),
+            w(oids.DOT3_PAUSE_OPER_MODE),
         )
 
     def get_stats(self) -> list[PortStats]:
@@ -102,11 +108,18 @@ class SnmpReader:
         )
 
     def get_vlans(self) -> list[VLANInfo]:
+        # ifType keeps LAG bridge-ports out of the membership bitmaps, and the
+        # current table supplies VLANs the static table omits -- the GS728TPP's
+        # VLAN 1 has no static row at all. See parse.parse_vlans for the live
+        # evidence behind both.
         w = self.client.walk
         return parse.parse_vlans(
             w(oids.DOT1Q_VLAN_STATIC_NAME),
             w(oids.DOT1Q_VLAN_STATIC_EGRESS),
             w(oids.DOT1Q_VLAN_STATIC_UNTAGGED),
+            w(oids.IF_TYPE),
+            w(oids.DOT1Q_VLAN_CURRENT_EGRESS),
+            w(oids.DOT1Q_VLAN_CURRENT_UNTAGGED),
         )
 
     def get_pvids(self) -> list[tuple[int, int]]:
@@ -145,7 +158,11 @@ class SnmpReader:
             if oids.has_vendor_oids(self.model)
             else []
         )
-        return parse.parse_poe(w(oids.PETH_PSE_PORT_TABLE), power)
+        # Two column-scoped walks, not the whole table: parse_poe honours only
+        # columns 3 and 6, and this table is very slow on real hardware (see
+        # oids.PETH_PSE_PORT_ADMIN for the measurement).
+        status = w(oids.PETH_PSE_PORT_ADMIN) + w(oids.PETH_PSE_PORT_DETECT)
+        return parse.parse_poe(status, power)
 
     def get_sensors(self) -> list[Sensor]:
         w = self.client.walk
@@ -277,6 +294,8 @@ class AsyncSnmpReader:
         self.model = model
 
     async def get_ports(self) -> list[PortStatus]:
+        # See SnmpReader.get_ports for why the EtherLike columns are always
+        # walked and what an agent that lacks them reports.
         w = self.client.walk
         return parse.parse_port_status(
             await w(oids.IF_ADMIN_STATUS),
@@ -285,6 +304,8 @@ class AsyncSnmpReader:
             await w(oids.IF_NAME),
             await w(oids.IF_ALIAS),
             await w(oids.IF_TYPE),
+            await w(oids.DOT3_STATS_DUPLEX_STATUS),
+            await w(oids.DOT3_PAUSE_OPER_MODE),
         )
 
     async def get_stats(self) -> list[PortStats]:
@@ -300,11 +321,17 @@ class AsyncSnmpReader:
         )
 
     async def get_vlans(self) -> list[VLANInfo]:
+        # See SnmpReader.get_vlans: ifType drops LAG bridge-ports, and the
+        # current table carries VLANs (e.g. the GS728TPP's VLAN 1) that have no
+        # dot1qVlanStaticTable row.
         w = self.client.walk
         return parse.parse_vlans(
             await w(oids.DOT1Q_VLAN_STATIC_NAME),
             await w(oids.DOT1Q_VLAN_STATIC_EGRESS),
             await w(oids.DOT1Q_VLAN_STATIC_UNTAGGED),
+            await w(oids.IF_TYPE),
+            await w(oids.DOT1Q_VLAN_CURRENT_EGRESS),
+            await w(oids.DOT1Q_VLAN_CURRENT_UNTAGGED),
         )
 
     async def get_pvids(self) -> list[tuple[int, int]]:
@@ -336,7 +363,11 @@ class AsyncSnmpReader:
             if oids.has_vendor_oids(self.model)
             else []
         )
-        return parse.parse_poe(await w(oids.PETH_PSE_PORT_TABLE), power)
+        # Column-scoped walks -- see SnmpReader.get_poe.
+        status = await w(oids.PETH_PSE_PORT_ADMIN) + await w(
+            oids.PETH_PSE_PORT_DETECT
+        )
+        return parse.parse_poe(status, power)
 
     async def get_sensors(self) -> list[Sensor]:
         w = self.client.walk

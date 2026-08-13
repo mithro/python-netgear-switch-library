@@ -401,20 +401,31 @@ def test_goahead_face_serves_every_read_op_from_state(goahead_face) -> None:
             client.login()
             reader = HttpReader(client, get_model("gs728tpp"))
 
+            # The seed also carries the switch's eight LAG pseudo-interfaces
+            # (ifIndex 1000-1007, ifType 161) because its Q-BRIDGE bitmaps and
+            # dot1qPvid walk really do include them. The real wcd pages list
+            # ONLY physical ports, so the comparison is against that projection
+            # -- state.ports is deliberately the larger set.
+            physical = {p: s for p, s in state.ports.items() if s.if_type == 6}
             ports = {p.port: p for p in reader.get_ports()}
             assert set(ports) == set(range(1, 29))  # physical g1..g28 only
-            for p, sim in state.ports.items():
+            assert set(physical) == set(range(1, 29))
+            for p, sim in physical.items():
                 assert ports[p].link_up is sim.link
                 assert ports[p].speed_mbps == (sim.speed if sim.link else None)
 
-            assert dict(reader.get_pvids()) == state.pvids
+            assert dict(reader.get_pvids()) == {
+                p: v for p, v in state.pvids.items() if p in physical
+            }
 
             vlans = {v.vlan_id: v for v in reader.get_vlans()}
             assert set(vlans) == set(state.vlans)
             for vid, sim in state.vlans.items():
-                assert vlans[vid].member_ports == frozenset(sim.member)
-                assert vlans[vid].untagged_ports == frozenset(sim.untagged)
-                assert vlans[vid].tagged_ports == frozenset(sim.member - sim.untagged)
+                member = sim.member & set(physical)
+                untagged = sim.untagged & set(physical)
+                assert vlans[vid].member_ports == frozenset(member)
+                assert vlans[vid].untagged_ports == frozenset(untagged)
+                assert vlans[vid].tagged_ports == frozenset(member - untagged)
 
             poe = {p.port: p for p in reader.get_poe()}
             assert set(poe) == set(state.poe)
@@ -473,21 +484,121 @@ def test_goahead_face_404s_unknown_wcd_query(goahead_face) -> None:
 
 
 def test_goahead_face_refuses_unauthenticated_wcd_read(goahead_face) -> None:
-    """Fidelity: real hardware redirects an unauthenticated wcd read to login.
-    The mock must do the same (302), so the suite would catch a client that
-    tried to read before logging in. A valid session cookie is served normally."""
+    """Fidelity: an unauthenticated wcd read is HTTP 200 with statusCode 4.
+
+    CAPTURED from the live GS728TPP (10.2.5.10, firmware 6.0.1.30) by issuing a
+    request with a stale sessionID cookie. It is NOT a 302 and NOT a 401 -- the
+    switch returns a perfectly normal ``<ResponseData>`` envelope, HTTP 200,
+    whose ActionStatus carries statusCode 4 "Request Is not authenticated".
+
+    The mock used to redirect, and that unfaithfulness had a cost: an expired
+    session surfaced to callers as "no <DeviceConfiguration> data block found",
+    and a first attempt at detecting it keyed off the absence of
+    ``<ResponseData>`` -- which this reply HAS -- so it did not work.
+    """
     _f, port, _state = goahead_face
     url = (
         f"http://127.0.0.1:{port}/cs0000face/wcd?"
         "{file=/System/Management/IPConf_master.xml}{IPv4InterfaceList}"
     )
-    # No cookie -> refused with a redirect, NOT served.
     refused = httpx.get(url, follow_redirects=False)
-    assert refused.status_code == 302
+    assert refused.status_code == 200
+    assert "<ResponseData>" in refused.text
+    assert "<statusCode>4</statusCode>" in refused.text
+    assert "IPv4InterfaceList" not in refused.text
     # Same query WITH the post-login session cookie -> served.
     served = httpx.get(url, headers={"Cookie": "sessionID=virtualsid"})
     assert served.status_code == 200
     assert "IPv4InterfaceList" in served.text
+
+
+def test_expired_session_recovers_on_a_read_but_never_resends_a_write(
+    goahead_face,
+) -> None:
+    """A session that dies mid-run must not look like a parse error.
+
+    The GoAhead session expires on its own -- MEASURED: a live verification run
+    did every read, spent minutes doing SNMP work, and then failed every
+    subsequent HTTP write, having worked perfectly beforehand.
+
+    A READ re-authenticates and re-issues itself: re-running a GET is safe, and
+    the alternative is handing the caller "no <DeviceConfiguration> data block
+    found" for what is really an expired cookie.
+
+    A WRITE does NOT. A dropped or rejected write is not proof the switch
+    ignored it, so it is surfaced as HttpAuthError for the caller to retry
+    deliberately -- the same rule post_form already applies to retries.
+    """
+    from netgear_switch.errors import HttpAuthError
+    from netgear_switch.protocols.http import goahead
+
+    _f, port, _state = goahead_face
+    spec = http_spec(get_model("gs728tpp"))
+    client = HttpClient(f"127.0.0.1:{port}", "password", spec)
+    try:
+        client.login()
+        assert "VLANList" in client.get_page(spec.vlan_config_path)
+
+        # Kill the session the way a timeout does.
+        client._client.cookies.set("sessionID", "stale")
+        body = client.get_page(spec.vlan_config_path)
+        assert "VLANList" in body, "a read must transparently re-establish it"
+
+        client._client.cookies.set("sessionID", "stale")
+        with pytest.raises(HttpAuthError, match="NOT re-sent"):
+            client.post_xml("wcd", goahead.vlan_create_body(4007, "nope"))
+    finally:
+        client.close()
+
+
+def test_goahead_async_writer_matches_the_sync_one(goahead_face) -> None:
+    """Every GoAhead write must exist on the ASYNC writer too.
+
+    The capability table does not distinguish sync from async, so an operation
+    the sync writer can do and the async one cannot is a claim the library
+    cannot honour -- and that is exactly what happened when these were first
+    added to HttpWriter alone.
+    """
+    from netgear_switch.http_write import AsyncHttpWriter
+    from netgear_switch.models import VlanMode
+    from netgear_switch.transport.http.client import AsyncHttpClient
+
+    async def run() -> None:
+        _f, port, _state = goahead_face
+        model = get_model("gs728tpp")
+        client = AsyncHttpClient(f"127.0.0.1:{port}", "password", http_spec(model))
+        try:
+            await client.login()
+            writer = AsyncHttpWriter(client, model)
+            reader = AsyncHttpReader(client, model)
+
+            await writer.set_poe(17, on=False)
+            poe = {p.port: p for p in await reader.get_poe()}
+            assert poe[17].admin_enabled is False
+            await writer.set_poe(17, on=True)
+
+            await writer.set_port_enabled(17, enabled=False, force=True)
+            ports = {p.port: p for p in await reader.get_ports()}
+            assert ports[17].admin_enabled is False
+            await writer.set_port_enabled(17, enabled=True, force=True)
+
+            await writer.create_vlan(4007, "async-tmp")
+            vlans = {v.vlan_id: v for v in await reader.get_vlans()}
+            assert 4007 in vlans
+            assert vlans[4007].name == "async-tmp"
+
+            await writer.set_vlan_membership(4007, 17, VlanMode.TAGGED, force=True)
+            vlans = {v.vlan_id: v for v in await reader.get_vlans()}
+            assert 17 in vlans[4007].tagged_ports
+            await writer.set_pvid(17, 4007, force=True)
+            assert dict(await reader.get_pvids())[17] == 4007
+
+            await writer.delete_vlan(4007, force=True)
+            assert 4007 not in {v.vlan_id for v in await reader.get_vlans()}
+        finally:
+            await client.aclose()
+
+    asyncio.run(run())
 
 
 def test_goahead_async_reader_end_to_end(goahead_face) -> None:
@@ -501,7 +612,12 @@ def test_goahead_async_reader_end_to_end(goahead_face) -> None:
                 reader = AsyncHttpReader(client, get_model("gs728tpp"))
                 ports = {p.port: p for p in await reader.get_ports()}
                 assert set(ports) == set(range(1, 29))
-                assert dict(await reader.get_pvids()) == state.pvids
+                # Physical ports only -- the seed's LAG pseudo-interfaces
+                # (1000-1007) carry a PVID on the real switch but never appear
+                # on a wcd page. See the sync twin above.
+                assert dict(await reader.get_pvids()) == {
+                    p: v for p, v in state.pvids.items() if p <= 28
+                }
                 mgmt = await reader.get_mgmt_ip()
                 assert mgmt.address == state.mgmt.address
             finally:

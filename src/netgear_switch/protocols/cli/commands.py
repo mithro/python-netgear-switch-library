@@ -43,21 +43,54 @@ listens on 60000, not 23) for models that expose TELNET but not SSH.
 
 from __future__ import annotations
 
+import ipaddress
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, TypedDict
 
 from ...errors import UnsupportedCapabilityError
+from ...models import syslog_severity_word
 from ...registry import Backend
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from ...models import PortSpeed
     from ...registry import SwitchModel
 
 # The three CLI transports all speak the same FASTPATH CLI; a model that has any
 # of them uses this spec set.
 CLI_BACKENDS = frozenset({Backend.SSH, Backend.TELNET, Backend.CONSOLE})
+
+
+def address_kind(address: str) -> str:
+    """The address-KIND token a ``logging host`` line carries: ipv4/ipv6/dns.
+
+    The live line is ``logging host "10.1.5.1" ipv4 514 info`` -- the kind is an
+    explicit argument, not something the firmware infers, so it has to be
+    derived from the address. Anything that is not a literal IP is ``dns``,
+    which is what the host table's own column is headed
+    ("IP Address/Hostname").
+    """
+    try:
+        return f"ipv{ipaddress.ip_address(address).version}"
+    except ValueError:
+        return "dns"
+
+
+def fastpath_rate(mbps: int) -> str:
+    """How FASTPATH spells a port rate in a ``speed`` command: 10000 -> "10G".
+
+    The two spellings are not a guess: a live gsm7252ps offered ``10``, ``100``
+    and ``10G`` as the forced rates on 1/0/8 (2026-08-03), so sub-gigabit rates
+    go as bare Mbit/s and gigabit multiples take the ``G`` suffix. Rates outside
+    that measured set are still formatted by the same rule and SENT -- the
+    device answers "% Invalid input" for one it does not have, which the writer
+    raises verbatim (see ``CliModelSpec.port_speed_forced_cmd``).
+    """
+    if mbps >= 1000 and mbps % 1000 == 0:
+        return f"{mbps // 1000}G"
+    return str(mbps)
 
 
 @dataclass(frozen=True)
@@ -119,6 +152,43 @@ class CliModelSpec:
     # Global-config directive. Quoted on the wire by the device's own
     # running-config output ('hostname "sw-netgear-m4300-24x"').
     hostname_config_cmd: str = "hostname {name}"
+    # Remote logging, in GLOBAL config mode. READ OFF each switch's own
+    # `show running-config` on 2026-08-05 -- the device printing its own command
+    # sequence back, which is how the exact form was learned without a single
+    # write and without `?` (see the hazard at port_speed_*). All four models
+    # emit these two lines character for character:
+    #
+    #     logging host "10.1.5.1" ipv4 514 info
+    #     logging syslog
+    #
+    # so the address is QUOTED, the address-kind token is explicit, and the
+    # severity travels as a WORD. `logging syslog` is the remote-logging enable.
+    #
+    # REMOVAL IS NOT A NEGATION. `no logging host <index>` was the obvious
+    # inference and it is WRONG -- a live gsm7252ps (10.1.5.22, 2026-08-05)
+    # answered "% Invalid input detected at '^' marker." to it, and to
+    # `no logging host <address>` in every quoted/unquoted/typed spelling. The
+    # device's own help settles it:
+    #
+    #     (Config)# logging host ?
+    #     <hostaddress|hostname>   Enter Logging Host IP Address or Hostname
+    #     reconfigure              Logging Host Reconfiguration
+    #     remove                   Logging Host Removal
+    #
+    # so removal is a SUBCOMMAND, `logging host remove <index>`, taking the
+    # 1-based Index from `show logging hosts`. Confirmed by executing it: the
+    # throwaway row went away and the table returned byte-identical to prior.
+    #
+    # (That help probe is safe despite the #72 `?` hazard: bare `logging host`
+    # is INCOMPLETE -- it requires an address -- so the trailing newline is
+    # rejected rather than executed, exactly like `speed`.)
+    #
+    # `no logging syslog` remains inferred; only the positive form appears in
+    # running-config. A wrong form is raised, never swallowed.
+    logging_host_add_cmd: str = 'logging host "{address}" {kind} {port} {severity}'
+    logging_host_remove_cmd: str = "logging host remove {index}"
+    logging_syslog_cmd: str = "logging syslog"
+    logging_no_syslog_cmd: str = "no logging syslog"
 
     # --- physical-interface naming -----------------------------------------
     # How this model's firmware ADDRESSES one physical port in a command
@@ -170,6 +240,52 @@ class CliModelSpec:
     vlan_tagging_cmd: str = "vlan tagging {vlan}"
     vlan_no_tagging_cmd: str = "no vlan tagging {vlan}"
     vlan_pvid_cmd: str = "vlan pvid {vlan}"
+    # Per-port description, in interface config mode. The single quotes are the
+    # firmware's OWN form, not a shell habit: READ OFF a live GSM7252PS
+    # (10.1.5.22, 2026-08-03) whose `show running-config` renders its 38 labelled
+    # ports as `description 'eth0.rpi5-pmod'`. Clearing one is `no description`,
+    # the standard FASTPATH negation.
+    port_description_cmd: str = "description '{text}'"
+    port_no_description_cmd: str = "no description"
+    # `show port all` has NO description column, so a description write cannot
+    # verify itself through get_ports. This per-port command is the one that
+    # carries it -- live output from 10.1.5.22 (2026-08-03):
+    #     Interface....... 1/0/8
+    #     ifIndex......... 8
+    #     Description.....
+    #     MAC address..... E0:91:F5:0C:D6:DD
+    port_description_show_cmd: str = "show port description {iface}"
+    # Per-port speed/duplex, in interface config mode. TWO grammars that mean
+    # OPPOSITE things, both PROVEN BY EXECUTION on gsm7252ps 10.1.5.22 port
+    # 1/0/8 (link-down, undescribed, 2026-08-03) and restored afterwards:
+    #
+    #   speed <rate> <full-duplex|half-duplex>   FORCE, auto-negotiation off
+    #   speed auto                               AUTO-NEGOTIATE
+    #
+    # The forced rates each port offers are a property of its PHY, not of the
+    # firmware -- 1/0/8 (1G copper) offered 10/100/10G while m4300-24x 1/0/15
+    # (10GBASE-T) offered 100/10G -- so NO per-model rate table is kept here.
+    # An unsupported rate is SENT and the device's own "% Invalid input" is what
+    # surfaces, through the writer's treat-any-output-as-failure rule; the
+    # switch is a better authority on its own ports than a table we maintain.
+    #
+    # The ONE rate refused before sending is a forced 1000 (see
+    # ``cli_write.CliWriter.set_port_speed``): 1000BASE-T makes auto-negotiation
+    # mandatory, and the firmware encodes that by leaving 1000 out of the forced
+    # grammar entirely while keeping it in ``speed auto [10] [100] [1000] [10G]``.
+    port_speed_auto_cmd: str = "speed auto"
+    port_speed_forced_cmd: str = "speed {rate} {duplex}-duplex"
+    # IEEE 802.3x flow control, in interface config mode -- a BARE TOGGLE
+    # (``flowcontrol ?`` answers ``<cr>`` only). PROVEN as a full round trip on
+    # gsm7252ps 10.1.5.22 port 1/0/8, 2026-08-03, though not deliberately: a
+    # context-help probe executed the bare command, adding ``flowcontrol`` to
+    # that port's running-config and moving its Flow Mode column from Disable to
+    # Enable; ``no flowcontrol`` removed the line and returned the column. Both
+    # directions were confirmed by diffing ``show running-config interface
+    # 1/0/8``, and the port was restored byte-identically. (That accident is why
+    # ``?`` is never used as a read-only probe in this project any more.)
+    port_flow_control_cmd: str = "flowcontrol"
+    port_no_flow_control_cmd: str = "no flowcontrol"
     exit_cmd: str = "exit"
     # PoE, in interface config mode. Identical on every PoE-capable FASTPATH
     # image probed ("poe ?" -> <cr>/detection/high-power/power/priority/reset/
@@ -236,6 +352,46 @@ class CliModelSpec:
 
     def vlan_pvid(self, vlan: int) -> str:
         return self.vlan_pvid_cmd.format(vlan=vlan)
+
+    def port_description(self, text: str) -> str:
+        """Set or clear a port's description (interface config mode)."""
+        if not text:
+            return self.port_no_description_cmd
+        return self.port_description_cmd.format(text=text)
+
+    def port_description_show(self, port: int) -> str:
+        """The per-port command that reports a description back."""
+        return self.port_description_show_cmd.format(iface=self.iface(port))
+
+    def port_speed(self, speed: PortSpeed) -> str:
+        """The interface-config command that applies ``speed`` (see the fields)."""
+        if speed.autonegotiate:
+            return self.port_speed_auto_cmd
+        assert speed.speed_mbps is not None  # PortSpeed.__post_init__ guarantees it
+        return self.port_speed_forced_cmd.format(
+            rate=fastpath_rate(speed.speed_mbps),
+            duplex="full" if speed.full_duplex else "half",
+        )
+
+    def logging_host_add(self, address: str, port: int, severity: int) -> str:
+        """The `logging host` line for one collector, as running-config shows it."""
+        return self.logging_host_add_cmd.format(
+            address=address,
+            kind=address_kind(address),
+            port=port,
+            severity=syslog_severity_word(severity),
+        )
+
+    def logging_host_remove(self, index: int) -> str:
+        """Remove the collector at ``index`` (1-based, per `show logging hosts`)."""
+        return self.logging_host_remove_cmd.format(index=index)
+
+    def logging_syslog(self, *, enabled: bool) -> str:
+        return self.logging_syslog_cmd if enabled else self.logging_no_syslog_cmd
+
+    def port_flow_control(self, *, enabled: bool) -> str:
+        """Turn 802.3x flow control on or off (interface config mode)."""
+        return self.port_flow_control_cmd if enabled else self.port_no_flow_control_cmd
 
     def poe_admin(self, *, on: bool) -> str:
         return self.poe_enable_cmd if on else self.poe_disable_cmd

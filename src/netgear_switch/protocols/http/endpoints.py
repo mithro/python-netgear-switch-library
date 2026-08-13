@@ -160,7 +160,6 @@ def dialect_has_csrf_hash(dialect: HtmlDialect) -> bool:
     return dialect in {HtmlDialect.STANDARD, HtmlDialect.GS105PE}
 
 
-
 @dataclass(frozen=True)
 class XuiMgmtIpFields:
     """Which fields of a FASTPATH XUI management-IP page carry what.
@@ -338,6 +337,33 @@ class HttpModelSpec:
     # model whose mgmt-IP page is a FASTPATH XUI form. ``None`` for the Plus/
     # GoAhead models, whose mgmt-IP pages are a different shape entirely.
     mgmt_ip_fields: XuiMgmtIpFields | None = None
+    # The single endpoint every write goes to on an XML-API UI, where the POST
+    # BODY -- not the URL -- selects the operation. The GS728TPP's site map
+    # lists exactly one POST target, ``wcd``, repeated for all 100-odd pages,
+    # so there is nothing per-operation to record: the object name and the
+    # action verb inside the body do that job (see protocols/http/goahead.py).
+    #
+    # It is deliberately NOT ``cert_upload_path``, which happens to hold the
+    # same string: "where certificates are uploaded" and "where every write
+    # goes" are different questions, and a UI could answer them differently.
+    # ``None`` = this model's UI is not an XML-API one.
+    xml_write_path: str | None = None
+    # Remote-logging configuration page (``get_syslog``). ``None`` = no such
+    # page located for this model's UI. See ``_FASTPATH_SYSLOG`` below for how
+    # the managed models' value was found and on which hosts it was verified.
+    syslog_path: str | None = None
+    # Local login-account page (``get_users``). ``None`` = no such page located
+    # for this model's UI. Deliberately NOT ``userConfiguration.html``, which is
+    # the SNMPv3 user page on every managed model -- see ``_FASTPATH_USERS``.
+    users_path: str | None = None
+    # The four management-service config pages (``get_services``). All four must
+    # be populated for the op to be offered: reporting three of four would look
+    # like "this switch has no SSH" rather than "this UI does not say". See
+    # ``_FASTPATH_SERVICE_PAGES`` for what was measured on which host.
+    http_service_path: str | None = None
+    https_service_path: str | None = None
+    ssh_service_path: str | None = None
+    telnet_service_path: str | None = None
 
 
 # The managed (FASTPATH/Cheetah) "VLAN Membership" page, shared by every managed
@@ -371,6 +397,68 @@ _M4300_VLAN_MEMBERSHIP_RW = f"/v1{_FASTPATH_VLAN_MEMBERSHIP_RW}"
 # The mgmt-IP page is where the two families genuinely diverge, so there is NO
 # shared constant for it -- see XuiMgmtIpFields' docstring for the measured
 # 404s/0.0.0.0s that make one impossible.
+
+# The remote-logging page, shared by every managed model. Found the same way the
+# VLAN-membership page was -- read out of the switch's own nav JS rather than
+# guessed -- and the two families emit that JS DIFFERENTLY, so both were read:
+#
+#   GSM7252PS/GSM7228PS  GET /base/js/ng_sideNav.js
+#       str+=FrthLvl("lvl1","Syslog Configuration","syslogConfiguration.html",..)
+#   M4300 (both SKUs)    GET /v1/base/js/ng_sideNav.js
+#       str += SecLvl("lvl1",js_NLS_Syslog_Configuration,
+#                     "syslogConfiguration.html", showRow);
+#
+# (the M4300 nav passes its labels as ``js_NLS_*`` identifiers, not string
+# literals, so a leaf regex written for the GSM form silently matches nothing
+# there -- which is why the M4300 path was read rather than extrapolated).
+#
+# LIVE-FETCHED 2026-08-03 on all four managed switches: 10.1.5.22, 10.1.5.11,
+# 10.1.5.13 and 10.1.5.20 each answered 200 with a Syslog/Server Log title.
+_FASTPATH_SYSLOG = "/syslogConfiguration.html"
+_M4300_SYSLOG = f"/v1{_FASTPATH_SYSLOG}"
+
+# The LOGIN-ACCOUNT page. The obvious name is a trap: both families' nav trees
+# also list ``userConfiguration.html``, and on every managed switch that page is
+# the SNMPv3 user page --
+#     GET /userConfiguration.html   -> "User Name: admin", "SNMP V3 Access Mode:
+#                                       Read Write", "Authentication Protocol",
+#                                       "Encryption Protocol"
+# -- carrying no login accounts at all, so get_users would have reported SNMPv3
+# credentials as logins. The real page is ``userManagement.html``:
+#     10.1.5.22  -> 200, "NetGear - User Management",  admin/Super User + guest
+#     10.1.5.13  -> 200, "NETGEAR -  User Management", the same two rows
+# LIVE-FETCHED 2026-08-03. NOT set for gsm7228ps: that host answers
+#     GET /userManagement.html -> HTTP 404
+# so the S3300's login-account page is somewhere else and has not been located
+# -- an unbuilt implementation to find, not a device limitation.
+_FASTPATH_USERS = "/userManagement.html"
+_M4300_USERS = f"/v1{_FASTPATH_USERS}"
+
+# The four management-service pages. Same filenames on both families; only the
+# ``/v1`` prefix differs. LIVE-MEASURED 2026-08-03 -- and the result is NOT
+# uniform, which is why these are four separate fields rather than one prefix:
+#
+#   gsm7252ps  all four answer, all four XUI. HTTP<->CLI agree exactly
+#              (http on, https on :443, ssh on, telnet OFF -- and telnet really
+#              is refused on TCP 23 there, an independent confirmation).
+#   m4300-24x  all four answer, MIXED shapes (http/https plain form, ssh/telnet
+#              XUI). HTTP<->CLI agree on all four states and on every port the
+#              pages print.
+#   gsm7228ps  CANNOT answer: its httpConfiguration.html carries no admin
+#              control at all (only timeouts/session counts), and
+#              GET /sshConfiguration.html -> HTTP 404. Its https and telnet
+#              pages DO parse correctly, but three-of-four would read as "this
+#              switch has no SSH", so all four stay None here and the op is
+#              refused by name. Finding the S3300's real pages is an unbuilt
+#              implementation, not a device limitation.
+_FASTPATH_SERVICE_PAGES = (
+    "/httpConfiguration.html",
+    "/httpsConfiguration.html",
+    "/sshConfiguration.html",
+    "/telnet.html",
+)
+_M4300_SERVICE_PAGES = tuple(f"/v1{p}" for p in _FASTPATH_SERVICE_PAGES)
+
 _FASTPATH_PORT_CONFIG = "/portsConfiguration.html"
 _FASTPATH_POE_CONFIG = "/poeInterfaceConfiguration.html"
 _GSM72XX_MGMT_IP = "/ipConfiguration.html"
@@ -572,6 +660,7 @@ _GSM7228PS = HttpModelSpec(
     vlan_membership_path=_FASTPATH_VLAN_MEMBERSHIP,
     vlan_membership_post_path=_FASTPATH_VLAN_MEMBERSHIP_RW,
     pvid_path="/portPvidConfiguration.html",
+    syslog_path=_FASTPATH_SYSLOG,
     reboot_path=None,
     logout_path=None,
     is_epx_poe=False,
@@ -733,6 +822,12 @@ _M4300 = HttpModelSpec(
     vlan_membership_path=_M4300_VLAN_MEMBERSHIP,
     vlan_membership_post_path=_M4300_VLAN_MEMBERSHIP_RW,
     pvid_path="/v1/portPvidConfiguration.html",
+    syslog_path=_M4300_SYSLOG,
+    users_path=_M4300_USERS,
+    http_service_path=_M4300_SERVICE_PAGES[0],
+    https_service_path=_M4300_SERVICE_PAGES[1],
+    ssh_service_path=_M4300_SERVICE_PAGES[2],
+    telnet_service_path=_M4300_SERVICE_PAGES[3],
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,
@@ -740,24 +835,23 @@ _M4300 = HttpModelSpec(
     html_dialect=HtmlDialect.M4300,
 )
 
-# INHERITED, NOT INDEPENDENTLY CAPTURED. The M4300-16X runs the same FASTPATH
-# firmware image and therefore the same Cheetah /v1 web UI as the 24X, so the
-# login scheme and page URLs carry over -- but NO M4300-16X web session was
-# ever captured, and no fixture or test exercises this SKU's HTTP path. The
-# verified flags below are inherited from the 24X and mean "verified for this
-# firmware family", NOT "captured from a 16X". Treat a 16X-specific HTTP
-# surprise (different port count, PoE pages the 24X lacks) as unverified until
-# someone captures one.
-# reads_verified=False (unlike the 24x): the M4300-16X-PoE runs the AV-era
-# two-UI firmware where the FASTPATH "Main UI" (Cheetah) is moved OFF port 80 to
-# HTTPS on port 49152 (port 80/443 serve the Vue "AV UI" instead). Confirmed live
-# on 10.1.5.20 (2026-07-30): port 80 -> <title>network</title> (Vue), port 49152 ->
-# <TITLE>NETGEAR M4300-16X</TITLE> (Cheetah). This inherited-from-24x spec targets
-# http://<host>/v1/... (the AV-UI port) and so does NOT work against the real 16x
-# -- login POSTs 404, and :49152 resets a plaintext-http connect (it is HTTPS).
-# The 16x is otherwise fully live-verified over SNMP + CLI. Wiring 16x HTTP needed
-# HTTPS-on-49152 transport support (done) + the SIDSSL cookie + a poe_status_path
-# (the 16x IS PoE, unlike the 24x) -- all done + live cross-verified below.
+# The M4300-16X STARTED as an inherit-from-24X spec and is no longer one: it has
+# since been captured and live cross-verified in its own right (2026-07-30 on
+# 10.1.5.20:49152), there are m4300_16x_*.html fixtures, and reads_verified=True
+# below is earned rather than assumed. The paths and login scheme still come from
+# the 24X -- same FASTPATH firmware family, same Cheetah /v1 UI -- but every one
+# of them has now been driven against a real 16X.
+#
+# Inheriting was NOT enough, which is the point worth keeping. This SKU runs the
+# AV-era two-UI firmware: the Cheetah "Main UI" is moved OFF port 80 to HTTPS on
+# port 49152, while 80/443 serve the Vue "AV UI" (confirmed live -- port 80 ->
+# <title>network</title>, port 49152 -> <TITLE>NETGEAR M4300-16X</TITLE>). The
+# inherited spec therefore did not work at all against real hardware: login POSTs
+# 404'd and :49152 reset a plaintext connection. Three further differences from
+# the 24X had to be found the same way -- the HTTPS session cookie is SIDSSL not
+# SID, this SKU HAS PoE pages the non-PoE 24X lacks, and its firmware answers 403
+# to every POST that carries a Referer without an Origin. Each is recorded at the
+# field it affects below.
 _M4300_16X = dataclasses.replace(
     _M4300,
     model_key="m4300-16x",
@@ -869,6 +963,12 @@ _GSM7252PS = HttpModelSpec(
     vlan_membership_path=_FASTPATH_VLAN_MEMBERSHIP,
     vlan_membership_post_path=_FASTPATH_VLAN_MEMBERSHIP_RW,
     pvid_path="/portPvidConfiguration.html",
+    syslog_path=_FASTPATH_SYSLOG,
+    users_path=_FASTPATH_USERS,
+    http_service_path=_FASTPATH_SERVICE_PAGES[0],
+    https_service_path=_FASTPATH_SERVICE_PAGES[1],
+    ssh_service_path=_FASTPATH_SERVICE_PAGES[2],
+    telnet_service_path=_FASTPATH_SERVICE_PAGES[3],
     reboot_path=None,  # never captured -- not guessed
     logout_path=None,
     is_epx_poe=False,
@@ -948,6 +1048,13 @@ _GS728TPP = HttpModelSpec(
     # None -- there is no multipart file part -- and the dialect (GOAHEAD_XML)
     # is what routes upload_certificate to the XML path.
     cert_upload_path="wcd",
+    # Every write on this UI POSTs an XML body here; the object name and action
+    # verb in the body select the operation. Its SiteMap.xml lists exactly one
+    # POST target -- ``wcd`` -- repeated for all 100-odd pages (LIVE-READ
+    # 2026-08-02 from 10.2.5.10), so there is genuinely nothing per-op to
+    # record here. See protocols/http/goahead.py for the body shapes and where
+    # each was transcribed from.
+    xml_write_path="wcd",
     # LIVE-VERIFIED 2026-07-29 against the real GS728TPP (10.2.5.10, via the
     # ten64 jump host): every parse_goahead_* was run on a FRESH live wcd fetch
     # and cross-checked against the switch's actual known config -- 28 ports

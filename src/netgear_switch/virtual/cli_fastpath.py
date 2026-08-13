@@ -190,12 +190,15 @@ def render_ports(state: VirtualSwitchState) -> str:
                 _iface(state, p),
                 "",
                 "Enable" if sim.admin else "Disable",
-                "Auto",
+                sim.physical_mode,
                 phys_status,
                 "Up" if sim.link else "Down",
                 "Enable",
                 "Enable",
-                "Disable",
+                # From STATE, not hardcoded. It used to be a literal "Disable",
+                # which matched every capture by luck and made the CLI face
+                # incapable of showing a flow-control write at all.
+                "Enable" if sim.flow_control else "Disable",
             ]
         )
     return _table(headers, widths, rows)
@@ -454,3 +457,118 @@ def render_interface_counters(state: VirtualSwitchState, port: int) -> str:
             _dotted("Time Since Counters Last Cleared", "1 day 0 hr 0 min 0 sec"),
         ]
     )
+
+
+def render_port_description(state: VirtualSwitchState, iface: str) -> str:
+    """``show port description <iface>``.
+
+    Layout transcribed from live output on a GSM7252PS (10.1.5.22,
+    2026-08-03)::
+
+        Interface....... 1/0/8
+        ifIndex......... 8
+        Description.....
+        MAC address..... E0:91:F5:0C:D6:DD
+        Bit Offset Val.. 8
+
+    An unset description prints the label with NOTHING after it -- which is why
+    the parser maps an empty value to None rather than "". A port the switch
+    does not have answers with the same rejection any unknown argument gets.
+    """
+    port = next(
+        (p for p in _phys_ports(state) if _iface(state, p) == iface),
+        None,
+    )
+    if port is None:
+        return "% Invalid input detected at '^' marker."
+    sim = state.ports[port]
+    mac = ":".join(f"{b:02X}" for b in state.nsdp_mac)
+    return "\n".join(
+        [
+            f"Interface....... {iface}",
+            f"ifIndex......... {port}",
+            f"Description..... {sim.description or ''}".rstrip(),
+            f"MAC address..... {mac}",
+            f"Bit Offset Val.. {port}",
+        ]
+    )
+
+
+# --- show logging / show logging hosts --------------------------------------
+
+#: severity number -> the word `show logging hosts` prints. Only the canonical
+#: spelling, so 6 renders "info" and never "informational" -- which is what the
+#: live m4300-24x/gsm7252ps/gsm7228ps tables all print (2026-08-05).
+_SEVERITY_WORDS = {
+    0: "emergency",
+    1: "alert",
+    2: "critical",
+    3: "error",
+    4: "warning",
+    5: "notice",
+    6: "info",
+    7: "debug",
+}
+
+
+def render_logging(state: VirtualSwitchState) -> str:
+    """``show logging``, transcribed from the real output captured 2026-08-05.
+
+    The scalar block the reader picks two fields out of. Reproduced with its
+    neighbours because a mock emitting only "Syslog Logging" and "Logging
+    Client Local Port" would not exercise ``_colon_fields`` at all -- and it is
+    the reason the whole block is colon-separated rather than dotted-leader,
+    unlike `show hosts`/`show network`.
+
+    The surrounding counters and the console/buffered rows are the shape all
+    four switches returned; the gsm7228ps additionally prints two Persistent
+    Logging rows, which is why the reader takes named fields rather than
+    offsets.
+    """
+    syslog = state.syslog
+    return "\n".join(
+        [
+            f"Logging Client Local Port           : {syslog.local_port}",
+            "Logging Client Source Interface     : serviceport",
+            "CLI Command Logging                 : disabled",
+            "Console Logging                     : disabled",
+            "Console Logging Severity Filter     : error",
+            "Buffered Logging                    : enabled",
+            "Buffered Logging Severity Filter    : notice",
+            "",
+            "Syslog Logging                      : "
+            + ("enabled" if syslog.admin_mode == 1 else "disabled"),
+            "",
+            "Log Messages Received               : 9850",
+            "Log Messages Dropped                : 0",
+            "Log Messages Relayed                : 118",
+        ]
+    )
+
+
+def render_logging_hosts(state: VirtualSwitchState) -> str:
+    """``show logging hosts``, transcribed from real output captured 2026-08-05.
+
+    Header and ruler are byte-for-byte what m4300-24x, gsm7252ps and gsm7228ps
+    all printed. The INDEX column is 1-based and positional -- it is what
+    ``no logging host <index>`` addresses, and the reason a removal has to look
+    the row up rather than name the address.
+
+    A switch with NO collectors prints the header and ruler and nothing else,
+    which is what makes "empty" distinguishable from "could not ask".
+    """
+    rows = [
+        "Index   IP Address/Hostname     Severity    Port   Status  Mode   "
+        "Auth    Cert#",
+        "----- ------------------------ ---------- ------ --------- ----- "
+        "-------- -----",
+    ]
+    for c in state.syslog.collectors:
+        word = _SEVERITY_WORDS.get(c.severity, str(c.severity))
+        status = "Active" if c.status == 1 else "Inactive"
+        # c.index, NOT the loop position. The real table's Index column is
+        # SPARSE -- 1 and 3 with nothing at 2, measured on m4300-24x 10.1.5.13
+        # -- and a mock that renumbered densely could never expose the
+        # position-for-index bug that shipped.
+        rows.append(f"{c.index:<5} {c.host:<24} {word:<10} {c.port:<6} {status:<9} udp")
+    return "\n".join(rows)

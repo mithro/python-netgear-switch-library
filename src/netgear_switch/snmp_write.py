@@ -19,10 +19,10 @@ from .errors import (
     UnsupportedCapabilityError,
     WriteVerificationError,
 )
-from .models import PoEDetect, VlanMode
+from .models import PoEDetect, VlanMode, poe_cycle_complete
 from .protocols.snmp import oids
 from .protocols.snmp.client import SnmpError
-from .protocols.snmp.parse import decode_port_bitmap
+from .protocols.snmp.parse import decode_port_bitmap, physical_ports
 from .protocols.snmp.write import (
     SetVarbind,
     encode_port_bitmap,
@@ -35,7 +35,7 @@ from .snmp_read import AsyncSnmpReader, SnmpReader
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Sequence
 
-    from .models import PoEStatus, PortStatus, VLANInfo
+    from .models import PoEStatus, PortSpeed, PortStatus, VLANInfo
     from .protocols.snmp.client import AsyncSnmpWriteClient, SnmpWriteClient
     from .registry import SwitchModel
 
@@ -56,6 +56,12 @@ def _poe_admin_oid(port: int) -> str:
 # where SET switchport-native-vlan.1/0/8 := 0 and := 4094 BOTH answered
 # commitFailed, as did := a VLAN id that does not exist.
 _DEFAULT_VLAN = 1
+
+#: SMI RowStatus ``destroy``. The one row-status value the FASTPATH syslog host
+#: table honours: creation is refused through every mechanism (see
+#: ``SnmpWriter.add_syslog_collector``) while destroy works, LIVE-VERIFIED on
+#: m4300-24x 10.1.5.13 2026-08-05.
+_ROW_DESTROY = "6"
 
 
 def _vlan_bitmap(vlans: Iterable[int]) -> bytes:
@@ -327,12 +333,41 @@ def _poe_is_off(status: PoEStatus | None, port_up: bool) -> bool:
     )
 
 
-def _poe_recovered(status: PoEStatus | None) -> bool:
-    """True once detect has left FAULT and settled to delivering/searching."""
+#: Why an SNMP VLAN create is refused on a model whose agent cannot do it. A
+#: capability refusal, so it is raised BEFORE any SET is attempted and the
+#: caller can route the operation to a backend that works.
+_NO_VLAN_CREATE = (
+    "this model's SNMP agent cannot create a VLAN: every RowStatus mechanism "
+    "(createAndGo, createAndGo+name in one PDU, createAndWait->name->active, "
+    "the name column alone, and createAndGo carrying an egress PortList) is "
+    "answered inconsistentValue -- measured on the device. Membership, PVID "
+    "and delete DO work over SNMP; create a VLAN over the HTTP backend"
+)
+
+
+def _require_snmp_vlan_creation(model: SwitchModel) -> None:
+    if not model.snmp_can_create_vlan:
+        raise UnsupportedCapabilityError(f"model {model.key!r}: {_NO_VLAN_CREATE}")
+
+
+def _poe_recovered(before: PoEStatus | None, status: PoEStatus | None) -> bool:
+    """True once detect has left FAULT and settled to delivering/searching.
+
+    ``before`` is unused: clearing a fault succeeds when the port has left
+    FAULT, whatever it was doing beforehand. It is in the signature so both
+    recovery predicates share one shape (see ``_poe_cycled_back``).
+    """
+    del before
     return status is not None and status.detect in (
         PoEDetect.DELIVERING,
         PoEDetect.SEARCHING,
     )
+
+
+#: See ``models.poe_cycle_complete`` -- shared with the HTTP writer, because
+#: what counts as a port having come back is a property of the port rather than
+#: of the protocol that asked.
+_poe_cycled_back = poe_cycle_complete
 
 
 class SnmpWriter:
@@ -382,6 +417,19 @@ class SnmpWriter:
                 return row.value
         return None
 
+    def _physical(self) -> set[int] | None:
+        """The switch's physical ports, or None when it does not publish ifType.
+
+        A membership write is verified by decoding the bitmap it SENT and
+        comparing it with what ``get_vlans`` reads back -- and get_vlans drops
+        LAG bridge-ports (parse.parse_vlans). Without the same filter here the
+        two sides disagree by exactly those bits and every write on a switch
+        with a LAG in the VLAN would raise a bogus WriteVerificationError.
+        Measured on the GS728TPP: bit 1000 (``po 1``) is set in 11 of its 13
+        VLANs, so this is the normal case there, not an edge case.
+        """
+        return physical_ports(self.client.walk(oids.IF_TYPE))
+
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
             self._guard(port, force)  # turning PoE off is disruptive
@@ -402,7 +450,7 @@ class SnmpWriter:
         timeouts: PoeCycleTimeouts,
         sleep: Callable[[float], None],
         clock: Callable[[], float],
-        on_recovered: Callable[[PoEStatus | None], bool],
+        on_recovered: Callable[[PoEStatus | None, PoEStatus | None], bool],
         on_timeout_message: str,
     ) -> None:
         """Re-arm PoE on ``port``: TWO SEPARATE sequential SETs (off, then on)
@@ -427,7 +475,7 @@ class SnmpWriter:
         # Phase 2: on, poll until the caller's recovery predicate is met.
         self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
         deadline = clock() + timeouts.on_timeout
-        while not on_recovered(self._poe_status(port)):
+        while not on_recovered(before, self._poe_status(port)):
             if clock() >= deadline:
                 raise WriteVerificationError(
                     on_timeout_message.format(timeout=timeouts.on_timeout),
@@ -451,9 +499,10 @@ class SnmpWriter:
             timeouts=timeouts,
             sleep=sleep,
             clock=clock,
-            on_recovered=lambda st: bool(st and st.delivering),
+            on_recovered=_poe_cycled_back,
             on_timeout_message=(
-                f"PoE port {port} did not return to delivering within {{timeout}}s"
+                f"PoE port {port} did not come back after the power cycle "
+                "within {timeout}s"
             ),
         )
 
@@ -505,8 +554,46 @@ class SnmpWriter:
                 after=after,
             )
 
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Set a port's ``ifAlias``, the standard per-port description column.
+
+        WRITABILITY MEASURED 2026-08-03 on a GS728TPP (10.2.5.10, firmware
+        6.0.1.30): a SET of ifAlias.17 was accepted and read straight back
+        through ``get_ports``.
+
+        Clearing it (``description=""``) is the case that needed transport work
+        rather than a new OID: ``snmpset ... s ""`` is refused by the net-snmp
+        CLI itself, so the transport sends an empty OCTET STRING as an empty hex
+        string instead (see ``_set_argv``). Without that, a description could be
+        set and never removed.
+        """
+        self._guard(port, force)
+        before = self._port_status(port)
+        self.client.set(SetVarbind(f"{oids.IF_ALIAS}.{port}", description, "s"))
+        after = self._port_status(port)
+        # The reader maps an empty alias to None, so compare on that footing.
+        want = description or None
+        if after is None or after.description != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.description if before else None,
+                after=after.description if after else None,
+            )
+
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)  # changing a port's PVID is disruptive
+        # Precondition, like set_vlan_membership's: no SET is attempted, so
+        # this is not a verification divergence.
+        #
+        # The device will NOT catch this. MEASURED on the GS728TPP (10.2.5.10,
+        # firmware 6.0.1.30, 2026-08-03): dot1qPvid := a VLAN that does not
+        # exist is ACCEPTED, reads back as that id, and creates no VLAN -- so
+        # verify-after-write passes and the port is left with a PVID for a VLAN
+        # that is not there. Only a precondition check can catch it.
+        if not any(v.vlan_id == vlan for v in self._reader.get_vlans()):
+            raise SnmpError(f"VLAN {vlan} does not exist")
         before = self._reader.get_pvids()
         self.client.set(SetVarbind(f"{oids.DOT1Q_PVID}.{port}", vlan, "u"))
         after = self._reader.get_pvids()
@@ -625,9 +712,14 @@ class SnmpWriter:
         after = self._vlan(vlan)
         # Verify BOTH columns this op wrote: egress membership AND the untagged
         # set. A mock/device that accepts the egress SET but silently drops the
-        # untagged SET must be caught (review item 1).
+        # untagged SET must be caught (review item 1). Compare on the same
+        # footing get_vlans reports -- physical ports only (see _physical).
+        keep = self._physical()
         want_egress = frozenset(decode_port_bitmap(new_egress))
         want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if keep is not None:
+            want_egress &= keep
+            want_untagged &= keep
         if after is None:
             raise WriteVerificationError(
                 f"VLAN {vlan} disappeared while setting membership for port {port}",
@@ -654,6 +746,7 @@ class SnmpWriter:
         # Creating an EMPTY VLAN adds no port membership, so it is
         # non-disruptive and does NOT require force. ``force`` exists only for
         # signature symmetry with delete_vlan (review item 3).
+        _require_snmp_vlan_creation(self.model)
         before = self._vlan(vlan)
         self.client.set_many(
             [
@@ -705,6 +798,119 @@ class SnmpWriter:
                 f"VLAN {vlan} still exists after destroy",
                 before=before,
                 after=after,
+            )
+
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated. What SNMP offers here is
+        ``ifSpeed``/``ifHighSpeed``, and those report the rate the link
+        NEGOTIATED -- writing one would be writing a counter, not a
+        setting. The column that would genuinely serve this is MAU-MIB's
+        ``ifMauDefaultType``/``ifMauAutoNegAdminStatus`` (mib-2.26); no
+        switch here has been walked for it, so its presence is UNKNOWN
+        rather than absent, and the 2026-08-03 OID sweep does not settle it
+        (that sweep covered the 4526 VENDOR subtree only). Use a CLI
+        backend, or establish the MAU subtree first.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: SNMP exposes only the NEGOTIATED port "
+            "rate (ifSpeed); no configured speed/duplex column has been located"
+        )
+
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name. EtherLike-MIB's ``dot3PauseAdminMode`` is the
+        column that would serve this, and it is READ on the one model that
+        publishes it (the GS728TPP) -- but no SET has ever been issued
+        against it here, so whether the agent accepts one is unknown. This
+        library does not offer a write it has never seen succeed.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: no SNMP flow-control write has been "
+            "established (dot3PauseAdminMode is read-only in this library)"
+        )
+
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This agent will not CREATE a syslog host row. MEASURED, not assumed.
+
+        Probed on m4300-24x 10.1.5.13 (FASTPATH 12.0.13.8, 2026-08-05) with the
+        Read/Write community, against a free index. Five mechanisms, five
+        refusals, with the agent's own SMI error-status::
+
+            createAndGo(4) + every column, one PDU -> inconsistentValue
+            createAndWait(5) alone                 -> inconsistentValue
+            createAndGo(4) alone                   -> inconsistentValue
+            the value columns alone (auto-create?) -> commitFailed
+            active(1) at a row that does not exist -> commitFailed
+
+        The same agent ACCEPTS a SET of every column of an EXISTING row, and
+        accepts ``destroy`` -- see ``remove_syslog_collector`` -- so this is the
+        agent declining row creation specifically, not a permissions problem.
+        (The first run of that probe used the READ community and "refused"
+        everything, which is CLAUDE.md principle 4's own example. Ask the switch
+        with ``show snmpcommunity``.)
+
+        Same shape as the GS728TPP's refusal to create a VLAN row. Add over a
+        CLI backend, where the command is the device's own running-config line.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this agent refuses to create a syslog "
+            "host row (measured: createAndGo/createAndWait -> inconsistentValue, "
+            "value-columns-only -> commitFailed); add it over a CLI backend"
+        )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """Remove a collector by writing RowStatus ``destroy(6)`` to its row.
+
+        LIVE-VERIFIED on m4300-24x 10.1.5.13 (2026-08-05): a throwaway
+        collector added over the CLI was destroyed with a single SET of
+        ``<base>.14.1.4.5.1.7.<index> = 6``, and the switch's own
+        ``show logging hosts`` confirmed the row was gone.
+
+        Note the asymmetry, which is the agent's and not this library's: it
+        DESTROYS rows but refuses to CREATE them (see ``add_syslog_collector``).
+
+        ``<index>`` is the table's own row index -- the OID instance, which
+        ``get_syslog`` surfaces as ``SyslogServer.index``. It is SPARSE, so it
+        is read fresh here and never derived from a row's position; deriving it
+        addresses the wrong row, and the agent accepts that as a silent no-op.
+        """
+        del force  # redirecting logs cannot strand a switch
+        _require_snmp(self.model)
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only"
+            )
+        before = self._reader.get_syslog()
+        row = next((s for s in before.servers if s.host == host), None)
+        if row is None:
+            # A PRECONDITION failure, not a capability limit -- the backend can
+            # serve this op, the switch simply has no such row. Raising
+            # UnsupportedCapabilityError here would make the capability table
+            # say "SNMP cannot remove collectors on this model", which is false
+            # and is exactly what the capability guard caught.
+            raise SnmpError(f"no syslog collector for {host!r} to remove")
+        if row.index is None:  # pragma: no cover -- the SNMP reader always fills it
+            raise SnmpError(f"the syslog collector for {host!r} carries no table index")
+        vo = oids.vendor_oids(self.model)
+        self.client.set(
+            SetVarbind(f"{vo.syslog_host_status}.{row.index}", _ROW_DESTROY, "i")
+        )
+        after = self._reader.get_syslog()
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after destroy",
+                before=before.servers,
+                after=after.servers,
             )
 
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
@@ -852,6 +1058,10 @@ class AsyncSnmpWriter:
                 return row.value
         return None
 
+    async def _physical(self) -> set[int] | None:
+        """Async twin of ``SnmpWriter._physical`` -- see it for why."""
+        return physical_ports(await self.client.walk(oids.IF_TYPE))
+
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
         if not on:
             self._guard(port, force)
@@ -876,7 +1086,7 @@ class AsyncSnmpWriter:
         timeouts: PoeCycleTimeouts,
         sleep: Callable[[float], Awaitable[None]],
         clock: Callable[[], float],
-        on_recovered: Callable[[PoEStatus | None], bool],
+        on_recovered: Callable[[PoEStatus | None, PoEStatus | None], bool],
         on_timeout_message: str,
     ) -> None:
         """Async twin of ``SnmpWriter._poe_rearm``: TWO SEPARATE sequential
@@ -899,7 +1109,7 @@ class AsyncSnmpWriter:
         # Phase 2: on, poll until the caller's recovery predicate is met.
         await self.client.set(SetVarbind(_poe_admin_oid(port), 1, "i"))
         deadline = clock() + timeouts.on_timeout
-        while not on_recovered(await self._poe_status(port)):
+        while not on_recovered(before, await self._poe_status(port)):
             if clock() >= deadline:
                 raise WriteVerificationError(
                     on_timeout_message.format(timeout=timeouts.on_timeout),
@@ -923,9 +1133,10 @@ class AsyncSnmpWriter:
             timeouts=timeouts,
             sleep=sleep,
             clock=clock,
-            on_recovered=lambda st: bool(st and st.delivering),
+            on_recovered=_poe_cycled_back,
             on_timeout_message=(
-                f"PoE port {port} did not return to delivering within {{timeout}}s"
+                f"PoE port {port} did not come back after the power cycle "
+                "within {timeout}s"
             ),
         )
 
@@ -970,8 +1181,28 @@ class AsyncSnmpWriter:
                 after=after,
             )
 
+    async def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Async twin of ``SnmpWriter.set_port_description`` -- see it."""
+        self._guard(port, force)
+        before = await self._port_status(port)
+        await self.client.set(SetVarbind(f"{oids.IF_ALIAS}.{port}", description, "s"))
+        after = await self._port_status(port)
+        want = description or None
+        if after is None or after.description != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.description if before else None,
+                after=after.description if after else None,
+            )
+
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
+        # Precondition -- see SnmpWriter.set_pvid: the device accepts a PVID for
+        # a VLAN that does not exist, so verify-after-write cannot catch it.
+        if not any(v.vlan_id == vlan for v in await self._reader.get_vlans()):
+            raise SnmpError(f"VLAN {vlan} does not exist")
         before = await self._reader.get_pvids()
         await self.client.set(SetVarbind(f"{oids.DOT1Q_PVID}.{port}", vlan, "u"))
         after = await self._reader.get_pvids()
@@ -1076,9 +1307,14 @@ class AsyncSnmpWriter:
         else:
             await self.client.set_many([egress_vb, untagged_vb])
         after = await self._vlan(vlan)
-        # Verify BOTH written columns (egress AND untagged) — review item 1.
+        # Verify BOTH written columns (egress AND untagged) — review item 1 —
+        # on the same physical-port footing get_vlans reports (see _physical).
+        keep = await self._physical()
         want_egress = frozenset(decode_port_bitmap(new_egress))
         want_untagged = frozenset(decode_port_bitmap(new_untagged))
+        if keep is not None:
+            want_egress &= keep
+            want_untagged &= keep
         if after is None:
             raise WriteVerificationError(
                 f"VLAN {vlan} disappeared while setting membership for port {port}",
@@ -1103,6 +1339,7 @@ class AsyncSnmpWriter:
 
     async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
         # Empty VLAN creation is non-disruptive; force is for symmetry only.
+        _require_snmp_vlan_creation(self.model)
         before = await self._vlan(vlan)
         await self.client.set_many(
             [
@@ -1150,6 +1387,80 @@ class AsyncSnmpWriter:
                 f"VLAN {vlan} still exists after destroy",
                 before=before,
                 after=after,
+            )
+
+    async def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated. What SNMP offers here is
+        ``ifSpeed``/``ifHighSpeed``, and those report the rate the link
+        NEGOTIATED -- writing one would be writing a counter, not a
+        setting. The column that would genuinely serve this is MAU-MIB's
+        ``ifMauDefaultType``/``ifMauAutoNegAdminStatus`` (mib-2.26); no
+        switch here has been walked for it, so its presence is UNKNOWN
+        rather than absent, and the 2026-08-03 OID sweep does not settle it
+        (that sweep covered the 4526 VENDOR subtree only). Use a CLI
+        backend, or establish the MAU subtree first.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: SNMP exposes only the NEGOTIATED port "
+            "rate (ifSpeed); no configured speed/duplex column has been located"
+        )
+
+    async def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name. EtherLike-MIB's ``dot3PauseAdminMode`` is the
+        column that would serve this, and it is READ on the one model that
+        publishes it (the GS728TPP) -- but no SET has ever been issued
+        against it here, so whether the agent accepts one is unknown. This
+        library does not offer a write it has never seen succeed.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: no SNMP flow-control write has been "
+            "established (dot3PauseAdminMode is read-only in this library)"
+        )
+
+    async def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """Async twin of ``SnmpWriter.add_syslog_collector`` -- see it for the
+        five measured refusals."""
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this agent refuses to create a syslog "
+            "host row (measured: createAndGo/createAndWait -> inconsistentValue, "
+            "value-columns-only -> commitFailed); add it over a CLI backend"
+        )
+
+    async def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """Async twin of ``SnmpWriter.remove_syslog_collector`` -- see it."""
+        del force
+        _require_snmp(self.model)
+        if not oids.has_vendor_oids(self.model):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r} registers no Netgear vendor OID "
+                "subtree, and the logging columns are vendor-only"
+            )
+        before = await self._reader.get_syslog()
+        row = next((s for s in before.servers if s.host == host), None)
+        if row is None:
+            raise SnmpError(f"no syslog collector for {host!r} to remove")
+        if row.index is None:  # pragma: no cover -- the reader always fills it
+            raise SnmpError(f"the syslog collector for {host!r} carries no table index")
+        vo = oids.vendor_oids(self.model)
+        await self.client.set(
+            SetVarbind(f"{vo.syslog_host_status}.{row.index}", _ROW_DESTROY, "i")
+        )
+        after = await self._reader.get_syslog()
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after destroy",
+                before=before.servers,
+                after=after.servers,
             )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

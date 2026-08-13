@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class PoEDetect(enum.Enum):
@@ -24,6 +29,68 @@ class IpMode(enum.Enum):
     DHCP = "dhcp"
     STATIC = "static"
     UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class PortSpeed:
+    """A port's CONFIGURED speed/duplex -- what it is SET to, not what it got.
+
+    Deliberately NOT folded into ``PortStatus.speed_mbps``, which is the
+    OPERATIONAL rate the link actually came up at. The two answer different
+    questions and neither substitutes for the other: a port configured ``auto``
+    can be running at 100 Mbit/s, and a port forced to 100 Mbit/s full-duplex
+    still reports no operational rate at all while its link is down. Overloading
+    one field would have made "what did I configure?" unanswerable exactly when
+    it matters most -- on a down port, which is the only kind this library is
+    allowed to reconfigure.
+
+    ``autonegotiate`` is the whole of the configuration when it is True:
+    ``speed_mbps`` and ``full_duplex`` are then None, because an auto port has
+    no configured rate -- it has whatever it negotiates. A FORCED configuration
+    carries both, because every firmware measured here requires the duplex to be
+    named alongside the rate (``speed 100 full-duplex``).
+
+    NOT representable, deliberately: auto-negotiation with a restricted
+    ADVERTISED rate list (FASTPATH's ``speed auto [10] [100] [1000] [10G]``).
+    The grammar accepts it, but ``show port``'s Physical Mode column reports a
+    bare ``Auto`` for it -- measured on gsm7252ps 10.1.5.22 port 1/0/8,
+    2026-08-03, where ``speed auto 1000`` read back identically to ``speed
+    auto``. Offering it would mean offering a write this library cannot verify
+    it made, so it is left out until a read that can distinguish the two (the
+    running-config line) is built.
+    """
+
+    autonegotiate: bool
+    speed_mbps: int | None = None
+    full_duplex: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.autonegotiate:
+            if self.speed_mbps is not None or self.full_duplex is not None:
+                raise ValueError(
+                    "an auto-negotiating port has no configured rate or duplex; "
+                    "leave speed_mbps and full_duplex as None"
+                )
+        elif self.speed_mbps is None or self.full_duplex is None:
+            raise ValueError(
+                "a forced port configuration needs BOTH a rate and a duplex "
+                "(the firmware's own grammar requires them together)"
+            )
+
+    @classmethod
+    def auto(cls) -> PortSpeed:
+        """Auto-negotiate (the factory default on every switch measured here)."""
+        return cls(autonegotiate=True)
+
+    @classmethod
+    def forced(cls, speed_mbps: int, *, full_duplex: bool) -> PortSpeed:
+        """Force a fixed rate and duplex, disabling auto-negotiation."""
+        return cls(autonegotiate=False, speed_mbps=speed_mbps, full_duplex=full_duplex)
+
+    def __str__(self) -> str:
+        if self.autonegotiate:
+            return "auto"
+        return f"{self.speed_mbps}M {'full' if self.full_duplex else 'half'}-duplex"
 
 
 @dataclass(frozen=True)
@@ -49,6 +116,13 @@ class PortStatus:
     #: Whether IEEE 802.3x flow control is enabled on the port ("Flow Mode" in
     #: `show port all`). ``None`` where the backend does not report it.
     flow_control: bool | None = None
+    #: The port's CONFIGURED speed/duplex -- ``show port``'s "Physical Mode"
+    #: column, as opposed to the "Physical Status" column the three fields above
+    #: come from. ``None`` where the backend cannot tell, which is every backend
+    #: but the CLI so far: SNMP's ifSpeed and the Plus models' NSDP port record
+    #: both report the NEGOTIATED rate only, and no vendor column carrying the
+    #: admin setting has been located on any of them.
+    speed_config: PortSpeed | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +135,31 @@ class PoEStatus:
     @property
     def delivering(self) -> bool:
         return self.detect is PoEDetect.DELIVERING
+
+
+def poe_cycle_complete(before: PoEStatus | None, now: PoEStatus | None) -> bool:
+    """Has a power-cycled port finished coming back?
+
+    Shared by every backend that power-cycles a port, because "back" is a
+    property of the PORT, not of the protocol used to ask.
+
+    What "back" means depends on what the port was doing, and getting it wrong
+    turns a successful cycle into a reported failure. LIVE-PROVEN on
+    sw-netgear-gs728tpp.monarto.mithis.com (10.2.5.10, firmware 6.0.1.30)
+    2026-08-03: cycling port 17 -- link-down with NOTHING attached -- performed
+    the off/on correctly and left the port SEARCHING, and a predicate demanding
+    DELIVERING unconditionally polled the full 60s and then raised on a cycle
+    that had worked. A port with no powered device can never reach DELIVERING.
+
+    * powering a device before the cycle -> success is powering it again, which
+      is the entire point of cycling it and the strict check worth keeping;
+    * powering nothing before -> success is detection running again.
+    """
+    if now is None:
+        return False
+    if before is not None and before.delivering:
+        return now.delivering
+    return now.detect in (PoEDetect.DELIVERING, PoEDetect.SEARCHING)
 
 
 @dataclass(frozen=True)
@@ -147,20 +246,51 @@ class ServiceStatus:
     port: int | None = None
 
 
+#: Access-mode text meaning FULL privilege, in every vocabulary measured so far.
+#: There are three, and they do not agree -- the same two accounts on the same
+#: two switches read differently depending on which face you ask (2026-08-02 /
+#: 2026-08-03):
+#:
+#:   backend          m4300-24x admin   gsm7252ps admin   guest (both)
+#:   CLI `show users` Privilege-15      Read/Write        Privilege-1 / Read Only
+#:   web userManagement.html            Super User        Read Only
+#:
+#: Note the web UI is the CONSISTENT one: it says "Super User"/"Read Only" on
+#: both switches, where the CLI's wording splits by firmware family. A parser
+#: taught only one vocabulary would silently mis-report the others, so this
+#: table is shared by every backend rather than living in one parser.
+PRIVILEGED_ACCESS_MODES: frozenset[str] = frozenset(
+    {"privilege-15", "read/write", "super user"}
+)
+UNPRIVILEGED_ACCESS_MODES: frozenset[str] = frozenset(
+    {"privilege-1", "read only", "no access"}
+)
+
+
+def privileged_access(access_mode: str) -> bool | None:
+    """Whether ``access_mode`` is a full-privilege level, or ``None`` if the
+    word is one this library has not measured on a device."""
+    text = access_mode.strip().lower()
+    if text in PRIVILEGED_ACCESS_MODES:
+        return True
+    if text in UNPRIVILEGED_ACCESS_MODES:
+        return False
+    return None
+
+
 @dataclass(frozen=True)
 class SwitchUser:
     """One local login account on the switch."""
 
     name: str
-    #: The access mode exactly as this firmware words it. Kept verbatim because
-    #: the vocabulary is NOT the same across images: measured 2026-08-02, the
-    #: m4300-24x prints ``Privilege-15``/``Privilege-1`` where the gsm7252ps
-    #: prints ``Read/Write``/``Read Only`` for the same two accounts.
+    #: The access mode exactly as this firmware words it, on the FACE that was
+    #: asked. Kept verbatim because the vocabulary is not shared -- see
+    #: :data:`PRIVILEGED_ACCESS_MODES` for the three spellings measured so far.
     access_mode: str
     #: Whether ``access_mode`` is the full-privilege level, normalised across
-    #: both vocabularies so callers do not have to know which image they are on.
-    #: ``None`` when the text is neither spelling -- an unrecognised level is
-    #: reported honestly rather than guessed as unprivileged.
+    #: every measured vocabulary so callers do not have to know which image or
+    #: which backend they are on. ``None`` when the text is none of them -- an
+    #: unrecognised level is reported honestly rather than guessed.
     privileged: bool | None
     #: The three SNMPv3 columns the same table carries. ``None`` where the
     #: firmware prints nothing.
@@ -181,6 +311,129 @@ class SyslogServer:
     severity: int
     #: The switch's own word for the row's state, "Active" in the CLI table.
     active: bool
+    #: The row's index in the switch's own host table, where the backend
+    #: reports one -- the handle a removal addresses. ``None`` from backends
+    #: that do not expose it (SNMP walks it as the OID instance, HTTP's page
+    #: does not print it).
+    #:
+    #: It is SPARSE, and that is not a detail: measured on m4300-24x
+    #: (10.1.5.13, 2026-08-05) the table held Index 1 and Index 3 with nothing
+    #: at 2. Deriving it from a row's POSITION -- which is the obvious thing to
+    #: do, and what this library did until that measurement -- addresses the
+    #: wrong row as soon as anything has ever been removed.
+    index: int | None = None
+
+
+#: Syslog severity names as the switches PRINT them, mapped to the standard
+#: numbers the SNMP columns carry. Netgear spells the same value differently
+#: depending on which face you ask, so this is shared rather than per-backend:
+#: the FASTPATH CLI's `show logging hosts` prints "info" (lowercase) while the
+#: web UI's Severity Filter column prints "Info" -- MEASURED on the same
+#: collector row of the same switch (m4300-24x 10.1.5.13, 2026-08-03), where
+#: the SNMP severity column reads 6.
+#:
+#: "informational" is listed beside "info" because it is the word FASTPATH's
+#: own `logging host` command accepts; both are severity 6.
+SYSLOG_SEVERITY_NAMES: Mapping[str, int] = MappingProxyType(
+    {
+        "emergency": 0,
+        "alert": 1,
+        "critical": 2,
+        "error": 3,
+        "warning": 4,
+        "notice": 5,
+        "info": 6,
+        "informational": 6,
+        "debug": 7,
+    }
+)
+
+
+#: The canonical WORD each severity number is written back as. The inverse of
+#: SYSLOG_SEVERITY_NAMES is not a function -- 6 has two spellings there -- so
+#: the one a command may carry is pinned rather than derived. "info" is the
+#: spelling every switch's own running-config uses (`logging host "10.1.5.1"
+#: ipv4 514 info`, read off all four FASTPATH models 2026-08-05).
+SYSLOG_SEVERITY_WORDS: Mapping[int, str] = MappingProxyType(
+    {
+        0: "emergency",
+        1: "alert",
+        2: "critical",
+        3: "error",
+        4: "warning",
+        5: "notice",
+        6: "info",
+        7: "debug",
+    }
+)
+
+
+#: The same severities as the WEB UI spells them. Title-case, not the CLI's
+#: lowercase -- both read off real output on the same switch (m4300-24x
+#: 10.1.5.13): `show logging hosts` prints "info" while
+#: syslogConfiguration.html's Severity Filter enum offers "Info". Pinned rather
+#: than derived with ``.capitalize()``, because a formula that happens to agree
+#: today is exactly what stops being checked.
+SYSLOG_SEVERITY_LABELS: Mapping[int, str] = MappingProxyType(
+    {
+        0: "Emergency",
+        1: "Alert",
+        2: "Critical",
+        3: "Error",
+        4: "Warning",
+        5: "Notice",
+        6: "Info",
+        7: "Debug",
+    }
+)
+
+
+def syslog_severity_label(level: int) -> str:
+    """A severity NUMBER -> the word the WEB UI's enum carries.
+
+    See ``syslog_severity_word`` for the CLI's spelling of the same value.
+    """
+    try:
+        return SYSLOG_SEVERITY_LABELS[level]
+    except KeyError:
+        raise ValueError(
+            f"syslog severity {level!r} is outside the standard range 0-7"
+        ) from None
+
+
+def syslog_severity_word(level: int) -> str:
+    """A severity NUMBER -> the word a switch command carries.
+
+    Raises on anything outside 0-7 rather than emitting the integer: syslog
+    severities are a closed set, and a command built from an out-of-range value
+    would be rejected by the device with a message that names the command
+    rather than the caller's mistake.
+    """
+    try:
+        return SYSLOG_SEVERITY_WORDS[level]
+    except KeyError:
+        raise ValueError(
+            f"syslog severity {level!r} is outside the standard range 0-7"
+        ) from None
+
+
+def syslog_severity(name: str) -> int:
+    """A switch's severity WORD -> its standard number, case-insensitively.
+
+    Raises ``ValueError`` on a word this library has not measured. That is
+    deliberate: the obvious alternative -- defaulting to 0 -- reports the
+    switch as forwarding EMERGENCIES ONLY, which is both wrong and invisible,
+    and 0 is indistinguishable from a genuine "emergency" row. An unrecognised
+    word means a firmware spells a level differently than any device measured
+    here, and the caller should see that rather than a plausible number.
+    """
+    try:
+        return SYSLOG_SEVERITY_NAMES[name.strip().lower()]
+    except KeyError:
+        raise ValueError(
+            f"unknown syslog severity {name!r}; measured names are "
+            f"{sorted(SYSLOG_SEVERITY_NAMES)}"
+        ) from None
 
 
 @dataclass(frozen=True)

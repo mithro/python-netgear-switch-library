@@ -130,10 +130,11 @@ Every backend takes an injected client:
        transports block, so :py:class:`~netgear_switch.aio_api.AsyncSwitch` has no CLI
        backend and takes no ``cli_client``.
 
-All four at once
-----------------
+All three at once
+-----------------
 
-One mock, one facade, three protocols — what makes cross-backend behaviour
+One mock, one facade, three protocols — SNMP, the web UI and the FASTPATH CLI
+answering the same question. This is what makes cross-backend behaviour
 testable without hardware:
 
 .. tab-set::

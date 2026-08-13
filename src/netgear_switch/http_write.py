@@ -44,7 +44,9 @@ is what the caller gets.
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape as _xml_escape
@@ -57,14 +59,15 @@ from .errors import (
     WriteVerificationError,
 )
 from .http_read import _parse_poe, fastpath_membership_paths
-from .protocols.http import forms, parse
+from .models import IpMode, VlanMode, poe_cycle_complete
+from .protocols.http import forms, goahead, parse
 from .protocols.http.endpoints import HtmlDialect, http_spec
 from .protocols.http.session import MultipartFile
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Awaitable, Callable, Mapping
 
-    from .models import VlanMode
+    from .models import PoEStatus, PortSpeed
     from .protocols.http.endpoints import HttpModelSpec, XuiMgmtIpFields
     from .protocols.http.session import AsyncHttpSession, HttpSession
     from .protocols.http.types import FastpathMembership, XuiListPage, XuiRow
@@ -328,6 +331,50 @@ def _is_fastpath_dialect(spec: HttpModelSpec) -> bool:
     )
 
 
+def _is_xml_api_dialect(spec: HttpModelSpec) -> bool:
+    """True for a UI that writes by POSTing an XML body to one endpoint.
+
+    Only the GS728TPP's GoAhead ``wcd`` API today. Kept as a predicate rather
+    than an inline dialect comparison so the dispatch reads the same way as
+    ``_is_fastpath_dialect`` and a second XML-API model joins in one place.
+    """
+    return spec.html_dialect is HtmlDialect.GOAHEAD_XML
+
+
+#: The syslog page's Add/Apply and Delete buttons. Read off the served M4300
+#: page: v_4_1_1 "Add" (client-side -- its action array has no target cell, it
+#: just reveals the blank row), v_4_2_1 "Apply", v_4_3_1 "Delete", v_4_4_1
+#: "Cancel". The APPLY button is what commits a filled template row.
+_XUI_SYSLOG_APPLY = "v_4_2_1"
+_XUI_SYSLOG_DELETE = "v_4_3_1"
+
+
+#: The GS110EMX sysInfo name box carries maxlength="20"; its checkValidName()
+#: additionally rejects anything outside printable ASCII. Both read off the
+#: live page (10.1.5.27, 2026-08-05).
+_EMX_NAME_MAX = 20
+
+
+def _check_goahead_status(text: str, what: str) -> None:
+    """Raise ``HttpError`` unless a ``wcd`` write reported success.
+
+    Success is ``<statusCode>0</statusCode>`` -- the same convention the
+    GS728TPP certificate upload already checks (it mirrors GS728TPPUpdater).
+    A missing statusCode means the POST did not reach a write handler at all
+    (not logged in, or wrong endpoint), which must never read as success.
+    """
+    match = _UPLOAD_STATUS_RE.search(text)
+    if match is None:
+        raise HttpError(
+            f"{what}: response carried no <statusCode> (unexpected page -- "
+            "not logged in, or wrong endpoint?)"
+        )
+    if match.group(1) != "0":
+        detail = _UPLOAD_STATUS_STRING_RE.search(text)
+        reason = detail.group(1) if detail else "unknown error"
+        raise HttpError(f"{what} failed (statusCode={match.group(1)}): {reason}")
+
+
 def _raise_on_fastpath_err_flag(html: str, what: str) -> None:
     """Surface the switch's OWN rejection of a FASTPATH apply.
 
@@ -531,7 +578,248 @@ class HttpWriter:
                 f"port {port} is protected on {self.model.key!r}; pass force=True"
             )
 
+    # --- GoAhead XML API (GS728TPP) ---------------------------------------
+    #
+    # Every write on this UI is one POST of an XML body to a single endpoint;
+    # the object name and action verb inside the body select the operation.
+    # See protocols/http/goahead.py for where that wire shape comes from.
+
+    def _goahead_write(self, body: str, what: str) -> None:
+        path = _require_path(
+            self.model.key, self._spec.xml_write_path, "XML-API write endpoint"
+        )
+        _check_goahead_status(self.session.post_xml(path, body), what)
+
+    def _goahead_membership(
+        self,
+    ) -> dict[int, tuple[frozenset[int], frozenset[int]]]:
+        """``{vlan: (tagged, untagged)}`` as the switch reports it right now.
+
+        Read from the per-port page the reader already uses: each port's inline
+        JoinVLANList carries the complete membership, so this is the same view
+        ``get_vlans`` is built from -- verification cannot pass against a
+        different projection than the one callers see.
+        """
+        path = _require_path(
+            self.model.key, self._spec.pvid_path, "port VLAN membership"
+        )
+        return parse.parse_goahead_port_vlan_membership(self.session.get_page(path))
+
+    def _goahead_mode_of(self, vlan: int, port: int) -> VlanMode:
+        tagged, untagged = self._goahead_membership().get(
+            vlan, (frozenset(), frozenset())
+        )
+        if port in untagged:
+            return VlanMode.UNTAGGED
+        if port in tagged:
+            return VlanMode.TAGGED
+        return VlanMode.EXCLUDED
+
+    def _goahead_vlan_ids(self) -> set[int]:
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
+        return set(parse.parse_goahead_vlan_names(self.session.get_page(path)))
+
+    def _require_vlan_exists(self, vlan: int) -> None:
+        """Refuse a PVID pointing at a VLAN this switch does not have.
+
+        A precondition, so nothing is sent. The device will not catch it:
+        MEASURED on the GS728TPP (10.2.5.10, firmware 6.0.1.30) an unknown PVID
+        is ACCEPTED and reads back, creating no VLAN -- so verify-after-write
+        passes while the port is left pointing at a VLAN that is not there.
+
+        Skipped where this UI cannot enumerate VLANs at all (no vlan_config
+        page): refusing on a list we cannot read would be worse than the risk.
+        """
+        if self._spec.vlan_config_path is None:
+            return
+        page = self.session.get_page(self._spec.vlan_config_path)
+        known = (
+            set(parse.parse_goahead_vlan_names(page))
+            if _is_xml_api_dialect(self._spec)
+            else set(parse.parse_vlan_ids(page))
+        )
+        if vlan not in known:
+            raise HttpUnexpectedPageError(
+                f"VLAN {vlan} does not exist (known: {sorted(known)})"
+            )
+
+    def _goahead_create_vlan(self, vlan: int, name: str) -> None:
+        before = self._goahead_vlan_ids()
+        self._goahead_write(goahead.vlan_create_body(vlan, name), f"create VLAN {vlan}")
+        after = self._goahead_vlan_ids()
+        if vlan not in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not created",
+                before=sorted(before),
+                after=sorted(after),
+            )
+
+    def _goahead_delete_vlan(self, vlan: int) -> None:
+        before = self._goahead_vlan_ids()
+        self._goahead_write(goahead.vlan_delete_body(vlan), f"delete VLAN {vlan}")
+        after = self._goahead_vlan_ids()
+        if vlan in after:
+            raise WriteVerificationError(
+                f"VLAN {vlan} was not deleted",
+                before=sorted(before),
+                after=sorted(after),
+            )
+
+    def _goahead_poe_rearm(
+        self,
+        port: int,
+        *,
+        timeouts: PoeCycleTimeouts | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """Power-cycle ``port`` by driving its adminEnable off then on.
+
+        This UI publishes NO PoE reset control -- ``Behaviour/UnitsPoe.js`` has
+        no reset/cycle/reboot action and the page's only buttons are Refresh,
+        Cancel and Apply -- so a power cycle is an admin re-arm of the same
+        field. That is not an invention: it is the mechanism SnmpWriter already
+        uses on agents with no reset column, and it is what the switch itself
+        can be made to do.
+
+        Two SEPARATE writes, each verified, then a poll for the port to come
+        back, using the same recovery rule as every other backend
+        (``models.poe_cycle_complete``).
+        """
+        from .snmp_write import PoeCycleTimeouts
+
+        limits = timeouts or PoeCycleTimeouts()
+        before = self._poe_status(port)
+        self._goahead_poe_admin(port, on=False)
+        self._goahead_poe_admin(port, on=True)
+        deadline = clock() + limits.on_timeout
+        while not poe_cycle_complete(before, self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not come back after the power cycle "
+                    f"within {limits.on_timeout}s",
+                    before=before,
+                    after=self._poe_status(port),
+                )
+            sleep(limits.poll_interval)
+
+    def _poe_status(self, port: int) -> PoEStatus | None:
+        path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
+        rows = _parse_poe(self._spec, self.session.get_page(path))
+        return next((r for r in rows if r.port == port), None)
+
+    def _goahead_poe_admin(self, port: int, on: bool) -> None:
+        before = self._poe_admin(port)
+        self._goahead_write(
+            goahead.poe_admin_body(goahead.port_interface_name(port), on),
+            f"PoE port {port} admin -> {on}",
+        )
+        after = self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    def _set_goahead_port_enabled(self, path: str, port: int, enabled: bool) -> None:
+        """Port admin state through the ports page's ``Standard802_3List``.
+
+        ``path`` is the page the state is read back from -- the same one
+        ``get_ports`` uses -- while the write itself goes to the single wcd
+        endpoint like every other write on this UI.
+        """
+        before = next(
+            (
+                p.admin_enabled
+                for p in parse.parse_goahead_ports(self.session.get_page(path))
+                if p.port == port
+            ),
+            None,
+        )
+        self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, admin_enabled=enabled
+            ),
+            f"port {port} admin -> {enabled}",
+        )
+        after = next(
+            (
+                p.admin_enabled
+                for p in parse.parse_goahead_ports(self.session.get_page(path))
+                if p.port == port
+            ),
+            None,
+        )
+        if after is not enabled:
+            raise WriteVerificationError(
+                f"port {port} did not read back as enabled={enabled}",
+                before=before,
+                after=after,
+            )
+
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Label a port through the ports page's ``interfaceDescription``.
+
+        XML-API only for now: that page carries the field and the read side
+        already parses it. The FASTPATH XUI port pages have a description column
+        too, but its cell id has not been captured, and guessing one would post
+        into an unknown cell.
+        """
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP port-description write is "
+                "built for this web UI dialect"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
+        )
+
+        def described(body: str) -> str | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.description for p in rows if p.port == port), None)
+
+        before = described(self.session.get_page(path))
+        self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, description=description
+            ),
+            f"port {port} description",
+        )
+        after = described(self.session.get_page(path))
+        want = description or None
+        if after != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before,
+                after=after,
+            )
+
+    def _set_goahead_membership(self, vlan: int, port: int, mode: VlanMode) -> None:
+        before = self._goahead_mode_of(vlan, port)
+        self._goahead_write(
+            goahead.vlan_membership_body(vlan, goahead.port_interface_name(port), mode),
+            f"VLAN {vlan} membership for port {port} -> {mode.value}",
+        )
+        after = self._goahead_mode_of(vlan, port)
+        if after is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value}",
+                before=before,
+                after=after,
+            )
+
     def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
+        # The XML-API check comes BEFORE the page requirement: that UI has no
+        # per-op write page at all (one wcd endpoint, the body selects the op),
+        # so demanding ``poe_config_path`` would refuse a write that works.
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            self._goahead_poe_admin(port, on)
+            return
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
@@ -595,6 +883,13 @@ class HttpWriter:
         force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
+        if _is_xml_api_dialect(self._spec):
+            # This UI has no reset control at all, so a cycle is an admin
+            # re-arm -- and unlike the reset-button dialects it CAN be verified,
+            # so the timeouts are honoured rather than discarded.
+            self._guard(port, force)
+            self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         # timeouts accepted-but-unused: matches SnmpWriter/NsdpWriter so the
         # facade's SnmpWriter | NsdpWriter | HttpWriter union call site typechecks.
         del timeouts
@@ -627,6 +922,13 @@ class HttpWriter:
         switch has no separate "clear fault" action, the fault clears when
         detection re-runs.
         """
+        if _is_xml_api_dialect(self._spec):
+            # Same admin re-arm as cycle_poe -- this UI has no separate
+            # clear-fault action either, and a fault clears when detection
+            # re-runs (exactly as on the Plus CGI UI).
+            self._guard(port, force)
+            self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         del timeouts  # accepted-but-unused; uniform writer surface (see cycle_poe).
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
@@ -670,6 +972,21 @@ class HttpWriter:
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        self._require_vlan_exists(vlan)
+        if _is_xml_api_dialect(self._spec):
+            before = dict(parse.parse_goahead_pvids(self.session.get_page(path)))
+            self._goahead_write(
+                goahead.pvid_body(goahead.port_interface_name(port), vlan),
+                f"PVID for port {port} -> {vlan}",
+            )
+            now = dict(parse.parse_goahead_pvids(self.session.get_page(path)))
+            if now.get(port) != vlan:
+                raise WriteVerificationError(
+                    f"PVID for port {port} did not read back as {vlan}",
+                    before=before.get(port),
+                    after=now.get(port),
+                )
+            return
         page = self.session.get_page(path)
         self.session.post_form(
             path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
@@ -688,6 +1005,9 @@ class HttpWriter:
         self._guard(port, force)
         if _is_fastpath_dialect(self._spec):
             self._set_fastpath_membership(vlan, port, mode)
+            return
+        if _is_xml_api_dialect(self._spec):
+            self._set_goahead_membership(vlan, port, mode)
             return
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
@@ -766,6 +1086,10 @@ class HttpWriter:
         return shown
 
     def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force
+            self._goahead_create_vlan(vlan, name)
+            return
         _require_csrf_dialect(self._spec, self.model.key, "create_vlan")
         del name, force  # web UI 8021qCf.cgi has no VLAN-name field (GROUNDED).
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -780,6 +1104,10 @@ class HttpWriter:
             )
 
     def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force  # membership disruptiveness is guarded per-member elsewhere
+            self._goahead_delete_vlan(vlan)
+            return
         _require_csrf_dialect(self._spec, self.model.key, "delete_vlan")
         del force  # VLAN delete disruptiveness is guarded per-member elsewhere.
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -827,6 +1155,17 @@ class HttpWriter:
         every other row byte-identical.
         """
         self._guard(port, force)
+        if _is_xml_api_dialect(self._spec):
+            # No per-op write page (see set_poe); the state is read back from
+            # the same ports page ``get_ports`` uses.
+            self._set_goahead_port_enabled(
+                _require_path(
+                    self.model.key, self._spec.dashboard_path, "the ports page"
+                ),
+                port,
+                enabled,
+            )
+            return
         path = _require_path(
             self.model.key, self._spec.port_config_path, "the port-configuration page"
         )
@@ -1005,14 +1344,314 @@ class HttpWriter:
         return False
 
     def set_hostname(self, name: str, *, force: bool = False) -> None:
-        """This backend does not serve a host-name write.
+        """Set the host name, where this dialect's identity page carries one.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Two dialects, and they are nothing alike:
+
+        * GoAhead XML API -- ``DeviceBasicInfo/deviceName`` IS the host name
+          (MEASURED: it reads byte-for-byte what SNMP reports through sysName).
+        * GS110EMX -- an ordinary form POST, but the host name shares that form
+          with the MANAGEMENT ADDRESS, so it is a read-modify-write. See
+          ``_set_gs110emx_hostname``.
+
+        Every other dialect is refused by name rather than returned empty: an
+        empty answer here would be indistinguishable from a switch that
+        genuinely has none.
+        """
+        del force  # renaming cannot strand a switch; reversible by writing back
+        if self._spec.html_dialect is HtmlDialect.GS110EMX:
+            self._set_gs110emx_hostname(name)
+            return
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: this backend does not expose a "
+                "host-name write"
+            )
+        path = _require_path(
+            self.model.key, self._spec.sysinfo_path, "the system-information page"
+        )
+        before = parse.parse_goahead_hostname(self.session.get_page(path))
+        # DeviceBasicInfo is a SCALAR section, so the body carries the field
+        # directly rather than a repeated <Entry>. The page's own JS rejects
+        # '&' in this field client-side; the value is XML-escaped here, and the
+        # switch's verdict is what the statusCode check reports.
+        self._goahead_write(
+            goahead.write_body("DeviceBasicInfo", "set", [{"deviceName": name}]),
+            f"hostname -> {name!r}",
+        )
+        after = parse.parse_goahead_hostname(self.session.get_page(path))
+        if after != name:
+            raise WriteVerificationError(
+                f"hostname did not read back as {name!r}", before=before, after=after
+            )
+
+    def _set_gs110emx_hostname(self, name: str) -> None:
+        """Rename a GS110EMX through its sysInfo form, without moving its address.
+
+        THE DANGEROUS ONE. That page posts the host name in the SAME form as
+        ``dhcp_mode``/``IP_ADDRESS``/``SUBNET_MASK``/``GATEWAY_ADDRESS``, so a
+        rename is unavoidably a read-modify-write: the current addressing is
+        read from the page and echoed back verbatim, and the write is only
+        considered done once a re-read shows the new name AND every addressing
+        field unchanged. Getting that wrong does not fail the rename, it
+        reconfigures the address the caller is talking to.
+
+        The envelope is the page's own ``submitSwitchInfoForm()`` (read from the
+        live switch's ``/function.js``, 2026-08-05) -- see
+        ``forms.gs110emx_switch_info_form``.
+
+        LIVE-VERIFIED 2026-08-05 on gs110emx3 (10.1.5.27, firmware 1.0.2.8):
+        renamed to a throwaway, confirmed the addressing was byte-identical,
+        restored the original name and confirmed again.
+        """
+        # The page's own checkValidName() builds its allowed set from
+        # `for (var i = 32; i < 127; i++)` -- so ASCII 32..126, and nothing
+        # else. The input carries maxlength="20". Enforced here so the caller
+        # gets a reason rather than a silently blanked field (that validator
+        # sets the box to "" and pops an alert on failure).
+        #
+        # isascii() AND isprintable(), not isprintable() alone: the latter is
+        # Unicode-aware, so an em dash passes it and would have been posted to
+        # a page that rejects it.
+        if (
+            not name
+            or len(name) > _EMX_NAME_MAX
+            or not (name.isascii() and name.isprintable())
+        ):
+            raise UnsupportedCapabilityError(
+                f"GS110EMX host name {name!r} is not acceptable to this page: it "
+                f"takes 1-{_EMX_NAME_MAX} printable ASCII characters"
+            )
+        path = _require_path(
+            self.model.key, self._spec.sysinfo_path, "the system-information page"
+        )
+        before = parse.parse_sysinfo(self.session.get_page(path))
+        addressing = (
+            before.ip_mode,
+            before.ip_address,
+            before.subnet_mask,
+            before.gateway_address,
+        )
+        self.session.post_form(
+            path,
+            forms.gs110emx_switch_info_form(
+                switch_name=name,
+                dhcp_mode=(
+                    forms.EMX_DHCP_ON
+                    if before.ip_mode is IpMode.DHCP
+                    else forms.EMX_DHCP_OFF
+                ),
+                ip_address=before.ip_address,
+                subnet_mask=before.subnet_mask,
+                gateway_address=before.gateway_address,
+            ),
+        )
+        after = parse.parse_sysinfo(self.session.get_page(path))
+        # The addressing check comes FIRST and is the one that matters: a
+        # rename that moved the management address is a far worse outcome than
+        # a rename that did not happen, and the caller must hear about it even
+        # if the name did change.
+        now = (
+            after.ip_mode,
+            after.ip_address,
+            after.subnet_mask,
+            after.gateway_address,
+        )
+        if now != addressing:
+            raise WriteVerificationError(
+                "the host-name write CHANGED this switch's management "
+                "addressing -- it may be unreachable at the old address",
+                before=addressing,
+                after=now,
+            )
+        if after.switch_name != name:
+            raise WriteVerificationError(
+                f"hostname did not read back as {name!r}",
+                before=before.switch_name,
+                after=after.switch_name,
+            )
+
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """Set a port's speed/duplex through the ports page's admin fields.
+
+        XML-API only. That page's ``Standard802_3List`` carries
+        ``autoNegotiationAdminEnabled``/``speedAdmin``/``duplexAdminMode``, the
+        read side already parses them, and the exact encoding is transcribed
+        from the page's own submit JS (see ``goahead.port_speed_body``). The
+        FASTPATH XUI port pages have a Speed control too, but its cell id has
+        not been captured, and guessing one would post into an unknown cell.
+
+        A rate the page's own dropdown does not offer is refused by name.
+        That list is device evidence, not a house rule: the ``slctPortSpeed``
+        ``<option>`` set is 10/100 half-or-full, 1000 FULL ONLY, and Auto. Note
+        this UI DOES offer a forced 1000 where the FASTPATH CLI does not --
+        which is exactly why that refusal lives in ``CliWriter`` and not in
+        ``PortSpeed``.
+
+        Disruptive -- applying a speed bounces the link -- so it honours
+        ``protected_ports``.
+        """
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP speed/duplex write form has "
+                "been captured for this web UI dialect"
+            )
+        if (
+            not speed.autonegotiate
+            and (speed.speed_mbps, speed.full_duplex)
+            not in goahead.GOAHEAD_FORCED_SPEEDS
+        ):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: this web UI offers no "
+                f"{speed} choice (its Speed control lists 10/100 half or full, "
+                "1000 full, and Auto)"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
+        )
+
+        def configured(body: str) -> PortSpeed | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.speed_config for p in rows if p.port == port), None)
+
+        before = configured(self.session.get_page(path))
+        self._goahead_write(
+            goahead.port_speed_body(goahead.port_interface_name(port), port, speed),
+            f"port {port} speed -> {speed}",
+        )
+        after = configured(self.session.get_page(path))
+        if after != speed:
+            raise WriteVerificationError(
+                f"speed for port {port} did not read back as {speed}",
+                before=before,
+                after=after,
+            )
+
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control on this UI.
+
+        Refused by name, and this one is a MEASURED absence rather than an
+        unsearched one. The GoAhead ports page publishes
+        ``flowControlAdminType``/``flowControlOperType`` but has no control
+        for either: its ``slct*`` selects are Admin Mode and Port Speed
+        only, and its submit builder emits no flow-control field at all
+        (see tests/fixtures/http/gs728tpp_ports.xml). Flow control lives on
+        a different page of that UI which has not been captured, and the
+        FASTPATH XUI equivalent has not either.
         """
         raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose a host-name write"
+            f"model {self.model.key!r}: this web UI's ports page reports flow "
+            "control but carries no control to change it"
         )
+
+    def _syslog_path(self) -> str:
+        return _require_path(
+            self.model.key, self._spec.syslog_path, "remote-logging configuration"
+        )
+
+    def _syslog_page(self) -> XuiListPage:
+        """The syslog page as an XUI list, or refuse by name.
+
+        Only the two M4300 pages inline the cell metadata this write depends on
+        and render the template row; gsm7252ps/gsm7228ps declare nine xeData
+        entries and load the rest from a resource no capture has followed, so
+        their coordinates are NOT established and they are refused here rather
+        than posted at on the assumption they match.
+        """
+        if self._spec.html_dialect is not HtmlDialect.M4300:
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no syslog-collector row write is "
+                "grounded for this web UI dialect (only the M4300 pages render "
+                "the template row and declare their cell metadata)"
+            )
+        page = parse.parse_xui_list_page(
+            self.session.get_page(self._syslog_path()), page="syslog configuration"
+        )
+        if not page.template:
+            raise HttpUnexpectedPageError(
+                "the syslog page renders no v_g_* template row, so a collector "
+                "cannot be added through it"
+            )
+        return page
+
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This UI will not accept a collector ADD -- established, not assumed.
+
+        The template row is real and reachable: the page renders
+        ``v_g_2_1_1``..``v_g_2_1_7`` in the served HTML, and this library can
+        build the body. What the FIRMWARE does with it, driven live against
+        m4300-24x 10.1.5.13 on 2026-08-05, is refuse -- HTTP 200 with
+        ``Error! Failed to Set '<field>' with '<value>'`` lines, and the
+        collector table unchanged (checked through the switch's own CLI, which
+        is an independent witness):
+
+        * the body as first built  -> failed on 'Host Address' and 'Port'
+        * + IP Address Type "IPv4" -> those two passed; the two ENUMS then
+          failed ('IP Address Type', 'Severity Filter')
+        * + enums as INDICES instead of labels (xa_2_1_4 lists
+          Emergency..Debug in standard syslog order, xa_2_1_7 lists
+          Unknown,IPv4,IPv6,DNS, so IPv4 = 1) -> the enums passed and
+          'Host Address' failed again
+        * + row-status "Add" instead of "Active" (the page's own
+          xeleValue_2_1_5) -> unchanged
+
+        So three of the four fields can be made to stick and the address cannot,
+        which says something in the create path is still unaccounted for. Rather
+        than keep guessing at a production switch -- the trial-and-error
+        principle 4 exists to stop -- this refuses, and the remaining step is
+        ONE capture of a real browser Add submission to diff against.
+
+        The DELETE path on the same page DOES work and is live-verified; see
+        ``remove_syslog_collector``. Add over a CLI backend.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this web UI refuses a collector add "
+            "(measured: HTTP 200 + \"Failed to Set 'Host Address'\"); the page's "
+            "delete works, and the CLI backend adds"
+        )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """Remove a collector by marking its row-status ``Delete``.
+
+        The page's Delete action array writes ``"Delete"`` into the same
+        write-only cell an Add sets to ``"Active"`` (``xa_4_3_1`` ->
+        ``"2_1_5|g_2_1_5"``). The row is addressed by its OWN rendered fields
+        and checkbox, so no index arithmetic is involved -- unlike the CLI and
+        SNMP routes, whose sparse table index bit once already.
+        """
+        del force
+        page = self._syslog_page()
+        before = parse.parse_xui_syslog(self.session.get_page(self._syslog_path()))
+        if not any(s.host == host for s in before.servers):
+            raise HttpUnexpectedPageError(f"no syslog collector for {host!r} to remove")
+        row = page.row_for(f"v_{parse.SYSLOG_HOST_ADDRESS}", host)
+        if row is None:
+            raise HttpUnexpectedPageError(
+                f"the syslog page renders no row for {host!r}"
+            )
+        self.session.post_form(
+            page.action,
+            forms.xui_row_delete_form(
+                page,
+                row,
+                status_column=parse.SYSLOG_HOST_ROW_STATUS,
+                button=_XUI_SYSLOG_DELETE,
+            ),
+        )
+        after = parse.parse_xui_syslog(self.session.get_page(self._syslog_path()))
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after delete",
+                before=before.servers,
+                after=after.servers,
+            )
 
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
@@ -1053,7 +1692,160 @@ class AsyncHttpWriter:
                 return r.admin_enabled
         return False
 
+    # --- GoAhead XML API: async twins of SnmpWriter's -- see the sync writer
+    # for where every body shape comes from. They exist because the capability
+    # table does not distinguish sync from async: an op the sync writer can do
+    # and the async one cannot would be a claim this codebase cannot honour.
+
+    async def _goahead_write(self, body: str, what: str) -> None:
+        path = _require_path(
+            self.model.key, self._spec.xml_write_path, "XML-API write endpoint"
+        )
+        _check_goahead_status(await self.session.post_xml(path, body), what)
+
+    async def _poe_status(self, port: int) -> PoEStatus | None:
+        path = _require_path(self.model.key, self._spec.poe_status_path, "PoE status")
+        rows = _parse_poe(self._spec, await self.session.get_page(path))
+        return next((r for r in rows if r.port == port), None)
+
+    async def _goahead_poe_admin(self, port: int, on: bool) -> None:
+        before = await self._poe_admin(port)
+        await self._goahead_write(
+            goahead.poe_admin_body(goahead.port_interface_name(port), on),
+            f"PoE port {port} admin -> {on}",
+        )
+        after = await self._poe_admin(port)
+        if after != on:
+            raise WriteVerificationError(
+                f"PoE port {port} did not read back as on={on}",
+                before=before,
+                after=after,
+            )
+
+    async def _goahead_poe_rearm(
+        self,
+        port: int,
+        *,
+        timeouts: PoeCycleTimeouts | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        from .snmp_write import PoeCycleTimeouts
+
+        limits = timeouts or PoeCycleTimeouts()
+        before = await self._poe_status(port)
+        await self._goahead_poe_admin(port, on=False)
+        await self._goahead_poe_admin(port, on=True)
+        deadline = clock() + limits.on_timeout
+        while not poe_cycle_complete(before, await self._poe_status(port)):
+            if clock() >= deadline:
+                raise WriteVerificationError(
+                    f"PoE port {port} did not come back after the power cycle "
+                    f"within {limits.on_timeout}s",
+                    before=before,
+                    after=await self._poe_status(port),
+                )
+            await sleep(limits.poll_interval)
+
+    async def _goahead_membership(
+        self,
+    ) -> dict[int, tuple[frozenset[int], frozenset[int]]]:
+        path = _require_path(
+            self.model.key, self._spec.pvid_path, "port VLAN membership"
+        )
+        return parse.parse_goahead_port_vlan_membership(
+            await self.session.get_page(path)
+        )
+
+    async def _goahead_mode_of(self, vlan: int, port: int) -> VlanMode:
+        tagged, untagged = (await self._goahead_membership()).get(
+            vlan, (frozenset(), frozenset())
+        )
+        if port in untagged:
+            return VlanMode.UNTAGGED
+        return VlanMode.TAGGED if port in tagged else VlanMode.EXCLUDED
+
+    async def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Async twin of ``HttpWriter.set_port_description`` -- see it."""
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP port-description write is "
+                "built for this web UI dialect"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
+        )
+
+        def described(body: str) -> str | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.description for p in rows if p.port == port), None)
+
+        before = described(await self.session.get_page(path))
+        await self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, description=description
+            ),
+            f"port {port} description",
+        )
+        after = described(await self.session.get_page(path))
+        want = description or None
+        if after != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before,
+                after=after,
+            )
+
+    async def _set_goahead_membership(
+        self, vlan: int, port: int, mode: VlanMode
+    ) -> None:
+        before = await self._goahead_mode_of(vlan, port)
+        await self._goahead_write(
+            goahead.vlan_membership_body(vlan, goahead.port_interface_name(port), mode),
+            f"VLAN {vlan} membership for port {port} -> {mode.value}",
+        )
+        after = await self._goahead_mode_of(vlan, port)
+        if after is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value}",
+                before=before,
+                after=after,
+            )
+
+    async def _goahead_vlan_ids(self) -> set[int]:
+        path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
+        return set(parse.parse_goahead_vlan_names(await self.session.get_page(path)))
+
+    async def _set_goahead_port_enabled(
+        self, path: str, port: int, enabled: bool
+    ) -> None:
+        def admin_of(body: str) -> bool | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.admin_enabled for p in rows if p.port == port), None)
+
+        before = admin_of(await self.session.get_page(path))
+        await self._goahead_write(
+            goahead.port_config_body(
+                goahead.port_interface_name(port), port, admin_enabled=enabled
+            ),
+            f"port {port} admin -> {enabled}",
+        )
+        after = admin_of(await self.session.get_page(path))
+        if after is not enabled:
+            raise WriteVerificationError(
+                f"port {port} did not read back as enabled={enabled}",
+                before=before,
+                after=after,
+            )
+
     async def set_poe(self, port: int, on: bool, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            await self._goahead_poe_admin(port, on)
+            return
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
         )
@@ -1106,6 +1898,10 @@ class AsyncHttpWriter:
         force: bool = False,
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            await self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         del timeouts  # accepted-but-unused; uniform writer surface (see sync).
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
@@ -1127,6 +1923,10 @@ class AsyncHttpWriter:
         timeouts: PoeCycleTimeouts | None = None,
     ) -> None:
         """Async twin of ``HttpWriter.clear_poe_fault`` (see its docs)."""
+        if _is_xml_api_dialect(self._spec):
+            self._guard(port, force)
+            await self._goahead_poe_rearm(port, timeouts=timeouts)
+            return
         del timeouts  # accepted-but-unused; uniform writer surface (see sync).
         path = _require_path(
             self.model.key, self._spec.poe_config_path, "web PoE config"
@@ -1156,9 +1956,39 @@ class AsyncHttpWriter:
         )
         _raise_on_fastpath_err_flag(applied, f"PoE reset of port {port}")
 
+    async def _require_vlan_exists(self, vlan: int) -> None:
+        """Async twin of ``HttpWriter._require_vlan_exists`` (see its docs)."""
+        if self._spec.vlan_config_path is None:
+            return
+        page = await self.session.get_page(self._spec.vlan_config_path)
+        known = (
+            set(parse.parse_goahead_vlan_names(page))
+            if _is_xml_api_dialect(self._spec)
+            else set(parse.parse_vlan_ids(page))
+        )
+        if vlan not in known:
+            raise HttpUnexpectedPageError(
+                f"VLAN {vlan} does not exist (known: {sorted(known)})"
+            )
+
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         self._guard(port, force)
         path = _require_path(self.model.key, self._spec.pvid_path, "port PVIDs")
+        await self._require_vlan_exists(vlan)
+        if _is_xml_api_dialect(self._spec):
+            before = dict(parse.parse_goahead_pvids(await self.session.get_page(path)))
+            await self._goahead_write(
+                goahead.pvid_body(goahead.port_interface_name(port), vlan),
+                f"PVID for port {port} -> {vlan}",
+            )
+            now = dict(parse.parse_goahead_pvids(await self.session.get_page(path)))
+            if now.get(port) != vlan:
+                raise WriteVerificationError(
+                    f"PVID for port {port} did not read back as {vlan}",
+                    before=before.get(port),
+                    after=now.get(port),
+                )
+            return
         page = await self.session.get_page(path)
         await self.session.post_form(
             path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
@@ -1177,6 +2007,9 @@ class AsyncHttpWriter:
         self._guard(port, force)
         if _is_fastpath_dialect(self._spec):
             await self._set_fastpath_membership(vlan, port, mode)
+            return
+        if _is_xml_api_dialect(self._spec):
+            await self._set_goahead_membership(vlan, port, mode)
             return
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
@@ -1236,6 +2069,20 @@ class AsyncHttpWriter:
         return shown
 
     async def create_vlan(self, vlan: int, name: str, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force
+            before = await self._goahead_vlan_ids()
+            await self._goahead_write(
+                goahead.vlan_create_body(vlan, name), f"create VLAN {vlan}"
+            )
+            after_ids = await self._goahead_vlan_ids()
+            if vlan not in after_ids:
+                raise WriteVerificationError(
+                    f"VLAN {vlan} was not created",
+                    before=sorted(before),
+                    after=sorted(after_ids),
+                )
+            return
         _require_csrf_dialect(self._spec, self.model.key, "create_vlan")
         del name, force
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -1250,6 +2097,20 @@ class AsyncHttpWriter:
             )
 
     async def delete_vlan(self, vlan: int, *, force: bool = False) -> None:
+        if _is_xml_api_dialect(self._spec):
+            del force
+            before = await self._goahead_vlan_ids()
+            await self._goahead_write(
+                goahead.vlan_delete_body(vlan), f"delete VLAN {vlan}"
+            )
+            after_ids = await self._goahead_vlan_ids()
+            if vlan in after_ids:
+                raise WriteVerificationError(
+                    f"VLAN {vlan} was not deleted",
+                    before=sorted(before),
+                    after=sorted(after_ids),
+                )
+            return
         _require_csrf_dialect(self._spec, self.model.key, "delete_vlan")
         del force
         path = _require_path(self.model.key, self._spec.vlan_config_path, "VLAN config")
@@ -1289,6 +2150,15 @@ class AsyncHttpWriter:
     ) -> None:
         """Async twin of ``HttpWriter.set_port_enabled`` (see its docs)."""
         self._guard(port, force)
+        if _is_xml_api_dialect(self._spec):
+            await self._set_goahead_port_enabled(
+                _require_path(
+                    self.model.key, self._spec.dashboard_path, "the ports page"
+                ),
+                port,
+                enabled,
+            )
+            return
         path = _require_path(
             self.model.key, self._spec.port_config_path, "the port-configuration page"
         )
@@ -1395,6 +2265,100 @@ class AsyncHttpWriter:
         """
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: this backend does not expose a host-name write"
+        )
+
+    async def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """Async twin of ``HttpWriter.set_port_speed`` -- see it."""
+        self._guard(port, force)
+        if not _is_xml_api_dialect(self._spec):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: no HTTP speed/duplex write form has "
+                "been captured for this web UI dialect"
+            )
+        if (
+            not speed.autonegotiate
+            and (speed.speed_mbps, speed.full_duplex)
+            not in goahead.GOAHEAD_FORCED_SPEEDS
+        ):
+            raise UnsupportedCapabilityError(
+                f"model {self.model.key!r}: this web UI offers no "
+                f"{speed} choice (its Speed control lists 10/100 half or full, "
+                "1000 full, and Auto)"
+            )
+        path = _require_path(
+            self.model.key, self._spec.dashboard_path, "the ports page"
+        )
+
+        def configured(body: str) -> PortSpeed | None:
+            rows = parse.parse_goahead_ports(body)
+            return next((p.speed_config for p in rows if p.port == port), None)
+
+        before = configured(await self.session.get_page(path))
+        await self._goahead_write(
+            goahead.port_speed_body(goahead.port_interface_name(port), port, speed),
+            f"port {port} speed -> {speed}",
+        )
+        after = configured(await self.session.get_page(path))
+        if after != speed:
+            raise WriteVerificationError(
+                f"speed for port {port} did not read back as {speed}",
+                before=before,
+                after=after,
+            )
+
+    async def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control on this UI.
+
+        Refused by name, and this one is a MEASURED absence rather than an
+        unsearched one. The GoAhead ports page publishes
+        ``flowControlAdminType``/``flowControlOperType`` but has no control
+        for either: its ``slct*`` selects are Admin Mode and Port Speed
+        only, and its submit builder emits no flow-control field at all
+        (see tests/fixtures/http/gs728tpp_ports.xml). Flow control lives on
+        a different page of that UI which has not been captured, and the
+        FASTPATH XUI equivalent has not either.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this web UI's ports page reports flow "
+            "control but carries no control to change it"
+        )
+
+    async def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name. The M4300 syslog page DOES declare the
+        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
+        whose DELETE button writes "Delete" and whose APPLY writes
+        "Active" -- but no POST for a FASTPATH-XUI row add has ever
+        been captured, and the existing XUI write path covers only the
+        CSRF-hash dialects. The envelope would have to be invented.
+        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    async def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name. The M4300 syslog page DOES declare the
+        mechanism -- cell 2_1_5 is a write-only ``L7_ROW_STATUS_t``
+        whose DELETE button writes "Delete" and whose APPLY writes
+        "Active" -- but no POST for a FASTPATH-XUI row add has ever
+        been captured, and the existing XUI write path covers only the
+        CSRF-hash dialects. The envelope would have to be invented.
+        The gsm7252ps/gsm7228ps pages do not even declare the cells.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

@@ -16,10 +16,11 @@ from netgear_switch.snmp_read import (
     async_read_system_info,
     read_system_info,
 )
+from snmp_fakes import walk_by_prefix
 
 
 class FakeClient:
-    """Serves canned SnmpRows by longest-matching OID prefix."""
+    """Serves canned SnmpRows by OID prefix."""
 
     def __init__(self, tables: dict[str, list[SnmpRow]]):
         self._tables = tables
@@ -28,7 +29,7 @@ class FakeClient:
         return [row for oid in oids for row in self.walk(oid)]
 
     def walk(self, base_oid):
-        return list(self._tables.get(base_oid, []))
+        return walk_by_prefix(self._tables, base_oid)
 
 
 class FakeAsyncClient:
@@ -44,7 +45,7 @@ class FakeAsyncClient:
         return rows
 
     async def walk(self, base_oid):
-        return list(self._tables.get(base_oid, []))
+        return walk_by_prefix(self._tables, base_oid)
 
 
 def _r(base, pairs, typ="INTEGER"):

@@ -10,7 +10,7 @@ import traceback
 from typing import TYPE_CHECKING, TypedDict
 
 from netgear_switch.errors import NetgearSwitchError
-from netgear_switch.models import VlanMode
+from netgear_switch.models import PortSpeed, VlanMode
 from netgear_switch.registry import MODELS, Backend
 
 from . import capture, safety
@@ -204,6 +204,177 @@ def _cmd_sensors(
 ) -> int:
     fmt.emit(ctx, get_switch().get_sensors(), fmt.sensors_table)
     return EXIT_OK
+
+
+def _parse_rate(text: str) -> int:
+    """``"100"`` -> 100, ``"10G"`` -> 10000. Raises ValueError on anything else.
+
+    The ``G`` suffix is the switch's own spelling (``speed 10G full-duplex``),
+    so accepting it here means the operator can type what the device prints.
+    """
+    token = text.strip().upper()
+    if token.endswith("G"):
+        return int(token[:-1]) * 1000
+    return int(token)
+
+
+def _cmd_port_speed(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    if args.rate.lower() == "auto":
+        speed = PortSpeed.auto()
+        what = f"set port {args.port} to auto-negotiate"
+    else:
+        try:
+            rate = _parse_rate(args.rate)
+        except ValueError:
+            print(
+                f"error: not a port rate: {args.rate!r} (try 'auto', '100' or '10G')",
+                file=ctx.err,
+            )
+            return EXIT_USAGE
+        speed = PortSpeed.forced(rate, full_duplex=args.duplex == "full")
+        what = f"force port {args.port} to {rate} Mbit/s {args.duplex}-duplex"
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=what,
+        action=lambda: switch.set_port_speed(args.port, speed, force=args.force),
+    )
+
+
+def _cmd_flow_control(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    on = args.state == "on"
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"turn flow control {'on' if on else 'off'} for port {args.port}",
+        action=lambda: switch.set_flow_control(args.port, on, force=args.force),
+    )
+
+
+def _cmd_port_describe(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    text = args.description
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=(
+            f"clear the description on port {args.port}"
+            if text == ""
+            else f"describe port {args.port} as {text!r}"
+        ),
+        action=lambda: switch.set_port_description(args.port, text, force=args.force),
+    )
+
+
+def _cmd_users(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_users(), fmt.users_table)
+    return EXIT_OK
+
+
+def _cmd_services(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_services(), fmt.services_table)
+    return EXIT_OK
+
+
+def _cmd_syslog(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_syslog(), fmt.syslog_text)
+    return EXIT_OK
+
+
+def _cmd_syslog_set(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    enabled = args.state == "on"
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"turn remote logging {args.state}",
+        action=lambda: switch.set_syslog_enabled(enabled, force=args.force),
+    )
+
+
+def _cmd_syslog_add(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=(
+            f"add syslog collector {args.address} "
+            f"(port {args.port}, severity {args.severity})"
+        ),
+        action=lambda: switch.add_syslog_collector(
+            args.address,
+            port=args.port,
+            severity=args.severity,
+            force=args.force,
+        ),
+    )
+
+
+def _cmd_syslog_remove(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"remove syslog collector {args.address}",
+        action=lambda: switch.remove_syslog_collector(args.address, force=args.force),
+    )
+
+
+def _cmd_hostname(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    del args
+    fmt.emit(ctx, get_switch().get_hostname(), fmt.hostname_text)
+    return EXIT_OK
+
+
+def _cmd_hostname_set(
+    args: argparse.Namespace, ctx: CliContext, get_switch: Callable[[], SyncSwitch]
+) -> int:
+    switch = get_switch()
+    return safety.do_write(
+        ctx,
+        dry_run=args.dry_run,
+        assume_yes=args.yes,
+        host=switch.host,
+        description=f"set hostname to {args.name!r}",
+        action=lambda: switch.set_hostname(args.name, force=args.force),
+    )
 
 
 def _cmd_show(
@@ -558,6 +729,8 @@ def build_parser() -> argparse.ArgumentParser:
     read_cmd("lldp", _cmd_lldp, "show LLDP neighbours")
     read_cmd("macs", _cmd_macs, "show the MAC/FDB table")
     read_cmd("sensors", _cmd_sensors, "show sensors")
+    read_cmd("users", _cmd_users, "show local login accounts")
+    read_cmd("services", _cmd_services, "show which management services are enabled")
     read_cmd("show", _cmd_show, "show a full switch snapshot")
     read_cmd("identify", _cmd_identify, "detect the switch's real model over SNMP")
     read_cmd(
@@ -584,6 +757,46 @@ def build_parser() -> argparse.ArgumentParser:
     port.add_argument("state", choices=("up", "down"), help="admin state")
     safety.add_write_args(port)
     port.set_defaults(func=_cmd_port)
+
+    describe = sub.add_parser(
+        "describe",
+        parents=[child_gp],
+        help="set or clear a port's description (pass '' to clear)",
+    )
+    describe.add_argument("port", type=int, help="port number")
+    describe.add_argument("description", help="the label; '' clears it")
+    safety.add_write_args(describe)
+    describe.set_defaults(func=_cmd_port_describe)
+
+    speed = sub.add_parser(
+        "speed",
+        parents=[child_gp],
+        help="force a port's speed/duplex, or restore auto-negotiation",
+    )
+    speed.add_argument("port", type=int, help="port number")
+    speed.add_argument(
+        "rate",
+        help="'auto', or a forced rate spelled as the switch does: 100, 10G. "
+        "1000 cannot be forced -- 1000BASE-T requires auto-negotiation",
+    )
+    speed.add_argument(
+        "--duplex",
+        choices=("full", "half"),
+        default="full",
+        help="duplex for a forced rate (default: full; ignored for 'auto')",
+    )
+    safety.add_write_args(speed)
+    speed.set_defaults(func=_cmd_port_speed)
+
+    flow_control = sub.add_parser(
+        "flow-control",
+        parents=[child_gp],
+        help="turn IEEE 802.3x flow control on or off for a port",
+    )
+    flow_control.add_argument("port", type=int, help="port number")
+    flow_control.add_argument("state", choices=("on", "off"), help="flow-control state")
+    safety.add_write_args(flow_control)
+    flow_control.set_defaults(func=_cmd_flow_control)
 
     cycle_poe = sub.add_parser(
         "cycle-poe", parents=[child_gp], help="power-cycle a port's PoE"
@@ -688,6 +901,57 @@ def build_parser() -> argparse.ArgumentParser:
     ip_set.add_argument("gateway")
     safety.add_write_args(ip_set)
     ip_set.set_defaults(func=_cmd_ip_set)
+
+    # hostname / syslog follow the `ip` shape: bare command reads, `set` writes.
+    hostname = sub.add_parser(
+        "hostname", parents=[child_gp], help="show or set the switch's host name"
+    )
+    hostname.set_defaults(func=_cmd_hostname)
+    hostname_sub = hostname.add_subparsers(dest="hostname_cmd")
+    hostname_set = hostname_sub.add_parser(
+        "set", parents=[child_gp], help="set the switch's host name"
+    )
+    hostname_set.add_argument("name")
+    safety.add_write_args(hostname_set)
+    hostname_set.set_defaults(func=_cmd_hostname_set)
+
+    syslog = sub.add_parser(
+        "syslog",
+        parents=[child_gp],
+        help="show remote-logging config, or turn it on/off",
+    )
+    syslog.set_defaults(func=_cmd_syslog)
+    syslog_sub = syslog.add_subparsers(dest="syslog_cmd")
+    syslog_set = syslog_sub.add_parser(
+        "set", parents=[child_gp], help="turn remote logging on or off"
+    )
+    syslog_set.add_argument("state", choices=("on", "off"))
+    safety.add_write_args(syslog_set)
+    syslog_set.set_defaults(func=_cmd_syslog_set)
+    syslog_add = syslog_sub.add_parser(
+        "add", parents=[child_gp], help="add a remote syslog collector"
+    )
+    syslog_add.add_argument("address", help="collector IP address or hostname")
+    syslog_add.add_argument(
+        "--port", type=int, default=514, help="collector UDP port (default: 514)"
+    )
+    syslog_add.add_argument(
+        "--severity",
+        type=int,
+        default=6,
+        choices=range(8),
+        metavar="0-7",
+        help="forward messages at or above this severity "
+        "(0 emergency .. 7 debug; default: 6 info)",
+    )
+    safety.add_write_args(syslog_add)
+    syslog_add.set_defaults(func=_cmd_syslog_add)
+    syslog_remove = syslog_sub.add_parser(
+        "remove", parents=[child_gp], help="remove a remote syslog collector"
+    )
+    syslog_remove.add_argument("address", help="collector IP address or hostname")
+    safety.add_write_args(syslog_remove)
+    syslog_remove.set_defaults(func=_cmd_syslog_remove)
 
     cap = sub.add_parser(
         "capture",

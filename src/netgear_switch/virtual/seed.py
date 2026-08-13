@@ -31,8 +31,10 @@ from .state import (
     PoeSim,
     PortSim,
     SensorSim,
+    ServiceSim,
     SyslogCollectorSim,
     SyslogSim,
+    UserSim,
     VirtualSwitchState,
     VlanMembershipPageSim,
     VlanSim,
@@ -1086,6 +1088,11 @@ def seed_gsm7252ps() -> VirtualSwitchState:
             rx_errors=rx_errs,
             tx_errors=tx_errs,
             description=description,
+            # Flow Mode reads "Disable" on all 52 ports of this model's own
+            # `show port all` capture. It was left at the True default while the
+            # CLI face happened to print a hardcoded "Disable" -- so the mock
+            # agreed with the device by accident and disagreed with itself.
+            flow_control=False,
         )
     # Two of the capture's non-physical interfaces (it has 65: one CPU port
     # and 64 LAGs). They must never appear on a web-UI page. Both are
@@ -1246,6 +1253,21 @@ def seed_gsm7252ps() -> VirtualSwitchState:
             local_port=514,
             collectors=[SyslogCollectorSim("10.1.5.1", 514, 6)],
         ),
+        # MEASURED 2026-08-03 on 10.1.5.22's own userManagement.html. The
+        # wording is that PAGE's, not the CLI's -- the same switch's
+        # `show users` calls admin "Read/Write".
+        users=[UserSim("admin", "Super User"), UserSim("guest", "Read Only")],
+        # MEASURED 2026-08-03 on 10.1.5.22, HTTP pages and `show ip http` /
+        # `show ip ssh` / `show telnetcon` agreeing. Telnet really is OFF here,
+        # independently confirmed by TCP 23 being refused. Neither this
+        # switch's http nor its ssh page prints a port, so both are None --
+        # NOT defaulted to 80/22, which would be inventing a field.
+        services={
+            "http": ServiceSim(enabled=True),
+            "https": ServiceSim(enabled=True, port=443),
+            "ssh": ServiceSim(enabled=True),
+            "telnet": ServiceSim(enabled=False),
+        },
         hostname="sw-netgear-gsm7252ps-s1.welland.mithis.com",
         nsdp_mac=b"\xe0\x91\xf5\x0c\xd6\xdb",  # captured System MAC Address
         # Illustrative sysDescr text -- NOT a captured real firmware string;
@@ -1692,6 +1714,9 @@ def seed_gsm7228ps() -> VirtualSwitchState:
             rx_errors=rx_e,
             tx_errors=tx_e,
             description=description,
+            # "Disable" on all 52 ports of this model's `show port all`
+            # capture -- see the note in seed_gsm7252ps.
+            flow_control=False,
         )
 
     # member/untagged are the EXACT captured ifIndex sets: physical ports plus
@@ -1810,6 +1835,17 @@ def seed_gsm7228ps() -> VirtualSwitchState:
         # MEASURED 2026-08-02 on 10.1.5.11: the vendor admin-mode column
         # reads 2 (disabled) and the host table is EMPTY -- this switch has
         # no collector configured, which is why get_syslog returns none.
+        #
+        # DELIBERATELY KEPT even though the live switch has since moved on (a
+        # re-read on 2026-08-03 over SNMP, HTTP and the CLI all returned
+        # enabled + one collector). The switch's own buffered log dates the
+        # change -- ``<14> Aug  3 02:21:02 ... %% Configuration propagation
+        # successful for config type 0``, the only such entry in the buffer --
+        # so this is an operator reconfiguring a production device between two
+        # reads, NOT the reader drifting from the hardware. This row is also
+        # the fleet's only "logging configured nowhere" case, so re-seeding it
+        # to match the others would delete the coverage that a genuinely empty
+        # host table reads as empty. See tests/virtual/test_syslog_fidelity.py.
         syslog=SyslogSim(admin_mode=2, local_port=514, collectors=[]),
         hostname="sw-netgear-s3300-1",
         nsdp_mac=b"\x08\xbd\x43\x6b\xb8\xd8",  # captured base/System MAC
@@ -2273,6 +2309,11 @@ def seed_m4300_24x() -> VirtualSwitchState:
             tx_octets=tx_bytes,
             rx_errors=rx_errors,
             tx_errors=0,
+            # "Disable" in the Flow Mode column of this model's own
+            # `show port all` capture -- see the note in seed_gsm7252ps. This
+            # SKU is also where reading that column by POSITION went wrong: the
+            # M4300 table appends a "Stack Capable" column after Flow Mode.
+            flow_control=False,
         )
     # Representative non-physical ifIndexes (see module docstring above):
     # the CPU interface, one real in-use LAG + one unused placeholder LAG,
@@ -2418,6 +2459,23 @@ def seed_m4300_24x() -> VirtualSwitchState:
             local_port=514,
             collectors=[SyslogCollectorSim("10.1.5.1", 514, 6)],
         ),
+        # MEASURED 2026-08-03 on 10.1.5.13's own userManagement.html -- the
+        # SAME two words the gsm7252ps page uses, even though this switch's
+        # `show users` says "Privilege-15" where that one says "Read/Write".
+        # The web UI is the consistent face; the CLI is not.
+        users=[UserSim("admin", "Super User"), UserSim("guest", "Read Only")],
+        # MEASURED 2026-08-03 on 10.1.5.13, HTTP pages and CLI agreeing on
+        # every state and every port the pages print. Unlike the gsm7252ps this
+        # switch's http/https/ssh pages DO print their ports; its telnet page
+        # still does not (the CLI reports 23, the page has no such field), so
+        # telnet's port stays None here -- the mock must not print what the
+        # device does not.
+        services={
+            "http": ServiceSim(enabled=True, port=80),
+            "https": ServiceSim(enabled=True, port=443),
+            "ssh": ServiceSim(enabled=True, port=22),
+            "telnet": ServiceSim(enabled=True),
+        },
         hostname="sw-netgear-m4300-24x",
         model_key="m4300-24x",
         ports=ports,
@@ -2532,6 +2590,9 @@ def seed_m4300_16x() -> VirtualSwitchState:
             tx_octets=tx_bytes,
             rx_errors=0,
             tx_errors=0,
+            # "Disable" on all 16 ports of this model's own `show port all`
+            # capture -- see the note in seed_gsm7252ps.
+            flow_control=False,
         )
     ports[769] = PortSim(
         name="CPU Interface:  0/15/1", admin=True, link=True, speed=0, if_type=1
@@ -2706,30 +2767,74 @@ def seed_gs728tpp() -> VirtualSwitchState:
     reports power_mw=None (vs HTTP's live 0)."""
     up = {2, 5, 12, 23, 24, 26, 28}
     speed100 = {5, 12, 23}
+    # CONFIGURED speed, from the same capture (tests/fixtures/http/
+    # gs728tpp_ports.xml): the 24 copper ports auto-negotiate
+    # (autoNegotiationAdminEnabled 1) while the four SFP uplinks 25-28 are
+    # FORCED to 1000 full (2). Every one of the 28 reports speedAdmin 1000 and
+    # duplexAdminMode 3 regardless, so the flag is the only thing telling the
+    # two apart -- which is exactly what the decoder has to get right, and what
+    # a seed with a uniform value could never exercise.
+    forced_1000 = {25, 26, 27, 28}
     ports = {
         p: PortSim(
             name=f"g{p}",
             admin=True,
             link=p in up,
             speed=100 if p in speed100 else 1000,
+            # This agent DOES serve the EtherLike duplex/pause columns (unlike
+            # the GSM7252PS), and every port reads flow control OFF -- measured
+            # 2026-08-03 across all 28 ports on both backends at once.
+            serves_etherlike=True,
+            flow_control=False,
+            autoneg_admin="2" if p in forced_1000 else "1",
         )
         for p in range(1, 29)
     }
+    # The eight LAG pseudo-interfaces, MEASURED 2026-08-02 on the live switch:
+    # ifName "po 1".."po 8" at ifIndex 1000..1007, ifType 161 (ieee8023adLag).
+    # dot1dBasePortIfIndex is identity-mapped there, so those same numbers are
+    # the Q-BRIDGE PortList bit positions. They are seeded because they are what
+    # the bitmaps actually contain: without them the mock cannot reproduce the
+    # phantom "member port 1000" SNMP get_vlans used to report (parse_vlans).
+    ports.update(
+        {
+            idx: PortSim(
+                name=f"po {idx - 999}", admin=True, link=False, speed=0, if_type=161
+            )
+            for idx in range(1000, 1008)
+        }
+    )
+    _lags = set(range(1000, 1008))
     # VLAN 1 is untagged on the access ports; every other VLAN is carried tagged
     # on the trunk set, except the untagged sets captured below.
+    #
+    # LAG membership is MEASURED (2026-08-02): VLAN 1's current-table bitmap
+    # sets all eight LAG bits, while every configured VLAN's static bitmap sets
+    # bit 1000 alone. VLAN 1 also has NO dot1qVlanStaticTable row on this switch
+    # -- static_row=False -- which is precisely the VLAN a static-table-only
+    # reader lost.
     vlans = {
-        1: VlanSim(name="", member=set(_GS728TPP_VLAN1), untagged=set(_GS728TPP_VLAN1)),
-        2: VlanSim(name="Voice VLAN", member=set(_GS728TPP_TRUNK), untagged=set()),
-        3: VlanSim(name="Auto Video VLAN", member=set(), untagged=set()),
-        5: VlanSim(name="net", member=set(_GS728TPP_TRUNK), untagged={3, 5, 12, 23}),
-        6: VlanSim(name="pwr", member=set(_GS728TPP_TRUNK), untagged=set()),
-        7: VlanSim(name="store", member=set(_GS728TPP_TRUNK), untagged=set()),
-        10: VlanSim(name="int", member=set(_GS728TPP_TRUNK), untagged={1}),
-        20: VlanSim(name="roam", member=set(_GS728TPP_TRUNK), untagged=set()),
-        31: VlanSim(name="fpgas", member=set(_GS728TPP_TRUNK), untagged=set()),
-        41: VlanSim(name="sm", member=set(_GS728TPP_TRUNK), untagged=set()),
-        90: VlanSim(name="iot", member=set(_GS728TPP_TRUNK), untagged=set()),
-        99: VlanSim(name="guest", member=set(_GS728TPP_TRUNK), untagged=set()),
+        1: VlanSim(
+            name="",
+            member=set(_GS728TPP_VLAN1) | _lags,
+            untagged=set(_GS728TPP_VLAN1) | _lags,
+            static_row=False,
+        ),
+        2: VlanSim(name="Voice VLAN", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        # Bit 1000 alone: the live static bitmap for VLAN 3 is all-zero except
+        # that LAG bit, i.e. a VLAN whose ONLY member is a LAG.
+        3: VlanSim(name="Auto Video VLAN", member={1000}, untagged=set()),
+        5: VlanSim(
+            name="net", member=_GS728TPP_TRUNK | {1000}, untagged={3, 5, 12, 23}
+        ),
+        6: VlanSim(name="pwr", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        7: VlanSim(name="store", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        10: VlanSim(name="int", member=_GS728TPP_TRUNK | {1000}, untagged={1}),
+        20: VlanSim(name="roam", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        31: VlanSim(name="fpgas", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        41: VlanSim(name="sm", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        90: VlanSim(name="iot", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
+        99: VlanSim(name="guest", member=_GS728TPP_TRUNK | {1000}, untagged=set()),
     }
     pvids = {
         1: 10,
@@ -2761,6 +2866,11 @@ def seed_gs728tpp() -> VirtualSwitchState:
         27: 1,
         28: 1,
     }
+    # The real dot1qPvid walk returns 36 rows, not 28: the eight LAGs carry a
+    # PVID too (all 1, measured 2026-08-02). parse_pvids already filters them
+    # out by ifType; seeding them keeps that filter honest work rather than a
+    # no-op against a mock that never presents the case.
+    pvids.update(dict.fromkeys(range(1000, 1008), 1))
     poe = {p: PoeSim(admin=True, detect=2, power_mw=0) for p in range(1, 25)}
     # A subset of the real dynamic FDB (VLANs 1 and 5, on physical ports).
     macs = [
@@ -2871,6 +2981,12 @@ def seed_gs728tpp() -> VirtualSwitchState:
         model_name="GS728TPP",
         serial="3AR476520016D",
         firmware="6.0.1.30",
+        # The device's REAL PortList width, measured off the wire 2026-08-02:
+        # every dot1qVlanStatic/Current bitmap is 126 bytes (1008 bits), which
+        # is what makes room for the LAG bits at 1000-1007. Seeded, never
+        # derived -- a mock that recomputed it with the writer's own formula
+        # could only ever agree with the writer (principle 5).
+        vlan_portlist_width=126,
         hostname="sw-netgear-gs728tpp",
         nsdp_mac=b"\xb0\x39\x56\x77\x54\x29",
         sys_descr="Netgear GS728TPP ProSafe Smart Managed Pro Switch",

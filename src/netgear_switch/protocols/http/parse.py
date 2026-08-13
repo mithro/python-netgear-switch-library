@@ -33,7 +33,9 @@ from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ElementTree
+from dataclasses import dataclass
 from html import unescape
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ...errors import HttpUnexpectedPageError
@@ -44,16 +46,23 @@ from ...models import (
     MgmtIpConfig,
     PoEDetect,
     PoEStatus,
+    PortSpeed,
     PortStats,
     PortStatus,
     Sensor,
+    ServiceStatus,
+    SwitchUser,
+    SyslogConfig,
+    SyslogServer,
     VLANInfo,
     VlanMode,
+    privileged_access,
+    syslog_severity,
 )
 from .types import FastpathMembership, HttpSysInfo, XuiFormPage, XuiListPage, XuiRow
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
 _ROW_RE = re.compile(r'<tr\s+class="portID">(.*?)</tr>', re.DOTALL | re.IGNORECASE)
 # GS110EMX interface_stats.html: real hardware NEVER closes a
@@ -1091,9 +1100,7 @@ def _expand_s3300_port_list(raw: str) -> frozenset[int]:
     return frozenset(ports)
 
 
-def _xe_vlan_rows(
-    html: str, expand: Callable[[str], frozenset[int]]
-) -> list[VLANInfo]:
+def _xe_vlan_rows(html: str, expand: Callable[[str], frozenset[int]]) -> list[VLANInfo]:
     """Shared body of the XE/S3300 vlanStatus parsers: one VLANInfo per row,
     differing only in how the Member Ports cell is expanded (``expand``).
 
@@ -1237,9 +1244,7 @@ def parse_s3300_macs(html: str) -> list[MacEntry]:
     exactly like the sibling parsers.
     """
     rows = [
-        r
-        for r in parse_xe_rows(html)
-        if _S3300_MAC_ADDR in r and _S3300_MAC_PORT in r
+        r for r in parse_xe_rows(html) if _S3300_MAC_ADDR in r and _S3300_MAC_PORT in r
     ]
     if not rows:
         raise HttpUnexpectedPageError(
@@ -1283,9 +1288,7 @@ def parse_s3300_mgmt(html: str) -> MgmtIpConfig:
     """
     m = re.search(r"Base MAC Address</td>\s*<td[^>]*>\s*([0-9A-Fa-f:]{17})", html)
     if m is None:
-        raise HttpUnexpectedPageError(
-            "sysInfo.html: no Base MAC Address cell found"
-        )
+        raise HttpUnexpectedPageError("sysInfo.html: no Base MAC Address cell found")
     return MgmtIpConfig(
         mode=IpMode.UNKNOWN,
         address=None,
@@ -1597,6 +1600,300 @@ def parse_xe_mgmt_ip(html: str) -> MgmtIpConfig:
     )
 
 
+# A page-level XUI scalar carries NO instance prefix (``NAME=v_1_1_1``), which
+# is exactly why ``parse_xe_rows`` skips them -- they are not table rows. The
+# service and syslog pages below read them by coordinate instead.
+_XE_SCALAR_RE = re.compile(r'NAME=v_(\d+_\d+_\d+) VALUE="([^"]*)"', re.IGNORECASE)
+
+
+# --- management-service pages (http / https / ssh / telnet) ----------------
+#
+# LIVE-MEASURED 2026-08-03 on gsm7252ps 10.1.5.22, gsm7228ps 10.1.5.11 and
+# m4300-24x 10.1.5.13. These pages come in TWO shapes, and -- this is the part
+# that dictates the design -- the shapes are MIXED WITHIN A SINGLE MODEL, so
+# the parser cannot be keyed by model or by html_dialect, only per service:
+#
+#   gsm7252ps  http/https/ssh/telnet  all four XUI labelled scalars
+#   m4300-24x  http/https             PLAIN named form (radios + text inputs)
+#              ssh/telnet             XUI
+#   gsm7228ps  https                  PLAIN;  telnet XUI
+#              http                   PLAIN but with NO admin control at all
+#              ssh                    HTTP 404
+#
+# So each service below carries BOTH addresses and the parser tries the XUI
+# coordinate first, then the named radio group.
+#
+# THE RADIO TRAP. On every plain-form page BOTH radios of the group carry a
+# checked attribute, spelled two different ways -- verbatim from m4300-24x:
+#
+#   <INPUT type="radio" name="httpAdmin" id="httpAdminDisable" value="Disable"
+#          ... checked="checked" disabled="disabled" >
+#   <INPUT type="radio" name="httpAdmin" id="httpAdminEnable"  value="Enable"
+#          ... disabled="disabled" CHECKED>
+#
+# A browser applies them in document order, so the LAST wins and the true state
+# is Enable. That reading is self-evidencing here: the page was fetched OVER
+# HTTP, so HTTP cannot be disabled. A parser taking the first match would report
+# every one of these switches as having HTTP off.
+_RADIO_RE_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _radio_group(html: str, name: str) -> list[tuple[str, bool]]:
+    """Every radio of group ``name``, in DOCUMENT ORDER, as (value, checked)."""
+    pattern = _RADIO_RE_CACHE.get(name)
+    if pattern is None:
+        pattern = re.compile(
+            rf'<INPUT\b(?=[^>]*\btype="radio")(?=[^>]*\bname="{re.escape(name)}")'
+            r"[^>]*>",
+            re.IGNORECASE,
+        )
+        _RADIO_RE_CACHE[name] = pattern
+    out: list[tuple[str, bool]] = []
+    for tag in pattern.findall(html):
+        value = re.search(r'\bvalue="([^"]*)"', tag, re.IGNORECASE)
+        if value is None:
+            continue
+        # Both spellings, and `checked` must be its own attribute -- a bare
+        # substring test would also match id="...Checked" style names.
+        checked = re.search(r'\bchecked\b(?:\s*=\s*"[^"]*")?', tag, re.IGNORECASE)
+        out.append((value.group(1), checked is not None))
+    return out
+
+
+def _checked_radio(html: str, name: str) -> str | None:
+    """The value the browser would show selected: the LAST checked radio."""
+    checked = [value for value, is_checked in _radio_group(html, name) if is_checked]
+    return checked[-1] if checked else None
+
+
+_PLAIN_FORM_RE_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _plain_form_value(html: str, name: str) -> str | None:
+    """A plain named text input's ``VALUE=``, or ``None`` if the page has none.
+
+    Deliberately NOT named ``_named_input_value``: this module already has a
+    function by that name for the gs110emx/gs105pe identity pages, further
+    down. The two are not interchangeable -- that one matches lowercase
+    ``value=`` case-SENSITIVELY, which never matches these FASTPATH pages'
+    uppercase ``VALUE="80"``, and a same-named second definition would simply
+    replace it at import time and break those parsers instead.
+    """
+    pattern = _PLAIN_FORM_RE_CACHE.get(name)
+    if pattern is None:
+        pattern = re.compile(
+            rf'<INPUT\b(?=[^>]*\bname="{re.escape(name)}")[^>]*\bVALUE="([^"]*)"',
+            re.IGNORECASE,
+        )
+        _PLAIN_FORM_RE_CACHE[name] = pattern
+    m = pattern.search(html)
+    return m.group(1) if m else None
+
+
+@dataclass(frozen=True)
+class _ServiceFields:
+    """Where one service's admin state and port live, in EITHER page shape."""
+
+    #: XUI scalar coordinate carrying Enable/Disable.
+    xui_admin: str
+    #: XUI scalar coordinate carrying the port, where the page prints one.
+    xui_port: str | None
+    #: Plain-form radio group name carrying Enable/Disable.
+    radio: str | None
+    #: Plain-form text input carrying the port.
+    form_port: str | None
+
+
+#: Per service, transcribed from the live pages named above. Each label is that
+#: page's own caption for the coordinate.
+_SERVICE_FIELDS: Mapping[str, _ServiceFields] = MappingProxyType(
+    {
+        # "HTTP Access". The XUI page prints NO port row, so xui_port is None
+        # and the port stays None there rather than being defaulted to 80.
+        "http": _ServiceFields("1_1_1", None, "httpAdmin", "httpPort"),
+        # "HTTPS Admin Mode" + "HTTPS Port" (443 on every switch measured).
+        "https": _ServiceFields("1_1_1", "1_4_1", "sslAdmin", "httpsPort"),
+        # "SSH Admin Mode". v_1_10_1 is the SSH Port -- present on m4300
+        # ('22'), ABSENT on gsm7252ps, which is exactly what
+        # ServiceStatus.port's docstring already recorded. No plain-form SSH
+        # page has been seen, so there is no radio fallback for it.
+        "ssh": _ServiceFields("1_1_1", "1_10_1", None, None),
+        # "Telnet Server Admin Mode" -- note the 2_x coordinate: this page's
+        # first section is the authentication lists, not the admin state.
+        "telnet": _ServiceFields("2_5_1", None, None, None),
+    }
+)
+
+#: The order get_services reports in, matching the CLI backend's.
+SERVICE_NAMES: tuple[str, ...] = ("http", "https", "ssh", "telnet")
+
+
+def parse_service_page(html: str, service: str) -> ServiceStatus:
+    """One service's config page -> its :class:`ServiceStatus`.
+
+    Tries the XUI coordinate, then the plain-form radio group. Raises
+    ``HttpUnexpectedPageError`` when NEITHER is present rather than reporting
+    the service as disabled -- a page that does not carry the control (the
+    S3300's httpConfiguration.html genuinely does not) says nothing about
+    whether the service is running, and a login redirect says nothing either.
+    """
+    fields = _SERVICE_FIELDS[service]
+    scalars = dict(_XE_SCALAR_RE.findall(html))
+    admin = scalars.get(fields.xui_admin)
+    if admin is not None:
+        port_text = scalars.get(fields.xui_port or "", "")
+    else:
+        admin = _checked_radio(html, fields.radio) if fields.radio else None
+        if admin is None:
+            raise HttpUnexpectedPageError(
+                f"{service} configuration page: no admin-state control found "
+                f"(neither XUI v_{fields.xui_admin} nor a "
+                f"{fields.radio!r} radio group)"
+            )
+        port_text = _plain_form_value(html, fields.form_port or "") or ""
+    return ServiceStatus(
+        name=service,
+        enabled=admin.strip().lower() == "enable",
+        port=_int(port_text),
+    )
+
+
+# --- userManagement.html (login accounts) ---------------------------------
+#
+# LIVE-CAPTURED 2026-08-03 from gsm7252ps 10.1.5.22 and m4300-24x 10.1.5.13,
+# whose pages are the same XUI row grid. Coordinates transcribed from each
+# page's OWN header row, quoted beside each below.
+#
+# NOT to be confused with ``userConfiguration.html``, which sounds like this
+# page and is not: on every managed switch that is the SNMPv3 user page (Access
+# Mode / Authentication Protocol / Encryption Protocol) listing no login
+# accounts at all. Reading it here would report SNMPv3 credentials as logins.
+_USER_NAME = "1_1_2"  # "User Name"      -> admin / guest
+_USER_ACCESS_MODE = "1_1_5"  # "Access Mode"    -> Super User / Read Only
+
+# The password columns ("Password"/"Confirm Password", 1_1_3/1_1_4) are ignored:
+# gsm7252ps renders them as a literal "********" and the M4300 as empty, so
+# neither carries a secret -- nor anything useful. SwitchUser has no password
+# field for the same reason.
+
+
+def parse_xui_users(html: str) -> list[SwitchUser]:
+    """``userManagement.html`` -> the switch's local login accounts.
+
+    Raises ``HttpUnexpectedPageError`` if the page carries no user rows. A
+    switch always has at least the account this very request authenticated as,
+    so an empty list means the fetch landed somewhere else -- "this switch has
+    no accounts" is not an answer any device would give.
+    """
+    users = [
+        SwitchUser(
+            name=name,
+            # Preserved verbatim: this page says "Super User" where the same
+            # switch's own CLI says "Read/Write" or "Privilege-15".
+            access_mode=row.get(_USER_ACCESS_MODE, "").strip(),
+            privileged=privileged_access(row.get(_USER_ACCESS_MODE, "")),
+        )
+        for row in parse_xe_rows(html)
+        if (name := row.get(_USER_NAME, "").strip())
+    ]
+    if not users:
+        raise HttpUnexpectedPageError(
+            "userManagement.html: no user rows on page (a switch always has at "
+            "least the account this request authenticated as)"
+        )
+    return users
+
+
+# --- syslogConfiguration.html (every FASTPATH model) ----------------------
+#
+# Coordinates transcribed from a LIVE fetch of syslogConfiguration.html on all
+# four managed switches (2026-08-03): gsm7252ps 10.1.5.22, gsm7228ps/S3300
+# 10.1.5.11, m4300-24x 10.1.5.13 and m4300-16x 10.1.5.20. Each label below is
+# that page's own visible header/field caption for the same coordinate.
+#
+# The two families' pages are NOT identical -- the M4300s are Cheetah, adding a
+# trailing ``<!-- baselogCfg_LogSyslogAdminStatus -->`` comment per cell plus two
+# scalars the GSMs lack (1_6_1 source interface, 1_7_1 USB file name) -- but the
+# COORDINATES they share are the same on all four, which is why one parser
+# serves both rather than a per-dialect pair. That was measured, not assumed:
+# the M4300 page was fetched and diffed against the GSM one before this was
+# written.
+_SYSLOG_ADMIN_STATUS = "1_1_1"  # "Admin Status"       -> Enable/Disable
+_SYSLOG_LOCAL_PORT = "1_2_1"  # "Local UDP Port"     -> 514
+# Public because the WRITER addresses the same cells (see http_write). The
+# column map is the page's own xeData, read off the served M4300 page
+# 2026-08-05 -- note the field-name HTML comments TRAIL their cell, so reading
+# them as leading labels shifts every column by one:
+#   2_1_1 Host Address (string)      2_1_5 row-status, WRITE-ONLY, hidden
+#   2_1_2 Status, row-status, READ-ONLY   2_1_6 Host Index (uint, hidden)
+#   2_1_3 Port (uint)                2_1_7 IP Address Type (enum)
+#   2_1_4 Severity Filter (enum)
+SYSLOG_HOST_ADDRESS = "2_1_1"  # "Host Address"       -> 10.1.5.1
+SYSLOG_HOST_PORT = "2_1_3"  # "Port"               -> 514
+SYSLOG_HOST_SEVERITY = "2_1_4"  # "Severity Filter"    -> Info
+#: The cell an ADD sets to "Active" and a DELETE sets to "Delete". NOT 2_1_2,
+#: which is the read-only mirror the table displays.
+SYSLOG_HOST_ROW_STATUS = "2_1_5"
+#: "Host Index" -- the table's own row handle, which SNMP walks as the OID
+#: instance and the CLI prints in its Index column. Surfaced so all three
+#: backends report the same SyslogServer for the same row; without it the
+#: cross-backend equivalence test fails on index=None vs index=1.
+SYSLOG_HOST_INDEX = "2_1_6"
+_SYSLOG_HOST_ADDRESS = SYSLOG_HOST_ADDRESS
+_SYSLOG_HOST_STATUS = "2_1_2"  # "Status"             -> Active
+_SYSLOG_HOST_PORT = SYSLOG_HOST_PORT
+_SYSLOG_HOST_SEVERITY = SYSLOG_HOST_SEVERITY
+
+
+def parse_xui_syslog(html: str) -> SyslogConfig:
+    """``syslogConfiguration.html`` -> ``SyslogConfig`` (all FASTPATH models).
+
+    The collector rows are ordinary XUI table rows, so ``parse_xe_rows`` groups
+    them; the admin status and local port are page-level scalars, read by
+    coordinate above. A row whose coordinates are absent is skipped rather than
+    defaulted -- the blank ``g_2_1_*`` template row carries no instance prefix
+    and never reaches here in the first place.
+
+    Raises ``HttpUnexpectedPageError`` if the admin-status scalar is missing:
+    that is the one field every version of this page has, so its absence means
+    the fetch landed somewhere else (a login redirect, a 404 body) and an
+    ``enabled=False`` answer would be a fabrication.
+    """
+    scalars = dict(_XE_SCALAR_RE.findall(html))
+    admin = scalars.get(_SYSLOG_ADMIN_STATUS)
+    if admin is None:
+        raise HttpUnexpectedPageError(
+            "syslogConfiguration.html: no Admin Status field "
+            f"(NAME=v_{_SYSLOG_ADMIN_STATUS}) on page"
+        )
+    local_port = _int(scalars.get(_SYSLOG_LOCAL_PORT, ""))
+
+    servers: list[SyslogServer] = []
+    for row in parse_xe_rows(html):
+        host = row.get(_SYSLOG_HOST_ADDRESS, "").strip()
+        if not host:
+            continue
+        port = _int(row.get(_SYSLOG_HOST_PORT, ""))
+        index = _int(row.get(SYSLOG_HOST_INDEX, ""))
+        servers.append(
+            SyslogServer(
+                index=index,
+                host=host,
+                port=port if port is not None else 0,
+                # The web UI prints the severity WORD ("Info") where SNMP
+                # reports the number (6); syslog_severity() is the shared,
+                # measured map and RAISES on a word no device here has printed.
+                severity=syslog_severity(row.get(_SYSLOG_HOST_SEVERITY, "")),
+                active=row.get(_SYSLOG_HOST_STATUS, "").strip().lower() == "active",
+            )
+        )
+    return SyslogConfig(
+        enabled=admin.strip().lower() == "enable",
+        local_port=local_port if local_port is not None else 0,
+        servers=tuple(servers),
+    )
+
+
 def parse_poe_status(html: str) -> list[PoEStatus]:
     """getPoePortStatus.cgi ``portID`` rows: [1]=port,[2]=state,[3]=power_mw."""
     rows = _ROW_RE.findall(html)
@@ -1733,9 +2030,7 @@ _INPUT_RE = re.compile(r"<input\b([^>]*)>", re.IGNORECASE)
 # Each attribute, with or without a value: group 2 is None for a bare flag
 # (``SELECTED``, ``READONLY``), otherwise groups 3/4/5 hold the double-quoted,
 # single-quoted or unquoted value.
-_BARE_ATTR_RE = re.compile(
-    r"""([\w.-]+)(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?"""
-)
+_BARE_ATTR_RE = re.compile(r"""([\w.-]+)(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?""")
 _SELECT_RE = re.compile(r"<select\b([^>]*)>(.*?)</select>", re.IGNORECASE | re.DOTALL)
 _OPTION_RE = re.compile(r"<option\b([^>]*)>", re.IGNORECASE)
 _VLANID_SELECT_RE = re.compile(
@@ -2100,13 +2395,21 @@ _XUI_NAV_ROW_RE = re.compile(
 # apply them to every port).
 _XUI_PAGE_FIELD_RE = re.compile(r"^v_\d+_\d+_\d+$")
 
+#: The blank TEMPLATE ("global") row an ADD fills in: ``v_g_<table>_<tr>_<col>``.
+#: The framework's own ``getTableId``/``getTrId`` in ``/scripts/xui_load.js``
+#: special-case this xid shape (``xid.indexOf("g_") != -1`` then slice positions
+#: 2..3 and 2..5), which is what identifies it as the global-edit row rather
+#: than a data row. Deliberately NOT matched by ``_XUI_PAGE_FIELD_RE`` above --
+#: a per-row apply must never carry it.
+_XUI_TEMPLATE_RE = re.compile(r"^v_g_(\d+)_(\d+)_(\d+)$")
+
 
 def _xui_form_block(html: str, page: str) -> tuple[str, str]:
     """``(action, inner HTML)`` of the page's write form, or raise."""
     m = _XUI_FORM_RE.search(html)
     if m is None:
         raise HttpUnexpectedPageError(
-            f"{page}: no <FORM ACTION=\"...(/a1)\"> -- this is not a FASTPATH XUI "
+            f'{page}: no <FORM ACTION="...(/a1)"> -- this is not a FASTPATH XUI '
             "write page (wrong URL, or the session bounced to the login page)"
         )
     return unescape(m.group(1)), html[m.end() :]
@@ -2225,11 +2528,17 @@ def parse_xui_list_page(html: str, *, page: str = "XUI list page") -> XuiListPag
         buttons=_xui_buttons(block),
         rows=tuple(rows),
         tokens={
-            n: unescape(v)
-            for n, v in form_fields.items()
-            if _XUI_TOKEN_RE.match(n)
+            n: unescape(v) for n, v in form_fields.items() if _XUI_TOKEN_RE.match(n)
         },
         nav=nav,
+        # The blank ADD row. It carries no <unit>.<row>.<count>. prefix, so it
+        # lands in form_fields rather than in rows -- which is where it went
+        # unnoticed: it is named ``v_g_2_1_1``, not ``g_2_1_1``, and a search
+        # for the latter finds nothing and reads as "this page has no template
+        # row" (it cost two rounds of "needs a browser capture" to find).
+        template={
+            n: unescape(v) for n, v in form_fields.items() if _XUI_TEMPLATE_RE.match(n)
+        },
     )
 
 
@@ -2285,9 +2594,7 @@ def parse_xui_mgmt_ip(
     """
     fields, _cbs = _xui_inputs(_xui_form_block(html, page)[1])
     missing = [
-        f
-        for f in (address_field, netmask_field, gateway_field)
-        if f not in fields
+        f for f in (address_field, netmask_field, gateway_field) if f not in fields
     ]
     if missing:
         raise HttpUnexpectedPageError(
@@ -2486,13 +2793,68 @@ def _gtext(el: ElementTree.Element, tag: str) -> str:
     return (child.text or "").strip() if child is not None else ""
 
 
+#: ``duplexOperMode`` -> full_duplex, DECODED AGAINST SNMP rather than guessed.
+#: Measured on the live GS728TPP (10.2.5.10, firmware 6.0.1.30, 2026-08-03) by
+#: reading this page and dot3StatsDuplexStatus for all 28 ports at once:
+#: every link-UP port reads 2 here and 3 (fullDuplex) there, every link-DOWN
+#: port reads 4 here and 1 (unknown) there.
+#:
+#: 4 is therefore mapped to None, not False. Nothing is claimed about codes 1
+#: and 3: that fleet had no half-duplex link to observe, and inventing the rest
+#: of an enum from one observation is how a plausible-but-wrong mapping gets in.
+#: An unmapped code yields None, which is the honest answer for "not known".
+#:
+#: Note this is NOT the same enum as ``duplexAdminMode``, where the page's own
+#: JS uses 2=half / 3=full (see protocols/http/goahead.py).
+_GOAHEAD_DUPLEX_OPER = {"2": True}
+
+#: ``flowControlOperType`` -> flow_control. Measured in the same read: every
+#: port reads 2 here while dot3PauseOperMode reads 1 (disabled), so 2 is
+#: disabled -- consistent with this UI's usual 1=enabled/2=disabled pairing
+#: (``adminState``, ``linkState``). Every port on that switch had flow control
+#: off, so "1 means enabled" is inference from the UI's convention rather than
+#: observation, and any other code stays None.
+_GOAHEAD_FLOW_CONTROL = {"1": True, "2": False}
+
+
+def _goahead_speed_config(entry: ElementTree.Element) -> PortSpeed | None:
+    """The CONFIGURED speed of one ``Standard802_3List`` Entry.
+
+    Decoded exactly as the page's own JS decodes it for display::
+
+        if (field.autoNegotiationAdminEnabled == "1") str = "Auto";
+        else str = field.speedAdmin + "M" + (duplexAdminMode=="3" ? " Full"
+                                                                 : " Half");
+
+    ``autoNegotiationAdminEnabled`` is authoritative and ``speedAdmin`` is
+    IGNORED while it is 1 -- which is not a detail one could skip. In the live
+    capture every auto-negotiating port carries ``speedAdmin`` 1000 alongside
+    ``autoNegotiationAdminEnabled`` 1, so decoding on the rate alone would
+    report the whole switch as forced to 1000.
+    """
+    autoneg = _gtext(entry, "autoNegotiationAdminEnabled")
+    if autoneg == "1":
+        return PortSpeed(autonegotiate=True)
+    if autoneg != "2":
+        return None  # neither code the page knows: honestly unknown
+    rate = _int(_gtext(entry, "speedAdmin"))
+    duplex = _gtext(entry, "duplexAdminMode")
+    if rate is None or duplex not in {"2", "3"}:
+        return None
+    return PortSpeed(autonegotiate=False, speed_mbps=rate, full_duplex=duplex == "3")
+
+
 def parse_goahead_ports(body: str) -> list[PortStatus]:
     """GS728TPP ``Standard802_3List`` -> per-port status.
 
     Only physical ``g<n>`` ports are returned; the page also lists LAG
     aggregations (``LAG1``..), which are not ports. ``speed_mbps`` is the
     negotiated ``speedOper`` while the link is up, and honestly ``None`` on a
-    down port (whose ``speedOper`` still reports the configured rate)."""
+    down port (whose ``speedOper`` still reports the configured rate).
+
+    ``duplexOperMode`` and ``flowControlOperType`` are decoded against SNMP
+    rather than against a guess -- see ``_GOAHEAD_DUPLEX_OPER`` and
+    ``_GOAHEAD_FLOW_CONTROL``."""
     sec = _goahead_section(body, "Standard802_3List")
     out: list[PortStatus] = []
     for e in sec.findall("Entry"):
@@ -2508,6 +2870,11 @@ def parse_goahead_ports(body: str) -> list[PortStatus]:
                 link_up=link_up,
                 speed_mbps=_int(_gtext(e, "speedOper")) if link_up else None,
                 description=_gtext(e, "interfaceDescription") or None,
+                full_duplex=_GOAHEAD_DUPLEX_OPER.get(_gtext(e, "duplexOperMode")),
+                flow_control=_GOAHEAD_FLOW_CONTROL.get(
+                    _gtext(e, "flowControlOperType")
+                ),
+                speed_config=_goahead_speed_config(e),
             )
         )
     if not out:
@@ -2737,6 +3104,21 @@ def parse_goahead_base_mac(body: str) -> str | None:
     fabricated)."""
     mac = _gtext(_goahead_section(body, "DeviceBasicInfo"), "MacAddre")
     return mac.upper() or None
+
+
+def parse_goahead_hostname(body: str) -> str:
+    """GS728TPP ``SystemInfo`` (``DeviceBasicInfo``) -> the switch's host name.
+
+    ``DeviceBasicInfo/deviceName`` is the host name, not merely a cosmetic
+    label: MEASURED on the live switch (10.2.5.10, firmware 6.0.1.30,
+    2026-08-03) it reads ``sw-netgear-gs728tpp``, byte-for-byte what SNMP
+    reports through sysName.
+
+    Returns the raw value including ``""``. An empty name is a REAL state on a
+    switch that has never been named, so it must not be turned into None, which
+    the caller would read as "this backend cannot tell you".
+    """
+    return _gtext(_goahead_section(body, "DeviceBasicInfo"), "deviceName")
 
 
 def parse_goahead_mgmt_ip(body: str) -> MgmtIpConfig:

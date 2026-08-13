@@ -187,6 +187,14 @@ class _StateInstrum:
         self._commit_failed_error = getattr(
             smi_error, "CommitFailedError", smi_error.WrongValueError
         )
+        # inconsistentValue: the object and the value's type are fine, but the
+        # device will not accept it in its current state. The GS728TPP answers
+        # exactly this to every VLAN row-creation attempt (see
+        # state.InconsistentValueError), which is a DIFFERENT answer from
+        # notWritable -- the same table's data columns are writable.
+        self._inconsistent_value_error = getattr(
+            smi_error, "InconsistentValueError", smi_error.WrongValueError
+        )
 
     def read_variables(
         self, *var_binds: tuple[Any, Any], **_context: Any
@@ -302,6 +310,9 @@ class _StateInstrum:
                 except state_errors.NotWritableError as exc:
                     # Read-only column (a real agent's notWritable).
                     raise self._not_writable_error(name=name, idx=idx) from exc
+                except state_errors.InconsistentValueError as exc:
+                    # Refused in the device's current state (inconsistentValue).
+                    raise self._inconsistent_value_error(name=name, idx=idx) from exc
                 except Exception as exc:  # map to a clean SMI error, never leak
                     raise self._write_error(name=name, idx=idx) from exc
                 out.append((name, val))

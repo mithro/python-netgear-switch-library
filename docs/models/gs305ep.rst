@@ -13,6 +13,22 @@ At a glance
 
 .. ngsw-model-facts:: gs305ep
 
+**Not captured from hardware.** This is the one model here with no device
+capture and no live run: every unit in this fleet (10.1.5.28-.30) was powered
+off when the attempt was made. What it *is* grounded in is two independent
+implementations that drive these switches — ``py_netgear_plus`` for the
+merge-hash login and the PoE/VLAN CGI paths, and ``netgear-smp-vlan`` for the
+``8021qCf.cgi``/``8021qMembe.cgi``/``portPVID.cgi`` field shapes and the
+1=untagged/2=tagged/3=excluded wire codes, observed on a GS105PE.
+
+So the page shapes are grounded, but the *values* are not: the mock seed is
+hand-invented (:py:func:`~netgear_switch.virtual.seed.seed_gs305ep` says so) and
+the web-UI fixtures under ``tests/fixtures/http/gs305ep_*.html`` each carry an
+``UNVERIFIED-pending-capture: synthetic`` marker. Treat behaviour recorded here
+as the documented shape, not as observed values — and see
+:doc:`gs105pe`, whose read paths turned out NOT to be shareable with this model
+even though the two do share a login scheme.
+
 Seed: :py:func:`~netgear_switch.virtual.seed.seed_gs305ep`.
 
 What works, over which protocol

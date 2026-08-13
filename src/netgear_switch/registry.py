@@ -92,6 +92,28 @@ class SwitchModel:
     # The GSM7252PS applies a single combined PDU correctly, so this stays opt-in
     # per model rather than changing that verified path.
     snmp_vlan_split_membership_writes: bool = False
+    # Can this model's SNMP agent CREATE a VLAN (a dot1qVlanStaticTable row)?
+    #
+    # False only where hardware has proved it cannot, with the device's own
+    # refusal captured. MEASURED on the GS728TPP
+    # (sw-netgear-gs728tpp.monarto.mithis.com / 10.2.5.10, firmware 6.0.1.30,
+    # 2026-08-03): EVERY documented RowStatus creation mechanism is answered
+    # inconsistentValue, naming .1.3.6.1.2.1.17.7.1.4.3.1.5.<vlan> --
+    #
+    #   createAndGo(4) alone                                   inconsistentValue
+    #   createAndGo(4) + dot1qVlanStaticName in ONE PDU        inconsistentValue
+    #   createAndWait(5), then name, then active(1)            inconsistentValue (each)
+    #   dot1qVlanStaticName alone (implicit row creation)      inconsistentValue
+    #   createAndGo(4) + name + empty 126-byte egress PortList inconsistentValue
+    #
+    # This is NOT a read-only table and NOT a rejected VLAN id. On the same
+    # switch in the same session: an EXISTING row's membership was rewritten
+    # (VLAN 90 / port 17, tagged -> excluded -> tagged, verified and restored),
+    # dot1qPvid was written and read back, destroy(6) removed a VLAN, and the
+    # web UI created VLAN 4001 without complaint. Row creation specifically is
+    # unimplemented in this agent -- so create_vlan here is an HTTP operation,
+    # which is exactly the reason the library keeps both backends.
+    snmp_can_create_vlan: bool = True
 
     @property
     def has_mac_table(self) -> bool:
@@ -111,6 +133,7 @@ def _model(
     verified: bool = True,
     snmp_vlan_write: str = "qbridge",
     snmp_vlan_split_membership_writes: bool = False,
+    snmp_can_create_vlan: bool = True,
 ) -> SwitchModel:
     return SwitchModel(
         key=key,
@@ -123,6 +146,7 @@ def _model(
         verified=verified,
         snmp_vlan_write=snmp_vlan_write,
         snmp_vlan_split_membership_writes=snmp_vlan_split_membership_writes,
+        snmp_can_create_vlan=snmp_can_create_vlan,
     )
 
 
@@ -341,6 +365,12 @@ _MODELS: dict[str, SwitchModel] = {
             24,
             {Backend.SNMP, Backend.HTTP},
             None,
+            # Its SNMP agent cannot CREATE a VLAN -- measured, with the
+            # device's own inconsistentValue for every documented RowStatus
+            # mechanism; see the field's docstring. Everything else in the VLAN
+            # surface (membership, PVID, destroy) works over SNMP, and creation
+            # works over HTTP.
+            snmp_can_create_vlan=False,
         ),
         _model(
             "gs105pe",

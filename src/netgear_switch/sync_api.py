@@ -154,6 +154,7 @@ if TYPE_CHECKING:
         MacEntry,
         MgmtIpConfig,
         PoEStatus,
+        PortSpeed,
         PortStats,
         PortStatus,
         Sensor,
@@ -721,6 +722,64 @@ class SyncSwitch:
     ) -> None:
         self._write(lambda w: w.set_port_enabled(port, enabled, force=force), backend)
 
+    def set_port_description(
+        self,
+        port: int,
+        description: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Label a port. Pass ``""`` to clear the label.
+
+        Cosmetic: it moves no traffic and cannot strand a switch, so it is not
+        force-gated. ``force`` only overrides the protected-port guard, for
+        callers who have marked their uplinks protected.
+        """
+        self._write(
+            lambda w: w.set_port_description(port, description, force=force), backend
+        )
+
+    def set_port_speed(
+        self,
+        port: int,
+        speed: PortSpeed,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Force a port's speed/duplex, or return it to auto-negotiation.
+
+        Disruptive -- applying either bounces the link -- so ``force`` is what
+        overrides the protected-port guard, as for ``set_pvid``.
+
+        Served over the FASTPATH CLI. The read that pairs with it is
+        ``PortStatus.speed_config``, NOT ``speed_mbps``: the first is what the
+        port is configured to, the second what its link negotiated, and on a
+        down port only the first has an answer.
+
+        A forced 1000 Mbit/s is refused by name: 1000BASE-T requires
+        auto-negotiation, and the firmware's ``speed`` grammar omits it
+        accordingly (measured -- the switch answers "% Invalid input").
+        """
+        self._write(lambda w: w.set_port_speed(port, speed, force=force), backend)
+
+    def set_flow_control(
+        self,
+        port: int,
+        enabled: bool,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Turn IEEE 802.3x flow control on or off for a port.
+
+        Served over the FASTPATH CLI. The read that pairs with it is
+        ``PortStatus.flow_control``, which on that backend is the CONFIGURED
+        setting -- ``show port``'s Flow Mode column moves on a link-down port.
+        """
+        self._write(lambda w: w.set_flow_control(port, enabled, force=force), backend)
+
     def set_pvid(
         self,
         port: int,
@@ -826,6 +885,44 @@ class SyncSwitch:
         been driven against hardware.
         """
         self._write(lambda w: w.set_syslog_enabled(enabled, force=force), backend)
+
+    def add_syslog_collector(
+        self,
+        host: str,
+        *,
+        port: int = 514,
+        severity: int = 6,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Add a remote syslog collector, and read it back to confirm.
+
+        Served over the FASTPATH CLI. ``severity`` is the standard syslog
+        number (0 emergency .. 7 debug); the switch forwards messages at or
+        above it. Refuses if a collector for ``host`` already exists, because
+        the firmware would otherwise add a second row for the same address and
+        silently duplicate delivery.
+        """
+        self._write(
+            lambda w: w.add_syslog_collector(
+                host, port=port, severity=severity, force=force
+            ),
+            backend,
+        )
+
+    def remove_syslog_collector(
+        self,
+        host: str,
+        *,
+        force: bool = False,
+        backend: Backend | None = None,
+    ) -> None:
+        """Remove a remote syslog collector, and read back to confirm it is gone.
+
+        Served over the FASTPATH CLI. Refuses if no collector for ``host`` is
+        configured, rather than removing a row that is not there.
+        """
+        self._write(lambda w: w.remove_syslog_collector(host, force=force), backend)
 
     def set_hostname(
         self, name: str, *, force: bool = False, backend: Backend | None = None

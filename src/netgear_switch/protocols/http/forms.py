@@ -172,7 +172,7 @@ def xui_row_apply_form(
         if name not in row.fields:
             raise KeyError(
                 f"row {row.prefix!r} does not render column {column!r} "
-                f"(it has {sorted(k[len(row.prefix):] for k in row.fields)})"
+                f"(it has {sorted(k[len(row.prefix) :] for k in row.fields)})"
             )
         body[name] = value
     if row.checkbox is not None:
@@ -271,3 +271,133 @@ def vlan_delete_form(
 
 def reboot_form(*, csrf_hash: str) -> dict[str, str]:
     return {"hash": csrf_hash}
+
+
+#: ``dhcp_mode`` on the GS110EMX sysInfo page: 1 = Enable (DHCP), 2 = Disable
+#: (static). Read off the live page's own ``<select name="dhcp_mode">``, whose
+#: current value the page carries as ``<tr data-select-value="N">`` -- the
+#: options themselves have no ``selected`` attribute, so it is the row
+#: attribute that says which one is in force.
+EMX_DHCP_ON = "1"
+EMX_DHCP_OFF = "2"
+
+
+def gs110emx_switch_info_form(
+    *,
+    switch_name: str,
+    dhcp_mode: str,
+    ip_address: str,
+    subnet_mask: str,
+    gateway_address: str,
+) -> dict[str, str]:
+    """The GS110EMX sysInfo POST body -- the WHOLE form, per the page's own JS.
+
+    Transcribed from ``submitSwitchInfoForm()`` in the switch's ``/function.js``
+    (read live from 10.1.5.27, 2026-08-05), which validates the name, then::
+
+        form1.elements["ACTION"].value = "Apply";
+        form1.submit();
+
+    -- an ordinary whole-form POST, with ``ACTION`` the only field the script
+    itself sets. Note the capital "Apply" here versus the lowercase "apply" the
+    port-admin page sends; both spellings appear in that file, per page.
+
+    EVERY OTHER FIELD MUST BE ECHOED FROM THE PAGE. This one form carries the
+    management addressing as well as the name, so a caller who omits or guesses
+    ``dhcp_mode``/``IP_ADDRESS``/``SUBNET_MASK``/``GATEWAY_ADDRESS`` does not
+    merely fail to rename the switch -- it reconfigures the address it is
+    talking to and strands the device. That is why this builder takes all of
+    them and has no defaults.
+
+    The ``Gambit`` session token is added by the transport, as for every other
+    request on this model.
+    """
+    return {
+        "switch_name": switch_name,
+        "dhcp_mode": dhcp_mode,
+        # The page's checkbox, disabled unless DHCP is being turned on; "0"
+        # is its value in the served markup and means "do not re-request a
+        # lease". Sending "1" would make the switch renew and possibly move.
+        "refresh": "0",
+        "IP_ADDRESS": ip_address,
+        "SUBNET_MASK": subnet_mask,
+        "GATEWAY_ADDRESS": gateway_address,
+        "refreshFlag": "0",
+        "errMsg": "",
+        "ACTION": "Apply",
+    }
+
+
+# --- XUI row ADD / DELETE (the syslog collector table) -----------------------
+#
+# These pages carry a blank TEMPLATE row alongside the data rows -- inputs named
+# ``v_g_<table>_<tr>_<col>``, rendered inside ``display:none`` cells with every
+# value empty. An ADD fills that row in and clicks APPLY; a DELETE marks an
+# existing row and clicks DELETE. The page's own action arrays say so:
+#
+#     xa_4_2_1 (APPLY)  -> "2_1_5|g_2_1_5" = "Active"
+#     xa_4_3_1 (DELETE) -> "2_1_5|g_2_1_5" = "Delete"
+#
+# so cell 5 is the WRITE-ONLY row-status (``xp_2_1_5 = "write-only"``,
+# ``xc = "hidden"``, ``xdt = L7_ROW_STATUS_t``) while cell 2 is the READ-ONLY
+# one the table displays. Both read off the served M4300 page, 2026-08-05.
+XUI_ROW_STATUS_ACTIVE = "Active"
+XUI_ROW_STATUS_DELETE = "Delete"
+
+
+def xui_row_add_form(
+    page: XuiListPage,
+    values: Mapping[str, str],
+    *,
+    status_column: str,
+    button: str,
+) -> dict[str, str]:
+    """The POST body that ADDS a row, by filling the page's template row.
+
+    ``values`` is keyed by BARE column (``"2_1_1"``); the ``v_g_`` prefix is
+    added here so a caller cannot address a data row by mistake. A column the
+    template does not render raises rather than being invented -- the template
+    row is the device's own declaration of which columns a new row has.
+
+    ``status_column`` is the write-only row-status cell (``"2_1_5"`` on the
+    syslog page); it is set to ``Active``, which is what the page's Apply action
+    array writes. The whole template row is echoed, including the columns the
+    caller did not set, because the firmware renders them all and a body that
+    dropped them would be submitting a different row than the page describes.
+    """
+    if not page.template:
+        raise KeyError("this page renders no v_g_* template row, so it cannot add")
+    body = dict(page.tokens)
+    body.update(page.nav)
+    body.update(page.template)
+    for column, value in values.items():
+        name = f"v_g_{column}"
+        if name not in page.template:
+            raise KeyError(
+                f"the template row does not render column {column!r} "
+                f"(it has {sorted(k[4:] for k in page.template)})"
+            )
+        body[name] = value
+    body[f"v_g_{status_column}"] = XUI_ROW_STATUS_ACTIVE
+    body.update(page.hidden)
+    body["submit_flag"] = XUI_OPERATION_SUBMIT
+    body["err_flag"] = "0"
+    body["err_msg"] = ""
+    body[button] = page.buttons[button]
+    return body
+
+
+def xui_row_delete_form(
+    page: XuiListPage, row: XuiRow, *, status_column: str, button: str
+) -> dict[str, str]:
+    """The POST body that DELETES one row, by marking its row-status cell.
+
+    Same envelope as ``xui_row_apply_form`` -- only this row's fields, plus its
+    checkbox -- with the write-only row-status set to ``Delete`` and the page's
+    Delete button clicked.
+    """
+    # xui_row_apply_form keys ``changes`` by the FULL cell name ("v_2_1_5"),
+    # while ``status_column`` is the bare coordinate the readers use ("2_1_5").
+    return xui_row_apply_form(
+        page, row, {f"v_{status_column}": XUI_ROW_STATUS_DELETE}, button=button
+    )

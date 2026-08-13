@@ -35,6 +35,7 @@ from .protocols.nsdp.protocol import Tag
 from .protocols.nsdp.write import (
     hostname_tlv,
     ipv4_tlv,
+    port_name_tlv,
     pvid_tlv,
     vlan_destroy_tlv,
     vlan_members_tlv,
@@ -42,7 +43,7 @@ from .protocols.nsdp.write import (
 from .registry import Backend
 
 if TYPE_CHECKING:
-    from .models import VLANInfo
+    from .models import PortSpeed, VLANInfo
     from .protocols.nsdp.client import AsyncNsdpWriteClient, NsdpWriteClient
     from .registry import SwitchModel
     from .snmp_write import PoeCycleTimeouts
@@ -133,6 +134,20 @@ class NsdpWriter:
     def _vlan(self, vlan: int) -> VLANInfo | None:
         return next((v for v in self._reader.get_vlans() if v.vlan_id == vlan), None)
 
+    def _require_vlan_exists(self, vlan: int) -> None:
+        """Refuse a PVID pointing at a VLAN this switch does not have.
+
+        ``NsdpError`` (not UnsupportedCapabilityError): the operation IS
+        supported, the switch simply has no such VLAN right now. Each backend
+        raises its own transport-native error for this precondition, matching
+        what ``set_vlan_membership`` already does there; all of them derive from
+        ``NetgearSwitchError``, so a backend-agnostic caller can catch one type.
+        """
+        from .protocols.nsdp.client import NsdpError
+
+        if self._vlan(vlan) is None:
+            raise NsdpError(f"VLAN {vlan} does not exist")
+
     def set_hostname(self, name: str, *, force: bool = False) -> None:
         """Set the switch's host name over NSDP (tag 0x0003).
 
@@ -155,6 +170,30 @@ class NsdpWriter:
                 after=after,
             )
 
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Set a port's description over NSDP tag 0xB000 (``PORT_NAME``).
+
+        The READ encoding is measured on three real GS110EMX units -- one TLV
+        per port, byte 0 the port number and the rest the description -- and the
+        write is that same shape (``port_name_tlv``). The write itself has NOT
+        been exercised against hardware: the three Plus units in this fleet were
+        powered off when it was attempted. Verify-after-write below is the guard
+        that makes that safe to ship -- a wrong shape cannot pass silently.
+        """
+        self._guard(port, force)
+        before = {p.port: p.description for p in self._reader.get_ports()}
+        self.client.write([port_name_tlv(port, description)], password=self._password)
+        after = {p.port: p.description for p in self._reader.get_ports()}
+        want = description or None
+        if after.get(port) != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.get(port),
+                after=after.get(port),
+            )
+
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): PORT_PVID
         # (0x3000) IS writable (the reference spec's READ-ONLY marking was
@@ -163,6 +202,12 @@ class NsdpWriter:
         # error 2 (surfaced as NsdpError by check_result). verify-after-write
         # below is the runtime guard.
         self._guard(port, force)
+        # Precondition, matching every other backend: a PVID for a VLAN that
+        # does not exist is refused here rather than sent. This switch happens
+        # to reject it, but that is not universal -- a GS728TPP ACCEPTS the
+        # equivalent write and reads it back (measured), so the check belongs in
+        # the library, on every backend, not in the hope that firmware objects.
+        self._require_vlan_exists(vlan)
         before = dict(self._reader.get_pvids())
         self.client.write([pvid_tlv(port, vlan)], password=self._password)
         after = dict(self._reader.get_pvids())
@@ -305,6 +350,65 @@ class NsdpWriter:
                 after=after,
             )
 
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated: NSDP's per-port speed
+        byte is a LINK-STATE code, not a setting -- its own value 0x00 is
+        ``DOWN`` (see ``protocols.nsdp.types.LinkSpeed``), which a
+        configuration field could not mean. No speed/duplex ADMIN tag has
+        been identified in the tag inventory captured from live GS110EMX
+        units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP publishes the negotiated link "
+            "speed only; no speed/duplex admin tag has been identified"
+        )
+
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name: NSDP's PORT_STATUS carries a flow-control byte
+        that this library READS, but no write TLV for it has been
+        identified in the tag inventory captured from live GS110EMX units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP reports flow control but no "
+            "write tag for it has been identified"
+        )
+
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
     def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
         """This backend does not serve a remote-logging toggle.
 
@@ -345,12 +449,39 @@ class AsyncNsdpWriter:
         vlans = await self._reader.get_vlans()
         return next((v for v in vlans if v.vlan_id == vlan), None)
 
+    async def _require_vlan_exists(self, vlan: int) -> None:
+        """Async twin of ``NsdpWriter._require_vlan_exists`` (see its docs)."""
+        from .protocols.nsdp.client import NsdpError
+
+        if await self._vlan(vlan) is None:
+            raise NsdpError(f"VLAN {vlan} does not exist")
+
+    async def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Async twin of ``NsdpWriter.set_port_description`` -- see it."""
+        self._guard(port, force)
+        before = {p.port: p.description for p in await self._reader.get_ports()}
+        await self.client.write(
+            [port_name_tlv(port, description)], password=self._password
+        )
+        after = {p.port: p.description for p in await self._reader.get_ports()}
+        want = description or None
+        if after.get(port) != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r}",
+                before=before.get(port),
+                after=after.get(port),
+            )
+
     async def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         # LIVE-VERIFIED over NSDP v2 on a GS110EMX (fw 1.0.2.8): PORT_PVID
         # (0x3000) IS writable. Constraint observed live: the target VLAN must
         # be one the port is already a member of, else the switch rejects with
         # header error 2. verify-after-write below is the runtime guard.
         self._guard(port, force)
+        # Precondition -- see NsdpWriter._require_vlan_exists.
+        await self._require_vlan_exists(vlan)
         before = dict(await self._reader.get_pvids())
         await self.client.write([pvid_tlv(port, vlan)], password=self._password)
         after = dict(await self._reader.get_pvids())
@@ -485,6 +616,65 @@ class AsyncNsdpWriter:
         """
         raise UnsupportedCapabilityError(
             f"model {self.model.key!r}: this backend does not expose a host-name write"
+        )
+
+    async def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure a port's speed.
+
+        Refused by name rather than approximated: NSDP's per-port speed
+        byte is a LINK-STATE code, not a setting -- its own value 0x00 is
+        ``DOWN`` (see ``protocols.nsdp.types.LinkSpeed``), which a
+        configuration field could not mean. No speed/duplex ADMIN tag has
+        been identified in the tag inventory captured from live GS110EMX
+        units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP publishes the negotiated link "
+            "speed only; no speed/duplex admin tag has been identified"
+        )
+
+    async def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """This backend cannot configure flow control.
+
+        Refused by name: NSDP's PORT_STATUS carries a flow-control byte
+        that this library READS, but no write TLV for it has been
+        identified in the tag inventory captured from live GS110EMX units.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: NSDP reports flow control but no "
+            "write tag for it has been identified"
+        )
+
+    async def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """This backend cannot add a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
+        )
+
+    async def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """This backend cannot remove a syslog collector.
+
+        Refused by name: NSDP has no logging surface at all. That is
+        measured absence -- an exhaustive tag sweep of a live GS110EMX
+        turned up no syslog tag of any kind, which is the same finding
+        that keeps NSDP off ``get_syslog``.
+        """
+        raise UnsupportedCapabilityError(
+            f"model {self.model.key!r}: this backend has no grounded "
+            "syslog-collector row write"
         )
 
     async def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:

@@ -43,6 +43,9 @@ _OP_TO_COMMAND = {
     "nsdp_device": "nsdp-device",
     "set_poe": "poe",
     "set_port_enabled": "port",
+    "set_port_description": "describe",
+    "set_port_speed": "speed",
+    "set_flow_control": "flow-control",
     "set_pvid": "pvid",
     "set_vlan_membership": "vlan",
     "create_vlan": "vlan",
@@ -52,6 +55,14 @@ _OP_TO_COMMAND = {
     "set_mgmt_ip": "ip",
     "upload_certificate": "upload-certificate",
     "upload_certificate_scp": "upload-certificate-scp",
+    "get_users": "users",
+    "get_services": "services",
+    "get_hostname": "hostname",
+    "set_hostname": "hostname",
+    "get_syslog": "syslog",
+    "set_syslog_enabled": "syslog",
+    "add_syslog_collector": "syslog",
+    "remove_syslog_collector": "syslog",
 }
 
 

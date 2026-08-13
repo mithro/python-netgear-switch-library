@@ -50,12 +50,38 @@ IF_HC_OUT_OCTETS = "1.3.6.1.2.1.31.1.1.1.10"
 IF_HC_OUT_UCAST = "1.3.6.1.2.1.31.1.1.1.11"
 IF_HIGH_SPEED = "1.3.6.1.2.1.31.1.1.1.15"  # Mbps
 IF_ALIAS = "1.3.6.1.2.1.31.1.1.1.18"
+# EtherLike-MIB (RFC 3635) per-port duplex and pause (flow control). NOT served
+# by every agent, and the difference is per-model, measured 2026-08-03:
+#
+#   gs728tpp 10.2.5.10 : dot3StatsTable has column 19, dot3PauseTable has
+#                        columns 1 and 2 -- both readable for all 36 interfaces.
+#   gsm7252ps 10.1.5.22: dot3StatsTable stops at column 16 (no 19) and
+#                        dot3PauseTable serves only the COUNTERS (3-6), not
+#                        AdminMode/OperMode. So duplex and flow control are
+#                        genuinely unavailable over SNMP there, and stay None
+#                        rather than being invented.
+#
+# dot3StatsDuplexStatus: 1 unknown, 2 halfDuplex, 3 fullDuplex.
+# dot3PauseOperMode:     1 disabled, 2 enabledXmit, 3 enabledRcv,
+#                        4 enabledXmitAndRcv.
+DOT3_STATS_DUPLEX_STATUS = "1.3.6.1.2.1.10.7.2.1.19"
+DOT3_PAUSE_ADMIN_MODE = "1.3.6.1.2.1.10.7.10.1.1"
+DOT3_PAUSE_OPER_MODE = "1.3.6.1.2.1.10.7.10.1.2"
 DOT1D_BASE_BRIDGE_ADDRESS = "1.3.6.1.2.1.17.1.1"  # scalar (.0); BRIDGE-MIB base MAC
 DOT1D_BASE_PORT_IF_INDEX = "1.3.6.1.2.1.17.1.4.1.2"
 DOT1Q_TP_FDB_PORT = "1.3.6.1.2.1.17.7.1.2.2.1.2"  # MAC table, port column ONLY
 DOT1Q_VLAN_STATIC_NAME = "1.3.6.1.2.1.17.7.1.4.3.1.1"
 DOT1Q_VLAN_STATIC_EGRESS = "1.3.6.1.2.1.17.7.1.4.3.1.2"
 DOT1Q_VLAN_STATIC_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.3.1.4"
+# dot1qVlanCurrentTable -- the OPERATIONAL VLAN table, indexed by
+# <dot1qVlanTimeMark>.<dot1qVlanIndex> (the static table above is indexed by
+# the VLAN id alone). Read alongside the static table because a VLAN can exist
+# here and NOT there: on the GS728TPP (10.2.5.10, firmware 6.0.1.30) VLAN 1 has
+# no dot1qVlanStaticTable row at all, only a current-table row with
+# dot1qVlanStatus = 1 (other) -- see parse_vlans.
+DOT1Q_VLAN_CURRENT_EGRESS = "1.3.6.1.2.1.17.7.1.4.2.1.4"
+DOT1Q_VLAN_CURRENT_UNTAGGED = "1.3.6.1.2.1.17.7.1.4.2.1.5"
+DOT1Q_VLAN_STATUS = "1.3.6.1.2.1.17.7.1.4.2.1.6"  # 1 other, 2 permanent, 3 dynamicGvrp
 DOT1Q_PVID = "1.3.6.1.2.1.17.7.1.4.5.1.1"
 DOT1Q_VLAN_STATIC_ROW_STATUS = "1.3.6.1.2.1.17.7.1.4.3.1.5"  # dot1qVlanStaticRowStatus
 ROW_STATUS_CREATE_AND_GO = 4  # RowStatus createAndGo
@@ -104,6 +130,18 @@ ENT_CLASS_FAN = 7
 LLDP_REM_TABLE = "1.0.8802.1.1.2.1.4.1"
 # RFC3621; col3=admin, col6=detect
 PETH_PSE_PORT_TABLE = "1.3.6.1.2.1.105.1.1.1"
+# The only two columns parse_poe honours. Reading them as two column-scoped
+# walks instead of one whole-table walk is not a micro-optimisation on real
+# hardware: the GS728TPP's PoE MIB answers at roughly 0.35s per varbind (its
+# ifTable manages 69 rows in 1.5s), so the 288-row table walk takes 102s while
+# these two 24-row columns take ~23s together. That mattered enough to make a
+# PoE WRITE -- which verifies by re-reading -- take over three minutes.
+# Measured 2026-08-02 on 10.2.5.10, firmware 6.0.1.30. (Raising
+# max-repetitions was tried and is WORSE than useless here: -Cr25 returned a
+# TRUNCATED 50 rows in 44s, so the agent mishandles large GETBULKs on this
+# table -- fetching fewer varbinds is the only safe speed-up.)
+PETH_PSE_PORT_ADMIN = PETH_PSE_PORT_TABLE + ".3"  # pethPsePortAdminEnable
+PETH_PSE_PORT_DETECT = PETH_PSE_PORT_TABLE + ".6"  # pethPsePortDetectionStatus
 # ipAddrTable (snmp_common.py:36 base .4.20)
 IP_ADENT_ADDR = "1.3.6.1.2.1.4.20.1.1"
 IP_ADENT_IFINDEX = "1.3.6.1.2.1.4.20.1.2"

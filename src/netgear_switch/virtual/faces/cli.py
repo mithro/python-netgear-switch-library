@@ -40,9 +40,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from ...models import syslog_severity
 from ...registry import get_model
 from .. import cli_fastpath
-from ..state import ScpCertDeploy, VlanSim
+from ..state import ScpCertDeploy, SyslogCollectorSim, VlanSim
 
 if TYPE_CHECKING:
     from ...protocols.cli.commands import CliModelSpec
@@ -69,9 +70,62 @@ _SWITCHPORT_MODE_RE = re.compile(r"^switchport mode (access|general|trunk)$")
 _PARTICIPATION_RE = re.compile(r"^vlan participation (include|exclude) (\d+)$")
 _TAGGING_RE = re.compile(r"^(no )?vlan tagging (\d+)$")
 _PVID_RE = re.compile(r"^vlan pvid (\d+)$")
+# Per-port description. The single-quoted form is the firmware's OWN: a live
+# GSM7252PS (10.1.5.22, 2026-08-03) renders its 38 labelled ports in
+# ``show running-config`` as ``description 'eth0.rpi5-pmod'``, and the negation
+# is the standard ``no description``. NOT mode-gated, unlike the VLAN commands:
+# a label is cosmetic and does not depend on the port's switchport mode.
+_DESCRIPTION_RE = re.compile(r"^description '([^']*)'$")
+_NO_DESCRIPTION_RE = re.compile(r"^no description$")
+_PORT_DESCRIPTION_SHOW_RE = re.compile(r"^show port description (\S+)$")
+# Per-port speed/duplex. TWO grammars meaning opposite things, both executed on
+# the real gsm7252ps (10.1.5.22 port 1/0/8, 2026-08-03) -- ``speed 100
+# full-duplex`` moved Physical Mode to "100 Full", ``speed auto`` moved it back.
+_SPEED_AUTO_RE = re.compile(r"^speed auto$")
+_SPEED_FORCED_RE = re.compile(r"^speed (\d+G?) (full|half)-duplex$")
+# MEASURED REFUSAL, and the reason this mock is not merely permissive: the same
+# live port answered ``speed 1000 full-duplex`` with "% Invalid input detected
+# at '^' marker." and left Physical Mode UNCHANGED. 1000BASE-T requires
+# auto-negotiation, so the firmware keeps 1000 out of the forced grammar while
+# offering it in ``speed auto [10] [100] [1000] [10G]``.
+_NO_FORCED_RATE = 1000
+# NOT modelled, and deliberately so: which OTHER rates a port will force is a
+# property of its PHY, not of the firmware -- gsm7252ps 1/0/8 enumerated
+# 10/100/10G while m4300-24x 1/0/15 enumerated 100/10G (no 10). Only those two
+# ports were ever enumerated, on two of the four CLI models, so a per-model rate
+# table here would be inventing three quarters of itself. The library does not
+# pre-validate rates either (it sends, and raises whatever the device answers),
+# so mock and library agree on exactly the rule that was measured.
+
+# 802.3x flow control -- a bare toggle, round-tripped live on gsm7252ps
+# 10.1.5.22 port 1/0/8 (2026-08-03): `flowcontrol` moved Flow Mode from Disable
+# to Enable and added a running-config line, `no flowcontrol` undid both.
+_FLOW_CONTROL_RE = re.compile(r"^(no )?flowcontrol$")
 _POE_RE = re.compile(r"^(no )?poe$")
 _POE_RESET_RE = re.compile(r"^poe reset$")
 _SHUTDOWN_RE = re.compile(r"^(no )?shutdown$")
+# Remote logging, in GLOBAL config mode. The add form is VERBATIM from every
+# FASTPATH switch's own running-config (2026-08-05):
+#     logging host "10.1.5.1" ipv4 514 info
+# The removal addresses the 1-based INDEX from `show logging hosts`.
+_LOGGING_HOST_ADD_RE = re.compile(
+    r'^logging host "([^"]+)" (ipv4|ipv6|dns) (\d+) (\w+)$'
+)
+# REMOVAL IS A SUBCOMMAND, NOT A NEGATION. This mock used to accept
+# `no logging host <index>` -- which the REAL gsm7252ps rejects outright
+# ("% Invalid input detected at '^' marker.", measured 2026-08-05, and it left
+# a throwaway collector stranded on the switch until the right verb was found).
+# The device's own `logging host ?` lists `remove` and `reconfigure` as
+# subcommands. Accepting the negation here is exactly the lenient-fake failure
+# principle 5 exists to prevent, so the negation is now REJECTED too.
+_LOGGING_HOST_REMOVE_RE = re.compile(r"^logging host remove (\d+)$")
+#: The negation, MEASURED as rejected on 10.1.5.22 with the exact text below --
+#: in every spelling tried (bare index, quoted address, unquoted address, and
+#: both with a trailing `ipv4`). Matched explicitly so the mock answers it the
+#: way the device does, rather than falling through to the generic
+#: "Command not found" and being merely accidentally-not-wrong.
+_LOGGING_HOST_NEGATION_RE = re.compile(r"^no logging host\b.*$")
+_LOGGING_SYSLOG_RE = re.compile(r"^(no )?logging syslog$")
 _IP = r"(\d+\.\d+\.\d+\.\d+)"
 # Older images (gsm7252ps, gsm7228ps): ONE privileged-EXEC command.
 _NETWORK_PARMS_RE = re.compile(rf"^network parms {_IP} {_IP}(?: {_IP})?$")
@@ -82,10 +136,12 @@ _IP_GATEWAY_RE = re.compile(rf"^ip default-gateway {_IP}$")
 # Mode names for the mode stack (see VirtualCliFace._modes).
 _VLAN_DB, _CONFIG, _INTERFACE = "vlan-db", "config", "interface"
 
-# Rejection texts. Their exact wording is NOT ground truth (no capture of a
-# rejected FASTPATH config command exists here); what IS proven, and what the
-# library relies on, is only that a rejected command answers with SOMETHING and
-# an accepted one answers with NOTHING.
+# Rejection texts. This exact wording IS now ground truth for at least one
+# case: a live gsm7252ps (10.1.5.22, 2026-08-03) answered ``speed 1000
+# full-duplex`` with precisely "% Invalid input detected at '^' marker.". It is
+# still not established that every other rejection here is worded the same way;
+# what IS proven, and all the library relies on, is that a rejected command
+# answers with SOMETHING and an accepted one answers with NOTHING.
 _INVALID = "% Invalid input detected at '^' marker."
 _ACCEPTED = ""
 
@@ -299,6 +355,33 @@ class VirtualCliFace:
                 return _ACCEPTED  # accepted-but-inert, as above
             self.state.pvids[port] = vid
             return _ACCEPTED
+        m = _FLOW_CONTROL_RE.match(c)
+        if m:
+            # Configured state only: the link is not renegotiated, exactly as
+            # observed on the live DOWN port whose Flow Mode still moved.
+            self.state.ports[port].flow_control = m.group(1) is None
+            return _ACCEPTED
+        if _SPEED_AUTO_RE.match(c):
+            self.state.ports[port].physical_mode = "Auto"
+            return _ACCEPTED
+        m = _SPEED_FORCED_RE.match(c)
+        if m:
+            rate, duplex = m.group(1), m.group(2)
+            if rate == str(_NO_FORCED_RATE):
+                return _INVALID  # measured: the switch has no forced 1000
+            # Physical Mode ONLY. The negotiated rate (``speed``, rendered in
+            # the Physical Status column) is untouched, because forcing the
+            # configuration of a DOWN port negotiates nothing -- exactly what
+            # the live port did.
+            self.state.ports[port].physical_mode = f"{rate} {duplex.capitalize()}"
+            return _ACCEPTED
+        m = _DESCRIPTION_RE.match(c)
+        if m:
+            self.state.ports[port].description = m.group(1) or None
+            return _ACCEPTED
+        if _NO_DESCRIPTION_RE.match(c):
+            self.state.ports[port].description = None
+            return _ACCEPTED
         return None
 
     def _config_command(self, c: str) -> str | None:
@@ -347,6 +430,48 @@ class VirtualCliFace:
                 # either form on the wire so a caller that quotes is not
                 # silently given a name with quotes embedded in it.
                 self.state.hostname = m.group(1).strip().strip('"')
+                return _ACCEPTED
+            m = _LOGGING_SYSLOG_RE.match(c)
+            if m:
+                # admin_mode is the device's own enum, 1 = enabled / 2 = not.
+                self.state.syslog.admin_mode = 1 if m.group(1) is None else 2
+                return _ACCEPTED
+            m = _LOGGING_HOST_ADD_RE.match(c)
+            if m:
+                address, _kind, port, word = m.groups()
+                try:
+                    severity = syslog_severity(word)
+                except ValueError:
+                    return _INVALID  # a word this firmware would not accept
+                # A real switch appends a SECOND row for an address it already
+                # has rather than replacing the first -- which is exactly why
+                # CliWriter refuses a duplicate before sending anything. The
+                # mock reproduces the append so that refusal has something real
+                # to prevent.
+                # A NEW index, never a renumbering: real FASTPATH hands out the
+                # next free slot and leaves existing rows where they are, which
+                # is how the table becomes sparse after a removal.
+                collectors = self.state.syslog.collectors
+                nxt = max((c.index for c in collectors), default=0) + 1
+                collectors.append(
+                    SyslogCollectorSim(
+                        host=address, port=int(port), severity=severity, index=nxt
+                    )
+                )
+                return _ACCEPTED
+            if _LOGGING_HOST_NEGATION_RE.match(c):
+                return _INVALID  # removal is a subcommand, not a negation
+            m = _LOGGING_HOST_REMOVE_RE.match(c)
+            if m:
+                index = int(m.group(1))
+                collectors = self.state.syslog.collectors
+                row = next((c for c in collectors if c.index == index), None)
+                if row is None:
+                    # The device's own words, measured on 10.1.5.13.
+                    return f"Error! Logging Host with index of {index} is non-existent."
+                collectors.remove(row)
+                # Survivors KEEP their index -- that is what makes the table
+                # sparse, and what a position-based remover gets wrong.
                 return _ACCEPTED
             m = _INTERFACE_RE.match(c)
             if m:
@@ -401,6 +526,9 @@ class VirtualCliFace:
             return cli_fastpath.render_version(self.state)
         if c == self.spec.port_status_cmd:
             return cli_fastpath.render_ports(self.state)
+        m = _PORT_DESCRIPTION_SHOW_RE.match(c)
+        if m:
+            return cli_fastpath.render_port_description(self.state, m.group(1))
         if c == self.spec.vlan_brief_cmd:
             return cli_fastpath.render_vlan_brief(self.state)
         if c == self.spec.pvid_cmd:
@@ -417,6 +545,12 @@ class VirtualCliFace:
             return cli_fastpath.render_network(self.state)
         if c == self.spec.hosts_cmd:
             return cli_fastpath.render_hosts(self.state)
+        # Order matters: `show logging hosts` starts with `show logging`, so the
+        # longer command must be tested first or it would never be reached.
+        if c == self.spec.logging_hosts_cmd:
+            return cli_fastpath.render_logging_hosts(self.state)
+        if c == self.spec.logging_cmd:
+            return cli_fastpath.render_logging(self.state)
         m = _SHOW_VLAN_ID_RE.match(c)
         if m:
             return cli_fastpath.render_vlan_detail(self.state, int(m.group(1)))

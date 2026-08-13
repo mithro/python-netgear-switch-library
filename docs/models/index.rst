@@ -7,8 +7,13 @@ that registry at documentation build time, so it cannot drift from the code.
 
 .. ngsw-model-table::
 
-Every model listed above is backed by a real device capture or a live run
-against the hardware. :py:func:`~netgear_switch.registry.get_model` resolves a key — or
+Every model listed above is backed by evidence, and each model's own page says
+which kind. All but one are a device capture or a live run against the
+hardware. The **GS305EP is the exception**: its support is grounded in two
+independent implementations that drive these switches — ``py_netgear_plus``
+and ``netgear-smp-vlan``, the latter observed against a GS105PE — and no
+GS305EP has been captured, so its mock seed and web-UI fixtures are marked
+synthetic in the source. :py:func:`~netgear_switch.registry.get_model` resolves a key — or
 an alias, such as ``s3300`` — to the record; ``ngsw models`` prints the whole
 registry, including the entries these tables leave out, named below.
 

@@ -36,6 +36,21 @@ class NotWritableError(Exception):
     """The object exists but is read-only (real agents answer notWritable)."""
 
 
+class InconsistentValueError(Exception):
+    """The agent refuses this value in the device's current state.
+
+    Models a real SNMP ``inconsistentValue``. VERIFIED on the GS728TPP
+    (sw-netgear-gs728tpp.monarto.mithis.com / 10.2.5.10, firmware 6.0.1.30,
+    2026-08-03): every documented way of CREATING a dot1qVlanStaticTable row is
+    refused with exactly this error -- createAndGo(4) alone, createAndGo with
+    dot1qVlanStaticName in the same PDU, createAndWait(5) then name then
+    active(1), setting the name column alone, and createAndGo carrying an empty
+    126-byte egress PortList. The same firmware happily writes an EXISTING
+    row's membership and accepts destroy(6), so this is specifically row
+    creation, not a read-only table.
+    """
+
+
 def _all_vlans_bitmap() -> bytes:
     """A switchport allowed-VLAN bitmap with VLANs 1..4093 set.
 
@@ -153,6 +168,81 @@ class PortSim:
     # says Disable. Defaults True, which is the factory default those first two
     # units are still on.
     flow_control: bool = True
+    # Does this model's SNMP agent publish the EtherLike-MIB duplex/pause
+    # columns for this interface? Per-model, MEASURED 2026-08-03: the GS728TPP
+    # serves dot3StatsDuplexStatus and dot3PauseAdminMode/OperMode for all 36
+    # interfaces, while the GSM7252PS publishes neither column (its
+    # dot3StatsTable stops at 16 and its dot3PauseTable has only counters).
+    #
+    # Default False so no model gains an OID its hardware was never observed
+    # to answer -- a seed opts in. Where it is False, SNMP get_ports reports
+    # full_duplex/flow_control as None, which is the honest reading of an
+    # absent column, and exactly what the real GSM7252PS produces.
+    serves_etherlike: bool = False
+    # The port's CONFIGURED speed/duplex -- `show port`'s "Physical Mode"
+    # column, which is a DIFFERENT thing from ``speed`` above (that one is the
+    # negotiated rate the "Physical Status" column reports). Kept as the raw
+    # device text so the mock does not re-derive the cell with the same helper
+    # the parser uses: a mock that formats what the code under test parses can
+    # only ever agree with it. "Auto" is what every real port on every switch
+    # captured here reports, and 1/0/8 on the live gsm7252ps read back exactly
+    # "100 Full" after ``speed 100 full-duplex`` (2026-08-03).
+    #
+    # Note this is deliberately NOT coupled to ``speed``: forcing a port to 100
+    # while its link is DOWN leaves Physical Status blank and Physical Mode at
+    # "100 Full", which is precisely the divergence the two fields exist for.
+    physical_mode: str = "Auto"
+    # The SAME configured speed as ``physical_mode`` above, in the GoAhead web
+    # UI's own three-element encoding. Kept as separate RAW fields rather than
+    # rendered from one shared value, for the same reason: a mock that computes
+    # what the parser decodes can only ever agree with it.
+    #
+    # The defaults are what the live GS728TPP (10.2.5.10, firmware 6.0.1.30)
+    # returned for EVERY port: autoneg 1 with speedAdmin 1000 sitting beside it.
+    # That pairing is the interesting part -- speedAdmin is meaningful only
+    # while autoneg is 2, so a decoder reading the rate alone would call this
+    # whole switch "forced to 1000". No FASTPATH model serves these fields and
+    # no GoAhead model serves ``physical_mode``, so the two never disagree on
+    # one device.
+    autoneg_admin: str = "1"  # 1 = negotiating, 2 = forced
+    speed_admin: str = "1000"  # Mbit/s; only meaningful while autoneg is 2
+    duplex_admin_mode: str = "3"  # 3 = full, 2 = half (NOT duplexOperMode's enum)
+
+
+@dataclass
+class UserSim:
+    """One local login account, as the switch's own pages word it.
+
+    ``http_access_mode`` is stored VERBATIM rather than derived from a
+    privilege flag, because the same account is worded DIFFERENTLY depending on
+    which face is asked -- measured on 10.1.5.22 and 10.1.5.13, where admin
+    reads "Super User" on userManagement.html but "Read/Write" and
+    "Privilege-15" respectively through each switch's own `show users`. A mock
+    that stored one level and rendered it per face would be inventing the
+    wording; storing what each page really emits means the reader's own
+    word-to-privilege mapping is what gets exercised.
+
+    The CLI face has no `show users` yet. When it gains one it needs its own
+    field here, NOT this one: the two faces genuinely disagree.
+    """
+
+    name: str
+    http_access_mode: str
+
+
+@dataclass
+class ServiceSim:
+    """One management service's admin state, as its own config page reports it.
+
+    ``port`` is ``None`` where the page carries NO port field -- which is a real
+    per-page difference, not a gap in the mock: the m4300 SSH page publishes
+    ``v_1_10_1='22'`` while the gsm7252ps SSH page has no such coordinate at
+    all (measured 2026-08-03). Seeding 22 there would make the fake claim a
+    field the device does not print.
+    """
+
+    enabled: bool
+    port: int | None = None
 
 
 @dataclass
@@ -169,6 +259,12 @@ class SyslogCollectorSim:
     port: int
     severity: int
     status: int = 1
+    #: The row's index in the switch's own host table. SPARSE on real
+    #: hardware -- m4300-24x 10.1.5.13 held Index 1 and Index 3 with nothing
+    #: at 2 (2026-08-05) -- so the mock stores it rather than deriving it from
+    #: list position. A fake that renumbered densely could never catch a
+    #: position-for-index bug, which is exactly the bug that got shipped.
+    index: int = 1
 
 
 @dataclass
@@ -213,6 +309,20 @@ class VlanSim:
     # with each other while both disagreed with hardware. Empty (the default) =
     # configured and current coincide, which is the normal case.
     configured_only: set[int] = field(default_factory=set)
+    # Does this VLAN have a ``dot1qVlanStaticTable`` row at all?
+    #
+    # MEASURED on the GS728TPP (sw-netgear-gs728tpp.monarto.mithis.com /
+    # 10.2.5.10, firmware 6.0.1.30, 2026-08-02): its default VLAN 1 does NOT.
+    # A walk of dot1qVlanStaticName/Egress/Untagged/RowStatus returns exactly 12
+    # rows -- ids 2,3,4,5,6,7,10,20,31,41,90,99 -- while dot1qVlanCurrentTable
+    # returns 13, the extra one being VLAN 1 with dot1qVlanStatus = 1 (other)
+    # where every other VLAN reads 2 (permanent). The web UI lists VLAN 1, so a
+    # reader that consults only the static table loses it; see
+    # protocols/snmp/parse.parse_vlans, which reads both tables because of this.
+    #
+    # True (the default) is the normal case and is itself measured: the
+    # GSM7252PS, both M4300s and the S3300-52X all publish a static VLAN 1 row.
+    static_row: bool = True
 
     @property
     def configured(self) -> set[int]:
@@ -409,6 +519,14 @@ class VirtualSwitchState:
     #: oid_map() projects it under <vendor base>.14 for those models only, which
     #: is what makes gs728tpp (no vendor OIDs) correctly unable to answer.
     syslog: SyslogSim = field(default_factory=SyslogSim)
+    #: Local login accounts, as userManagement.html lists them. Empty for a
+    #: model whose UI has no such page located, so its HTTP face 404s that URL
+    #: exactly as the real switch does.
+    users: list[UserSim] = field(default_factory=list)
+    #: Management-service admin state, keyed "http"/"https"/"ssh"/"telnet", as
+    #: each service's own config page reports it. Empty for a model whose pages
+    #: have not been located.
+    services: dict[str, ServiceSim] = field(default_factory=dict)
     nsdp_password: str = "password"
     # Write-auth scheme this mock advertises via AUTH_V2_ENCPASS (0x0014), and
     # the ONLY scheme it accepts on a WRITE_REQUEST:
@@ -779,12 +897,17 @@ class VirtualSwitchState:
         if v is not None:
             m[f"{v.base}.14.1.4.1.0"] = ("INTEGER", str(self.syslog.admin_mode))
             m[f"{v.base}.14.1.4.3.0"] = ("Gauge32", str(self.syslog.local_port))
-            for index, col in enumerate(self.syslog.collectors, start=1):
-                m[f"{v.base}.14.1.4.5.1.2.{index}"] = ("INTEGER", "1")
-                m[f"{v.base}.14.1.4.5.1.3.{index}"] = ("OCTETSTR", col.host)
-                m[f"{v.base}.14.1.4.5.1.4.{index}"] = ("Gauge32", str(col.port))
-                m[f"{v.base}.14.1.4.5.1.5.{index}"] = ("INTEGER", str(col.severity))
-                m[f"{v.base}.14.1.4.5.1.7.{index}"] = ("INTEGER", str(col.status))
+            # col.index, NOT the enumeration position: the real table is SPARSE
+            # (Index 1 and 3 with nothing at 2, measured on m4300-24x
+            # 10.1.5.13) and the OID instance IS that index, which is what a
+            # RowStatus destroy addresses.
+            for col in self.syslog.collectors:
+                i = col.index
+                m[f"{v.base}.14.1.4.5.1.2.{i}"] = ("INTEGER", "1")
+                m[f"{v.base}.14.1.4.5.1.3.{i}"] = ("OCTETSTR", col.host)
+                m[f"{v.base}.14.1.4.5.1.4.{i}"] = ("Gauge32", str(col.port))
+                m[f"{v.base}.14.1.4.5.1.5.{i}"] = ("INTEGER", str(col.severity))
+                m[f"{v.base}.14.1.4.5.1.7.{i}"] = ("INTEGER", str(col.status))
 
         for port, sim in self.ports.items():
             m[f"{oids.IF_ADMIN_STATUS}.{port}"] = ("INTEGER", "1" if sim.admin else "2")
@@ -792,6 +915,18 @@ class VirtualSwitchState:
             m[f"{oids.IF_HIGH_SPEED}.{port}"] = ("Gauge32", str(sim.speed))
             m[f"{oids.IF_TYPE}.{port}"] = ("INTEGER", str(sim.if_type))
             m[f"{oids.IF_NAME}.{port}"] = ("OCTETSTR", sim.name)
+            if sim.serves_etherlike:
+                # dot3StatsDuplexStatus: 3 fullDuplex while the link is up,
+                # 1 unknown while it is down -- exactly what the live GS728TPP
+                # returns for every one of its 28 ports.
+                m[f"{oids.DOT3_STATS_DUPLEX_STATUS}.{port}"] = (
+                    "INTEGER",
+                    "3" if sim.link else "1",
+                )
+                # dot3PauseOperMode: 1 disabled, 4 enabledXmitAndRcv.
+                mode = "4" if sim.flow_control else "1"
+                m[f"{oids.DOT3_PAUSE_OPER_MODE}.{port}"] = ("INTEGER", mode)
+                m[f"{oids.DOT3_PAUSE_ADMIN_MODE}.{port}"] = ("INTEGER", mode)
             if sim.description is not None:
                 m[f"{oids.IF_ALIAS}.{port}"] = ("OCTETSTR", sim.description)
             # Port stats: only emit a counter the port actually exposes
@@ -853,6 +988,30 @@ class VirtualSwitchState:
                     )
 
         for vid, vsim in self.vlans.items():
+            # dot1qVlanCurrentTable -- the OPERATIONAL view, indexed
+            # <timeMark>.<vlanIndex>. Real agents publish it for EVERY VLAN,
+            # including ones with no static row, which is the only place the
+            # GS728TPP's VLAN 1 appears at all (see VlanSim.static_row). Time
+            # mark 0 is what that switch reports on every row.
+            m[f"{oids.DOT1Q_VLAN_CURRENT_EGRESS}.0.{vid}"] = (
+                "OCTETSTR",
+                encode_port_bitmap(vsim.member, width_bytes=vlan_width),
+            )
+            m[f"{oids.DOT1Q_VLAN_CURRENT_UNTAGGED}.0.{vid}"] = (
+                "OCTETSTR",
+                encode_port_bitmap(vsim.untagged, width_bytes=vlan_width),
+            )
+            # 1=other, 2=permanent: the live GS728TPP reports 1 for its
+            # static-row-less VLAN 1 and 2 for all 12 configured VLANs.
+            m[f"{oids.DOT1Q_VLAN_STATUS}.0.{vid}"] = (
+                "INTEGER",
+                "2" if vsim.static_row else "1",
+            )
+            if not vsim.static_row:
+                # No dot1qVlanStaticTable row at all -- not an empty one. The
+                # distinction is the whole point: an empty row would still make
+                # the VLAN visible to a static-table-only reader.
+                continue
             m[f"{oids.DOT1Q_VLAN_STATIC_NAME}.{vid}"] = ("OCTETSTR", vsim.name)
             m[f"{oids.DOT1Q_VLAN_STATIC_EGRESS}.{vid}"] = (
                 "OCTETSTR",
@@ -1014,6 +1173,24 @@ class VirtualSwitchState:
         psim.admin = True
         psim.detect = 3 if psim.power_mw else 2
 
+    def _refuse_vlan_creation_if_unsupported(self, oid: str) -> None:
+        """Reproduce a device that will not create a dot1qVlanStaticTable row.
+
+        MEASURED on the GS728TPP (10.2.5.10, firmware 6.0.1.30): every
+        documented creation mechanism answers ``inconsistentValue``, while the
+        SAME table's data columns accept writes and ``destroy(6)`` works. The
+        mock has to make that exact distinction -- a blanket notWritable, or
+        silently creating the row, would each let a create_vlan that cannot work
+        on this hardware look fine in tests.
+        """
+        from ..registry import get_model
+
+        if not get_model(self.model_key).snmp_can_create_vlan:
+            raise InconsistentValueError(
+                f"{self.model_key}: this agent refuses VLAN row creation "
+                f"(inconsistentValue at {oid})"
+            )
+
     def apply_write(self, oid: str, value: int | bytes | str) -> None:
         """Mutate this state from one SNMP SET varbind, with device coherence.
 
@@ -1052,6 +1229,17 @@ class VirtualSwitchState:
             self.ports[port].admin = int(value) == 1
             if int(value) != 1:
                 self.ports[port].link = False
+            return
+
+        # ifAlias = the per-port description. An EMPTY value clears it, and
+        # oid_map() omits the row entirely when description is None -- which is
+        # what makes the reader report None rather than "". That round trip is
+        # the one the live transport could not do until an empty OCTET STRING
+        # learned to travel as an empty hex string.
+        port = _tail(oids.IF_ALIAS)
+        if port is not None and port in self.ports:
+            text = value.decode("latin-1") if isinstance(value, bytes) else str(value)
+            self.ports[port].description = text or None
             return
 
         # pethPsePortAdminEnable = <table>.3.1.<port>
@@ -1145,9 +1333,7 @@ class VirtualSwitchState:
             # last one is why the writer can never express "untagged nowhere".
             native = int(value)
             if native not in self.vlans:
-                why = (
-                    "is out of range" if not 1 <= native <= 4093 else "does not exist"
-                )
+                why = "is out of range" if not 1 <= native <= 4093 else "does not exist"
                 raise CommitFailedError(
                     f"switchport native VLAN for port {port} must be an existing "
                     f"VLAN in 1..4093; {native} {why} (a real FASTPATH agent "
@@ -1182,8 +1368,10 @@ class VirtualSwitchState:
         if vid is not None:
             if int(value) == oids.ROW_STATUS_DESTROY:
                 self.vlans.pop(vid, None)
-            elif int(value) == oids.ROW_STATUS_CREATE_AND_GO and vid not in self.vlans:
-                self.vlans[vid] = VlanSim(name="")
+            elif vid not in self.vlans:
+                self._refuse_vlan_creation_if_unsupported(oid)
+                if int(value) == oids.ROW_STATUS_CREATE_AND_GO:
+                    self.vlans[vid] = VlanSim(name="")
             return
 
         # dot1qVlanStaticName.<vid>
@@ -1193,6 +1381,9 @@ class VirtualSwitchState:
             if vid in self.vlans:
                 self.vlans[vid].name = name
             else:
+                # Setting the name of a row that does not exist IS a creation
+                # attempt -- one of the five the GS728TPP refuses.
+                self._refuse_vlan_creation_if_unsupported(oid)
                 self.vlans[vid] = VlanSim(name=name)
             return
 
@@ -1213,6 +1404,35 @@ class VirtualSwitchState:
             # 2=static, anything else=dhcp, matching oid_map()'s encoding.
             if oid == f"{v.dhcp_mode_unverified}.0":
                 self.mgmt.mode = "static" if int(value) == 2 else "dhcp"
+                return
+            # Remote-logging admin mode (1 = enabled, 2 = not), the column
+            # set_syslog_enabled writes.
+            if oid == v.syslog_admin_mode:
+                self.syslog.admin_mode = int(value)
+                return
+            # Syslog host RowStatus. MEASURED on m4300-24x 10.1.5.13
+            # (2026-08-05): this agent honours destroy(6) on an existing row but
+            # refuses to CREATE one through every mechanism -- createAndGo(4)
+            # and createAndWait(5) answer inconsistentValue, and writing the
+            # value columns at a free index answers commitFailed. The mock
+            # reproduces BOTH halves so the writer's asymmetric support (remove
+            # yes, add no) is checked against a fake that behaves the same way.
+            index = _tail(v.syslog_host_status)
+            if index is not None:
+                row = next(
+                    (c for c in self.syslog.collectors if c.index == index), None
+                )
+                if row is None:
+                    # No such row: creating one is what the agent refuses.
+                    raise InconsistentValueError(
+                        f"syslog host row {index} does not exist -- this agent "
+                        f"refuses to create one (measured: createAndGo and "
+                        f"createAndWait both answer inconsistentValue)"
+                    )
+                if int(value) == 6:  # destroy
+                    self.syslog.collectors.remove(row)
+                    return
+                row.status = int(value)
                 return
 
         # Unhandled writable OID: deliberate no-op (verify-after-write catches it).
@@ -1451,6 +1671,12 @@ class VirtualSwitchState:
 
         if _is_col(oids.IF_ADMIN_STATUS):
             return True
+        # ifAlias, the standard per-port description column. WRITABLE on real
+        # hardware: confirmed on a GS728TPP (10.2.5.10, firmware 6.0.1.30,
+        # 2026-08-03) -- a SET was accepted and read straight back through
+        # get_ports, and an empty value cleared it again.
+        if _is_col(oids.IF_ALIAS):
+            return True
         poe_prefix = f"{oids.PETH_PSE_PORT_TABLE}.3.1."
         if oid.startswith(poe_prefix) and oid[len(poe_prefix) :].isdigit():
             return True
@@ -1486,6 +1712,14 @@ class VirtualSwitchState:
             v.mgmt_write_netmask_unverified,
             v.mgmt_write_gateway_unverified,
         ):
+            return True
+        # Remote-logging admin mode, and the syslog host RowStatus column.
+        # Both writable on real hardware (m4300-24x 10.1.5.13, 2026-08-05, with
+        # the Read/Write community): the admin mode is what set_syslog_enabled
+        # writes, and the RowStatus column accepts destroy(6) on an existing
+        # row -- while refusing to CREATE one, which apply_write models by
+        # raising InconsistentValueError for an index that is not there.
+        if oid == v.syslog_admin_mode or _is_col(v.syslog_host_status):
             return True
         return oid == f"{v.dhcp_mode_unverified}.0"
 

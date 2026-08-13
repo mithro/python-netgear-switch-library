@@ -93,6 +93,18 @@ restating them. A refusal falls into one of three kinds:
     most likely to move, because a page that exists but has not been found yet
     looks exactly the same from here.
 
+**The device's agent does not implement that operation.**
+    The protocol defines it, the hardware has it, and the switch still refuses.
+    The GS728TPP's SNMP agent will not create a VLAN: every documented RowStatus
+    mechanism — ``createAndGo`` alone, ``createAndGo`` carrying
+    ``dot1qVlanStaticName`` in one PDU, ``createAndWait`` → name → ``active``,
+    setting the name column alone, and ``createAndGo`` with an egress PortList —
+    is answered ``inconsistentValue``. That it is the agent and not the table is
+    shown by what the same firmware *does* accept: an existing VLAN's membership
+    columns, ``dot1qPvid``, and ``destroy(6)``, while its web UI creates a VLAN
+    without complaint. So VLAN creation on that model is an HTTP operation, and
+    the refusal names the backend that does work.
+
 What is *not* on this list is "not implemented yet". A backend that could serve
 an operation but does not is a bug in this library, and is fixed rather than
 documented.

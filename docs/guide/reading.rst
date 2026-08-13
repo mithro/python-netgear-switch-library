@@ -19,7 +19,11 @@ The operations
      - ``list[PortStatus]``
      - Port number, ``ifName``, admin state, link state, speed in Mbit/s, and
        the operator-set description (``ifAlias``) where the backend can read
-       one.
+       one. ``speed_config`` carries the port's **configured** speed/duplex,
+       which is a different question from the negotiated ``speed_mbps`` —
+       see :ref:`speed-vs-negotiated`. The CLI and the GoAhead web UI both
+       report it; SNMP and NSDP leave it ``None``, because ``ifSpeed`` and
+       NSDP's port record are both the negotiated rate.
    * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_stats`
      - ``list[PortStats]``
      - RX/TX bytes, packets and errors. Any counter a backend cannot read is
@@ -48,6 +52,25 @@ The operations
      - :py:obj:`~netgear_switch.models.MgmtIpConfig`
      - Address, netmask, gateway, DHCP-or-static mode, and the switch's base
        MAC.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_hostname`
+     - ``str``
+     - The switch's configured host name.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_users`
+     - ``list[SwitchUser]``
+     - Local login accounts. ``access_mode`` is the switch's own wording for
+       the account, kept verbatim because it differs by *face*, not just by
+       firmware: asked over the CLI the same admin account reads
+       ``Privilege-15`` on one image and ``Read/Write`` on another, while both
+       switches' web UIs call it ``Super User``. The normalised ``privileged``
+       flag beside it agrees across all three.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_services`
+     - ``list[ServiceStatus]``
+     - Whether http, https, telnet and ssh are enabled, and on which port
+       where the firmware reports one.
+   * - :py:obj:`~netgear_switch.sync_api.SyncSwitch.get_syslog`
+     - :py:obj:`~netgear_switch.models.SyslogConfig`
+     - Whether remote logging is on, the local source port, and the configured
+       collectors.
 
 Not every model serves every one of these on every backend.
 :doc:`../models/support` has the complete grid, and
@@ -58,8 +81,13 @@ Absent data is ``None``, never a substitute
 
 A field a backend genuinely cannot read stays ``None``:
 
-* ``PortStatus.description`` is ``None`` on NSDP and HTTP backends, which have
-  no ``ifAlias`` equivalent — not ``""``.
+* ``PortStatus.description`` is ``None`` where the backend has no ``ifAlias``
+  equivalent — not ``""``. NSDP is **not** such a backend: tag 0xB000 carries
+  the operator's label and was cross-checked byte-for-byte against three real
+  GS110EMX units' own "Port Description" column, so it fills this field like
+  SNMP's ifAlias does. ``PortStatus.name`` is the opposite way round there:
+  NSDP reports a port NUMBER and no interface identifier, so ``name`` is None
+  over NSDP while SNMP gives ``1/0/1`` and the web UI ``g1``.
 * ``PoEStatus.power_mw`` is ``None`` on a switch with no vendor power column
   (the GS728TPP serves everything from standard MIBs and has no such column) —
   not ``0``.

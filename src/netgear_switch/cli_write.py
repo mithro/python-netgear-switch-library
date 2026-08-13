@@ -60,6 +60,7 @@ from .errors import (
     WriteVerificationError,
 )
 from .models import PoEDetect, VlanMode
+from .protocols.cli import parse
 from .protocols.cli.commands import cli_spec
 from .snmp_write import PoeCycleTimeouts
 from .transport.cli.session import CliTransportError
@@ -67,7 +68,7 @@ from .transport.cli.session import CliTransportError
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from .models import PoEStatus, PortStatus, VLANInfo
+    from .models import PoEStatus, PortSpeed, PortStatus, SyslogConfig, VLANInfo
     from .registry import SwitchModel
     from .transport.cli.session import CliSession
 
@@ -385,6 +386,145 @@ class CliWriter:
                 after=got,
             )
 
+    def set_port_description(
+        self, port: int, description: str, *, force: bool = False
+    ) -> None:
+        """Label ``port`` (``description '<text>'``), or clear it with ``""``.
+
+        The command form is the firmware's own: a live GSM7252PS (10.1.5.22,
+        2026-08-03) renders its 38 labelled ports in `show running-config` as
+        ``description 'eth0.rpi5-pmod'`` -- single-quoted -- and the negation is
+        the standard ``no description``.
+
+        Cosmetic, so no ``switchport mode general`` preamble is needed (unlike
+        the VLAN commands, whose effect depends on the port's mode) and it is
+        not force-gated beyond the protected-port guard.
+        """
+        self._guard(port, force)
+
+        def described() -> str | None:
+            # NOT get_ports: `show port all` carries no description column, so
+            # the reader honestly reports None there. This per-port command is
+            # the only one that reports a label back.
+            return parse.parse_port_description(
+                self.session.run(self._spec.port_description_show(port))
+            )
+
+        before = described()
+        self._in_mode(
+            [self._spec.configure_cmd, self._spec.interface(port)],
+            [self._spec.port_description(description)],
+        )
+        after = described()
+        want = description or None
+        if after != want:
+            raise WriteVerificationError(
+                f"description for port {port} did not read back as {want!r} "
+                f"(got {after!r})",
+                before=before,
+                after=after,
+            )
+
+    def _speed_config(self, port: int) -> PortSpeed | None:
+        """``port``'s CONFIGURED speed, from `show port all`'s Physical Mode.
+
+        Deliberately the Physical MODE column, not Physical Status: the latter
+        is what the link negotiated and is blank on a down port, which is the
+        only kind of port this writer is meant to touch.
+        """
+        status = next((p for p in self._reader.get_ports() if p.port == port), None)
+        if status is None:
+            raise CliCommandError(f"switch reports no port {port}")
+        return status.speed_config
+
+    def set_port_speed(
+        self, port: int, speed: PortSpeed, *, force: bool = False
+    ) -> None:
+        """Force ``port``'s speed/duplex, or return it to auto-negotiation.
+
+        DISRUPTIVE: changing either setting bounces the link, so this honours
+        ``protected_ports`` exactly as ``set_pvid`` does.
+
+        Both command forms were PROVEN BY EXECUTION on gsm7252ps 10.1.5.22 port
+        1/0/8 (link-down, undescribed, 2026-08-03) and the port restored to a
+        byte-identical running-config afterwards -- ``speed 100 full-duplex``
+        moved Physical Mode to ``100 Full``, ``speed auto`` moved it back.
+
+        A forced 1000 is refused HERE, before anything is sent, because it is
+        not a rate this grammar has: 1000BASE-T makes auto-negotiation
+        mandatory, and the firmware encodes that by omitting 1000 from the
+        forced rates while keeping it among the advertised ones. Measured, not
+        inferred -- ``speed 1000 full-duplex`` on the port above answered
+        "% Invalid input detected at '^' marker." and left Physical Mode
+        untouched. Refusing by name says WHY; letting it through would produce
+        the same failure with none of the explanation.
+
+        Every OTHER rate is sent unchecked, deliberately: the forced rates a
+        port offers follow its PHY rather than the firmware (1/0/8 offered
+        10/100/10G, an m4300-24x 10GBASE-T port offered 100/10G), so the switch
+        is the only authority worth asking. One it rejects comes back as
+        ``CliCommandError`` carrying the device's own words.
+        """
+        self._guard(port, force)
+        if not speed.autonegotiate and speed.speed_mbps == 1000:
+            raise CliCommandError(
+                "1000 Mbit/s cannot be FORCED on this firmware -- 1000BASE-T "
+                "requires auto-negotiation, so the CLI offers 1000 only as an "
+                "advertised rate. Use PortSpeed.auto() instead."
+            )
+        before = self._speed_config(port)
+        self._in_mode(
+            [self._spec.configure_cmd, self._spec.interface(port)],
+            [self._spec.port_speed(speed)],
+        )
+        after = self._speed_config(port)
+        if after != speed:
+            raise WriteVerificationError(
+                f"speed for port {port} did not read back as {speed} (got "
+                f"{after if after is not None else 'an unreadable Physical Mode'})",
+                before=before,
+                after=after,
+            )
+
+    def set_flow_control(
+        self, port: int, enabled: bool, *, force: bool = False
+    ) -> None:
+        """Turn IEEE 802.3x flow control on or off for ``port``.
+
+        ``flowcontrol`` / ``no flowcontrol`` in interface config mode -- bare
+        toggles, and PROVEN as a round trip on gsm7252ps 10.1.5.22 port 1/0/8
+        (2026-08-03): the first added a ``flowcontrol`` line to running-config
+        and moved Flow Mode from Disable to Enable, the second removed it and
+        returned the column, with the port left byte-identical.
+
+        Verified against `show port all`'s Flow Mode column, which is the
+        CONFIGURED setting: it moved on a port whose link was DOWN throughout,
+        so it cannot be reporting a negotiated result.
+
+        Disruptive enough to honour ``protected_ports``: enabling pause frames
+        changes how a link behaves under congestion.
+        """
+        self._guard(port, force)
+        before = self._flow_control(port)
+        self._in_mode(
+            [self._spec.configure_cmd, self._spec.interface(port)],
+            [self._spec.port_flow_control(enabled=enabled)],
+        )
+        after = self._flow_control(port)
+        if after is not enabled:
+            raise WriteVerificationError(
+                f"flow control for port {port} did not read back as {enabled}",
+                before=before,
+                after=after,
+            )
+
+    def _flow_control(self, port: int) -> bool | None:
+        """``port``'s Flow Mode column, or raise if the switch has no such port."""
+        status = next((p for p in self._reader.get_ports() if p.port == port), None)
+        if status is None:
+            raise CliCommandError(f"switch reports no port {port}")
+        return status.flow_control
+
     def set_pvid(self, port: int, vlan: int, *, force: bool = False) -> None:
         """Set ``port``'s ingress PVID to ``vlan`` (``vlan pvid <vid>``).
 
@@ -393,10 +533,18 @@ class CliWriter:
         ``SnmpWriter.set_pvid``). ``switchport mode general`` is sent first for
         the same reason as ``set_vlan_membership``: in access mode the port's
         PVID follows its access VLAN, so ``vlan pvid`` cannot take effect.
-        Whether the target VLAN must already exist is left to the switch, which
-        rejects the command (-> ``CliCommandError``) if it does not.
+
+        Refuses up front if the VLAN does not exist, exactly as
+        ``set_vlan_membership`` does -- a precondition failure, so no command is
+        sent. This used to be left to the switch, on the assumption it would
+        reject the command. That assumption does not hold generally: MEASURED on
+        a GS728TPP (10.2.5.10, firmware 6.0.1.30), the equivalent write is
+        ACCEPTED and reads back, leaving the port pointing at a VLAN that is not
+        there -- which no amount of verify-after-write can catch.
         """
         self._guard(port, force)
+        if not any(v.vlan_id == vlan for v in self._reader.get_vlans()):
+            raise CliCommandError(f"VLAN {vlan} does not exist")
         before = dict(self._reader.get_pvids())
         self._in_mode(
             [self._spec.configure_cmd, self._spec.interface(port)],
@@ -713,13 +861,123 @@ class CliWriter:
             # Expected: the switch tore the session down while rebooting.
             return
 
-    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
-        """This backend does not serve a remote-logging toggle.
+    # --- remote logging -----------------------------------------------------
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+    def _syslog(self) -> SyslogConfig:
+        return self._reader.get_syslog()
+
+    def set_syslog_enabled(self, enabled: bool, *, force: bool = False) -> None:
+        """Turn remote logging on or off (``logging syslog`` in global config).
+
+        The positive form is VERBATIM from every switch's own
+        ``show running-config`` (all four FASTPATH models print the bare line
+        ``logging syslog``, read 2026-08-05). The negation is the standard
+        FASTPATH ``no`` and is inferred -- see ``logging_no_syslog_cmd``; a
+        wrong form is rejected by the device and raised, never swallowed.
+
+        Not force-gated: it changes where log messages go, not how traffic is
+        switched, and is reversible by writing the old value back.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "a remote-logging toggle"
+        del force
+        before = self._syslog()
+        self._in_mode(
+            [self._spec.configure_cmd], [self._spec.logging_syslog(enabled=enabled)]
         )
+        after = self._syslog()
+        if after.enabled is not enabled:
+            raise WriteVerificationError(
+                f"remote logging did not read back as enabled={enabled}",
+                before=before.enabled,
+                after=after.enabled,
+            )
+
+    def add_syslog_collector(
+        self, host: str, *, port: int = 514, severity: int = 6, force: bool = False
+    ) -> None:
+        """Add a remote syslog collector.
+
+        ``logging host "<address>" <ipv4|ipv6|dns> <port> <severity-word>``,
+        which is VERBATIM the line all four FASTPATH models print in their own
+        ``show running-config`` (read 2026-08-05 -- read-only, no `?`).
+
+        Refuses up front if a collector for ``host`` already exists: FASTPATH
+        would otherwise add a SECOND row for the same address, and the caller
+        who asked for "send logs here" would silently get duplicate delivery.
+        A precondition failure, so no command is sent (mirroring ``set_pvid``).
+
+        Not force-gated, for the same reason as ``set_syslog_enabled``.
+        """
+        del force
+        before = self._syslog()
+        if any(s.host == host for s in before.servers):
+            raise CliCommandError(f"a syslog collector for {host!r} already exists")
+        self._in_mode(
+            [self._spec.configure_cmd],
+            [self._spec.logging_host_add(host, port, severity)],
+        )
+        after = self._syslog()
+        added = next((s for s in after.servers if s.host == host), None)
+        if added is None or added.port != port or added.severity != severity:
+            raise WriteVerificationError(
+                f"syslog collector {host!r} did not read back as "
+                f"port={port} severity={severity}",
+                before=before.servers,
+                after=after.servers,
+            )
+
+    def remove_syslog_collector(self, host: str, *, force: bool = False) -> None:
+        """Remove the remote syslog collector for ``host``.
+
+        ``logging host remove <index>`` -- a SUBCOMMAND, not a negation, and
+        addressed by the table's OWN Index column rather than by address. Read
+        from a fresh table immediately before the write, never cached.
+
+        THE INDEX IS SPARSE, and it is not the row's position. Measured on
+        m4300-24x 10.1.5.13 (2026-08-05): after some churn the table held Index
+        1 and Index 3, with nothing at 2. This method used to enumerate the
+        rows and count -- which addressed Index 2, a row that did not exist.
+        The switch ACCEPTED that removal as a no-op and the collector survived,
+        so the bug was silent until the table was read column-wise.
+
+        The obvious ``no logging host <index>`` is WRONG and was corrected the
+        expensive way -- a live gsm7252ps rejected it, and every address
+        spelling too, leaving a throwaway collector on the switch until
+        ``logging host ?`` showed ``remove``/``reconfigure`` as subcommands.
+        The verify-after-write did its job (the failure was loud and the state
+        was recoverable), but the lesson is that a FASTPATH negation is not a
+        safe inference.
+
+        LIVE-VERIFIED 2026-08-05 on all four CLI models -- gsm7252ps 10.1.5.22,
+        m4300-24x 10.1.5.13, m4300-16x 10.1.5.20 and gsm7228ps 10.1.5.11 (over
+        telnet 60000) -- each by adding 192.0.2.1 (TEST-NET-1, routes nowhere),
+        reading it back, removing it, and proving ``show logging hosts``
+        byte-identical to its prior state with the production 10.1.5.1
+        collector untouched throughout. No ``write memory``.
+
+        Refuses up front if no such collector exists, rather than sending a
+        removal for a row that is not there.
+        """
+        del force
+        before = self._syslog()
+        row = next((s for s in before.servers if s.host == host), None)
+        if row is None:
+            raise CliCommandError(f"no syslog collector for {host!r} to remove")
+        index = row.index
+        if index is None:
+            # Cannot happen through the CLI reader, which always fills it; a
+            # SyslogConfig from another backend would land here rather than
+            # having an index invented for it.
+            raise CliCommandError(
+                f"the syslog collector for {host!r} carries no table index, so "
+                "it cannot be addressed for removal"
+            )
+        self._in_mode(
+            [self._spec.configure_cmd], [self._spec.logging_host_remove(index)]
+        )
+        after = self._syslog()
+        if any(s.host == host for s in after.servers):
+            raise WriteVerificationError(
+                f"syslog collector {host!r} is still configured after removal",
+                before=before.servers,
+                after=after.servers,
+            )

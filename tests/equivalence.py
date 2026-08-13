@@ -428,8 +428,23 @@ def assert_nsdp_facades_equivalent(sw: VirtualSwitch, pins: EquivalencePins) -> 
     # NSDP always echoes the device's identity MAC (Tag.MAC / server_mac
     # fallback), so base_mac is honestly populated here too, never None.
     assert mgmt.base_mac == pins.base_mac
-    # NSDP PORT_STATUS carries no operator-set alias; honestly None.
-    assert all(p.description is None for p in ports)
+    # NSDP DOES carry the operator's alias -- tag 0xB000 (PORT_NAME), measured
+    # on all three real GS110EMX units and cross-checked byte-for-byte against
+    # each one's own "Port Description" column. It belongs in ``description``,
+    # the same field SNMP fills from ifAlias, NOT in ``name``: this assertion
+    # used to read ``all(p.description is None)``, which passed only because the
+    # reader put the label in ``name`` -- reporting a different field than every
+    # other backend for the very same operator-set string.
+    #
+    # "rumpus" on port 8 is transcribed from this model's own committed capture
+    # tests/fixtures/http/gs110emx_port_settings.html (host 10.1.5.25); the
+    # other nine ports are undescribed there. Pinned as an exact mapping so a
+    # dropped label, a spurious one, or a wrong field each fail -- unlike the
+    # old ``all(... is None)``, which would also have passed on zero ports.
+    assert {p.port: p.description for p in ports if p.description} == {8: "rumpus"}
+    # ...and ``name`` stays None: PORT_STATUS carries a port NUMBER and no
+    # interface identifier, so NSDP has nothing honest to put there.
+    assert all(p.name is None for p in ports)
 
     # Ops NSDP genuinely cannot serve must raise, not silently return empty.
     for op in ("get_macs", "get_lldp", "get_sensors", "get_poe"):

@@ -52,7 +52,7 @@ from netgear_switch.capabilities import (
     operation,
     support,
 )
-from netgear_switch.models import VlanMode
+from netgear_switch.models import PortSpeed, VlanMode
 from netgear_switch.protocols.cli.commands import CLI_BACKENDS
 from netgear_switch.protocols.http import endpoints
 from netgear_switch.protocols.http.endpoints import http_spec
@@ -85,6 +85,14 @@ SEEDED_MODELS = (
 #: reserves for testing (4001-4008).
 _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     "set_port_enabled": ((1, True), {}),
+    "set_port_description": ((1, "capcheck"), {}),
+    # PortSpeed.auto() rather than a forced rate: auto is what every seeded port
+    # already reports, so driving the capability gate cannot depend on the mock
+    # accepting a particular rate on a particular model's PHY.
+    "set_port_speed": ((1, PortSpeed.auto()), {}),
+    # False is what every FASTPATH seed now carries (their captures all read
+    # "Disable"), so this drives the gate without depending on a state change.
+    "set_flow_control": ((1, False), {}),
     "set_poe": ((1, True), {}),
     "cycle_poe": ((1,), {}),
     "clear_poe_fault": ((1,), {}),
@@ -98,6 +106,14 @@ _WRITE_ARGS: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {
     # a name is a different command (`no hostname`) that is not implemented.
     "set_hostname": (("capcheck",), {}),
     "set_syslog_enabled": ((True,), {}),
+    # TEST-NET-1 (RFC 5737): routes nowhere, so even a mock that grew a real
+    # socket could not send anywhere. Absent from every seed, so the add's
+    # duplicate guard cannot be what refuses it.
+    "add_syslog_collector": (("192.0.2.1",), {}),
+    # Present on every seed that has collectors at all -- the address the live
+    # captures carry -- so the remove drives the write rather than the
+    # not-configured precondition.
+    "remove_syslog_collector": (("10.1.5.1",), {}),
 }
 
 #: Not driven. ``upload_certificate_scp`` runs a multi-command deploy sequence
@@ -341,3 +357,54 @@ def test_backends_are_in_facade_preference_order() -> None:
         Backend.TELNET,
     )
     assert backends_for("gs110emx") == (Backend.NSDP, Backend.HTTP)
+
+
+#: SyncSwitch methods that are deliberately NOT capability-gated operations:
+#: connection lifecycle, backend resolution, model detection, and the aggregate
+#: that simply calls the others. (Mirrors ``_NOT_CLI_EXPOSED`` in
+#: tests/cli/test_op_coverage.py and ``_NOT_MCP_EXPOSED`` in
+#: tests/test_mcp_server.py.)
+_NOT_CAPABILITY_GATED = {"close", "identify", "resolve_backend", "snapshot"}
+
+
+def test_every_switch_operation_has_a_capability_entry() -> None:
+    """The forcing function that was missing.
+
+    ``set_syslog_enabled`` shipped on the facade with no ``Operation`` entry at
+    all: ``support(model, backend, "set_syslog_enabled")`` raised KeyError and
+    the generated support matrix silently omitted an operation the library
+    performs. The CLI and the MCP server each have a coverage guard; the
+    capability table -- which the published documentation is generated FROM --
+    did not, so nothing caught it.
+    """
+    import inspect
+
+    from netgear_switch.sync_api import SyncSwitch
+
+    public = {
+        name
+        for name, member in inspect.getmembers(SyncSwitch, predicate=inspect.isfunction)
+        if not name.startswith("_")
+    }
+    known = {op.name for op in OPERATIONS}
+    missing = public - known - _NOT_CAPABILITY_GATED
+    assert not missing, (
+        f"SyncSwitch operations with no capabilities.Operation entry: {sorted(missing)}"
+    )
+
+
+def test_no_capability_entry_without_a_facade_method() -> None:
+    """The other direction: the table must not advertise an op nobody can call."""
+    import inspect
+
+    from netgear_switch.sync_api import SyncSwitch
+
+    public = {
+        name
+        for name, member in inspect.getmembers(SyncSwitch, predicate=inspect.isfunction)
+        if not name.startswith("_")
+    }
+    orphans = {op.name for op in OPERATIONS} - public
+    assert not orphans, (
+        f"capability entries with no SyncSwitch method: {sorted(orphans)}"
+    )

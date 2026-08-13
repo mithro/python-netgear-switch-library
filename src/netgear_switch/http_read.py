@@ -75,6 +75,35 @@ def _require_path(model_key: str, path: str | None, op: str) -> str:
     return path
 
 
+def _service_paths(spec: HttpModelSpec) -> list[tuple[str, str]] | None:
+    """``[(service, page path), ...]`` for this model, or ``None`` if ANY of the
+    four is missing.
+
+    All-or-nothing on purpose. The S3300 is the case that motivates it: its
+    https and telnet pages parse fine, but its httpConfiguration.html carries no
+    admin control and its sshConfiguration.html 404s. Returning the two that
+    work would report a switch with no SSH -- a confident wrong answer -- where
+    refusing says only what is true: this UI cannot be asked.
+    """
+    from .protocols.http.parse import SERVICE_NAMES
+
+    paths = [getattr(spec, f"{service}_service_path") for service in SERVICE_NAMES]
+    if any(path is None for path in paths):
+        return None
+    return list(zip(SERVICE_NAMES, paths, strict=True))
+
+
+def _require_service_paths(
+    model_key: str, spec: HttpModelSpec
+) -> list[tuple[str, str]]:
+    paths = _service_paths(spec)
+    if paths is None:
+        raise _unsupported(
+            model_key, "management-service state (http/https/telnet/ssh)"
+        )
+    return paths
+
+
 def _is_gs110emx_dialect(spec: HttpModelSpec) -> bool:
     from .protocols.http.endpoints import HtmlDialect
 
@@ -386,14 +415,20 @@ def _with_fastpath_egress(
 def _has_sysinfo_hostname(spec: HttpModelSpec) -> bool:
     """Whether this dialect's identity page carries the switch's host name.
 
-    True only for the two whose parsers extract it -- gs110emx's
-    ``sysInfo.html`` (``switch_name`` input) and gs105pe's ``switch_info.cgi``.
-    The FASTPATH/XE, M4300 and GoAhead identity pages were checked and carry no
-    host-name field, so their models read the name over SNMP or the CLI, both of
-    which they have.
+    True for gs110emx's ``sysInfo.html`` (``switch_name`` input), gs105pe's
+    ``switch_info.cgi``, and the GoAhead ``DeviceBasicInfo`` section.
+
+    The GoAhead entry corrects a claim this docstring used to make. It said that
+    page carries no host-name field; it does -- ``DeviceBasicInfo/deviceName``,
+    MEASURED on the live GS728TPP (10.2.5.10, firmware 6.0.1.30, 2026-08-03)
+    reading ``sw-netgear-gs728tpp``, byte-for-byte what SNMP reports through
+    sysName. The FASTPATH/XE and M4300 identity pages really do lack one, so
+    those models still read the name over SNMP or the CLI.
     """
     return spec.sysinfo_path is not None and (
-        _is_gs110emx_dialect(spec) or _is_gs105pe_dialect(spec)
+        _is_gs110emx_dialect(spec)
+        or _is_gs105pe_dialect(spec)
+        or _is_goahead_dialect(spec)
     )
 
 
@@ -660,10 +695,12 @@ class HttpReader:
         if not _has_sysinfo_hostname(self._spec):
             raise _unsupported(self.model.key, "a host name field")
         assert self._spec.sysinfo_path is not None  # guaranteed by the guard
-        info = _parse_sysinfo(
-            self._spec, self.session.get_page(self._spec.sysinfo_path)
-        )
-        return info.switch_name
+        page = self.session.get_page(self._spec.sysinfo_path)
+        if _is_goahead_dialect(self._spec):
+            # A different section of a different page shape -- the GoAhead
+            # identity data is XML, not the HttpSysInfo form scrape.
+            return parse.parse_goahead_hostname(page)
+        return _parse_sysinfo(self._spec, page).switch_name
 
     def get_mgmt_ip(self) -> MgmtIpConfig:
         path = _mgmt_ip_path(self._spec)
@@ -685,37 +722,40 @@ class HttpReader:
         return cfg
 
     def get_users(self) -> list[SwitchUser]:
-        """This backend does not serve local user accounts.
+        """Local login accounts, from this model's user-management page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely has no accounts.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "local user accounts (no such tag/page/table on this backend)"
+        path = _require_path(
+            self.model.key, self._spec.users_path, "local user accounts"
         )
+        return parse.parse_xui_users(self.session.get_page(path))
 
     def get_services(self) -> list[ServiceStatus]:
-        """This backend does not serve management-service state.
+        """Management-service state, one page per service.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name unless ALL FOUR pages are located for this model --
+        see ``_service_paths``.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "management-service state (http/https/telnet/ssh)"
-        )
+        paths = _require_service_paths(self.model.key, self._spec)
+        return [
+            parse.parse_service_page(self.session.get_page(path), service)
+            for service, path in paths
+        ]
 
     def get_syslog(self) -> SyslogConfig:
-        """This backend does not serve remote-logging configuration.
+        """Remote-logging configuration, from this model's syslog page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely logs nowhere.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "remote-logging configuration"
+        path = _require_path(
+            self.model.key, self._spec.syslog_path, "remote-logging configuration"
         )
+        return parse.parse_xui_syslog(self.session.get_page(path))
 
 
 class AsyncHttpReader:
@@ -858,37 +898,40 @@ class AsyncHttpReader:
         return cfg
 
     async def get_users(self) -> list[SwitchUser]:
-        """This backend does not serve local user accounts.
+        """Local login accounts, from this model's user-management page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely has no accounts.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "local user accounts (no such tag/page/table on this backend)"
+        path = _require_path(
+            self.model.key, self._spec.users_path, "local user accounts"
         )
+        return parse.parse_xui_users(await self.session.get_page(path))
 
     async def get_services(self) -> list[ServiceStatus]:
-        """This backend does not serve management-service state.
+        """Management-service state, one page per service.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name unless ALL FOUR pages are located for this model --
+        see ``_service_paths``.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "management-service state (http/https/telnet/ssh)"
-        )
+        paths = _require_service_paths(self.model.key, self._spec)
+        return [
+            parse.parse_service_page(await self.session.get_page(path), service)
+            for service, path in paths
+        ]
 
     async def get_syslog(self) -> SyslogConfig:
-        """This backend does not serve remote-logging configuration.
+        """Remote-logging configuration, from this model's syslog page.
 
-        Refused by name rather than returned empty: an empty answer here
-        would be indistinguishable from a switch that genuinely has none.
+        Refuses by name on a model whose UI has no such page located, rather
+        than returning empty: an empty answer would be indistinguishable from
+        a switch that genuinely logs nowhere.
         """
-        raise UnsupportedCapabilityError(
-            f"model {self.model.key!r}: this backend does not expose "
-            "remote-logging configuration"
+        path = _require_path(
+            self.model.key, self._spec.syslog_path, "remote-logging configuration"
         )
+        return parse.parse_xui_syslog(await self.session.get_page(path))
 
     async def get_hostname(self) -> str:
         """This backend does not serve a host name field.
