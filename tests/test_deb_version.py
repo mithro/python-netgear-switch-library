@@ -6,11 +6,14 @@ container with no third-party packages installed), so these tests drive it
 via ``subprocess`` under plain ``python3`` rather than importing it -- that
 also proves it truly needs nothing beyond the standard library.
 
-The commit count grows every time this repo gets a new commit, so nothing
-here hard-codes today's ``post<N>`` value; each assertion recomputes the
-expected value from ``git`` at test time, mirroring the derivation logic
-itself (see the brief's own verification: ``0.0.post$(git rev-list --count
-HEAD)``).
+The version changes every time this repo gets a commit or a tag, so nothing
+here hard-codes today's value; each assertion recomputes the expected value
+from ``git`` at test time. The live-repo check deliberately uses DIFFERENT git
+commands from the script (``describe --abbrev=0`` + ``rev-list --count
+TAG..HEAD`` versus the script's ``describe --long`` regex) so the two can
+disagree if either is wrong. The tagless fallback (``0.0.post<count>``) is
+exercised in a throwaway repo: the live repo has been tagged since v0.0/v0.1
+on 2026-08-22, so it no longer takes that path.
 """
 
 from __future__ import annotations
@@ -116,10 +119,35 @@ def test_only_stdlib_imports():
     assert seen <= stdlib_allow, f"non-stdlib imports found: {seen - stdlib_allow}"
 
 
-def test_version_matches_commit_count_fallback():
-    """No tags exist upstream, so the fallback path (0.0.post<count>) is live."""
-    expected = f"0.0.post{_git('rev-list', '--count', 'HEAD')}"
+def test_live_repo_version_matches_git_describe():
+    """The real checkout: X.Y at the nearest vX.Y tag, X.Y.postN N commits on.
+
+    Expected value is derived independently of the script: the nearest tag via
+    ``describe --abbrev=0`` and the distance via ``rev-list --count TAG..HEAD``
+    (the script parses ``describe --long`` instead). This broke on 2026-08-22
+    when v0.1 was pushed and the old assertion still expected the tagless
+    ``0.0.post<count>`` fallback -- CI went red and, correctly, nothing was
+    published for that commit.
+    """
+    tag = _git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*")
+    assert tag.startswith("v"), tag
+    base = tag[1:]
+    distance = int(_git("rev-list", "--count", f"{tag}..HEAD"))
+    expected = base if distance == 0 else f"{base}.post{distance}"
     assert _run() == expected
+
+
+def test_commit_count_fallback_in_tagless_repo(tmp_path):
+    """With no vX.Y tag at all the version is 0.0.post<commit count>.
+
+    The live repo left this path when it was tagged, so exercise it in a
+    throwaway repo: three commits, no tags -> 0.0.post3.
+    """
+    repo = tmp_path / "tagless-repo"
+    _init_repo(repo)
+    for i in range(3):
+        _commit(repo, f"commit {i}")
+    assert _run_in_repo(repo).stdout.strip() == "0.0.post3"
 
 
 def test_version_is_a_valid_debian_version_string():
@@ -160,9 +188,9 @@ def test_version_tag_based_path(tmp_path):
     """vX.Y -> X.Y at the tag; X.Y.postN with N commits after it.
 
     This is the path the live upstream repo takes since v0.0 (root commit) and
-    v0.1 (2026-08-22) were tagged. The other tests above run in tagless
-    throwaway repos and cover the commit-count fallback; exercise the ``git
-    describe`` branch of ``version()`` directly against a tagged one here.
+    v0.1 (2026-08-22) were tagged; the live-repo test above checks it against
+    the real checkout, this one pins the exact arithmetic on a throwaway
+    repo whose tag and distance are fully controlled.
     """
     repo = tmp_path / "tag-repo"
     _init_repo(repo)
