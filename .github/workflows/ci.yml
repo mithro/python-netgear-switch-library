@@ -2,7 +2,10 @@ name: CI
 
 # Runs the SAME gates as local development (ruff, mypy --strict, pytest with
 # coverage >= 90) on every push to main and every pull request. A green run here
-# is what "mergeable" means; merging to main triggers the release workflows.
+# is what "mergeable" means -- and what "releasable" means: publish-pypi.yml and
+# deb.yml are triggered by this workflow COMPLETING on main and proceed only
+# when it succeeded (workflow_run + conclusion check), so a red push to main
+# is never published. Renaming this workflow breaks that trigger.
 on:
   push:
     branches: [main]

@@ -1,18 +1,37 @@
 # Releasing
 
-This project is a **rolling release**. There are no tags and no manual version
-bumps: the version is derived from git (`hatch-vcs` for the wheel,
-`packaging/deb-version.py` for the `.deb`), and **every merge to `main`
-publishes new packages** automatically:
+This project is a **rolling release**. There are no manual version bumps: the
+version is derived from `git describe` (`hatch-vcs` for the wheel,
+`packaging/deb-version.py` for the `.deb`) — `X.Y` at a `vX.Y` tag,
+`X.Y.postN` N commits after it — and **every green merge to `main` publishes
+new packages** automatically:
 
 - `.github/workflows/ci.yml` — runs the gates (ruff, mypy --strict, pytest with
-  coverage >= 90) on every push and PR. A green run is what "mergeable" means.
+  coverage >= 90, docs build) on every push and PR. A green run is what
+  "mergeable" means, and it is what triggers the two release workflows.
 - `.github/workflows/publish-pypi.yml` — builds and uploads the wheel + sdist to
-  PyPI on every push to `main`.
+  PyPI when CI **succeeds** on `main` (`workflow_run`; a failed or cancelled CI
+  run publishes nothing, and the checkout is pinned to the SHA CI validated).
 - `.github/workflows/deb.yml` — builds `.deb`s for trixie + sid and republishes
-  the signed apt repo on GitHub Pages on every push to `main`.
+  the signed apt repo on GitHub Pages, gated the same way.
 
 Merges to `main` MUST use `--no-ff` merge commits so history stays linear per PR.
+
+## Tags
+
+Tags are the only human input to the version. `v0.0` sits on the root commit
+(so `git describe` works from the start of history, per the repo-setup
+guidance) and `v0.1` marks where the CI-gated pipeline landed (2026-08-22). The
+fallback before any tag existed was `0.0.post<commit count>`, which reached
+`0.0.post405` on PyPI; `v0.1` was chosen because it sorts above that in both
+PEP 440 and Debian ordering, whereas counting from a root tag alone would have
+re-issued `0.0.post404`/`405` (and `skip-existing` would have silently dropped
+the upload).
+
+To cut a new series, push an annotated `vX.Y` tag on `main` (a GitHub tag
+ruleset only admits `vXX.ZZZ`-shaped tags) — the next green CI run publishes
+`X.Y`, and every commit after it `X.Y.postN`. Never move or delete a tag that
+has been published from.
 
 ## One-time human setup
 
@@ -83,7 +102,7 @@ re-runs idempotent.
 
 1. Settings → Pages → Source: **GitHub Actions**.
 2. The `deb.yml` `publish-apt` job deploys the apt repo to
-   `https://mithro.github.io/python-netgear-switch-library/`. It targets the
+   `https://mith.ro/python-netgear-switch-library/`. It targets the
    `github-pages` deployment environment, which GitHub creates automatically
    once Pages is enabled — no separate environment setup is needed for this
    one (unlike the `pypi` environment above, which must be created by hand).
@@ -91,7 +110,8 @@ re-runs idempotent.
 ## Verifying a release
 
 - PyPI: check https://pypi.org/project/python-netgear-switch-library/ for the new
-  `0.0.postN` version.
+  `X.Y.postN` version (matches `git describe --tags` on `main`, e.g. `v0.1-3-g…`
+  → `0.1.post3`).
 - apt: `sudo apt update && apt-cache policy python3-netgear-switch-library` on a
   Debian trixie/sid box configured per the README. Before the GPG key is set
   (see step 2 above), expect `apt update` to fail with a signature error for

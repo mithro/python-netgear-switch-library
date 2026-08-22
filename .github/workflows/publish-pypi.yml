@@ -1,24 +1,43 @@
 name: Publish to PyPI
 
-# Every push to main is a release. The version is derived from git by
-# hatch-vcs (see pyproject.toml), so each commit produces a new, unique
-# version -- no tag, no manual bump. Publishing uses PyPI Trusted Publishing
-# (OIDC): there is no API token in the repo. FINAL HUMAN SETUP STEP: register
-# this repo+workflow as a trusted publisher on PyPI and create the `pypi`
-# environment (see RELEASING.md). Until that is done the build job still
-# runs and the publish job is a no-op-safe gate.
+# Every GREEN push to main is a release. The version is derived from git by
+# hatch-vcs (see pyproject.toml): vX.Y at a tag, vX.Y.postN N commits later, so
+# each commit produces a new, unique version -- no manual bump.
+#
+# This workflow is gated on CI: it runs when the "CI" workflow (ruff, mypy,
+# pytest + coverage, docs) COMPLETES for a push to main, and the build job only
+# proceeds when that run SUCCEEDED. Before this gate, a red CI run and a PyPI
+# upload raced each other and broken commits were published (13ef042 shipped
+# with the docs job failing, a60bae6 with every test job failing). The
+# workflow_dispatch path stays for manual re-runs.
+#
+# Publishing uses PyPI Trusted Publishing (OIDC): there is no API token in the
+# repo; the `pypi` environment + trusted publisher are registered (see
+# RELEASING.md).
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
+    # workflow_run fires on EVERY completion (failure and cancelled included);
+    # only a successful CI run is a release. Dependent jobs inherit the skip.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0  # full history for hatch-vcs version derivation
+          # A workflow_run checkout defaults to the default branch HEAD, which
+          # may already be PAST the commit CI just validated. Pin to the SHA
+          # CI actually ran on, so the published version is exactly the one
+          # that went green.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0  # full history + tags for hatch-vcs version derivation
 
       - uses: astral-sh/setup-uv@v7
 

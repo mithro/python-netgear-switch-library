@@ -63,11 +63,16 @@ ngsw-mcp = "netgear_switch.mcp.server:main"
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "pytest-cov>=5.0"]
 
-# Rolling release: the version is derived from git, never hand-edited and never
-# tagged. Every commit on main increments the commit height, so post-release
-# versioning yields a real, monotonic version (0.0.postN with no tag; X.Y.postN
-# once a vX.Y tag ever exists). "no-local-version" keeps the version PyPI-upload
-# safe. These forms are also valid Debian versions verbatim.
+# Rolling release: the version is derived from git (`git describe`), never
+# hand-edited. vX.Y tags (v0.0 on the root commit per the repo-setup guidance,
+# v0.1 when the CI-gated release pipeline landed on 2026-08-22) are the only
+# human input; every commit after a tag increments the distance, so post-release
+# versioning yields a real, monotonic version: X.Y at the tag, X.Y.postN N
+# commits later. (Before any tag existed the fallback was 0.0.post<commit
+# count>, which reached 0.0.post405 on PyPI -- v0.1 was chosen to sort ABOVE
+# that, since re-counting from a root tag would have re-issued 0.0.post404/405.)
+# "no-local-version" keeps the version PyPI-upload safe. These forms are also
+# valid Debian versions verbatim; packaging/deb-version.py applies the same rule.
 [tool.hatch.version]
 source = "vcs"
 

@@ -1,18 +1,30 @@
 name: Debian Packages + apt repo
 
-# Rolling release: every push to main builds python3-netgear-switch-library for
-# Debian trixie AND sid and republishes a signed flat apt repository on GitHub
-# Pages (https://mithro.github.io/python-netgear-switch-library/). Mirrors the pattern
-# used by other mithro apt-repo projects (sensors2mqtt, ten64-controller). The
-# package is Architecture: all (pure Python), so it builds on the default x86
-# runner and installs on any Debian arch. No tags: the version is git-derived.
+# Rolling release: every GREEN push to main builds python3-netgear-switch-library
+# for Debian trixie AND sid and republishes a signed flat apt repository on
+# GitHub Pages (https://mith.ro/python-netgear-switch-library/). Mirrors the
+# pattern used by other mithro apt-repo projects (sensors2mqtt, ten64-controller).
+# The package is Architecture: all (pure Python), so it builds on the default x86
+# runner and installs on any Debian arch. The version is git-derived (vX.Y at a
+# tag, vX.Y.postN after it -- identical to the wheel's).
+#
+# Gated on CI exactly like publish-pypi.yml: triggered when the "CI" workflow
+# completes for main, and build-deb only proceeds when that run succeeded, so a
+# red commit never reaches the apt repo. workflow_dispatch stays for re-runs.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
 jobs:
   build-deb:
+    # workflow_run fires on every completion (failure/cancelled too); only a
+    # successful CI run is a release. publish-apt inherits the skip via needs.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -21,7 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0  # full history so deb-version.py can count commits
+          # Pin to the SHA CI validated, not the default-branch HEAD (which a
+          # workflow_run checkout would otherwise use and may already be past).
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0  # full history + tags so deb-version.py can describe
 
       - name: Build package in debian:${{ matrix.suite }}
         run: |

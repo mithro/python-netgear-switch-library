@@ -82,14 +82,14 @@ GitHub Pages apt repository:
 .. code-block:: sh
 
    sudo install -d -m0755 /etc/apt/keyrings
-   curl -fsSL https://mithro.github.io/python-netgear-switch-library/netgear-switch.gpg \
+   curl -fsSL https://mith.ro/python-netgear-switch-library/netgear-switch.gpg \
      | sudo tee /etc/apt/keyrings/netgear-switch.gpg > /dev/null
 
    # trixie:
-   echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/python-netgear-switch-library/trixie/ ./" \
+   echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mith.ro/python-netgear-switch-library/trixie/ ./" \
      | sudo tee /etc/apt/sources.list.d/netgear-switch.list
    # sid:
-   echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mithro.github.io/python-netgear-switch-library/sid/ ./" \
+   echo "deb [signed-by=/etc/apt/keyrings/netgear-switch.gpg] https://mith.ro/python-netgear-switch-library/sid/ ./" \
      | sudo tee /etc/apt/sources.list.d/netgear-switch.list
 
    sudo apt update
