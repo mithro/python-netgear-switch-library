@@ -159,9 +159,10 @@ def test_write_changelog_produces_parseable_debian_changelog(tmp_path):
 def test_version_tag_based_path(tmp_path):
     """vX.Y -> X.Y at the tag; X.Y.postN with N commits after it.
 
-    The live upstream repo has no tags, so this path (the ``git describe``
-    branch of ``version()``) has no coverage from the other tests above --
-    exercise it directly against a throwaway repo instead.
+    This is the path the live upstream repo takes since v0.0 (root commit) and
+    v0.1 (2026-08-22) were tagged. The other tests above run in tagless
+    throwaway repos and cover the commit-count fallback; exercise the ``git
+    describe`` branch of ``version()`` directly against a tagged one here.
     """
     repo = tmp_path / "tag-repo"
     _init_repo(repo)
