@@ -2,16 +2,31 @@ MCP server
 ==========
 
 ``ngsw-mcp`` exposes the library as `Model Context Protocol
-<https://modelcontextprotocol.io>`_ tools over stdio, so an LLM-driven client
-can inspect — and, if you let it, reconfigure — your switches.
+<https://modelcontextprotocol.io>`_ tools, so an LLM-driven client can inspect
+— and, if you let it, reconfigure — your switches.
 
 .. code-block:: sh
 
    pip install 'python-netgear-switch-library[mcp]'
-   ngsw-mcp
+   ngsw-mcp                                   # stdio: one client, on stdin/stdout
+   ngsw-mcp --transport streamable-http --host 127.0.0.1 --port 8766   # shared
+
+Transports
+----------
+
+``--transport stdio`` (the default) serves the one client that spawned the
+process. ``--transport streamable-http`` listens on ``--host``/``--port`` so any
+number of clients share one long-lived server — for example a systemd
+socket-activated service that several agents on the same host connect to.
+Each option also has an environment form, ``NGSW_MCP_TRANSPORT``,
+``NGSW_MCP_HOST`` and ``NGSW_MCP_PORT`` (a flag beats the environment), so a
+service unit can set them once and keep ``ExecStart=ngsw-mcp``. An invalid
+transport or port — from either tier — is rejected at start-up.
 
 Configuring a client
 --------------------
+
+A client that spawns its own server (stdio):
 
 .. code-block:: json
 
@@ -31,6 +46,16 @@ Every tool resolves its target switch through the **same resolver the CLI uses**
 ``$NGSW_INVENTORY`` for the path), or an ad-hoc ``host=`` and ``model=`` pair,
 with credentials layered from arguments, environment and inventory. See
 :doc:`guide/configuration`.
+
+A client connecting to a shared streamable-http server instead names its URL:
+
+.. code-block:: json
+
+   {
+     "mcpServers": {
+       "netgear": {"type": "http", "url": "http://127.0.0.1:8765/mcp"}
+     }
+   }
 
 .. note::
 

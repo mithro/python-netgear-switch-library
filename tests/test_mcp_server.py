@@ -443,3 +443,86 @@ def test_set_vlan_membership_rejects_bad_mode(monkeypatch) -> None:
         {"host": "h", "model": "gs110emx", "vlan": 90, "port": 1, "mode": "bogus"},
     )[0]
     assert "invalid mode" in res["error"]
+
+
+# ---------------------------------------------------------------------------
+# Entry point: transport selection (ngsw-mcp --transport / $NGSW_MCP_TRANSPORT)
+# ---------------------------------------------------------------------------
+# A shared, socket-activated ngsw-mcp (systemd --user on ten64, 2026-08-22) needs
+# the server on a local TCP port; a per-client stdio server stays the default.
+
+
+class _FakeServer:
+    def __init__(self, calls: dict[str, object]) -> None:
+        self._calls = calls
+
+    def run(self, transport: str = "stdio") -> None:
+        self._calls["transport"] = transport
+
+
+def _fake_build(calls: dict[str, object]):  # type: ignore[no-untyped-def]
+    def build(env=None, *, host=None, port=None):  # type: ignore[no-untyped-def]
+        calls["host"] = host
+        calls["port"] = port
+        return _FakeServer(calls)
+
+    return build
+
+
+def test_main_defaults_to_stdio(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(mod, "build_server", _fake_build(calls))
+    mod.main([], env={})
+    assert calls == {"host": None, "port": None, "transport": "stdio"}
+
+
+def test_main_streamable_http_flags_reach_the_server(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(mod, "build_server", _fake_build(calls))
+    mod.main(
+        ["--transport", "streamable-http", "--host", "127.0.0.1", "--port", "8766"],
+        env={},
+    )
+    assert calls == {
+        "host": "127.0.0.1",
+        "port": 8766,
+        "transport": "streamable-http",
+    }
+
+
+def test_main_env_supplies_defaults_and_flags_win(monkeypatch) -> None:
+    env = {
+        "NGSW_MCP_TRANSPORT": "streamable-http",
+        "NGSW_MCP_HOST": "127.0.0.1",
+        "NGSW_MCP_PORT": "9000",
+    }
+    calls: dict[str, object] = {}
+    monkeypatch.setattr(mod, "build_server", _fake_build(calls))
+    mod.main([], env=env)
+    assert calls == {"host": "127.0.0.1", "port": 9000, "transport": "streamable-http"}
+
+    calls.clear()
+    mod.main(["--port", "9001"], env=env)
+    assert calls["port"] == 9001
+    assert calls["transport"] == "streamable-http"
+
+
+@pytest.mark.parametrize(
+    ("argv", "env"),
+    [
+        (["--transport", "sse"], {}),
+        ([], {"NGSW_MCP_TRANSPORT": "carrier-pigeon"}),
+        (["--port", "not-a-port"], {}),
+        ([], {"NGSW_MCP_PORT": "8765x"}),
+    ],
+)
+def test_main_rejects_bad_transport_or_port(monkeypatch, argv, env) -> None:
+    monkeypatch.setattr(mod, "build_server", _fake_build({}))
+    with pytest.raises(SystemExit) as exc:
+        mod.main(argv, env=env)
+    assert exc.value.code != 0
+
+
+def test_build_server_applies_host_and_port() -> None:
+    srv = mod.build_server(env={}, host="127.0.0.1", port=8766)
+    assert (srv.settings.host, srv.settings.port) == ("127.0.0.1", 8766)

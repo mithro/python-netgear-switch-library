@@ -37,6 +37,8 @@ from ..models import PortSpeed, VlanMode
 from ..registry import Backend
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from ..sync_api import SyncSwitch
 
 _WRITE_ENV = "NGSW_MCP_ALLOW_WRITES"
@@ -168,13 +170,28 @@ def list_inventory_switches(
     ]
 
 
-def build_server(env: dict[str, str] | None = None):  # type: ignore[no-untyped-def]
+def build_server(  # type: ignore[no-untyped-def]
+    env: dict[str, str] | None = None,
+    *,
+    host: str | None = None,
+    port: int | None = None,
+):
     """Construct the FastMCP server. Write tools are registered only when
-    ``$NGSW_MCP_ALLOW_WRITES`` is set (see module docstring)."""
+    ``$NGSW_MCP_ALLOW_WRITES`` is set (see module docstring).
+
+    ``host``/``port`` are the bind address for the HTTP transport (see
+    :func:`main`); they are passed to FastMCP only when given, so the stdio
+    default is untouched.
+    """
     from mcp.server.fastmcp import FastMCP
 
     env = env if env is not None else dict(os.environ)
-    mcp = FastMCP("netgear-switch")
+    bind: dict[str, Any] = {}
+    if host is not None:
+        bind["host"] = host
+    if port is not None:
+        bind["port"] = port
+    mcp = FastMCP("netgear-switch", **bind)
 
     def resolver(
         switch: str | None,
@@ -811,9 +828,71 @@ def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def
         )
 
 
-def main() -> None:
-    """Entry point (``ngsw-mcp``): run the server over stdio."""
-    build_server().run()
+_TRANSPORTS = ("stdio", "streamable-http")
+_TRANSPORT_ENV = "NGSW_MCP_TRANSPORT"
+_HOST_ENV = "NGSW_MCP_HOST"
+_PORT_ENV = "NGSW_MCP_PORT"
+
+
+def _parse_args(
+    argv: Sequence[str] | None, env: Mapping[str, str]
+) -> argparse.Namespace:
+    """``ngsw-mcp`` options. Flag > ``$NGSW_MCP_*`` environment > default.
+
+    The environment tier exists for service managers: a systemd unit sets
+    ``Environment=NGSW_MCP_TRANSPORT=streamable-http`` once and the ExecStart
+    stays a bare ``ngsw-mcp``. Defaults are strings so argparse applies the
+    same ``choices``/``type`` validation to an env value as to a flag -- a
+    bad ``$NGSW_MCP_PORT`` is rejected up front, not at bind time.
+    """
+    ap = argparse.ArgumentParser(
+        prog="ngsw-mcp",
+        description=(
+            "MCP server over the python-netgear-switch-library read/write API. "
+            "stdio (default) serves one client on stdin/stdout; streamable-http "
+            "listens on --host:--port for any number of clients."
+        ),
+    )
+    ap.add_argument(
+        "--transport",
+        choices=_TRANSPORTS,
+        default=env.get(_TRANSPORT_ENV, "stdio"),
+        help=f"MCP transport (default: ${_TRANSPORT_ENV} or stdio)",
+    )
+    ap.add_argument(
+        "--host",
+        default=env.get(_HOST_ENV),
+        help=f"bind address for streamable-http (default: ${_HOST_ENV}, "
+        "else FastMCP's 127.0.0.1)",
+    )
+    ap.add_argument(
+        "--port",
+        type=int,
+        default=env.get(_PORT_ENV),
+        help=f"TCP port for streamable-http (default: ${_PORT_ENV}, "
+        "else FastMCP's 8000)",
+    )
+    args = ap.parse_args(argv)
+    # argparse validates `choices` only for values given on the command line,
+    # not for a default -- so an env-supplied transport is checked by hand.
+    if args.transport not in _TRANSPORTS:
+        ap.error(
+            f"argument --transport (from ${_TRANSPORT_ENV}): invalid choice: "
+            f"{args.transport!r} (choose from {', '.join(_TRANSPORTS)})"
+        )
+    return args
+
+
+def main(
+    argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
+) -> None:
+    """Entry point (``ngsw-mcp``): build the server and run it over the chosen
+    transport -- stdio by default, or streamable-http on ``--host``/``--port``
+    for a shared, long-lived server (e.g. systemd socket activation)."""
+    env = env if env is not None else dict(os.environ)
+    args = _parse_args(argv, env)
+    server = build_server(dict(env), host=args.host, port=args.port)
+    server.run(transport=args.transport)
 
 
 if __name__ == "__main__":
