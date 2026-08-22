@@ -83,7 +83,7 @@ re-runs idempotent.
 
 1. Settings → Pages → Source: **GitHub Actions**.
 2. The `deb.yml` `publish-apt` job deploys the apt repo to
-   `https://mithro.github.io/python-netgear-switch-library/`. It targets the
+   `https://mith.ro/python-netgear-switch-library/`. It targets the
    `github-pages` deployment environment, which GitHub creates automatically
    once Pages is enabled — no separate environment setup is needed for this
    one (unlike the `pypi` environment above, which must be created by hand).
