@@ -20,8 +20,11 @@ Architecture: all
 Depends: ${python3:Depends},
          ${misc:Depends},
          snmp
-Recommends: python3-httpx
-Suggests: python3-pysnmp
+Recommends: python3-httpx,
+            python3-mcp
+Suggests: python3-pysnmp,
+          python3-paramiko,
+          python3-serial
 Description: query and control Netgear switches over SNMP, NSDP and HTTP
  Python library (import name netgear_switch) and CLI (ngsw) to query and control
  Netgear managed and Plus switches behind one model-driven API. Managed switches
@@ -30,4 +33,6 @@ Description: query and control Netgear switches over SNMP, NSDP and HTTP
  The synchronous SNMP transport shells out to the net-snmp command-line tools
  (snmpget/snmpbulkwalk/snmpset) from the "snmp" package, which is why it is a
  hard runtime dependency. The optional asynchronous transport uses python3-pysnmp
- and the HTTP transport uses python3-httpx.
+ and the HTTP transport uses python3-httpx. The ngsw-mcp MCP server (installed
+ unconditionally) needs python3-mcp; the FASTPATH SSH/serial CLI backends need
+ python3-paramiko / python3-serial.
