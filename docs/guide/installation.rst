@@ -102,10 +102,11 @@ the net-snmp tools automatically. The packaging lives in ``debian/`` and
 Versioning
 ----------
 
-A **rolling release**. The version is derived from git by ``hatch-vcs``
-(``0.0.postN``, or ``X.Y.postN`` once a ``vX.Y`` tag exists); every merge to
-``main`` publishes to PyPI and to the apt repository. No manual version bumps —
-see ``RELEASING.md``.
+A **rolling release**. The version is derived from ``git describe`` by
+``hatch-vcs``: ``X.Y`` at a ``vX.Y`` tag, ``X.Y.postN`` N commits after it
+(``0.1``, ``0.1.post1``, …). Every merge to ``main`` whose CI run is green
+publishes to PyPI and to the apt repository — a red run publishes nothing. No
+manual version bumps — see ``RELEASING.md``.
 
 .. note::
 
