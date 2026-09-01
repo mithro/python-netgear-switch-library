@@ -17,6 +17,7 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+  pull_request:
 
 permissions:
   contents: read
@@ -30,6 +31,7 @@ jobs:
     # successful CI run is a release. publish-apt inherits the skip via needs.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     strategy:
@@ -57,6 +59,9 @@ jobs:
           path: built-debs/
 
   publish-apt:
+    # Build on PRs to validate, but never publish from one: that would
+    # overwrite the live repository with unreviewed packages.
+    if: github.event_name != 'pull_request'
     needs: build-deb
     uses: mithro/apt-repo-action/.github/workflows/publish-apt.yml@main
     with:
