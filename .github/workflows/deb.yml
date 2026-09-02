@@ -19,11 +19,12 @@ on:
   workflow_dispatch:
   pull_request:
 
+# Least privilege by default: only the publish job below raises this, and only
+# for itself. actions:read stays here because the build job's workflow_run
+# gating reads the triggering run's conclusion.
 permissions:
   contents: read
-  pages: write
-  id-token: write
-  actions: read  # workflow_run gating reads the triggering run's conclusion
+  actions: read
 
 jobs:
   build-deb:
@@ -59,6 +60,13 @@ jobs:
           path: built-debs/
 
   publish-apt:
+    # Scoped to this job alone. A job calling a reusable workflow sets the
+    # maximum permissions available to it, so the elevated Pages scopes stay
+    # here rather than applying to the whole workflow.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     # Build on PRs to validate, but never publish from one: that would
     # overwrite the live repository with unreviewed packages.
     if: github.event_name != 'pull_request'
