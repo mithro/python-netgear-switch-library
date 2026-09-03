@@ -8,8 +8,14 @@ dynamic = ["version"]
 description = "Python library and CLI to query and control Netgear switches over SNMP, NSDP and HTTP."
 readme = "README.md"
 requires-python = ">=3.11"
-license = "Apache-2.0"
-license-files = ["LICENSE"]
+# PEP 621 table form, not PEP 639's `license = "Apache-2.0"` plus
+# `license-files = [...]`. Debian bookworm ships hatchling 1.12.2, which
+# predates PEP 639 and rejects those with
+#   TypeError: Field `project.license-files` must be a table
+# fpgas.online consumes this package and its Pi NFS root is still bookworm,
+# so the metadata has to stay parseable by that hatchling. Current hatchling
+# still accepts this form, and LICENSE is included without license-files.
+license = { text = "Apache-2.0" }
 authors = [{ name = "Tim Ansell", email = "me@mith.ro" }]
 # cryptography is a first-class core dep: the SSL-certificate upload API
 # (HttpWriter.upload_certificate) uses it to convert an RSA private key to the
