@@ -1,7 +1,7 @@
 name: Debian Packages + apt repo
 
 # Rolling release: every GREEN push to main builds python3-netgear-switch-library
-# for Debian trixie AND sid and republishes a signed flat apt repository on
+# for Debian bookworm, trixie AND sid and republishes a signed flat apt repository on
 # GitHub Pages (https://mith.ro/python-netgear-switch-library/). Mirrors the
 # pattern used by other mithro apt-repo projects (sensors2mqtt, ten64-controller).
 # The package is Architecture: all (pure Python), so it builds on the default x86
@@ -17,6 +17,14 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+  pull_request:
+
+# Least privilege by default: only the publish job below raises this, and only
+# for itself. actions:read stays here because the build job's workflow_run
+# gating reads the triggering run's conclusion.
+permissions:
+  contents: read
+  actions: read
 
 jobs:
   build-deb:
@@ -24,12 +32,13 @@ jobs:
     # successful CI run is a release. publish-apt inherits the skip via needs.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        suite: [trixie, sid]
+        suite: [bookworm, trixie, sid]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -51,72 +60,24 @@ jobs:
           path: built-debs/
 
   publish-apt:
-    needs: build-deb
-    runs-on: ubuntu-latest
+    # Scoped to this job alone. A job calling a reusable workflow sets the
+    # maximum permissions available to it, so the elevated Pages scopes stay
+    # here rather than applying to the whole workflow.
     permissions:
+      contents: read
       pages: write
       id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Download trixie debs
-        uses: actions/download-artifact@v8
-        with:
-          name: debs-trixie
-          path: apt-repo/trixie/
-
-      - name: Download sid debs
-        uses: actions/download-artifact@v8
-        with:
-          name: debs-sid
-          path: apt-repo/sid/
-
-      - name: Generate apt repo metadata (per suite)
-        run: |
-          set -eux
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils
-          cp packaging/apt-index.html apt-repo/index.html
-          for suite in trixie sid; do
-            cd "apt-repo/$suite"
-            dpkg-scanpackages --multiversion . > Packages
-            gzip -k -f Packages
-            {
-              echo "Origin: python-netgear-switch-library"
-              echo "Label: python-netgear-switch-library"
-              echo "Suite: stable"
-              echo "Codename: $suite"
-              echo "Architectures: all"
-              echo "Components: main"
-              echo "Description: netgear-switch-library apt repo ($suite)"
-            } > Release
-            apt-ftparchive release . >> Release
-            cd ../..
-          done
-
-      - name: Sign repo
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        if: env.GPG_PRIVATE_KEY != ''
-        run: |
-          set -eux
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          gpg --batch --yes --armor --export > apt-repo/netgear-switch.gpg
-          for suite in trixie sid; do
-            cd "apt-repo/$suite"
-            gpg --batch --yes --armor --detach-sign --output Release.gpg Release
-            gpg --batch --yes --armor --clearsign --output InRelease Release
-            cd ../..
-          done
-
-      - uses: actions/configure-pages@v6
-
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: apt-repo/
-
-      - id: deploy
-        uses: actions/deploy-pages@v5
+    # Build on PRs to validate, but never publish from one: that would
+    # overwrite the live repository with unreviewed packages.
+    if: github.event_name != 'pull_request'
+    needs: build-deb
+    uses: mithro/apt-repo-action/.github/workflows/publish-apt.yml@main
+    with:
+      suites: "bookworm trixie sid"
+      # Pure Python: one Architecture: all deb serves every architecture.
+      architectures: "all"
+      origin: python-netgear-switch-library
+      description: "Python library and CLI (ngsw) for Netgear switches"
+      keyring-name: netgear-switch.gpg
+    secrets:
+      gpg-private-key: ${{ secrets.APT_GPG_PRIVATE_KEY }}
