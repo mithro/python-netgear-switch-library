@@ -82,21 +82,15 @@ re-runs idempotent.
    gpg --armor --export-secret-keys me@mith.ro | pbcopy   # or xclip / paste manually
    ```
 
-   The workflow imports this key and exports the matching public key to
-   `netgear-switch.gpg` at the apt repo root, which users install into
-   `/etc/apt/keyrings/`.
+   `mithro/apt-repo-action`'s publish workflow imports this key and publishes
+   the matching public key as `python-netgear-switch-library.gpg` (binary) and
+   `.asc` (armoured) at the apt repo root; users install the `.gpg` into
+   `/etc/apt/keyrings/` (see the repo's index page).
 
-3. **Until `APT_GPG_PRIVATE_KEY` is set, the apt repo is published UNSIGNED and
-   is unusable by design.** The `deb.yml` "Sign repo" step is gated on
-   `if: env.GPG_PRIVATE_KEY != ''`, so with no secret it is skipped entirely:
-   no `Release.gpg`, no `InRelease`, and no `netgear-switch.gpg` public key are
-   published. This is not a bug — it is intentional: the README and
-   `packaging/apt-index.html` both tell users to configure their `sources.list`
-   entry with `[signed-by=/etc/apt/keyrings/python-netgear-switch-library.gpg]` (never
-   `[trusted=yes]`), so `apt update` will fail closed (unable to fetch the
-   missing/invalid signature) rather than silently accepting an unsigned repo.
-   Setting this secret is therefore **required** before the apt repo works at
-   all, not just before it works securely.
+3. **Until `APT_GPG_PRIVATE_KEY` is set, the publish job fails.**
+   `mithro/apt-repo-action` refuses to publish an unsigned repository, so
+   nothing is deployed rather than something consumers would have to trust
+   with `[trusted=yes]`.
 
 ### 3. GitHub Pages
 
