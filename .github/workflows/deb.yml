@@ -76,8 +76,9 @@ jobs:
       suites: "bookworm trixie sid"
       # Pure Python: one Architecture: all deb serves every architecture.
       architectures: "all"
-      origin: python-netgear-switch-library
       description: "Python library and CLI (ngsw) for Netgear switches"
-      keyring-name: netgear-switch.gpg
+      # Transitional: the key's old names, until every client has moved to
+      # python-netgear-switch-library.gpg (docs/conventions.md in mithro/apt-repo-action).
+      legacy-paths: "netgear-switch.gpg netgear-switch.asc"
     secrets:
       gpg-private-key: ${{ secrets.APT_GPG_PRIVATE_KEY }}

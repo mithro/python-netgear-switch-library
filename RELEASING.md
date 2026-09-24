@@ -92,7 +92,7 @@ re-runs idempotent.
    no `Release.gpg`, no `InRelease`, and no `netgear-switch.gpg` public key are
    published. This is not a bug — it is intentional: the README and
    `packaging/apt-index.html` both tell users to configure their `sources.list`
-   entry with `[signed-by=/etc/apt/keyrings/netgear-switch.gpg]` (never
+   entry with `[signed-by=/etc/apt/keyrings/python-netgear-switch-library.gpg]` (never
    `[trusted=yes]`), so `apt update` will fail closed (unable to fetch the
    missing/invalid signature) rather than silently accepting an unsigned repo.
    Setting this secret is therefore **required** before the apt repo works at
