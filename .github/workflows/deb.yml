@@ -77,8 +77,5 @@ jobs:
       # Pure Python: one Architecture: all deb serves every architecture.
       architectures: "all"
       description: "Python library and CLI (ngsw) for Netgear switches"
-      # Transitional: the key's old names, until every client has moved to
-      # python-netgear-switch-library.gpg (docs/conventions.md in mithro/apt-repo-action).
-      legacy-paths: "netgear-switch.gpg netgear-switch.asc"
     secrets:
       gpg-private-key: ${{ secrets.APT_GPG_PRIVATE_KEY }}
