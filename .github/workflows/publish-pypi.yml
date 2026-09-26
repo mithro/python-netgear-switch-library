@@ -4,11 +4,12 @@ name: Publish to PyPI
 # hatch-vcs (see pyproject.toml): vX.Y at a tag, vX.Y.postN N commits later, so
 # each commit produces a new, unique version -- no manual bump.
 #
-# This workflow is gated on CI: it runs when the "CI" workflow (ruff, mypy,
-# pytest + coverage, docs) COMPLETES for a push to main, and the build job only
-# proceeds when that run SUCCEEDED. Before this gate, a red CI run and a PyPI
-# upload raced each other and broken commits were published (13ef042 shipped
-# with the docs job failing, a60bae6 with every test job failing). The
+# This workflow is gated on CI: it runs when the "Debian packages" workflow
+# (deb.yml: its test job runs ruff, mypy, pytest + coverage and the docs build,
+# then it builds and publishes the .debs) COMPLETES for main, and the build job
+# only proceeds when that run SUCCEEDED. Before this gate, a red CI run and a
+# PyPI upload raced each other and broken commits were published (13ef042
+# shipped with the docs job failing, a60bae6 with every test job failing). The
 # workflow_dispatch path stays for manual re-runs.
 #
 # Publishing uses PyPI Trusted Publishing (OIDC): there is no API token in the
@@ -16,7 +17,7 @@ name: Publish to PyPI
 # RELEASING.md).
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [Debian packages]
     types: [completed]
     branches: [main]
   workflow_dispatch:
@@ -24,10 +25,13 @@ on:
 jobs:
   build:
     # workflow_run fires on EVERY completion (failure and cancelled included);
-    # only a successful CI run is a release. Dependent jobs inherit the skip.
+    # only a successful run is a release. `branches: [main]` matches a pull
+    # request from a fork's own `main` too, so a pull request's run is
+    # excluded explicitly. Dependent jobs inherit the skip.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event != 'pull_request')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
