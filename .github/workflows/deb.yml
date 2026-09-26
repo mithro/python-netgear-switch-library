@@ -135,6 +135,18 @@ jobs:
           suite: ${{ matrix.suite }}
           arch: ${{ matrix.arch }}
 
+      # Install what was just built into a clean container of the same suite,
+      # dependencies from the Debian archive: the module imports with the
+      # package's version, the CLI runs, and it reads a mock switch's ports
+      # over HTTP (`ngsw serve`). No real switch is needed.
+      - name: Install test
+        run: |
+          docker run --rm \
+            -v "${PWD}/built-debs:/debs:ro" \
+            -v "${PWD}/packaging:/packaging:ro" \
+            docker.io/library/debian:${{ matrix.suite }} \
+            sh /packaging/install-test.sh
+
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
