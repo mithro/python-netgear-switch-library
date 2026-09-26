@@ -50,6 +50,20 @@ jobs:
         with:
           fetch-depth: 0  # full history so hatch-vcs can derive the version
 
+      # The build generates debian/changelog: apt-repo-action's shared
+      # scripts/deb-version.py writes the build's entry, with the version
+      # derived from git. Committing a build's output would pin a stale
+      # version (and name a commit that may not exist), so it must not be
+      # tracked. (This job runs on the runner, not in a container, so git is
+      # already there and the checkout is a real clone.)
+      - name: debian/changelog is not committed
+        run: |
+          git rev-parse --is-inside-work-tree
+          if git ls-files --error-unmatch debian/changelog; then
+            echo "::error file=debian/changelog::debian/changelog is committed, but the build generates it: git rm it"
+            exit 1
+          fi
+
       - name: Install net-snmp CLI (system dependency for the sync transport)
         run: |
           sudo apt-get update
@@ -112,12 +126,14 @@ jobs:
         with:
           fetch-depth: 0  # full history + tags: the version is git describe's
 
+      # The shared build: debian:<suite>, build deps from debian/control, and
+      # the version from the shared deb-version.py (with ~deb<R>, and ~pr<P>
+      # on a pull request). Writes the .debs to built-debs/.
       - name: Build
-        run: |
-          docker run --rm \
-            -v "${PWD}:/src" -w /src \
-            docker.io/library/debian:${{ matrix.suite }} \
-            sh packaging/ci-build.sh
+        uses: mithro/apt-repo-action/build-deb@main
+        with:
+          suite: ${{ matrix.suite }}
+          arch: ${{ matrix.arch }}
 
       - name: Upload
         uses: actions/upload-artifact@v7
