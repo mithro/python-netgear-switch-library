@@ -123,7 +123,8 @@ repository, with the version derived from git — no manual version bumps. See
 Continuous integration
 ----------------------
 
-``.github/workflows/ci.yml`` runs the test suite, lint, type-check and the
-documentation build across supported Python versions;
-``.github/workflows/publish-pypi.yml`` and ``.github/workflows/deb.yml`` handle
-publication.
+``.github/workflows/deb.yml`` ("Debian packages") runs the test suite, lint,
+type-check and the documentation build across supported Python versions in its
+``test`` job, then builds the ``.deb`` for every suite and, from ``main``,
+publishes the apt repository. ``.github/workflows/publish-pypi.yml`` publishes
+to PyPI once that workflow has succeeded on ``main``.
