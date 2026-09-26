@@ -228,9 +228,10 @@ def _force_serial_build(app: Sphinx) -> None:
     this project, well inside any build timeout. Remove this once
     sphinx-argparse implements ``merge_domaindata``.
 
-    This is why the CI documentation job passes ``-j auto`` too (see
-    ``.github/workflows/ci.yml``): the gate must run the command Read the Docs
-    runs, or a failure like this one reaches production with CI still green.
+    This is why the CI documentation build passes ``-j auto`` too (see the
+    ``test`` job in ``.github/workflows/deb.yml``): the gate must run the
+    command Read the Docs runs, or a failure like this one reaches production
+    with CI still green.
     """
     app.parallel = 1
 
