@@ -78,7 +78,9 @@ dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "pytest-cov>=5.0"]
 # count>, which reached 0.0.post405 on PyPI -- v0.1 was chosen to sort ABOVE
 # that, since re-counting from a root tag would have re-issued 0.0.post404/405.)
 # "no-local-version" keeps the version PyPI-upload safe. These forms are also
-# valid Debian versions verbatim; packaging/deb-version.py applies the same rule.
+# valid Debian versions verbatim; apt-repo-action's shared scripts/deb-version.py
+# applies the same rule to the .deb, adding its ~deb<R> suite suffix (which
+# debian/rules strips again for the Python version).
 [tool.hatch.version]
 source = "vcs"
 

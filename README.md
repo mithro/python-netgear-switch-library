@@ -24,7 +24,30 @@ test your own tools against a mock), and generated
 Status: **early development.** See `docs/superpowers/specs/` for the design and
 `docs/superpowers/plans/` for the implementation plans.
 
-## Installation
+## Install
+
+### Debian (apt)
+
+Signed `.deb` packages are published as an apt repository per Debian suite:
+**bookworm**, **trixie**, **forky** and **sid** (`Architecture: all`, so every
+architecture, including Raspberry Pi OS). Put your suite's name in place of
+`trixie` below:
+
+```sh
+sudo install -d -m0755 /etc/apt/keyrings
+curl -fsSL https://mith.ro/python-netgear-switch-library/python-netgear-switch-library.gpg | sudo tee /etc/apt/keyrings/python-netgear-switch-library.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/python-netgear-switch-library.gpg] https://mith.ro/python-netgear-switch-library/trixie/ ./" \
+  | sudo tee /etc/apt/sources.list.d/python-netgear-switch-library.list
+sudo apt update
+sudo apt install python3-netgear-switch-library
+```
+
+The repository's signing key has the fingerprint
+`E870 0619 795F D931 79E2  600A 8F51 2272 5C6D 8239`
+(`gpg --show-keys /etc/apt/keyrings/python-netgear-switch-library.gpg`).
+
+This installs the `netgear_switch` library and the `ngsw` CLI, and pulls in the
+`snmp` net-snmp CLI tools automatically.
 
 ### pip / uv (PyPI)
 
@@ -41,37 +64,16 @@ transport shells out to the **net-snmp command-line tools**, a system package
 sudo apt install snmp   # provides snmpget/snmpbulkwalk/snmpset
 ```
 
-### Debian / Ubuntu (apt)
-
-Signed `.deb` packages for Debian **trixie** and **sid** are published to a
-GitHub Pages apt repository. Pick the line matching your suite:
-
-```sh
-sudo install -d -m0755 /etc/apt/keyrings
-curl -fsSL https://mith.ro/python-netgear-switch-library/python-netgear-switch-library.gpg \
-  | sudo tee /etc/apt/keyrings/python-netgear-switch-library.gpg > /dev/null
-
-# trixie:
-echo "deb [signed-by=/etc/apt/keyrings/python-netgear-switch-library.gpg] https://mith.ro/python-netgear-switch-library/trixie/ ./" \
-  | sudo tee /etc/apt/sources.list.d/python-netgear-switch-library.list
-# sid:
-echo "deb [signed-by=/etc/apt/keyrings/python-netgear-switch-library.gpg] https://mith.ro/python-netgear-switch-library/sid/ ./" \
-  | sudo tee /etc/apt/sources.list.d/python-netgear-switch-library.list
-
-sudo apt update
-sudo apt install python3-netgear-switch-library
-```
-
-This installs the `netgear_switch` library and the `ngsw` CLI, and pulls in the
-`snmp` net-snmp CLI tools automatically.
-
 Either way, once installed run `ngsw --help` to see available commands.
 
 ### Versioning
 
 This project is a **rolling release**: the version is derived from git
-(`0.0.postN` / `X.Y.postN`), and every merge to `main` publishes a new version
-to PyPI and the apt repo. There are no tags or manual version bumps.
+(`X.Y` at a `vX.Y` tag, `X.Y.postN` N commits after it), and every merge to
+`main` publishes a new version to PyPI and the apt repository, with no manual
+version bumps. The `.deb` adds the suite (`0.1.post23~deb12` on bookworm,
+`~deb13` trixie, `~deb14` forky, nothing on sid), so an upgrade to the next
+Debian release also upgrades the package. See `RELEASING.md`.
 
 ## Mock switch daemons (`ngsw serve`)
 

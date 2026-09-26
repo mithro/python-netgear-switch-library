@@ -2,18 +2,26 @@
 
 This project is a **rolling release**. There are no manual version bumps: the
 version is derived from `git describe` (`hatch-vcs` for the wheel,
-`packaging/deb-version.py` for the `.deb`) — `X.Y` at a `vX.Y` tag,
-`X.Y.postN` N commits after it — and **every green merge to `main` publishes
-new packages** automatically:
+[apt-repo-action](https://github.com/mithro/apt-repo-action)'s shared
+`scripts/deb-version.py` for the `.deb`) — `X.Y` at a `vX.Y` tag,
+`X.Y.postN` N commits after it, and for the `.deb` the suite's `~deb<R>`
+(`~deb12` bookworm, `~deb13` trixie, `~deb14` forky, none on sid) — and
+**every green merge to `main` publishes new packages** automatically:
 
-- `.github/workflows/ci.yml` — runs the gates (ruff, mypy --strict, pytest with
-  coverage >= 90, docs build) on every push and PR. A green run is what
-  "mergeable" means, and it is what triggers the two release workflows.
+- `.github/workflows/deb.yml` ("Debian packages") — its `test` job runs the
+  gates (ruff, mypy --strict, pytest with coverage >= 90, docs build) on every
+  push and PR; a green run is what "mergeable" means. Then `build-deb` builds
+  the `.deb` for bookworm, trixie, forky and sid with apt-repo-action's shared
+  `build-deb` action and install-tests it (`packaging/install-test.sh`), and,
+  on `main` only, `publish-apt` republishes the signed apt repo on GitHub
+  Pages. A pull request builds preview packages (`~pr<N>`, sorting below
+  `main`'s) as workflow artifacts and publishes nothing.
 - `.github/workflows/publish-pypi.yml` — builds and uploads the wheel + sdist to
-  PyPI when CI **succeeds** on `main` (`workflow_run`; a failed or cancelled CI
-  run publishes nothing, and the checkout is pinned to the SHA CI validated).
-- `.github/workflows/deb.yml` — builds `.deb`s for trixie + sid and republishes
-  the signed apt repo on GitHub Pages, gated the same way.
+  PyPI when "Debian packages" **succeeds** on `main` (`workflow_run`; a failed
+  or cancelled run publishes nothing, and the checkout is pinned to the SHA it
+  validated).
+
+`debian/changelog` is not committed: the build writes it, with the version.
 
 Merges to `main` MUST use `--no-ff` merge commits so history stays linear per PR.
 
@@ -107,7 +115,7 @@ re-runs idempotent.
   `X.Y.postN` version (matches `git describe --tags` on `main`, e.g. `v0.1-3-g…`
   → `0.1.post3`).
 - apt: `sudo apt update && apt-cache policy python3-netgear-switch-library` on a
-  Debian trixie/sid box configured per the README. Before the GPG key is set
+  Debian bookworm/trixie/forky/sid box configured per the README. Before the GPG key is set
   (see step 2 above), expect `apt update` to fail with a signature error for
   this repo — that confirms the fail-closed behavior is working, not that
   something is broken.

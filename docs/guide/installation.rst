@@ -76,24 +76,22 @@ from the ``[async]`` extra.
 Debian and Ubuntu
 -----------------
 
-Signed ``.deb`` packages for Debian **trixie** and **sid** are published to a
-GitHub Pages apt repository:
+Signed ``.deb`` packages are published as an apt repository per Debian suite:
+**bookworm**, **trixie**, **forky** and **sid** (``Architecture: all``, so every
+architecture, including Raspberry Pi OS). Put your suite's name in place of
+``trixie`` below:
 
 .. code-block:: sh
 
    sudo install -d -m0755 /etc/apt/keyrings
-   curl -fsSL https://mith.ro/python-netgear-switch-library/python-netgear-switch-library.gpg \
-     | sudo tee /etc/apt/keyrings/python-netgear-switch-library.gpg > /dev/null
-
-   # trixie:
+   curl -fsSL https://mith.ro/python-netgear-switch-library/python-netgear-switch-library.gpg | sudo tee /etc/apt/keyrings/python-netgear-switch-library.gpg > /dev/null
    echo "deb [signed-by=/etc/apt/keyrings/python-netgear-switch-library.gpg] https://mith.ro/python-netgear-switch-library/trixie/ ./" \
      | sudo tee /etc/apt/sources.list.d/python-netgear-switch-library.list
-   # sid:
-   echo "deb [signed-by=/etc/apt/keyrings/python-netgear-switch-library.gpg] https://mith.ro/python-netgear-switch-library/sid/ ./" \
-     | sudo tee /etc/apt/sources.list.d/python-netgear-switch-library.list
-
    sudo apt update
    sudo apt install python3-netgear-switch-library
+
+The repository's signing key has the fingerprint
+``E870 0619 795F D931 79E2  600A 8F51 2272 5C6D 8239``.
 
 This installs the ``netgear_switch`` library and the ``ngsw`` CLI, and pulls in
 the net-snmp tools automatically. The packaging lives in ``debian/`` and
@@ -104,9 +102,10 @@ Versioning
 
 A **rolling release**. The version is derived from ``git describe`` by
 ``hatch-vcs``: ``X.Y`` at a ``vX.Y`` tag, ``X.Y.postN`` N commits after it
-(``0.1``, ``0.1.post1``, …). Every merge to ``main`` whose CI run is green
-publishes to PyPI and to the apt repository — a red run publishes nothing. No
-manual version bumps — see ``RELEASING.md``.
+(``0.1``, ``0.1.post1``, …). The ``.deb`` adds the suite: ``~deb12`` on
+bookworm, ``~deb13`` trixie, ``~deb14`` forky and nothing on sid. Every merge
+to ``main`` whose tests pass publishes to PyPI and to the apt repository — a
+red run publishes nothing. No manual version bumps — see ``RELEASING.md``.
 
 .. note::
 

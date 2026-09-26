@@ -34,7 +34,12 @@ htmlcov/
 *.buildinfo
 *.changes
 /debian/.debhelper/
+# Written by each build (apt-repo-action's scripts/deb-version.py); never committed.
+/debian/changelog
 /debian/files
+/debian/*.substvars
+/debian/*.debhelper
+/debian/*.debhelper.log
 /debian/python3-netgear-switch-library/
 /debian/debhelper-build-stamp
 
