@@ -3,11 +3,14 @@
 # Build the netgear_switch Python package with dh-python/pybuild straight from
 # pyproject.toml (hatchling backend). The upstream version is normally derived
 # from git by hatch-vcs, but during the .deb build there may be no VCS context in
-# the unpacked source, so we pin it to the changelog version (set by
-# packaging/deb-version.py) through SETUPTOOLS_SCM_PRETEND_VERSION. dpkg source
-# format is native, so the changelog version has no Debian revision to strip.
+# the unpacked source, so we pin it to the changelog version (written by the
+# build) through SETUPTOOLS_SCM_PRETEND_VERSION. dpkg source format is native,
+# so the changelog version has no Debian revision to strip. It can carry the
+# Debian-only ~deb<R> suite and ~pr<P> preview suffixes (0.1.post20~deb12~pr15),
+# which aren't PEP 440: everything from the first ~ is dropped, leaving the
+# same X.Y[.postN] the wheel on PyPI has.
 export PYBUILD_NAME = netgear_switch
-export SETUPTOOLS_SCM_PRETEND_VERSION = $(shell dpkg-parsechangelog -SVersion)
+export SETUPTOOLS_SCM_PRETEND_VERSION = $(firstword $(subst ~, ,$(shell dpkg-parsechangelog -SVersion)))
 
 %:
 	dh $@ --with python3 --buildsystem=pybuild
