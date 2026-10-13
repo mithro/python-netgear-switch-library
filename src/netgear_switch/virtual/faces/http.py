@@ -665,8 +665,9 @@ class VirtualHttpFace:
         if path == self.spec.vlan_config_path:
             return web_gs110emx.render_cf8021q(self.state, self._token)
         if path == self.spec.vlan_membership_path:
-            vid = int(form.get("VLAN_ID", "1"))
-            return web_gs110emx.render_vlan_membership(self.state, self._token, vid)
+            # Select, apply and refusal all share this URL; which one a request
+            # is depends on its fields -- see ``handle_vlan_membership``.
+            return web_gs110emx.handle_vlan_membership(self.state, self._token, form)
         return "<html><body>Not Found</body></html>"
 
     def _handle_cert_upload(self, content_type: str, raw: bytes) -> tuple[int, str]:

@@ -156,19 +156,18 @@ def render_cf8021q(state: VirtualSwitchState, token: str) -> str:
     return _t.CF8021Q_PREFIX.replace("__GAMBIT__", token) + rows + _t.CF8021Q_SUFFIX
 
 
-def render_vlan_membership(
-    state: VirtualSwitchState, token: str, selected_vid: int
-) -> str:
-    """POST vlanMembership.html (VLAN_ID=<selected_vid>) -- the per-port
-    ``hiddenMem`` wire codes (1=untagged, 2=tagged, 3=excluded) for the
-    selected VLAN, plus the full VLAN <option> list. The wire codes are the
-    SAME scheme gs305ep's 8021qMembe.cgi uses, so ``parse.parse_membership``
-    reads it back and the resulting VLANInfo matches the NSDP VLAN_MEMBERS read.
-    """
+# hiddenMem wire code -> the CSS class the page paints that port with.
+_MEM_IMAGE = {"1": "untImg", "2": "tagImg", "3": "remImg"}
+
+
+def _membership_codes(state: VirtualSwitchState, vid: int) -> str:
+    """``hiddenMem`` for ``vid``: one code per port, 1=untagged, 2=tagged,
+    3=excluded. A VLAN the switch does not have reads as all-excluded, which is
+    what the real page renders for one (see ``handle_vlan_membership``)."""
     from ..registry import get_model
 
     port_count = get_model(state.model_key).port_count
-    vsim = state.vlans.get(selected_vid)
+    vsim = state.vlans.get(vid)
     codes = []
     for port in range(1, port_count + 1):
         if vsim is not None and port in vsim.untagged:
@@ -177,14 +176,107 @@ def render_vlan_membership(
             codes.append("2")
         else:
             codes.append("3")
+    return "".join(codes)
+
+
+def render_vlan_membership(
+    state: VirtualSwitchState, token: str, shown_vid: int, err_msg: str = ""
+) -> str:
+    """One vlanMembership.html page, rendering ``shown_vid``.
+
+    Byte-identical to the real page (``gs110emx_fw1028_vlanmembership_vlan*.html``)
+    for the same values: the VLAN ``<option>`` list, the hidden ``vlanIdSel``
+    naming the VLAN shown (the page marks no ``<option selected>``), one
+    ``portImage`` per port, the ``hiddenMem`` codes, and ``errMsg``. The wire
+    codes are the SAME scheme gs305ep's 8021qMembe.cgi uses, so
+    ``parse.parse_membership`` reads it back.
+    """
+    codes = _membership_codes(state, shown_vid)
     options = "".join(
         f'<option value = "{vid}">{vid} </option>\n' for vid in sorted(state.vlans)
+    )
+    images = "".join(
+        f"<div class='portMember margin'><span class='portword'>{port}</span>"
+        f"<div class='panels'><div class='portImage {_MEM_IMAGE[code]}'></div>"
+        "</div></div>\n"
+        for port, code in enumerate(codes, start=1)
     )
     return (
         _t.VLANMEM_PAGE.replace("__GAMBIT__", token)
         .replace("__VLAN_OPTIONS__", options)
-        .replace("__HIDDENMEM__", "".join(codes))
+        .replace("__VLAN_SHOWN__", str(shown_vid))
+        .replace("__PORT_IMAGES__", images)
+        .replace("__HIDDENMEM__", codes)
+        .replace("__ERRMSG__", err_msg)
     )
+
+
+def handle_vlan_membership(
+    state: VirtualSwitchState, token: str, form: dict[str, str]
+) -> str:
+    """GET or POST vlanMembership.html; returns the reply BODY.
+
+    Every branch is MEASURED, 2026-10-14, firmware 1.0.2.8 -- the request rule
+    on all three of gs110emx1/2/3 (10.1.5.25-27), the apply and its refusal on
+    gs110emx1 against throwaway VLAN 4001 and link-down port 2:
+
+    * GET -> the FIRST VLAN's page, always; a select is not remembered.
+    * ``vlanIdSel`` absent, empty or ``0`` -> a 0-byte body.
+    * ``vlanIdSel`` != ``VLAN_ID`` -> ``VLAN_ID``'s page. This is the browser's
+      dropdown change, which posts the whole form: a ``hiddenMem`` riding along
+      is IGNORED (VLAN 1's ``1111121122`` posted at VLAN 4001 left 4001 at
+      ``3333333333``). A VLAN the switch does not have (4094) still renders, as
+      all-excluded, with ``vlanIdSel`` echoing the request.
+    * ``vlanIdSel`` == ``VLAN_ID`` -> the Apply (``ACTION`` stays empty either
+      way, so it does not distinguish the two). With no ``hiddenMem`` there is
+      nothing to apply and the reply is a 0-byte body -- the shape the library
+      used to send as a "select" (issue #16).
+    * An apply that would EXCLUDE a port from the VLAN its PVID names changes
+      nothing and re-renders the page with ``errMsg`` set; making that port
+      tagged instead is accepted.
+
+    An apply changes that VLAN only: no other VLAN's membership and no PVID
+    moved when port 2 went excluded -> tagged -> untagged in VLAN 4001.
+    """
+    if "VLAN_ID" not in form:
+        return render_vlan_membership(state, token, min(state.vlans))
+    vid_text, shown = form["VLAN_ID"], form.get("vlanIdSel", "")
+    if not shown.isdigit() or int(shown) == 0:
+        return ""
+    vid = int(vid_text)
+    if shown != vid_text:
+        return render_vlan_membership(state, token, vid)
+    hidden = form.get("hiddenMem")
+    if hidden is None:
+        return ""
+    current = _membership_codes(state, vid)
+    if (
+        vid not in state.vlans
+        or len(hidden) != len(current)
+        or set(hidden) - set(_MEM_IMAGE)
+    ):
+        # NOT measured: an apply naming a VLAN the switch lacks, or a hiddenMem
+        # of the wrong length / with an unknown code. Refused rather than
+        # guessed at, so a writer that sends one cannot pass here by accident.
+        return ""
+    for port, code in enumerate(hidden, start=1):
+        if code == "3" and state.pvids.get(port) == vid:
+            return render_vlan_membership(
+                state,
+                token,
+                vid,
+                f"You can not remove port {port} from this VLAN. "
+                "Change its PVID first!",
+            )
+    vsim = state.vlans[vid]
+    for port, code in enumerate(hidden, start=1):
+        vsim.member.discard(port)
+        vsim.untagged.discard(port)
+        if code != "3":
+            vsim.member.add(port)
+        if code == "1":
+            vsim.untagged.add(port)
+    return render_vlan_membership(state, token, vid)
 
 
 def render_interface_stats(state: VirtualSwitchState, token: str) -> str:
