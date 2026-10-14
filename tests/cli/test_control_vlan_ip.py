@@ -12,6 +12,9 @@ from netgear_switch.registry import get_model
 
 
 class RecordingSwitch:
+    def close(self) -> None:
+        """SyncSwitch.close(): the CLI closes every switch it built."""
+
     def __init__(
         self,
         host: str = "10.0.0.1",
