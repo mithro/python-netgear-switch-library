@@ -1084,7 +1084,8 @@ class HttpWriter:
         err = parse.parse_gs110emx_err_msg(reply)
         if err:
             raise HttpError(
-                f"{page}: switch refused PVID for port {port} -> {vlan}: {err}"
+                f"{page}: switch refused PVID for port {port} -> {vlan}; "
+                f"it said: {err!r}"
             )
         after = dict(parse.parse_gs110emx_pvids(self.session.get_page(path)))
         if after.get(port) != vlan:
@@ -2164,7 +2165,8 @@ class AsyncHttpWriter:
         err = parse.parse_gs110emx_err_msg(reply)
         if err:
             raise HttpError(
-                f"{page}: switch refused PVID for port {port} -> {vlan}: {err}"
+                f"{page}: switch refused PVID for port {port} -> {vlan}; "
+                f"it said: {err!r}"
             )
         after = dict(parse.parse_gs110emx_pvids(await self.session.get_page(path)))
         if after.get(port) != vlan:
