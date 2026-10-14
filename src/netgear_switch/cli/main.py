@@ -1051,12 +1051,20 @@ def main(
         parser.print_help(err)
         return EXIT_USAGE
 
+    # Every switch this run built, so each is CLOSED before the process exits.
+    # Exiting without it left an HTTP-backed switch logged in on the device, and
+    # a GS110EMX refuses new logins once a few such sessions have piled up.
+    built: list[SyncSwitch] = []
+
     def get_switch() -> SyncSwitch:
         if switch_factory is not None:
-            return switch_factory(args, ctx)
-        from .resolve import resolve_switch
+            sw = switch_factory(args, ctx)
+        else:
+            from .resolve import resolve_switch
 
-        return resolve_switch(args, env=env, prompt=prompt)
+            sw = resolve_switch(args, env=env, prompt=prompt)
+        built.append(sw)
+        return sw
 
     try:
         result: int = args.func(args, ctx, get_switch)
@@ -1075,3 +1083,6 @@ def main(
             traceback.print_exc(file=err)
         print(f"error: {exc}", file=err)
         return EXIT_ERROR
+    finally:
+        for sw in built:
+            sw.close()

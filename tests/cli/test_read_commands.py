@@ -5,7 +5,7 @@ import json
 
 from netgear_switch.cli import context
 from netgear_switch.cli.main import main
-from netgear_switch.errors import UnsupportedCapabilityError
+from netgear_switch.errors import NetgearSwitchError, UnsupportedCapabilityError
 from netgear_switch.models import (
     IpMode,
     LLDPNeighbor,
@@ -24,6 +24,9 @@ from netgear_switch.registry import get_model
 
 class FakeSwitch:
     """A stand-in SyncSwitch that returns canned model objects (no network)."""
+
+    def close(self) -> None:
+        """SyncSwitch.close(): the CLI closes every switch it built."""
 
     def __init__(self, model: str = "gsm7252ps", host: str = "10.0.0.1") -> None:
         self.model = get_model(model)
@@ -252,3 +255,37 @@ def test_unsupported_capability_verbose_prints_traceback() -> None:
     assert code == context.EXIT_ERROR
     assert "Traceback (most recent call last)" in err
     assert "error:" in err
+
+
+def test_the_switch_is_closed_when_the_command_ends() -> None:
+    """One-shot commands exit right after their op. Without a close, an
+    HTTP-backed switch stayed logged in on the device -- and a GS110EMX refuses
+    new logins once a few such sessions have piled up (measured 2026-10-14)."""
+    events: list[str] = []
+
+    class Closing(FakeSwitch):
+        def get_ports(self, **kwargs):  # type: ignore[no-untyped-def]
+            events.append("read")
+            return super().get_ports(**kwargs)
+
+        def close(self) -> None:
+            events.append("close")
+
+    assert run(["ports"], Closing())[0] == context.EXIT_OK
+    assert events == ["read", "close"]
+
+
+def test_the_switch_is_closed_when_the_command_fails() -> None:
+    events: list[str] = []
+
+    class Failing(FakeSwitch):
+        def get_ports(self, **kwargs):  # type: ignore[no-untyped-def]
+            raise NetgearSwitchError("the switch said no")
+
+        def close(self) -> None:
+            events.append("close")
+
+    code, _, err = run(["ports"], Failing())
+    assert code != context.EXIT_OK
+    assert "the switch said no" in err
+    assert events == ["close"]

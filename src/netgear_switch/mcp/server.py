@@ -23,6 +23,7 @@ import argparse
 import dataclasses
 import enum
 import os
+import threading
 import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -136,6 +137,33 @@ def _resolve(
     return resolve_switch(ns, env=env, prompt=_no_prompt)
 
 
+# Switches built for the tool call running on this thread. Every tool resolves
+# a FRESH ``SyncSwitch`` and then hands ``_read``/``_write`` a closure over it,
+# so those two are the one place that knows the call is over. Without closing
+# it there, each HTTP-backed call left a logged-in web session behind on the
+# switch -- and a GS110EMX answers "Maximum number of sessions reached... Try
+# After Some Time" once a handful have piled up (measured 2026-10-14, 10.1.5.25,
+# firmware 1.0.2.8), locking out this long-lived server and the web UI alike.
+_OPEN = threading.local()
+
+
+def _track(sw: SyncSwitch) -> SyncSwitch:
+    """Remember ``sw`` so the tool call that built it closes it when done."""
+    opened: list[SyncSwitch] = getattr(_OPEN, "switches", [])
+    opened.append(sw)
+    _OPEN.switches = opened
+    return sw
+
+
+def _close_tracked() -> None:
+    """Close every switch this thread's tool call built (logging out of the
+    web UI where the backend held a session)."""
+    opened: list[SyncSwitch] = getattr(_OPEN, "switches", [])
+    _OPEN.switches = []
+    for sw in opened:
+        sw.close()
+
+
 def _read(op_name: str, run):  # type: ignore[no-untyped-def]
     """Run a read op, converting library errors into a structured result.
 
@@ -150,6 +178,8 @@ def _read(op_name: str, run):  # type: ignore[no-untyped-def]
         return {"unsupported": True, "op": op_name, "detail": str(exc)}
     except NetgearSwitchError as exc:
         return {"error": str(exc), "op": op_name}
+    finally:
+        _close_tracked()
 
 
 def list_inventory_switches(
@@ -202,15 +232,17 @@ def build_server(  # type: ignore[no-untyped-def]
         http_password: str | None,
         nsdp_interface: str | None,
     ) -> SyncSwitch:
-        return _resolve(
-            switch=switch,
-            host=host,
-            model=model,
-            config=config,
-            community=community,
-            http_password=http_password,
-            nsdp_interface=nsdp_interface,
-            env=env,
+        return _track(
+            _resolve(
+                switch=switch,
+                host=host,
+                model=model,
+                config=config,
+                community=community,
+                http_password=http_password,
+                nsdp_interface=nsdp_interface,
+                env=env,
+            )
         )
 
     @mcp.tool()
@@ -317,6 +349,8 @@ def _write(op_name: str, run):  # type: ignore[no-untyped-def]
         return {"not_implemented": True, "op": op_name, "detail": str(exc)}
     except NetgearSwitchError as exc:
         return {"error": str(exc), "op": op_name}
+    finally:
+        _close_tracked()
 
 
 def _register_write_tools(mcp, resolver) -> None:  # type: ignore[no-untyped-def]

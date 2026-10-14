@@ -25,6 +25,10 @@ class FakeSwitch:
     switch would fail with ``AttributeError`` rather than silently succeeding.
     """
 
+    def close(self) -> None:
+        """SyncSwitch.close(): the CLI closes every switch it built."""
+
+
     def __init__(self) -> None:
         self.model = get_model("gsm7252ps")
         self.host = "10.1.5.20"

@@ -30,10 +30,24 @@ if TYPE_CHECKING:
     from .state import VirtualSwitchState
 
 
-def render_login(rand: str) -> str:
-    """GET / login page -- byte-identical to gs110emx_login.html but for the
-    ``rand`` nonce."""
-    return _t.LOGIN.replace("__RAND__", rand)
+#: What the login page says when every session slot is taken. MEASURED
+#: 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8).
+SESSIONS_FULL = "Maximum number of sessions reached... Try After Some Time"
+
+
+def render_login(rand: str, err_msg: str = "") -> str:
+    """The login page -- byte-identical to gs110emx_login.html but for the
+    ``rand`` nonce and, on a refused login, the text in ``login_err_msg``
+    (``gs110emx_fw1028_login_sessions_full.html`` is that page for real)."""
+    return _t.LOGIN.replace("__RAND__", rand).replace("__LOGIN_ERR__", err_msg)
+
+
+def render_session_lost() -> str:
+    """The 298-byte page a GS110EMX answers ANY request with when it does not
+    hold the request's Gambit token -- idled out, logged out, or never issued --
+    and also what it answers a logout with. Byte-identical to
+    ``gs110emx_fw1028_session_lost.html``."""
+    return _t.SESSION_LOST
 
 
 def render_redirect(token: str) -> str:
