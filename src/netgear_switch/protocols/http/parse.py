@@ -2056,13 +2056,23 @@ def device_text(raw: str, limit: int = _DEVICE_TEXT_LIMIT) -> str:
 
     The firmware's own words are worth reporting, but they are INPUT: they end
     up in exception text that callers log and that an MCP client hands to a
-    model. So entities are decoded, anything unprintable (including newlines)
-    becomes a space, runs of whitespace collapse, and the result is capped --
-    a sentence stays a sentence and cannot pose as anything else.
+    model. So entities are decoded and only the characters of an ordinary
+    sentence are kept -- letters, digits, spaces and plain punctuation.
+    Everything else becomes a space: control characters and newlines, and also
+    the characters that give text STRUCTURE (angle brackets, braces, square
+    brackets, backticks, backslashes), so the message cannot imitate markup or
+    a delimiter. Runs of whitespace collapse and the result is capped.
+
+    This bounds the form, not the meaning: what remains is still the device's
+    wording, which is why callers quote it and label it as what the switch said.
     """
-    printable = "".join(ch if ch.isprintable() else " " for ch in unescape(raw))
-    text = " ".join(printable.split())
+    text = " ".join(_NOT_SENTENCE_TEXT.sub(" ", unescape(raw)).split())
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+# Everything a firmware message has been seen to use, and no more: the measured
+# ones are letters, digits, spaces, '.' and '!'.
+_NOT_SENTENCE_TEXT = re.compile(r"[^A-Za-z0-9 .,:;!?'\"()/_%+-]")
 
 
 # ---------------------------------------------------------------------------
