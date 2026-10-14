@@ -1040,6 +1040,9 @@ class HttpWriter:
                     after=now.get(port),
                 )
             return
+        if self._spec.html_dialect is HtmlDialect.GS110EMX:
+            self._set_gs110emx_pvid(path, port, vlan)
+            return
         page = self.session.get_page(path)
         self.session.post_form(
             path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
@@ -1049,6 +1052,46 @@ class HttpWriter:
             raise WriteVerificationError(
                 f"PVID for port {port} did not read back as {vlan}",
                 before=None,
+                after=after.get(port),
+            )
+
+    def _set_gs110emx_pvid(self, path: str, port: int, vlan: int) -> None:
+        """Set one port's PVID on the GS110EMX's ``vlan_pvidsetting.html``.
+
+        The page's own Apply (``forms.gs110emx_pvid_form``), then the switch's
+        answer is read before anything is verified: a refusal is an HTTP 200
+        with the table unchanged and the reason in ``errMsg``. MEASURED
+        2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8):
+
+            PVID naming a VLAN the port is not in -> 'Port 3 is not a member
+                                                      of VLAN 4001!'
+            PVID naming a VLAN the switch lacks   -> 'VLAN 4094 does not exist.'
+
+        The second never reaches the switch (``set_pvid`` checks the VLAN list
+        first); the first is the device's rule to report, in its words --
+        the port has to be put in the VLAN before its PVID can name it.
+        """
+        page = _membership_page_name(path)
+        before = dict(parse.parse_gs110emx_pvids(self.session.get_page(path)))
+        if port not in before:
+            raise ValueError(
+                f"{page}: port {port} is not one of this switch's ports "
+                f"({sorted(before)})"
+            )
+        reply = self.session.post_form(
+            path, forms.gs110emx_pvid_form(port=port, vlan=vlan)
+        )
+        err = parse.parse_gs110emx_err_msg(reply)
+        if err:
+            raise HttpError(
+                f"{page}: switch refused PVID for port {port} -> {vlan}; "
+                f"it said: {err!r}"
+            )
+        after = dict(parse.parse_gs110emx_pvids(self.session.get_page(path)))
+        if after.get(port) != vlan:
+            raise WriteVerificationError(
+                f"PVID for port {port} did not read back as {vlan} on {page}",
+                before=before.get(port),
                 after=after.get(port),
             )
 
@@ -2092,6 +2135,9 @@ class AsyncHttpWriter:
                     after=now.get(port),
                 )
             return
+        if self._spec.html_dialect is HtmlDialect.GS110EMX:
+            await self._set_gs110emx_pvid(path, port, vlan)
+            return
         page = await self.session.get_page(path)
         await self.session.post_form(
             path, forms.pvid_form(port=port, vlan=vlan, csrf_hash=_csrf(page))
@@ -2101,6 +2147,32 @@ class AsyncHttpWriter:
             raise WriteVerificationError(
                 f"PVID for port {port} did not read back as {vlan}",
                 before=None,
+                after=after.get(port),
+            )
+
+    async def _set_gs110emx_pvid(self, path: str, port: int, vlan: int) -> None:
+        """Async twin of ``HttpWriter._set_gs110emx_pvid`` (see its docs)."""
+        page = _membership_page_name(path)
+        before = dict(parse.parse_gs110emx_pvids(await self.session.get_page(path)))
+        if port not in before:
+            raise ValueError(
+                f"{page}: port {port} is not one of this switch's ports "
+                f"({sorted(before)})"
+            )
+        reply = await self.session.post_form(
+            path, forms.gs110emx_pvid_form(port=port, vlan=vlan)
+        )
+        err = parse.parse_gs110emx_err_msg(reply)
+        if err:
+            raise HttpError(
+                f"{page}: switch refused PVID for port {port} -> {vlan}; "
+                f"it said: {err!r}"
+            )
+        after = dict(parse.parse_gs110emx_pvids(await self.session.get_page(path)))
+        if after.get(port) != vlan:
+            raise WriteVerificationError(
+                f"PVID for port {port} did not read back as {vlan} on {page}",
+                before=before.get(port),
                 after=after.get(port),
             )
 

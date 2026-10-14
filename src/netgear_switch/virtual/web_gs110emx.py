@@ -134,13 +134,55 @@ def apply_port_settings(state: VirtualSwitchState, form: dict[str, str]) -> str:
     return "SUCCESS"
 
 
-def render_pvid(state: VirtualSwitchState, token: str) -> str:
-    """GET vlan_pvidsetting.html -- per-port PVID from state."""
+def render_pvid(state: VirtualSwitchState, token: str, err_msg: str = "") -> str:
+    """vlan_pvidsetting.html -- per-port PVID from state, byte-identical to the
+    real page (``gs110emx_fw1028_pvid.html``) for the same values."""
     rows = "".join(
         _t.PVID_ROW.replace("__PORT__", str(port)).replace("__PVID__", str(pvid))
         for port, pvid in sorted(state.pvids.items())
     )
-    return _t.PVID_PREFIX.replace("__GAMBIT__", token) + rows + _t.PVID_SUFFIX
+    return (
+        _t.PVID_PREFIX.replace("__GAMBIT__", token)
+        + rows
+        + _t.PVID_SUFFIX.replace("__ERRMSG__", err_msg)
+    )
+
+
+def apply_pvid(state: VirtualSwitchState, token: str, form: dict[str, str]) -> str:
+    """Apply a ``vlan_pvidsetting.html`` POST; returns the re-rendered page.
+
+    MEASURED 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8), on
+    link-down ports 2 and 3 with throwaway VLAN 4001:
+
+    * ``PORT_NO=2;  PORT_PVID=1``    -> applied, ``errMsg`` empty.
+    * ``PORT_NO=2   PORT_PVID=4001`` -> applied as well. Unlike
+      ``port_settings.html`` (see ``apply_port_settings``), this page does NOT
+      need the trailing ``;`` its own ``saveSelectedPorts()`` appends.
+    * ``PORT_NO=3;  PORT_PVID=4001`` with port 3 outside VLAN 4001 -> nothing
+      changes, ``errMsg`` = ``Port 3 is not a member of VLAN 4001!``.
+    * ``PORT_NO=2;  PORT_PVID=4094`` with no VLAN 4094 -> nothing changes,
+      ``errMsg`` = ``VLAN 4094 does not exist.``.
+
+    Only single-port requests were measured. A list naming several ports is
+    applied port by port here because that is what the field is for, but its
+    behaviour on a partial refusal is NOT known -- the library never sends one.
+    """
+    ports = [int(p) for p in form.get("PORT_NO", "").split(";") if p.strip().isdigit()]
+    pvid_text = form.get("PORT_PVID", "")
+    if not ports or not pvid_text.isdigit():
+        return render_pvid(state, token)
+    vid = int(pvid_text)
+    if vid not in state.vlans:
+        return render_pvid(state, token, f"VLAN {vid} does not exist.")
+    for port in ports:
+        if port not in state.vlans[vid].member:
+            return render_pvid(
+                state, token, f"Port {port} is not a member of VLAN {vid}!"
+            )
+    for port in ports:
+        if port in state.pvids:
+            state.pvids[port] = vid
+    return render_pvid(state, token)
 
 
 def render_cf8021q(state: VirtualSwitchState, token: str) -> str:

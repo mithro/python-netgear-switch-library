@@ -54,6 +54,18 @@ def membership_form(*, vlan: int, hidden_mem: str, csrf_hash: str) -> dict[str, 
     return {"VLAN_ID": str(vlan), "hiddenMem": hidden_mem, "hash": csrf_hash}
 
 
+def gs110emx_pvid_form(*, port: int, vlan: int) -> dict[str, str]:
+    """The GS110EMX ``vlan_pvidsetting.html`` Apply, as its ``submitPortPVID()``
+    builds it: ``PORT_NO`` is the selected-ports list ``saveSelectedPorts()``
+    keeps (``"2;"``), ``PORT_PVID`` the typed value, ``ACTION`` = ``Apply``.
+
+    LIVE-VERIFIED 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8) on
+    link-down port 2: PVID 4001 -> 1 read back. The firmware also accepts
+    ``PORT_NO`` without the ``;``; the browser's form is sent regardless.
+    """
+    return {"PORT_NO": f"{port};", "PORT_PVID": str(vlan), "ACTION": "Apply"}
+
+
 def gs110emx_membership_apply_form(*, vlan: int, hidden_mem: str) -> dict[str, str]:
     """The GS110EMX ``vlanMembership.html`` Apply.
 
