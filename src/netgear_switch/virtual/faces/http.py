@@ -158,6 +158,12 @@ class VirtualHttpFace:
         self._thread: threading.Thread | None = None
         self._cookie = f"{spec.cookie_name}=virtualsid"
         self._token = _VIRTUAL_TOKEN
+        # Token-session (GS110EMX) logins currently held. A login takes a
+        # slot, a logout gives it back, and with none left the login is
+        # refused -- see ``_token_login``. ``_token`` is whichever of them
+        # the request being rendered carries.
+        self._sessions: list[str] = []
+        self._logins = 0
         # Fixed per-session path the GoAhead XML_API login redirect advertises
         # (real firmware mints a fresh one per login; the mock proves the shape,
         # not the randomness -- like ``_token`` for the GAMBIT scheme).
@@ -316,6 +322,15 @@ class VirtualHttpFace:
                 if path not in face._known_paths:
                     self._send("<html><body>Not Found</body></html>", 404)
                     return
+                if face.spec.session_token_field is not None:
+                    query = parse_qs(self.path.partition("?")[2])
+                    token = query.get(face.spec.session_token_field, [""])[0]
+                    if path == face.spec.logout_path:
+                        self._send(face._token_logout(token))
+                        return
+                    if not face._token_live(token):
+                        self._send(web_gs110emx.render_session_lost())
+                        return
                 with face._lock:
                     if (fp := face._render_fastpath_vlan_page(path, {})) is not None:
                         page = fp
@@ -362,13 +377,17 @@ class VirtualHttpFace:
                 if path == login_post_path:
                     ok = face._login_response(form) == "OK"
                     if face.spec.session_token_field is not None:
-                        token = face._token if ok else ""
-                        self._send(web_gs110emx.render_redirect(token))
+                        self._send(face._token_login(ok))
                     else:
                         self._send("OK" if ok else "Login failed", cookie=ok)
                     return
                 if path not in face._known_paths:
                     self._send("<html><body>Not Found</body></html>", 404)
+                    return
+                if face.spec.session_token_field is not None and not face._token_live(
+                    form.get(face.spec.session_token_field, "")
+                ):
+                    self._send(web_gs110emx.render_session_lost())
                     return
                 with face._lock:
                     if (fp := face._render_fastpath_vlan_page(path, form)) is not None:
@@ -699,6 +718,52 @@ class VirtualHttpFace:
             "<html><body>SSL PEM Server Certificate file download through HTTP "
             "is completed successfully.</body></html>"
         )
+
+    def _token_login(self, password_ok: bool) -> str:
+        """The reply to a token-session login POST.
+
+        MEASURED 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8): with
+        every session slot taken, a login with the RIGHT password is answered
+        with the login page again, its ``login_err_msg`` reading "Maximum number
+        of sessions reached... Try After Some Time", and no Gambit token. The
+        slot comes back when a session is logged out (or idles out, which took
+        roughly ten minutes; the mock does not model the passage of time).
+
+        A wrong password renders an empty Gambit token, as before -- what the
+        real page says for one was not measured.
+        """
+        if not password_ok:
+            return web_gs110emx.render_redirect("")
+        with self._lock:
+            if len(self._sessions) >= self.state.http_max_sessions:
+                return web_gs110emx.render_login(self.rand, web_gs110emx.SESSIONS_FULL)
+            self._logins += 1
+            # The first session keeps the historical fixed token; later ones
+            # are distinct, as every real login's token is.
+            token = (
+                _VIRTUAL_TOKEN
+                if self._logins == 1
+                else f"{_VIRTUAL_TOKEN}-{self._logins}"
+            )
+            self._sessions.append(token)
+        return web_gs110emx.render_redirect(token)
+
+    def _token_logout(self, token: str) -> str:
+        """End ``token``'s session. The real switch answers a logout with its
+        298-byte login-redirect page whether or not the token was live."""
+        with self._lock:
+            if token in self._sessions:
+                self._sessions.remove(token)
+        return web_gs110emx.render_session_lost()
+
+    def _token_live(self, token: str) -> bool:
+        """Whether ``token`` is a session this face holds; if so, pages rendered
+        for the request carry it (each real page embeds the requester's token)."""
+        with self._lock:
+            if token not in self._sessions:
+                return False
+            self._token = token
+            return True
 
     def _login_response(self, form: dict[str, str]) -> str:
         field = self.spec.password_field
