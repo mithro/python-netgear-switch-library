@@ -318,22 +318,42 @@ def _referer_headers(spec: HttpModelSpec, host: str, *, secure: bool) -> dict[st
     return {"Referer": f"{scheme}://{host}/", "Origin": f"{scheme}://{host}"}
 
 
-def _is_login_redirect(text: str) -> bool:
-    """Whether ``text`` is a web UI bouncing the request back to its login page.
+# The GS110EMX's lost-session page is 298 bytes. Nothing a real page renders is
+# this small, so the size bound is what stops a full page that merely CONTAINS
+# these strings (a port description is device text an operator typed) from
+# being taken for one.
+_GAMBIT_BOUNCE_MAX = 1024
+_GAMBIT_BOUNCE_BODY = '<body onLoad="RedirectToLoginPage()">'
 
-    The GS110EMX answers ANY request whose Gambit token it does not hold -- an
+
+def _is_gambit_bounce(text: str) -> bool:
+    """Whether ``text`` IS the GS110EMX's login-redirect page -- by shape.
+
+    The switch answers ANY request whose Gambit token it does not hold -- an
     idled-out session, a logged-out one, a made-up one -- with HTTP 200 and a
-    298-byte page whose only content is
+    298-byte page that is nothing but
 
         function RedirectToLoginPage() { top.location.href = "/wmi/login"; }
+        <body onLoad="RedirectToLoginPage()">
 
     (captured 2026-10-14 from 10.1.5.25, firmware 1.0.2.8:
-    ``gs110emx_fw1028_session_lost.html``). The check used to look for the
-    words "redirect to login" only, which that page does not contain, so a dead
-    session reached the parsers and surfaced as a page-shape error.
+    ``gs110emx_fw1028_session_lost.html``). Matched on its body tag AND its
+    size, never on a substring alone: this decides whether a WRITE is reported
+    as not applied, and a page that only mentions the words must not flip that.
     """
-    lowered = text.lower()
-    return "redirect to login" in lowered or "redirecttologinpage" in lowered
+    return len(text) <= _GAMBIT_BOUNCE_MAX and _GAMBIT_BOUNCE_BODY in text
+
+
+def _is_login_redirect(text: str) -> bool:
+    """Whether a mid-session READ was bounced back to the login page.
+
+    Either the GS110EMX's page (see ``_is_gambit_bounce``) or the words
+    "redirect to login", which is the long-standing check for the cookie-session
+    models. That phrase check used to be the only one, and the GS110EMX's page
+    says "RedirectToLoginPage" instead -- so a dead session there reached the
+    parsers and surfaced as a page-shape error.
+    """
+    return _is_gambit_bounce(text) or "redirect to login" in text.lower()
 
 
 def _raise_if_post_bounced(resp: httpx.Response, path: str) -> None:
@@ -343,8 +363,12 @@ def _raise_if_post_bounced(resp: httpx.Response, path: str) -> None:
     switch does not act for a session it does not hold. It is reported and NOT
     re-sent -- the caller logs in again and repeats it knowingly, exactly as for
     a dropped connection (see ``post_form``).
+
+    Only the shape-matched page counts here. Saying "not applied" about a write
+    that WAS applied is the worse mistake, so the looser phrase check that reads
+    tolerate is deliberately not used.
     """
-    if _is_login_redirect(resp.text):
+    if _is_gambit_bounce(resp.text):
         raise HttpAuthError(
             f"POST {path}: the switch answered with its login redirect -- the "
             "session is gone, and this request was NOT applied and NOT re-sent"

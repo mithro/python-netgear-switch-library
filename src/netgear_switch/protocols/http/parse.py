@@ -124,6 +124,10 @@ def parse_csrf_hash(html: str) -> str | None:
     return m.group(1) if m else None
 
 
+#: Longest login refusal quoted in an error; the real one is 57 characters.
+_LOGIN_ERR_LIMIT = 200
+
+
 def parse_login_err_msg(html: str) -> str:
     """The GS110EMX login page's own refusal text, or ``""`` when it has none.
 
@@ -134,7 +138,12 @@ def parse_login_err_msg(html: str) -> str:
     password was deliberately NOT measured (that risks a real lockout).
     """
     m = re.search(r'id="login_err_msg"[^>]*>([^<]*)<', html)
-    return unescape(m.group(1)).strip() if m else ""
+    if not m:
+        return ""
+    # Device text bound for an error message (and, through the MCP server, for
+    # a model): nothing unprintable, no newlines, and no more than a sentence.
+    printable = "".join(c if c.isprintable() else " " for c in unescape(m.group(1)))
+    return " ".join(printable.split())[:_LOGIN_ERR_LIMIT]
 
 
 def parse_gambit_token(html: str) -> str | None:
