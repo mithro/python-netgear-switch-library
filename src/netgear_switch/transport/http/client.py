@@ -17,6 +17,7 @@ SNMP transports — ``import netgear_switch`` never reaches here.
 from __future__ import annotations
 
 import re
+import warnings
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -25,7 +26,11 @@ import httpx
 from ...errors import HttpAuthError, HttpError, HttpUnexpectedPageError
 from ...protocols.http.crypt import merge_hash_md5
 from ...protocols.http.endpoints import LoginScheme
-from ...protocols.http.parse import parse_gambit_token, parse_login_rand
+from ...protocols.http.parse import (
+    parse_gambit_token,
+    parse_login_err_msg,
+    parse_login_rand,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -194,12 +199,33 @@ def _extract_session_token(spec: HttpModelSpec, html: str) -> str:
     password, or the switch is locked out (pure; shared sync+async)."""
     token = parse_gambit_token(html)
     if not token:
+        said = parse_login_err_msg(html)
+        if said:
+            # The switch explained itself; quote it instead of guessing. The
+            # one message captured so far is not about the password at all:
+            # "Maximum number of sessions reached... Try After Some Time".
+            raise HttpAuthError(
+                f"web-UI login refused for {spec.model_key} — the switch said: {said!r}"
+            )
         raise HttpAuthError(
             f"web-UI login failed for {spec.model_key} — no "
             f"{spec.session_token_field} token returned (check password, or "
             "switch may be locked out)"
         )
     return token
+
+
+def _logout_warning(spec: HttpModelSpec, exc: Exception) -> str:
+    """The warning ``close()`` issues when the switch did not accept the logout.
+
+    Not an exception: ``close()`` runs in cleanup paths (``finally``, a ``with``
+    exit) where raising would replace the error that led there. Not silent
+    either -- a session left open holds one of the switch's few slots until it
+    idles out, which is how its web UI ends up refusing every login."""
+    return (
+        f"{spec.model_key}: the web session was left open on the switch -- "
+        f"logout failed: {exc}"
+    )
 
 
 def _token_params(spec: HttpModelSpec, token: str) -> dict[str, str] | None:
@@ -292,6 +318,39 @@ def _referer_headers(spec: HttpModelSpec, host: str, *, secure: bool) -> dict[st
     return {"Referer": f"{scheme}://{host}/", "Origin": f"{scheme}://{host}"}
 
 
+def _is_login_redirect(text: str) -> bool:
+    """Whether ``text`` is a web UI bouncing the request back to its login page.
+
+    The GS110EMX answers ANY request whose Gambit token it does not hold -- an
+    idled-out session, a logged-out one, a made-up one -- with HTTP 200 and a
+    298-byte page whose only content is
+
+        function RedirectToLoginPage() { top.location.href = "/wmi/login"; }
+
+    (captured 2026-10-14 from 10.1.5.25, firmware 1.0.2.8:
+    ``gs110emx_fw1028_session_lost.html``). The check used to look for the
+    words "redirect to login" only, which that page does not contain, so a dead
+    session reached the parsers and surfaced as a page-shape error.
+    """
+    lowered = text.lower()
+    return "redirect to login" in lowered or "redirecttologinpage" in lowered
+
+
+def _raise_if_post_bounced(resp: httpx.Response, path: str) -> None:
+    """Raise if a POST was answered with the login redirect instead of acted on.
+
+    A form POST also carries WRITES, and a bounced one was not applied: the
+    switch does not act for a session it does not hold. It is reported and NOT
+    re-sent -- the caller logs in again and repeats it knowingly, exactly as for
+    a dropped connection (see ``post_form``).
+    """
+    if _is_login_redirect(resp.text):
+        raise HttpAuthError(
+            f"POST {path}: the switch answered with its login redirect -- the "
+            "session is gone, and this request was NOT applied and NOT re-sent"
+        )
+
+
 def _validate_response(
     resp: httpx.Response, *, context: str, path: str | None = None
 ) -> None:
@@ -306,7 +365,7 @@ def _validate_response(
     """
     if resp.status_code >= 400:
         raise HttpError(f"{context} returned HTTP {resp.status_code}")
-    if path is not None and "redirect to login" in resp.text.lower():
+    if path is not None and _is_login_redirect(resp.text):
         raise HttpAuthError(f"session lost fetching {path}")
 
 
@@ -443,6 +502,7 @@ class HttpClient:
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")
+        _raise_if_post_bounced(resp, path)
         return resp.text
 
     def post_multipart(
@@ -492,8 +552,38 @@ class HttpClient:
             )
         return resp.text
 
+    def logout(self) -> None:
+        """End this session ON THE SWITCH, freeing the slot it holds.
+
+        A no-op when not logged in, or when the model has no known logout page
+        (``logout_path`` is None -- nothing is guessed at). The session is
+        forgotten locally whatever the switch answers, so a failed logout is
+        never retried against a token that may already be dead.
+
+        LIVE-VERIFIED on the GS110EMX (10.1.5.25, firmware 1.0.2.8): a GET of
+        its logout page with the session's Gambit token ends that session.
+        """
+        path = self._spec.logout_path
+        if not self._logged_in or path is None:
+            return
+        params = _token_params(self._spec, self._token)
+        self._logged_in = False
+        self._token = ""
+        try:
+            resp = self._client.get(path, params=params)
+        except httpx.HTTPError as exc:
+            raise HttpError(f"GET {path} transport error: {exc}") from exc
+        _validate_response(resp, context=f"GET {path}")
+
     def close(self) -> None:
-        self._client.close()
+        try:
+            self.logout()
+        except HttpError as exc:
+            warnings.warn(
+                _logout_warning(self._spec, exc), RuntimeWarning, stacklevel=2
+            )
+        finally:
+            self._client.close()
 
 
 class AsyncHttpClient:
@@ -600,6 +690,7 @@ class AsyncHttpClient:
         except httpx.HTTPError as exc:
             raise HttpError(f"POST {path} transport error: {exc}") from exc
         _validate_response(resp, context=f"POST {path}")
+        _raise_if_post_bounced(resp, path)
         return resp.text
 
     async def post_multipart(
@@ -634,5 +725,26 @@ class AsyncHttpClient:
         _validate_response(resp, context=f"POST {path}")
         return resp.text
 
+    async def logout(self) -> None:
+        """Async twin of ``HttpClient.logout`` (see its docs)."""
+        path = self._spec.logout_path
+        if not self._logged_in or path is None:
+            return
+        params = _token_params(self._spec, self._token)
+        self._logged_in = False
+        self._token = ""
+        try:
+            resp = await self._client.get(path, params=params)
+        except httpx.HTTPError as exc:
+            raise HttpError(f"GET {path} transport error: {exc}") from exc
+        _validate_response(resp, context=f"GET {path}")
+
     async def aclose(self) -> None:
-        await self._client.aclose()
+        try:
+            await self.logout()
+        except HttpError as exc:
+            warnings.warn(
+                _logout_warning(self._spec, exc), RuntimeWarning, stacklevel=2
+            )
+        finally:
+            await self._client.aclose()

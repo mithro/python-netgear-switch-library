@@ -124,6 +124,19 @@ def parse_csrf_hash(html: str) -> str | None:
     return m.group(1) if m else None
 
 
+def parse_login_err_msg(html: str) -> str:
+    """The GS110EMX login page's own refusal text, or ``""`` when it has none.
+
+    The page carries an (ordinarily empty) ``<p id="login_err_msg">``. MEASURED
+    2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8) with its session table
+    full: ``Maximum number of sessions reached... Try After Some Time``, on the
+    login page re-rendered with no Gambit token. What it says for a wrong
+    password was deliberately NOT measured (that risks a real lockout).
+    """
+    m = re.search(r'id="login_err_msg"[^>]*>([^<]*)<', html)
+    return unescape(m.group(1)).strip() if m else ""
+
+
 def parse_gambit_token(html: str) -> str | None:
     """Scrape the GS110EMX post-login session token.
 

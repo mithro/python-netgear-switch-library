@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import httpx
 import pytest
@@ -63,6 +64,8 @@ def _gambit_handler(request: httpx.Request) -> httpx.Response:
         if request.url.params.get("Gambit") != _GAMBIT_TOKEN:
             return httpx.Response(200, html="Redirect to login")
         return httpx.Response(200, html="<html>sysinfo ok</html>")
+    if request.url.path == _GAMBIT_SPEC.logout_path:
+        return httpx.Response(200, html="<html>logged out</html>")
     return httpx.Response(404)
 
 
@@ -88,6 +91,8 @@ def _handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, html="Redirect to login")
         body = dict(httpx.QueryParams(request.content.decode()))
         return httpx.Response(200, html=f"applied vlan={body.get('vlan')}")
+    if request.url.path == _SPEC.logout_path:
+        return httpx.Response(200, html="logged out")
     return httpx.Response(404)
 
 
@@ -521,3 +526,263 @@ def test_async_secure_true_builds_https_base_url_and_referer() -> None:
             await client.aclose()
 
     asyncio.run(run())
+
+
+# -- Sessions are ended on the switch, not just dropped locally -----------------
+#
+# MEASURED 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8): the web UI
+# holds a session slot per login until it is logged out or idles out, and with
+# the table full a login is answered with the login page again, carrying
+#     <p id="login_err_msg" ...>Maximum number of sessions reached... Try After
+#     Some Time</p>
+# and no Gambit token. The client used to close its TCP pool and leave the
+# session behind, so a handful of short-lived clients locked the switch's web UI.
+
+_FIX = Path(__file__).parent.parent / "fixtures" / "http"
+
+
+class _Seen:
+    """A MockTransport handler that records ``(method, path, query)``."""
+
+    def __init__(self, inner, *, logout_status: int = 200) -> None:  # type: ignore[no-untyped-def]
+        self._inner = inner
+        self._logout_status = logout_status
+        self.requests: list[tuple[str, str, str]] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(
+            (request.method, request.url.path, request.url.query.decode())
+        )
+        if "logout" in request.url.path and self._logout_status != 200:
+            return httpx.Response(self._logout_status, html="no")
+        return self._inner(request)
+
+    def logouts(self) -> list[tuple[str, str, str]]:
+        return [r for r in self.requests if "logout" in r[1]]
+
+
+def test_sync_close_logs_out_a_token_session() -> None:
+    seen = _Seen(_gambit_handler)
+    client = HttpClient(
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
+        transport=httpx.MockTransport(seen),
+    )
+    client.login()
+    client.close()
+    assert seen.logouts() == [
+        ("GET", "/iss/specific/logout.html", f"Gambit={_GAMBIT_TOKEN}")
+    ]
+    assert client._client.is_closed is True
+
+
+def test_async_aclose_logs_out_a_token_session() -> None:
+    seen = _Seen(_gambit_handler)
+
+    async def run() -> None:
+        client = AsyncHttpClient(
+            "sw.example",
+            _GAMBIT_PASSWORD,
+            _GAMBIT_SPEC,
+            transport=httpx.MockTransport(seen),
+        )
+        await client.login()
+        await client.aclose()
+        assert client._client.is_closed is True
+
+    asyncio.run(run())
+    assert seen.logouts() == [
+        ("GET", "/iss/specific/logout.html", f"Gambit={_GAMBIT_TOKEN}")
+    ]
+
+
+def test_sync_close_logs_out_a_cookie_session() -> None:
+    seen = _Seen(_handler)
+    client = HttpClient(
+        "sw.example", _PASSWORD, _SPEC, transport=httpx.MockTransport(seen)
+    )
+    client.login()
+    client.close()
+    assert seen.logouts() == [("GET", "/logout.cgi", "")]
+
+
+def test_close_without_a_login_sends_nothing() -> None:
+    seen = _Seen(_gambit_handler)
+    HttpClient(
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
+        transport=httpx.MockTransport(seen),
+    ).close()
+    assert seen.requests == []
+
+
+def test_close_sends_nothing_for_a_model_with_no_logout_page() -> None:
+    """A spec whose ``logout_path`` is None has no known way to end a session;
+    nothing is guessed at."""
+    assert _CHEETAH_SPEC.logout_path is None
+    seen = _Seen(lambda request: httpx.Response(200, html="ok"))
+    client = HttpClient(
+        "sw.example", _PASSWORD, _CHEETAH_SPEC, transport=httpx.MockTransport(seen)
+    )
+    client._logged_in = True
+    client.close()
+    assert seen.requests == []
+
+
+def test_explicit_logout_then_close_logs_out_once() -> None:
+    seen = _Seen(_gambit_handler)
+    client = HttpClient(
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
+        transport=httpx.MockTransport(seen),
+    )
+    client.login()
+    client.logout()
+    client.close()
+    assert len(seen.logouts()) == 1
+
+
+def test_explicit_logout_raises_when_the_switch_refuses_it() -> None:
+    seen = _Seen(_gambit_handler, logout_status=500)
+    client = HttpClient(
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
+        transport=httpx.MockTransport(seen),
+    )
+    client.login()
+    with pytest.raises(HttpError, match=r"logout\.html returned HTTP 500"):
+        client.logout()
+    client._client.close()
+
+
+def test_close_warns_but_still_closes_when_the_logout_fails() -> None:
+    """close() runs in cleanup paths, where raising would replace the error
+    that led there -- so a failed logout is reported as a warning and the
+    transport is closed regardless. It is never silent."""
+    seen = _Seen(_gambit_handler, logout_status=500)
+    client = HttpClient(
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
+        transport=httpx.MockTransport(seen),
+    )
+    client.login()
+    with pytest.warns(RuntimeWarning, match=r"session was left open.*HTTP 500"):
+        client.close()
+    assert client._client.is_closed is True
+
+
+def test_async_aclose_warns_but_still_closes_when_the_logout_fails() -> None:
+    seen = _Seen(_gambit_handler, logout_status=500)
+
+    async def run() -> AsyncHttpClient:
+        client = AsyncHttpClient(
+            "sw.example",
+            _GAMBIT_PASSWORD,
+            _GAMBIT_SPEC,
+            transport=httpx.MockTransport(seen),
+        )
+        await client.login()
+        await client.aclose()
+        return client
+
+    with pytest.warns(RuntimeWarning, match=r"session was left open.*HTTP 500"):
+        client = asyncio.run(run())
+    assert client._client.is_closed is True
+
+
+def test_login_refusal_quotes_the_switch() -> None:
+    """The real page a GS110EMX answers a login with when its session table is
+    full. The error must carry the switch's sentence, not a guess about
+    passwords and lockouts."""
+    page = (_FIX / "gs110emx_fw1028_login_sessions_full.html").read_text()
+    with pytest.raises(HttpAuthError) as exc:
+        _extract_session_token(_GAMBIT_SPEC, page)
+    assert "Maximum number of sessions reached... Try After Some Time" in str(exc.value)
+    assert "check password" not in str(exc.value)
+
+
+def test_login_failure_without_a_message_keeps_the_generic_hint() -> None:
+    page = (_FIX / "gs110emx_login.html").read_text()
+    with pytest.raises(HttpAuthError, match="check password"):
+        _extract_session_token(_GAMBIT_SPEC, page)
+
+
+# The real page a GS110EMX answers ANY request with once it no longer holds the
+# session (captured 2026-10-14, 10.1.5.25, firmware 1.0.2.8). It says
+# "RedirectToLoginPage", never the words "redirect to login".
+_SESSION_LOST = (_FIX / "gs110emx_fw1028_session_lost.html").read_text()
+
+
+def _dead_session_handler(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, html=_SESSION_LOST)
+
+
+def _dead_client() -> HttpClient:
+    client = HttpClient(
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
+        transport=httpx.MockTransport(_dead_session_handler),
+    )
+    client._logged_in = True
+    client._token = "idled-out"
+    return client
+
+
+def test_get_page_reports_the_real_lost_session_page_as_a_lost_session() -> None:
+    client = _dead_client()
+    with pytest.raises(HttpAuthError, match="session lost fetching"):
+        client.get_page(_GAMBIT_SPEC.sysinfo_path)
+    client.close()
+
+
+def test_post_form_reports_a_bounced_post_and_does_not_resend_it() -> None:
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            posts.append(request.url.path)
+        return httpx.Response(200, html=_SESSION_LOST)
+
+    client = HttpClient(
+        "sw.example",
+        _GAMBIT_PASSWORD,
+        _GAMBIT_SPEC,
+        transport=httpx.MockTransport(handler),
+    )
+    client._logged_in = True
+    client._token = "idled-out"
+    with pytest.raises(HttpAuthError, match="NOT applied and NOT re-sent"):
+        client.post_form("/iss/specific/vlan_pvidsetting.html", {"PORT_NO": "2;"})
+    assert posts == ["/iss/specific/vlan_pvidsetting.html"]
+    client.close()
+
+
+def test_async_post_form_reports_a_bounced_post() -> None:
+    async def run() -> None:
+        client = AsyncHttpClient(
+            "sw.example",
+            _GAMBIT_PASSWORD,
+            _GAMBIT_SPEC,
+            transport=httpx.MockTransport(_dead_session_handler),
+        )
+        client._logged_in = True
+        client._token = "idled-out"
+        with pytest.raises(HttpAuthError, match="NOT applied and NOT re-sent"):
+            await client.post_form("/iss/specific/vlan_pvidsetting.html", {})
+        await client.aclose()
+
+    asyncio.run(run())
+
+
+def test_logout_accepts_the_redirect_page_it_is_always_answered_with() -> None:
+    """A logout is answered with that same 298-byte page whether or not the
+    token was live (measured), so it must not be mistaken for a failure."""
+    client = _dead_client()
+    client.logout()
+    client.close()
