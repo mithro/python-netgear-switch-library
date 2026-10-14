@@ -362,11 +362,11 @@ def _check_membership_is_for(spec: HttpModelSpec, html: str, vid: int) -> None:
     if _is_gs110emx_dialect(spec):
         if not html.strip():
             return
-        shown = parse.parse_gs110emx_shown_vlan(html)
-        if shown != vid:
+        rendered = parse.parse_gs110emx_shown_vlan(html)
+        if rendered != vid:
             raise HttpUnexpectedPageError(
                 f"vlanMembership.html: asked for VLAN {vid} but the page shows "
-                f"VLAN {shown} -- refusing to report the wrong VLAN's membership"
+                f"VLAN {rendered} -- refusing to report the wrong VLAN's membership"
             )
         return
     if not _is_gs105pe_dialect(spec):
