@@ -2043,7 +2043,26 @@ def parse_gs110emx_err_msg(html: str) -> str:
       ``Port 3 is not a member of VLAN 4001!``
     """
     m = re.search(r'name="errMsg"[^>]*value="([^"]*)"', html)
-    return unescape(m.group(1)) if m else ""
+    return device_text(m.group(1)) if m else ""
+
+
+#: Longest device-supplied message quoted in an error. The real ones are a
+#: sentence; anything much longer is not a message worth repeating in full.
+_DEVICE_TEXT_LIMIT = 200
+
+
+def device_text(raw: str, limit: int = _DEVICE_TEXT_LIMIT) -> str:
+    """A device-supplied message, made fit to quote inside an error.
+
+    The firmware's own words are worth reporting, but they are INPUT: they end
+    up in exception text that callers log and that an MCP client hands to a
+    model. So entities are decoded, anything unprintable (including newlines)
+    becomes a space, runs of whitespace collapse, and the result is capped --
+    a sentence stays a sentence and cannot pose as anything else.
+    """
+    printable = "".join(ch if ch.isprintable() else " " for ch in unescape(raw))
+    text = " ".join(printable.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 # ---------------------------------------------------------------------------

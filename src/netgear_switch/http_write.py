@@ -541,7 +541,8 @@ def _check_gs110emx_membership_apply(
     err = parse.parse_gs110emx_err_msg(html)
     if err:
         raise HttpError(
-            f"{page}: switch refused VLAN {vlan} port {port} -> {mode.value}: {err}"
+            f"{page}: switch refused VLAN {vlan} port {port} -> {mode.value}; "
+            f"it said: {err!r}"
         )
 
 
