@@ -126,6 +126,9 @@ def parse_csrf_hash(html: str) -> str | None:
 
 #: Longest login refusal quoted in an error; the real one is 57 characters.
 _LOGIN_ERR_LIMIT = 200
+# Everything outside an ordinary sentence. The one measured message uses only
+# letters, spaces and '.'.
+_NOT_LOGIN_SENTENCE = re.compile(r"[^A-Za-z0-9 .,:;!?'\"()/_%+-]")
 
 
 def parse_login_err_msg(html: str) -> str:
@@ -141,9 +144,13 @@ def parse_login_err_msg(html: str) -> str:
     if not m:
         return ""
     # Device text bound for an error message (and, through the MCP server, for
-    # a model): nothing unprintable, no newlines, and no more than a sentence.
-    printable = "".join(c if c.isprintable() else " " for c in unescape(m.group(1)))
-    return " ".join(printable.split())[:_LOGIN_ERR_LIMIT]
+    # a model). Only the characters of an ordinary sentence are kept; the rest
+    # -- control characters, newlines, and the ones that give text STRUCTURE
+    # (angle brackets, braces, square brackets, backticks, backslashes) --
+    # become spaces, so it cannot imitate markup or a delimiter. That bounds its
+    # form, not its meaning, which is why the caller quotes and labels it.
+    kept = _NOT_LOGIN_SENTENCE.sub(" ", unescape(m.group(1)))
+    return " ".join(kept.split())[:_LOGIN_ERR_LIMIT]
 
 
 def parse_gambit_token(html: str) -> str | None:
