@@ -58,7 +58,14 @@ from .errors import (
     UnsupportedCapabilityError,
     WriteVerificationError,
 )
-from .http_read import _parse_poe, fastpath_membership_paths
+from .http_read import (
+    _check_membership_is_for,
+    _membership_form,
+    _membership_page_name,
+    _parse_poe,
+    _parse_vlan_ids,
+    fastpath_membership_paths,
+)
 from .models import IpMode, VlanMode, poe_cycle_complete
 from .protocols.http import forms, goahead, parse
 from .protocols.http.endpoints import HtmlDialect, http_spec
@@ -493,6 +500,52 @@ def _find_xui_row(page: XuiListPage, port: int, column: str, what: str) -> XuiRo
     )
 
 
+def _gs110emx_hidden_mem_with(
+    html: str, port: int, mode: VlanMode, port_count: int, page: str
+) -> tuple[VlanMode, str]:
+    """``(this port's current mode, the page's hiddenMem with it set to mode)``.
+
+    Only this port's code is replaced in the string the DEVICE rendered; nothing
+    is rebuilt from parsed state, so every other position goes back exactly as
+    it came.
+    """
+    if not 1 <= port <= port_count:
+        raise ValueError(
+            f"{page}: port {port} is not one of this switch's {port_count} ports"
+        )
+    states = parse.parse_membership(html, port_count, page=page)
+    raw = parse.parse_hidden_mem(html, page=page)
+    code = forms.membership_hidden_mem({1: mode}, 1)
+    return states[port], raw[: port - 1] + code + raw[port:]
+
+
+def _check_gs110emx_membership_apply(
+    html: str, vlan: int, port: int, mode: VlanMode, page: str
+) -> None:
+    """Raise if a GS110EMX refused a membership apply.
+
+    The refusal is an HTTP 200 with the page re-rendered UNCHANGED and the
+    reason in ``errMsg``. MEASURED 2026-10-14 on gs110emx1 (10.1.5.25, firmware
+    1.0.2.8), excluding port 2 from VLAN 4001 while its PVID was 4001:
+
+        errMsg='You can not remove port 2 from this VLAN. Change its PVID first!'
+
+    That is a device precondition to report in the device's words, not one to
+    work around by moving the PVID on the caller's behalf.
+    """
+    if not html.strip():
+        raise HttpError(
+            f"{page}: the switch answered the VLAN {vlan} port {port} -> "
+            f"{mode.value} apply with an empty body; it applied nothing"
+        )
+    err = parse.parse_gs110emx_err_msg(html)
+    if err:
+        raise HttpError(
+            f"{page}: switch refused VLAN {vlan} port {port} -> {mode.value}; "
+            f"it said: {err!r}"
+        )
+
+
 def _check_gs110emx_apply(text: str, what: str) -> None:
     """Raise unless a GS110EMX AJAX apply answered ``SUCCESS``.
 
@@ -636,7 +689,7 @@ class HttpWriter:
         known = (
             set(parse.parse_goahead_vlan_names(page))
             if _is_xml_api_dialect(self._spec)
-            else set(parse.parse_vlan_ids(page))
+            else set(_parse_vlan_ids(self._spec, page))
         )
         if vlan not in known:
             raise HttpUnexpectedPageError(
@@ -1012,6 +1065,9 @@ class HttpWriter:
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
+        if self._spec.html_dialect is HtmlDialect.GS110EMX:
+            self._set_gs110emx_membership(path, vlan, port, mode)
+            return
         html = self.session.post_form(path, {"VLAN_ID": str(vlan)})
         states = parse.parse_membership(html, self.model.port_count)
         states[port] = mode
@@ -1028,6 +1084,53 @@ class HttpWriter:
                 before=states.get(port),
                 after=after.get(port),
             )
+
+    def _set_gs110emx_membership(
+        self, path: str, vlan: int, port: int, mode: VlanMode
+    ) -> None:
+        """Set one port's participation in ``vlan`` on vlanMembership.html.
+
+        1. Refuse a VLAN the switch does not list -- the page renders one as
+           all-excluded, so it cannot say so itself.
+        2. Read the VLAN's page: the GET if it is the VLAN shown, else the
+           browser's select (see ``http_read._membership_form``).
+        3. POST the device's own ``hiddenMem`` with ONLY this port's code
+           changed (``forms.gs110emx_membership_apply_form``).
+        4. Surface the switch's refusal, then re-read and verify.
+
+        LIVE-VERIFIED 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8).
+        """
+        page = _membership_page_name(path)
+        self._require_vlan_exists(vlan)
+        before_html = self._read_gs110emx_membership(path, vlan)
+        before, hidden = _gs110emx_hidden_mem_with(
+            before_html, port, mode, self.model.port_count, page
+        )
+        applied = self.session.post_form(
+            path, forms.gs110emx_membership_apply_form(vlan=vlan, hidden_mem=hidden)
+        )
+        _check_gs110emx_membership_apply(applied, vlan, port, mode, page)
+        after_html = self._read_gs110emx_membership(path, vlan)
+        after = parse.parse_membership(after_html, self.model.port_count, page=page)
+        if after.get(port) is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value} on {page}",
+                before=before,
+                after=after.get(port),
+            )
+
+    def _read_gs110emx_membership(self, path: str, vlan: int) -> str:
+        """``vlan``'s membership page, checked to really be that VLAN."""
+        html = self.session.get_page(path)
+        shown = parse.parse_gs110emx_shown_vlan(html)
+        if shown != vlan:
+            html = self.session.post_form(
+                path, _membership_form(self._spec, vlan, shown=shown)
+            )
+        # An empty reply is named by the parser; a wrong VLAN is caught here.
+        parse.parse_hidden_mem(html, page=_membership_page_name(path))
+        _check_membership_is_for(self._spec, html, vlan)
+        return html
 
     def _set_fastpath_membership(self, vlan: int, port: int, mode: VlanMode) -> None:
         """Set one port's participation in ``vlan`` on the managed FASTPATH web UI.
@@ -1964,7 +2067,7 @@ class AsyncHttpWriter:
         known = (
             set(parse.parse_goahead_vlan_names(page))
             if _is_xml_api_dialect(self._spec)
-            else set(parse.parse_vlan_ids(page))
+            else set(_parse_vlan_ids(self._spec, page))
         )
         if vlan not in known:
             raise HttpUnexpectedPageError(
@@ -2014,6 +2117,9 @@ class AsyncHttpWriter:
         path = _require_path(
             self.model.key, self._spec.vlan_membership_path, "VLAN membership"
         )
+        if self._spec.html_dialect is HtmlDialect.GS110EMX:
+            await self._set_gs110emx_membership(path, vlan, port, mode)
+            return
         html = await self.session.post_form(path, {"VLAN_ID": str(vlan)})
         states = parse.parse_membership(html, self.model.port_count)
         states[port] = mode
@@ -2030,6 +2136,42 @@ class AsyncHttpWriter:
                 before=states.get(port),
                 after=after.get(port),
             )
+
+    async def _set_gs110emx_membership(
+        self, path: str, vlan: int, port: int, mode: VlanMode
+    ) -> None:
+        """Async twin of ``HttpWriter._set_gs110emx_membership``."""
+        page = _membership_page_name(path)
+        await self._require_vlan_exists(vlan)
+        before_html = await self._read_gs110emx_membership(path, vlan)
+        before, hidden = _gs110emx_hidden_mem_with(
+            before_html, port, mode, self.model.port_count, page
+        )
+        applied = await self.session.post_form(
+            path, forms.gs110emx_membership_apply_form(vlan=vlan, hidden_mem=hidden)
+        )
+        _check_gs110emx_membership_apply(applied, vlan, port, mode, page)
+        after_html = await self._read_gs110emx_membership(path, vlan)
+        after = parse.parse_membership(after_html, self.model.port_count, page=page)
+        if after.get(port) is not mode:
+            raise WriteVerificationError(
+                f"VLAN {vlan} port {port} did not read back as {mode.value} on {page}",
+                before=before,
+                after=after.get(port),
+            )
+
+    async def _read_gs110emx_membership(self, path: str, vlan: int) -> str:
+        """Async twin of ``HttpWriter._read_gs110emx_membership``."""
+        html = await self.session.get_page(path)
+        shown = parse.parse_gs110emx_shown_vlan(html)
+        if shown != vlan:
+            html = await self.session.post_form(
+                path, _membership_form(self._spec, vlan, shown=shown)
+            )
+        # An empty reply is named by the parser; a wrong VLAN is caught here.
+        parse.parse_hidden_mem(html, page=_membership_page_name(path))
+        _check_membership_is_for(self._spec, html, vlan)
+        return html
 
     async def _set_fastpath_membership(
         self, vlan: int, port: int, mode: VlanMode

@@ -279,23 +279,57 @@ def _parse_vlan_ids(spec: HttpModelSpec, html: str) -> list[int]:
 
 
 def _membership_form(
-    spec: HttpModelSpec, vid: int, csrf_hash: str | None = None
+    spec: HttpModelSpec,
+    vid: int,
+    csrf_hash: str | None = None,
+    *,
+    shown: int | None = None,
 ) -> dict[str, str]:
     """The POST body that selects VLAN ``vid``'s membership page.
 
-    Each model needs a different extra field, all confirmed live 2026-07-21:
-    gs110emx's vlanMembership.html returns an EMPTY body unless the hidden
-    ``vlanIdSel`` is present (``VLAN_ID`` alone is silently ignored); gs105pe's
-    8021qMembe.cgi ignores ``VLAN_ID`` (returning VLAN 1 every time) unless the
-    per-page CSRF ``hash`` accompanies it. gs305ep needs only ``VLAN_ID``.
-    ``ACTION`` is deliberately never sent so the POST stays a READ -- a
-    non-empty ACTION would APPLY a membership change."""
+    Each model needs a different extra field. gs105pe's 8021qMembe.cgi ignores
+    ``VLAN_ID`` (returning VLAN 1 every time) unless the per-page CSRF ``hash``
+    accompanies it (live 2026-07-21); gs305ep needs only ``VLAN_ID``.
+
+    gs110emx's vlanMembership.html needs the hidden ``vlanIdSel`` set to the VLAN
+    the page was SHOWING (``shown``), which is what the browser posts when its
+    VLAN dropdown changes. MEASURED 2026-10-14 on gs110emx1/2/3 (10.1.5.25-27,
+    all firmware 1.0.2.8), requesting VLAN 4 from a page showing VLAN 1:
+
+        VLAN_ID=4 vlanIdSel=1   -> the VLAN 4 page (its own vlanIdSel now 4)
+        VLAN_ID=4 vlanIdSel=5   -> the VLAN 4 page
+        VLAN_ID=4 vlanIdSel=4   -> 0 bytes
+        VLAN_ID=4 vlanIdSel=0   -> 0 bytes      (also empty / absent)
+
+    ``vlanIdSel == VLAN_ID`` is not a select at all: it is the page's APPLY
+    (``submitForm()`` leaves ``ACTION`` empty, so that field cannot tell the two
+    apart), and with no ``hiddenMem`` to apply the firmware answers nothing.
+    This function used to send exactly that -- issue #16 -- on the strength of a
+    2026-07-21 note taken at firmware 1.0.1.4, which no unit runs any more and
+    which therefore cannot be re-measured. It now refuses to build it."""
     data = {"VLAN_ID": str(vid)}
     if _is_gs110emx_dialect(spec):
-        data["vlanIdSel"] = str(vid)
+        if shown is None:
+            raise ValueError(
+                "gs110emx VLAN select needs the VLAN the page is shown on "
+                "(vlanIdSel); read the page first"
+            )
+        if shown == vid:
+            raise ValueError(
+                f"gs110emx: vlanIdSel == VLAN_ID ({vid}) is the page's Apply, "
+                "not a select -- the shown page already is this VLAN"
+            )
+        data["vlanIdSel"] = str(shown)
     if _is_gs105pe_dialect(spec) and csrf_hash:
         data["hash"] = csrf_hash
     return data
+
+
+def _membership_page_name(member_path: str) -> str:
+    """The page name errors should carry (``vlanMembership.html``, not its
+    directory) -- the membership form is served under a different name per
+    model, and an error naming the wrong one sends the reader to the wrong page."""
+    return member_path.rsplit("/", 1)[-1]
 
 
 def _require_csrf_hash(member_page: str) -> str:
@@ -320,7 +354,21 @@ def _check_membership_is_for(spec: HttpModelSpec, html: str, vid: int) -> None:
     The gs105pe/gs305ep membership CGI silently falls back to the currently
     selected VLAN when the request is not accepted, so without this check a
     wrong-but-plausible membership would be attributed to ``vid``. Only checked
-    when the page actually reports a selection."""
+    when the page actually reports a selection.
+
+    A gs110emx page always states its VLAN (the hidden ``vlanIdSel``), so there
+    the check is unconditional; a refused request is a 0-byte body, which the
+    membership parser reports by name, so it is left to that."""
+    if _is_gs110emx_dialect(spec):
+        if not html.strip():
+            return
+        rendered = parse.parse_gs110emx_shown_vlan(html)
+        if rendered != vid:
+            raise HttpUnexpectedPageError(
+                f"vlanMembership.html: asked for VLAN {vid} but the page shows "
+                f"VLAN {rendered} -- refusing to report the wrong VLAN's membership"
+            )
+        return
     if not _is_gs105pe_dialect(spec):
         return
     shown = parse.parse_selected_vlan(html)
@@ -536,9 +584,11 @@ def _with_base_mac(cfg: MgmtIpConfig, sysinfo_page: str) -> MgmtIpConfig:
     return dataclasses.replace(cfg, base_mac=parse.parse_goahead_base_mac(sysinfo_page))
 
 
-def _vlan_info(vid: int, membership_html: str, port_count: int) -> VLANInfo:
-    """Pure conversion of one 8021qMembe.cgi response into a ``VLANInfo``."""
-    states = parse.parse_membership(membership_html, port_count)
+def _vlan_info(
+    vid: int, membership_html: str, port_count: int, page: str = "8021qMembe.cgi"
+) -> VLANInfo:
+    """Pure conversion of one membership-page response into a ``VLANInfo``."""
+    states = parse.parse_membership(membership_html, port_count, page=page)
     tagged = frozenset(p for p, m in states.items() if m is VlanMode.TAGGED)
     untagged = frozenset(p for p, m in states.items() if m is VlanMode.UNTAGGED)
     return VLANInfo(
@@ -605,15 +655,21 @@ class HttpReader:
             member_page = self.session.get_page(member_path)
             csrf = _require_csrf_hash(member_page)
             selected = parse.parse_selected_vlan(member_page)
+        elif _is_gs110emx_dialect(self._spec):
+            # The GET renders the first VLAN; every other one is selected FROM
+            # it, naming it as ``vlanIdSel`` (see ``_membership_form``).
+            member_page = self.session.get_page(member_path)
+            selected = parse.parse_gs110emx_shown_vlan(member_page)
+        page_name = _membership_page_name(member_path)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
             if member_page is not None and vid == selected:
                 html = member_page  # already shown; re-POSTing it drops the link
             else:
-                form = _membership_form(self._spec, vid, csrf)
+                form = _membership_form(self._spec, vid, csrf, shown=selected)
                 html = self.session.post_form(member_path, form)
             _check_membership_is_for(self._spec, html, vid)
-            result.append(_vlan_info(vid, html, self.model.port_count))
+            result.append(_vlan_info(vid, html, self.model.port_count, page_name))
         return result
 
     def read_fastpath_membership(self, vlan: int) -> FastpathMembership:
@@ -814,15 +870,21 @@ class AsyncHttpReader:
             member_page = await self.session.get_page(member_path)
             csrf = _require_csrf_hash(member_page)
             selected = parse.parse_selected_vlan(member_page)
+        elif _is_gs110emx_dialect(self._spec):
+            # The GET renders the first VLAN; every other one is selected FROM
+            # it, naming it as ``vlanIdSel`` (see ``_membership_form``).
+            member_page = await self.session.get_page(member_path)
+            selected = parse.parse_gs110emx_shown_vlan(member_page)
+        page_name = _membership_page_name(member_path)
         result: list[VLANInfo] = []
         for vid in _parse_vlan_ids(self._spec, cfg):
             if member_page is not None and vid == selected:
                 html = member_page  # already shown; re-POSTing it drops the link
             else:
-                form = _membership_form(self._spec, vid, csrf)
+                form = _membership_form(self._spec, vid, csrf, shown=selected)
                 html = await self.session.post_form(member_path, form)
             _check_membership_is_for(self._spec, html, vid)
-            result.append(_vlan_info(vid, html, self.model.port_count))
+            result.append(_vlan_info(vid, html, self.model.port_count, page_name))
         return result
 
     async def read_fastpath_membership(self, vlan: int) -> FastpathMembership:

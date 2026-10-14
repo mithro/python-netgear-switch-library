@@ -1968,20 +1968,39 @@ def parse_selected_vlan(html: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def parse_membership(html: str, port_count: int) -> dict[int, VlanMode]:
-    """8021qMembe.cgi ``hiddenMem`` string: per-port 1=Untagged/2=Tagged/3=Excluded."""
+def parse_hidden_mem(html: str, *, page: str = "8021qMembe.cgi") -> str:
+    """The membership page's ``hiddenMem`` string exactly as the device sent it.
+
+    ``page`` names the page in errors: gs305ep/gs105pe serve this form as
+    ``8021qMembe.cgi``, the GS110EMX as ``vlanMembership.html``. An EMPTY body is
+    reported as such -- it is what a GS110EMX answers a POST it refuses (issue
+    #16), and "no hiddenMem input" described that as a page-shape problem when
+    the switch had sent no page at all.
+    """
+    if not html.strip():
+        raise HttpUnexpectedPageError(
+            f"{page}: the switch answered with an empty body ({len(html)} bytes) "
+            "where a VLAN membership page was expected"
+        )
     m = re.search(r'id="hiddenMem"[^>]*value="([^"]*)"', html) or re.search(
         r'name="hiddenMem"[^>]*value="([^"]*)"', html
     )
     if not m:
         raise HttpUnexpectedPageError(
-            "8021qMembe.cgi: expected a hiddenMem input with the per-port wire "
+            f"{page}: expected a hiddenMem input with the per-port wire "
             "codes, found none"
         )
-    raw = m.group(1)
+    return m.group(1)
+
+
+def parse_membership(
+    html: str, port_count: int, *, page: str = "8021qMembe.cgi"
+) -> dict[int, VlanMode]:
+    """``hiddenMem`` string: per-port 1=Untagged/2=Tagged/3=Excluded."""
+    raw = parse_hidden_mem(html, page=page)
     if len(raw) < port_count:
         raise HttpUnexpectedPageError(
-            f"8021qMembe.cgi: hiddenMem value {raw!r} has fewer than "
+            f"{page}: hiddenMem value {raw!r} has fewer than "
             f"port_count={port_count} codes"
         )
     result: dict[int, VlanMode] = {}
@@ -1989,10 +2008,71 @@ def parse_membership(html: str, port_count: int) -> dict[int, VlanMode]:
         mode = _WIRE_TO_MODE.get(ch)
         if mode is None:
             raise HttpUnexpectedPageError(
-                f"8021qMembe.cgi: unknown VLAN wire code {ch!r} at port {i + 1}"
+                f"{page}: unknown VLAN wire code {ch!r} at port {i + 1}"
             )
         result[i + 1] = mode
     return result
+
+
+def parse_gs110emx_shown_vlan(html: str) -> int:
+    """The VLAN a GS110EMX ``vlanMembership.html`` page is rendering.
+
+    The page does not mark an ``<option selected>``; its ``selectOption()`` JS
+    selects the dropdown from the hidden ``vlanIdSel`` input instead, so that
+    input is the only statement of which VLAN the ``hiddenMem`` belongs to.
+    """
+    m = re.search(r'name="vlanIdSel"[^>]*value="(\d+)"', html)
+    if not m:
+        raise HttpUnexpectedPageError(
+            "vlanMembership.html: expected a vlanIdSel input naming the VLAN "
+            "the page shows, found none"
+        )
+    return int(m.group(1))
+
+
+def parse_gs110emx_err_msg(html: str) -> str:
+    """A GS110EMX page's ``errMsg``: ``""`` when the request was accepted.
+
+    A refused apply answers HTTP 200 with the page re-rendered UNCHANGED and the
+    reason in this hidden input, which the page's ``initErrMsg()`` pops up.
+    MEASURED 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8):
+
+    * vlanMembership.html, excluding a port from the VLAN its PVID names ->
+      ``You can not remove port 2 from this VLAN. Change its PVID first!``
+    * vlan_pvidsetting.html, a PVID naming a VLAN the port is not in ->
+      ``Port 3 is not a member of VLAN 4001!``
+    """
+    m = re.search(r'name="errMsg"[^>]*value="([^"]*)"', html)
+    return device_text(m.group(1)) if m else ""
+
+
+#: Longest device-supplied message quoted in an error. The real ones are a
+#: sentence; anything much longer is not a message worth repeating in full.
+_DEVICE_TEXT_LIMIT = 200
+
+
+def device_text(raw: str, limit: int = _DEVICE_TEXT_LIMIT) -> str:
+    """A device-supplied message, made fit to quote inside an error.
+
+    The firmware's own words are worth reporting, but they are INPUT: they end
+    up in exception text that callers log and that an MCP client hands to a
+    model. So entities are decoded and only the characters of an ordinary
+    sentence are kept -- letters, digits, spaces and plain punctuation.
+    Everything else becomes a space: control characters and newlines, and also
+    the characters that give text STRUCTURE (angle brackets, braces, square
+    brackets, backticks, backslashes), so the message cannot imitate markup or
+    a delimiter. Runs of whitespace collapse and the result is capped.
+
+    This bounds the form, not the meaning: what remains is still the device's
+    wording, which is why callers quote it and label it as what the switch said.
+    """
+    text = " ".join(_NOT_SENTENCE_TEXT.sub(" ", unescape(raw)).split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+# Everything a firmware message has been seen to use, and no more: the measured
+# ones are letters, digits, spaces, '.' and '!'.
+_NOT_SENTENCE_TEXT = re.compile(r"[^A-Za-z0-9 .,:;!?'\"()/_%+-]")
 
 
 # ---------------------------------------------------------------------------

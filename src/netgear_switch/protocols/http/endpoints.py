@@ -39,9 +39,11 @@ flows are grounded in captured prior art or still
   only as JS string literals and were found live 2026-07-21. ``poe_*`` stay
   ``None`` (this model genuinely has no PoE, confirmed 404), as do
   ``reboot_path``/``logout_path`` (never captured, not guessed).
-  CAVEAT on ``reads_verified=True``: only VLAN 1's membership page was
-  captured, so the per-VLAN ``vlanIdSel`` select is live-confirmed but
-  fixture-proven for VLAN 1 only.
+  The per-VLAN membership select was WRONG until 2026-10-14 (issue #16): it
+  posted ``vlanIdSel`` = the requested VLAN, which on firmware 1.0.2.8 is the
+  page's Apply and is answered with a 0-byte body. All twelve VLANs' pages are
+  now captured (``gs110emx_fw1028_vlanmembership_vlan*.html``) and the request
+  rule is recorded in ``http_read._membership_form``.
 - ``gs105pe`` (Plus, 5-port): LIVE-VERIFIED on a real GS105PE (10.1.5.30,
   2026-07-21) -- registry ``verified=True``, and BOTH ``scheme_verified`` and
   ``reads_verified`` are ``True``, grounded in six real captures
