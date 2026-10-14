@@ -54,6 +54,29 @@ def membership_form(*, vlan: int, hidden_mem: str, csrf_hash: str) -> dict[str, 
     return {"VLAN_ID": str(vlan), "hiddenMem": hidden_mem, "hash": csrf_hash}
 
 
+def gs110emx_membership_apply_form(*, vlan: int, hidden_mem: str) -> dict[str, str]:
+    """The GS110EMX ``vlanMembership.html`` Apply.
+
+    What the page's own Apply button submits: its ``submitForm()`` is called
+    with no argument, so ``ACTION`` goes out EMPTY, and the form's hidden
+    ``vlanIdSel`` still names the VLAN on screen -- which is the VLAN being
+    edited. ``vlanIdSel == VLAN_ID`` is therefore what makes this an apply
+    rather than a select (a select names a DIFFERENT VLAN there, and any
+    ``hiddenMem`` it carries is ignored).
+
+    LIVE-VERIFIED 2026-10-14 on gs110emx1 (10.1.5.25, firmware 1.0.2.8) against
+    throwaway VLAN 4001, link-down port 2: ``hiddenMem`` 3333333333 ->
+    3233333333 -> 3133333333 -> 3333333333 each read back, with no other VLAN's
+    membership and no PVID moving.
+    """
+    return {
+        "VLAN_ID": str(vlan),
+        "vlanIdSel": str(vlan),
+        "hiddenMem": hidden_mem,
+        "ACTION": "",
+    }
+
+
 # FASTPATH VLAN Membership (switching/dot1q/vlan_port_cfg_rw.html) submit flag.
 # The firmware's own rollover.js sets it from JavaScript:
 #   function submitform() { ... elements['submt'].value = 0x10; ... form.submit() }
