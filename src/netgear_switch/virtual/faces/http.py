@@ -661,6 +661,10 @@ class VirtualHttpFace:
                 return web_gs110emx.apply_port_settings(self.state, form)
             return web_gs110emx.render_port_settings(self.state, self._token)
         if path == self.spec.pvid_path:
+            # The page's own submitPortPVID() sets ACTION=Apply; anything else
+            # is a plain render.
+            if form.get("ACTION") == "Apply":
+                return web_gs110emx.apply_pvid(self.state, self._token, form)
             return web_gs110emx.render_pvid(self.state, self._token)
         if path == self.spec.vlan_config_path:
             return web_gs110emx.render_cf8021q(self.state, self._token)
