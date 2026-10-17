@@ -128,9 +128,10 @@ class PortStatus:
     #: 7 lowerLayerDown. ``link_up`` is ``oper_status == 1``; this keeps the
     #: states that are neither up nor down, which ``link_up`` folds into False
     #: (a caller that shows a link fault needs them). ``None`` where the
-    #: backend cannot tell: every backend but SNMP, whose port tables
-    #: (NSDP's link speed, the web UI's and the CLI's Link Status) report
-    #: only up or down, and an SNMP agent with no ifOperStatus row for the port.
+    #: backend cannot tell: every backend but SNMP, whose port tables as
+    #: their parsers read them (NSDP's link speed, the web UI's and the CLI's
+    #: Link Status) give only up or down, and an SNMP agent with no
+    #: ifOperStatus row for the port.
     oper_status: int | None = None
 
 

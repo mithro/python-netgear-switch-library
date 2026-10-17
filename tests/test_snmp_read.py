@@ -73,6 +73,24 @@ def test_get_ports_via_reader():
     assert ports[0].description == "uplink"
 
 
+def test_both_readers_carry_the_raw_oper_status():
+    """SnmpReader and AsyncSnmpReader both hand the ifOperStatus walk to the
+    parser: a lowerLayerDown(7) port reaches the caller as oper_status 7 (and
+    link_up False), an up port as 1."""
+    tables = {
+        "1.3.6.1.2.1.2.2.1.7": _r("1.3.6.1.2.1.2.2.1.7", {1: "1", 2: "1"}),
+        "1.3.6.1.2.1.2.2.1.8": _r("1.3.6.1.2.1.2.2.1.8", {1: "1", 2: "7"}),
+    }
+    model = get_model("gsm7252ps")
+    sync = SnmpReader(FakeClient(tables), model).get_ports()
+    async_ = asyncio.run(AsyncSnmpReader(FakeAsyncClient(tables), model).get_ports())
+    for ports in (sync, async_):
+        assert [(p.port, p.oper_status, p.link_up) for p in ports] == [
+            (1, 1, True),
+            (2, 7, False),
+        ]
+
+
 def test_get_poe_joins_status_and_vendor_mw():
     tbl = "1.3.6.1.2.1.105.1.1.1"
     tables = {
