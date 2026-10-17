@@ -123,6 +123,15 @@ class PortStatus:
     #: both report the NEGOTIATED rate only, and no vendor column carrying the
     #: admin setting has been located on any of them.
     speed_config: PortSpeed | None = None
+    #: The port's IF-MIB ``ifOperStatus`` as the agent reports it (RFC 2863):
+    #: 1 up, 2 down, 3 testing, 4 unknown, 5 dormant, 6 notPresent,
+    #: 7 lowerLayerDown. ``link_up`` is ``oper_status == 1``; this keeps the
+    #: states that are neither up nor down, which ``link_up`` folds into False
+    #: (a caller that shows a link fault needs them). ``None`` where the
+    #: backend cannot tell: every backend but SNMP, whose port tables
+    #: (NSDP's link speed, the web UI's and the CLI's Link Status) report
+    #: only up or down, and an SNMP agent with no ifOperStatus row for the port.
+    oper_status: int | None = None
 
 
 @dataclass(frozen=True)

@@ -182,6 +182,9 @@ def parse_port_status(
                 # (ifHighSpeed 0 also maps to None.)
                 speed_mbps=mbps if (mbps and link_up) else None,
                 description=alias_map.get(p) or None,
+                # the raw code, so a caller can tell a link fault (testing,
+                # dormant, lowerLayerDown, ...) from a link that is just down
+                oper_status=oper_map.get(p),
             )
         )
     return result

@@ -32,6 +32,23 @@ def test_parse_port_status_joins_admin_oper_speed_name():
     assert ports[1].description is None
 
 
+def test_parse_port_status_keeps_the_raw_oper_status():
+    """link_up folds every ifOperStatus but up(1) into False; oper_status keeps
+    the code, so testing(3), dormant(5), lowerLayerDown(7) and the rest can be
+    told from a plain down(2). A port with no ifOperStatus row is None."""
+    idx = {1: "1", 2: "1", 3: "1", 4: "1", 5: "1"}
+    admin = _rows("1.3.6.1.2.1.2.2.1.7", idx, "INTEGER")
+    oper = _rows("1.3.6.1.2.1.2.2.1.8", {1: "1", 2: "2", 3: "7", 4: "3"}, "INTEGER")
+    ports = parse.parse_port_status(admin, oper, [], [], [])
+    assert [(p.port, p.oper_status, p.link_up) for p in ports] == [
+        (1, 1, True),
+        (2, 2, False),
+        (3, 7, False),
+        (4, 3, False),
+        (5, None, False),
+    ]
+
+
 def test_parse_port_status_filters_to_physical_ethernet_ports():
     """The M4300 ifTable carries 16 ethernetCsmacd(6) physical ports alongside
     ieee8023adLag(161) LAGs, a CPU(1) interface and an l2vlan(135) routing
