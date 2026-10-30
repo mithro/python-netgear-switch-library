@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from http_specs import reads_verified
-from netgear_switch.errors import UnsupportedCapabilityError
+from netgear_switch.errors import HttpUnexpectedPageError, UnsupportedCapabilityError
 from netgear_switch.http_read import AsyncHttpReader, HttpReader
 from netgear_switch.models import IpMode, PoEDetect
 from netgear_switch.registry import get_model
@@ -157,9 +157,7 @@ def _gsm7228ps_pages() -> dict[str, str]:
         ).read_text(),
         # LIVE capture 2026-07-30 from 10.1.5.11. This page is why the old
         # "the S3300's mgmt IP is unreachable over HTTP" note was WRONG.
-        "/ipConfiguration.html": (
-            _FIX / "gsm7228ps_ipConfiguration.html"
-        ).read_text(),
+        "/ipConfiguration.html": (_FIX / "gsm7228ps_ipConfiguration.html").read_text(),
         # The VLAN-Membership page, captured 2026-07-30 -- only VLAN 5 was
         # captured on this switch, so get_vlans() (which needs all five VLANs)
         # is exercised against the MOCK instead; see
@@ -228,14 +226,47 @@ def _gs110emx_pages() -> dict[str, str]:
             _FIX / "gs110emx_pvid.html"
         ).read_text(),
         "/iss/specific/Cf8021q.html": (_FIX / "gs110emx_cf8021q.html").read_text(),
-        # The fake session returns this same VLAN-1 membership page for every
-        # VLAN_ID POST (only VLAN 1's membership was captured live -- see the
-        # per-VLAN-select live gap in the memory notes); the flow + parser are
-        # what this exercises.
-        "/iss/specific/vlanMembership.html": (
-            _FIX / "gs110emx_vlanmembership.html"
-        ).read_text(),
+        "/iss/specific/vlanMembership.html": _gs110emx_membership(),
     }
+
+
+_GS110EMX_VIDS = (1, 4, 5, 6, 7, 10, 20, 21, 41, 90, 99, 121)
+
+
+def _gs110emx_membership(pages: dict[int, str] | None = None):
+    """``vlanMembership.html`` answering as a real GS110EMX does.
+
+    Every page is a real capture (gs110emx1 10.1.5.25, firmware 1.0.2.8,
+    2026-10-14), and the request rule is the one MEASURED that day on all three
+    switches (gs110emx1/2/3, all 1.0.2.8) -- issue #16:
+
+    * a GET always renders the FIRST VLAN, whatever was selected before;
+    * a POST whose ``vlanIdSel`` is a real VLAN id DIFFERENT from ``VLAN_ID``
+      renders ``VLAN_ID`` -- that is the browser's dropdown change, which posts
+      the VLAN the page was showing as ``vlanIdSel``;
+    * a POST whose ``vlanIdSel`` EQUALS ``VLAN_ID`` is the Apply shape, and with
+      no ``hiddenMem`` to apply the switch answers a 0-byte body;
+    * ``vlanIdSel`` missing, empty or ``0`` -> a 0-byte body as well.
+
+    The fake this replaces returned VLAN 1's page for every POST, which is why
+    the library's ``vlanIdSel == VLAN_ID`` select passed here and failed on
+    every real switch.
+    """
+    if pages is None:
+        pages = {
+            vid: (_FIX / f"gs110emx_fw1028_vlanmembership_vlan{vid}.html").read_text()
+            for vid in _GS110EMX_VIDS
+        }
+
+    def respond(data: dict[str, str]) -> str:
+        if not data:
+            return pages[min(pages)]
+        vid, shown = data.get("VLAN_ID", ""), data.get("vlanIdSel", "")
+        if shown in ("", "0") or shown == vid:
+            return ""
+        return pages[int(vid)]
+
+    return respond
 
 
 def test_gs110emx_reads_are_grounded_not_refused() -> None:
@@ -298,16 +329,68 @@ def test_gs110emx_http_pvids_grounded_in_real_capture() -> None:
 
 
 def test_gs110emx_http_vlans_grounded_in_real_capture() -> None:
-    """Cf8021q.html VLAN list + vlanMembership.html hiddenMem (real captures):
-    the 12 configured VLAN IDs, and VLAN 1's real membership (ports 1-8
-    untagged, 9-10 tagged)."""
+    """Cf8021q.html VLAN list + one vlanMembership.html page per VLAN (real
+    captures, gs110emx1 firmware 1.0.2.8): all 12 VLANs, each with ITS OWN
+    membership. Port 6 is the access port for VLAN 4 on that switch (PVID 4), so
+    it is the one port that is tagged in VLAN 1 and untagged in VLAN 4."""
     reader = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
     vlans = {v.vlan_id: v for v in reader.get_vlans()}
-    assert set(vlans) == {1, 4, 5, 6, 7, 10, 20, 21, 41, 90, 99, 121}
-    v1 = vlans[1]
-    assert v1.untagged_ports == frozenset(range(1, 9))
-    assert v1.tagged_ports == frozenset({9, 10})
-    assert v1.member_ports == frozenset(range(1, 11))
+    assert set(vlans) == set(_GS110EMX_VIDS)
+    assert vlans[1].untagged_ports == frozenset({1, 2, 3, 4, 5, 7, 8})
+    assert vlans[1].tagged_ports == frozenset({6, 9, 10})
+    assert vlans[4].untagged_ports == frozenset({6})
+    assert vlans[4].tagged_ports == frozenset(range(1, 11)) - {6}
+    for vid in _GS110EMX_VIDS[2:]:
+        assert vlans[vid].untagged_ports == frozenset()
+        assert vlans[vid].tagged_ports == frozenset(range(1, 11))
+
+
+def test_gs110emx_async_http_vlans_match_sync() -> None:
+    sync = HttpReader(_FakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    aio = AsyncHttpReader(_AsyncFakeSession(_gs110emx_pages()), get_model("gs110emx"))
+    assert asyncio.run(aio.get_vlans()) == sync.get_vlans()
+
+
+def test_gs110emx_select_posts_the_shown_vlan_as_vlanidsel() -> None:
+    """The select is the browser's dropdown change: ``vlanIdSel`` is the VLAN the
+    page was SHOWING. Sending the requested VLAN there (what this library did)
+    is the Apply shape, which the switch answers with nothing -- issue #16."""
+    from netgear_switch.http_read import _membership_form
+    from netgear_switch.protocols.http.endpoints import http_spec
+
+    spec = http_spec(get_model("gs110emx"))
+    assert _membership_form(spec, 4, shown=1) == {"VLAN_ID": "4", "vlanIdSel": "1"}
+    with pytest.raises(ValueError, match="Apply"):
+        _membership_form(spec, 4, shown=4)
+    with pytest.raises(ValueError, match="shown"):
+        _membership_form(spec, 4)
+
+
+def test_gs110emx_get_vlans_reports_an_empty_reply_as_empty() -> None:
+    """A switch that answers a select with a 0-byte body must be reported as
+    exactly that, against the right page name."""
+    pages = _gs110emx_pages()
+    real = pages["/iss/specific/vlanMembership.html"]
+    pages["/iss/specific/vlanMembership.html"] = lambda data: "" if data else real(data)
+    reader = HttpReader(_FakeSession(pages), get_model("gs110emx"))
+    with pytest.raises(HttpUnexpectedPageError) as exc:
+        reader.get_vlans()
+    assert "vlanMembership.html" in str(exc.value)
+    assert "empty body" in str(exc.value)
+    assert "8021qMembe" not in str(exc.value)
+
+
+def test_gs110emx_get_vlans_refuses_a_page_showing_another_vlan() -> None:
+    """A reply rendering a different VLAN than the one asked for must never be
+    attributed to the requested VLAN (the old fake did exactly this, silently)."""
+    pages = _gs110emx_pages()
+    vlan1 = (_FIX / "gs110emx_fw1028_vlanmembership_vlan1.html").read_text()
+    pages["/iss/specific/vlanMembership.html"] = lambda data: vlan1
+    reader = HttpReader(_FakeSession(pages), get_model("gs110emx"))
+    with pytest.raises(
+        HttpUnexpectedPageError, match=r"asked for VLAN 4.*shows VLAN 1"
+    ):
+        reader.get_vlans()
 
 
 def _gs105pe_pages() -> dict[str, str]:
@@ -643,9 +726,7 @@ def _gsm7252ps_pages() -> dict[str, str]:
         ).read_text(),
         # LIVE capture 2026-07-30 from 10.1.5.22 -- the page that adds the
         # gateway and the DHCP/static method sysInfo does not carry.
-        "/ipConfiguration.html": (
-            _FIX / "gsm7252ps_ipConfiguration.html"
-        ).read_text(),
+        "/ipConfiguration.html": (_FIX / "gsm7252ps_ipConfiguration.html").read_text(),
         # VLAN-Membership, captured 2026-07-30 (VLANs 1 and 141 on this switch).
         "/switching/dot1q/vlan_port_cfg.html": _membership(
             "gsm7252ps_vlanPortCfg_vlan1.html",
@@ -672,9 +753,7 @@ def test_http_reader_refuses_unverified_model() -> None:
     from netgear_switch.protocols.http import endpoints
 
     original = endpoints._SPECS["gsm7228ps"]
-    endpoints._SPECS["gsm7228ps"] = dataclasses.replace(
-        original, reads_verified=False
-    )
+    endpoints._SPECS["gsm7228ps"] = dataclasses.replace(original, reads_verified=False)
     try:
         with pytest.raises(UnsupportedCapabilityError):
             HttpReader(_FakeSession({}), get_model("gsm7228ps"))
