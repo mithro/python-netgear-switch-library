@@ -366,3 +366,64 @@ with the evidence).
 
 ---
 
+# Part C (b.3) — IPv6 on every registered model and backend
+
+## Model × backend matrix
+
+Registered models (`registry.py`): m4300-24x, m4300-16x, gsm7252ps, gsm7228ps (alias s3300), gs110emx, gs305ep, m7300, xs748t, gs728tpp, gs105pe.
+
+| Model | Backends | Read today | Write today | What must be captured |
+|---|---|---|---|---|
+| gs728tpp | SNMP, HTTP | HTTP after Part A | HTTP after Part A | SNMP: walk `1.3.6.1.2.1.4.34` (ipAddressTable) for type-2 rows → read-only `get_ipv6_config` over SNMP is likely possible; writes → B3 measurement |
+| gsm7252ps | SNMP, HTTP, SSH, TELNET | CLI `show network` already prints `IPv6 Administrative Mode`, `IPv6 Prefix is` (one line per address, `/128` for the DHCP one), `IPv6 Default Router`, `Configured IPv6 Protocol`, `IPv6 AutoConfig Mode` (fixture `gsm7252ps_show_network.txt`) — parser missing | none | CLI write grammar via `show running-config` diff after a UI change (candidates: `network ipv6 enable`, `network ipv6 address <prefix>/<len> [eui64]`, `network ipv6 gateway <gw>`, `network ipv6 address dhcp`, `network ipv6 address autoconfig`); XE HTTP page (sibling of `/ipConfiguration.html`; name unknown); SNMP vendor columns (candidates under `agentNetworkConfigGroup`, likely an `agentNetworkIpv6AddrTable` — confirm by diff) |
+| gsm7228ps (S3300) | SNMP, HTTP, TELNET(60000) | `gsm7228ps_network.txt` has the same IPv6 lines | none | as gsm7252ps; HTTP S3300 dialect page unknown |
+| m4300-24x / -16x | SNMP, HTTP, SSH, TELNET | `show ip management` prints `IPv6 Management Interface`, `IPv6 Prefix is` with a continuation line and `[DHCP]` tag, `IPv6 Default Gateway` (fixture `m4300_16x_show_ip_management.txt`); the -24X fixture says `IPv6 Management Interface is not Configured.` — parser missing | none | CLI grammar (global config `ip management ipv6 …`? — capture, do not guess); XUI page (sibling of `/v1/mgmtVlanIpv4Configuration.html` — the obvious candidate `/v1/mgmtVlanIpv6Configuration.html` must be fetched and confirmed); SNMP as above |
+| gs110emx, gs305ep | NSDP, HTTP | none | none | NSDP has no IPv6 TLV in the protocol as implemented; check the web UI for an IPv6 page at all. If absent on the firmware in the field, record the exemption with the page list that proves it |
+| gs105pe | NSDP, HTTP | none | none | same as gs110emx |
+| m7300, xs748t | SNMP | none | none | did not answer SNMP in the 2026-08-22 sweep; exemption "unreachable, unmeasured" until a unit answers |
+
+### Task C1: CLI reads (parsers only, from existing fixtures)
+
+- [ ] `protocols/cli/parse.py::parse_ipv6_config(text: str) -> Ipv6Config` over `labelled_values` PLUS a multi-line collector for repeated `IPv6 Prefix is` and `IPv6 Default Router` labels and the M4300 continuation line (`labelled_values` keeps the last value only — extend with `labelled_values_multi(text) -> dict[str, list[str]]`). Scope from the prefix (`fe80::/10` → LINK_LOCAL), origin from the `[DHCP]` tag or `Configured IPv6 Protocol`, `interface` from `IPv6 Management Interface`.
+- [ ] Tests on the four fixtures in `tests/protocols/cli/test_cli_parse.py`; `CliReader.get_ipv6_config` using `network_cmd`; `virtual/cli_fastpath.render_network` grows the IPv6 lines from `MgmtSim`; parity test in `tests/virtual/test_cli_cross_backend.py`.
+- [ ] Commit `cli: get_ipv6_config from show network / show ip management`.
+
+### Task C2: CLI writes (FASTPATH), grounded per image
+
+- [ ] On gsm7252ps-s1 (console-backed) and m4300-16x-poe-s2: `show running-config` → file; add a throwaway `2001:db8:4001::/64` address via the web UI; `show running-config` again; diff gives the exact grammar per image. Repeat for the gateway. Remove via the UI; diff shows the `no` form. Save NOTHING.
+- [ ] `CliModelSpec.ipv6_address_cmds`, `ipv6_no_address_cmds`, `ipv6_gateway_cmds` (+ `_M4300_OVERRIDES`); `CliWriter.set_ipv6_address/delete_ipv6_address/set_ipv6_gateway` with read-back through `parse_ipv6_config`; `virtual/cli_fastpath` accepts the same commands; tests in `tests/test_cli_write.py` and `tests/virtual/test_cli_cross_backend.py`.
+- [ ] Live A/B/A on the throwaway address through the library; record firmware versions in the spec comments.
+- [ ] Commit per model dialect.
+
+### Task C3: HTTP XUI / XE / S3300 reads and writes
+
+- [ ] Capture each model's IPv6 page (login as the library does; save HTML + referenced JS under `tmp/live-captures/`, scrub `SID=`/session tokens, copy to `tests/fixtures/http/<model>_ipv6.html`). Add `ipv6_path` and an `XuiIpv6Fields` (mirroring `XuiMgmtIpFields`) per spec in `endpoints.py`.
+- [ ] `parse_xui_ipv6` / `parse_xe_ipv6` / `parse_s3300_ipv6` grounded on the fixtures; `HttpReader.get_ipv6_config` dialect switch like `_mgmt_ip`.
+- [ ] Writes through `forms.xui_form_apply_form` with the `submit_flag=8` machinery `set_mgmt_ip` already uses; `_raise_on_fastpath_err_flag`; verify-after-write.
+- [ ] Virtual faces: `web_fastpath_xui.render_ipv6/apply_ipv6`; seeds from fixtures.
+- [ ] Live-verify with the throwaway address (same as C2), reading back over CLI as the independent backend.
+
+### Task C4: SNMP reads and writes
+
+- [ ] Read: walk `ipAddressTable` (`1.3.6.1.2.1.4.34.1.{3,4,5,6}`) on every reachable SNMP model; rows indexed `.2.16.<16 bytes>` are IPv6. `parse_ipv6_addresses_rfc4293` → `Ipv6Config.addresses` (scope from the address; origin from `ipAddressOrigin` .6: 2 manual, 4 dhcp, 5 linklayer, 6 random → map to `Ipv6Origin`). Gateway: `inetCidrRouteTable` (`1.3.6.1.2.1.4.24.7`) default route for `inetCidrRouteDestType=2`, else vendor column. Flags (`enabled`, `autoconfig`, `dhcp`) from vendor columns found in B3/C2's diffs, else None.
+- [ ] Write: the vendor columns the walk-diff in C2 reveals (candidate: an `agentNetworkIpv6…` table with a RowStatus). A SET of the existing value measures writability; `notWritable`/`noAccess` with the captured error is the exemption evidence for that model+backend.
+- [ ] `virtual/state.py` SNMP projection of `MgmtSim.ipv6_*`; `tests/virtual/test_snmp_write_face.py`.
+
+### Task C5: Plus-class and unreachable models — measure, then record
+
+- [ ] gs110emx / gs305ep / gs105pe: list every page in the web UI (the existing `tests/fixtures/http/<model>_*.html` captures plus a fresh crawl); if no IPv6 page exists on the firmware in the field, add to each `registry.py` entry a comment `# IPv6 management: UNSUPPORTED on fw <ver> — web UI has no IPv6 page (crawled <date>); NSDP has no IPv6 TLV` and make `_nsdp_support` / `_http_support` in `capabilities.py` return `UNSUPPORTED` with that reason for the four IPv6 ops.
+- [ ] m7300 / xs748t: `UNSUPPORTED, "unreachable during every sweep; unmeasured"` until a unit answers; owner decision D7.
+- [ ] `tests/test_capabilities.py`: the full model × backend × op matrix for the four IPv6 ops has an explicit expectation per cell — no cell is left to default.
+
+---
+
+## Owner decisions needed (checklist)
+
+- [ ] **D1 — data model:** separate `Ipv6Config` (plan default) vs widening `MgmtIpConfig`. Also whether `Snapshot` grows an `ipv6` field (plan default: yes, `ipv6: Ipv6Config | None`).
+- [ ] **D2 — op names and shape:** `set_ipv6_address` / `delete_ipv6_address` / `set_ipv6_gateway` (plan default) vs a single `set_mgmt_ipv6(address, prefix_len, gateway)`.
+- [ ] **D3 — first-cut exemption:** may Part A merge with HTTP/GoAhead as the ONLY implemented backend for the IPv6 ops, with every other model/backend returning `UNSUPPORTED, "not yet implemented — issue #28"`? The working agreement needs this said explicitly.
+- [ ] **D4 — persistence:** is a `save_config(force=True)` operator op wanted on the GS728TPP (and `write memory` on FASTPATH), separate from the never-persist test rule? And who applies the production `2404:…::10/64` + gateway: the one-off script already in flight, or the library after A7?
+- [ ] **D5 — multicast rows:** keep `ff02::…` rows in `Ipv6Config.addresses` (plan default) or filter them out at the parser.
+- [ ] **D6 — IPv4 live-verify risk:** approve strategy 2 (gateway-only from on-link host) on gs728tpp and m4300-16x-poe-s2, and strategy 3 (console-backed address change) on gsm7252ps-s1; or restrict to strategy 1.
+- [ ] **D7 — unreachable models:** accept `UNSUPPORTED, "unmeasured"` for m7300 / xs748t, or power one up for the sweep.
+- [ ] **D8 — Plus-class:** if the crawl finds no IPv6 page on gs110emx/gs305ep/gs105pe, accept the recorded exemption without further hardware work.
