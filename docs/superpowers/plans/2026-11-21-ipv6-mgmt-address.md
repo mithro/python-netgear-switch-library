@@ -307,3 +307,62 @@ touched; only the IPv6 address list is.
 
 ---
 
+# Part B (b.2) — getting the IPv4 management writes going
+
+## State of play (measured in code, 2026-11-21)
+
+| Backend | gs728tpp | gsm7252ps / gsm7228ps | m4300-24x / -16x | gs110emx / gs305ep / gs105pe |
+|---|---|---|---|---|
+| HTTP `set_mgmt_ip` | **unsupported** — `_GS728TPP.mgmt_ip_fields is None`, and `_XML_API_WRITES` has no entry | XUI form implemented; APPLY **UNVERIFIED** (`http_write.set_mgmt_ip` docstring) | same as gsm72xx (`_M4300_MGMT_IP_FIELDS`) | Plus forms; unverified |
+| CLI `set_mgmt_ip` | n/a (no CLI) | `network parms <ip> <mask> <gw>` implemented, **never live-run**; a DHCP-mode switch (both captures say `Configured IPv4 Protocol DHCP`) may need `network protocol none` first — unmeasured | `ip management address` + `ip default-gateway` implemented, never live-run | n/a |
+| SNMP `set_mgmt_ip` | **unsupported** (no vendor subtree) | vendor `mgmt_write_*_unverified` placeholders (`…98.1/2/3`) — **never trusted** | same | n/a |
+| NSDP `set_mgmt_ip` | n/a | n/a | n/a | implemented; live status per model in `nsdp_write.py` |
+
+### Task B1: GoAhead IPv4 write (gs728tpp)
+
+Grounding to capture first (nothing below is implemented until this exists):
+
+- [ ] From ten64.monarto, logged in as the library does, GET `<sess>/Behaviour/IpConfig.js` (the IPConf page's `<jscript SRC>` in `tests/fixtures/http/gs728tpp_mgmt_ip.xml`) and save to `tmp/live-captures/gs728tpp_IpConfig.js`. Transcribe `IPConf.ApplyBtnClick` → which of `IPv4InterfaceList/ifEntry/{interfaceName,owner,IPAddr,subnetMask}` and `IPv4GatewayList/GWEntry/IPAddr` are posted, and the `owner` value that means static vs DHCP (the page's radios `rDhcp`/`rSt` bind to `owner`; the live static switch reports `owner=2`).
+- [ ] `goahead.ipv4_interface_body(iface_name, address, netmask, *, owner: str)` and `goahead.ipv4_gateway_body(iface_name, gateway, *, previous: str | None)` in `goahead.py`; tests in `test_goahead_write.py` transcribed from the JS.
+- [ ] `parse_goahead_mgmt_ip`: map `owner` → `IpMode` (currently always UNKNOWN) once the JS fixes the meaning; test on the existing fixture (`owner=2` → STATIC if the JS says so).
+- [ ] `HttpWriter.set_mgmt_ip`: GoAhead branch before `_require_xui_mgmt_fields`; `_XML_API_WRITES["set_mgmt_ip"] = True`; `virtual/web_gs728tpp.apply_write` branch for `IPv4InterfaceList` / `IPv4GatewayList`; capability test flips gs728tpp/http to SUPPORTED.
+- [ ] Commit per green file.
+
+### Task B2: live-verifying IPv4 management writes without stranding a switch
+
+Pick ONE of these per switch and record which was used in the writer docstring
+(the docstring currently says "deliberately never applied"; change it only
+with the evidence).
+
+1. **Idempotent write** — same address/mask/gateway as currently configured.
+   Proves the request is accepted and the read-back path works; proves nothing
+   about change. Acceptable as the FIRST live step on every model.
+2. **Gateway-only change from an on-link client.** Run from a host on the
+   switch's management subnet (ten64.monarto for the GS728TPP, ten64.welland
+   for the welland FASTPATH switches). Change the gateway to another address on
+   the same subnet, read back, restore, read back. Replies to the on-link
+   client never use the gateway, so the session survives. **Do this from the
+   on-link host, never over the WireGuard tunnel** — tunnelled traffic is
+   off-subnet and the switch's replies to it go via the gateway being changed.
+3. **Console-backed address change.** Only on a switch with an out-of-band
+   console that can issue `network parms` to restore: `gsm7252ps-s1` (console on
+   rpiz-serial :4004). Change the address to a free address on the same subnet
+   (reserve it in the sheet first), read back over the NEW address, restore
+   from the old session or the console.
+4. **Lab unit.** No spare GoAhead or FASTPATH unit is known; the Plus units
+   (GS105PE/GS110EMX) are a different dialect and prove nothing about these
+   pages. Owner decision D6.
+
+- [ ] GS728TPP: strategy 1 then 2 via `ngsw … ip set 10.2.5.10 255.255.255.0 10.2.5.1 --force`.
+- [ ] gsm7252ps-s1 (console-backed): strategy 1, then 3 if the owner agrees (D6); this also measures whether `network parms` is refused while `Configured IPv4 Protocol` is DHCP — if so add `mgmt_ip_mode_cmds` (`network protocol none` / `network protocol dhcp`) to `CliModelSpec`, grounded in the captured refusal text.
+- [ ] m4300-16x-poe-s2 (`ip management address`): strategy 1 then 2.
+- [ ] Record each result as `VERIFIED live @<ip> (fw <ver>) on <date>` in the writer docstrings and `docs/guide/writing.rst` "Management IP" (which currently says never applied).
+
+### Task B3: SNMP IPv4 management write — find the real columns or record the exemption
+
+- [ ] On gsm7252ps-s1 and m4300-16x-poe-s2: `ngsw … capture --output tmp/before.json` (full walk), change ONLY the gateway via the web UI (strategy 2), capture again, diff. The columns that moved are the write targets. Candidates to confirm, NOT to assume: NETGEAR-SWITCHING-MIB `agentNetworkConfigGroup` (`1.3.6.1.4.1.4526.10.1.1.1`): `.1` address, `.2` mask, `.3` gateway, `.7` config protocol.
+- [ ] Replace `mgmt_write_*_unverified` with the measured OIDs (rename, drop the suffix) in `oids.py`; write-test with an SNMP SET of the SAME value (`noError` vs `notWritable` is the measurement); update `virtual/state.py` seeds and `docs/superpowers/specs/2026-08-03-snmp-vendor-oid-sweep.md`.
+- [ ] gs728tpp SNMP: a walk of `4526` is `noSuchObject` (already recorded). Measure `ipAddressRowStatus` (`1.3.6.1.2.1.4.34.1.8`) writability with a SET of the existing row's value; expected `notWritable` → record the exemption in `registry.py` with the exact error.
+
+---
+
