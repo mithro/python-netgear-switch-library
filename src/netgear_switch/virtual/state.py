@@ -566,6 +566,14 @@ class VirtualSwitchState:
     nsdp_broadcast_filtering: bool | None = None
     # Loop detection (NSDP tag 0x9000): None = unseeded.
     nsdp_loop_detection: bool | None = None
+    # How many web-UI sessions a token-session (GS110EMX) face holds at
+    # once before it refuses a login. MEASURED 2026-10-14 on gs110emx1
+    # (10.1.5.25, firmware 1.0.2.8): one client logged in FIVE times and its
+    # sixth login was refused. Other clients share that table and could not
+    # be ruled out at that moment (an hour earlier a second login was
+    # refused, with others evidently holding four), so five is the most
+    # ever seen held, not a proven ceiling.
+    http_max_sessions: int = 5
     # Fixed seed MAC for device identity: the NSDP identity TLV (Tag.MAC /
     # server_mac) AND the SNMP dot1dBaseBridgeAddress scalar (see oid_map())
     # both project this same value -- on real hardware they're the same

@@ -7,7 +7,11 @@ import pytest
 
 pytest.importorskip("mcp", reason="the [mcp] extra is required for the MCP server")
 
-from netgear_switch.errors import ConfigError, UnsupportedCapabilityError
+from netgear_switch.errors import (
+    ConfigError,
+    HttpError,
+    UnsupportedCapabilityError,
+)
 from netgear_switch.mcp import server as mod
 from netgear_switch.models import IpMode, MgmtIpConfig, VLANInfo
 from netgear_switch.protocols.nsdp.protocol import (
@@ -228,7 +232,12 @@ def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
     model with no reachable write backend surfaces that honestly, not silently."""
     calls: list[tuple] = []
 
+    closed: list[bool] = []
+
     class _RecordingSwitch:
+        def close(self) -> None:
+            closed.append(True)
+
         # `backend` is RECORDED, not merely tolerated: the tool must thread the
         # caller's protocol choice through to the library. Dropping it would
         # silently run the op over the model's default backend, which is exactly
@@ -254,6 +263,9 @@ def test_write_tool_reaches_the_switch_when_enabled(monkeypatch) -> None:
     assert res == {"ok": True, "op": "set_pvid"}
     # No backend named -> None, i.e. "use the model's documented default".
     assert calls == [(3, 90, True, None)]
+    # The switch built for the call is closed when the call ends -- that is what
+    # logs an HTTP-backed session out instead of leaving it on the switch.
+    assert closed == [True]
 
     # An explicitly named backend must arrive as the Backend enum member.
     calls.clear()
@@ -334,6 +346,9 @@ def test_new_write_tools_reach_the_switch(monkeypatch) -> None:
     calls: list[tuple] = []
 
     class _Recording:
+        def close(self) -> None:
+            pass
+
         # Each accepts `backend` because every write tool now threads the
         # caller's protocol choice through (see the set_pvid test for the
         # assertions on its value).
@@ -381,6 +396,9 @@ def test_upload_certificate_tool_reaches_the_switch(monkeypatch) -> None:
     calls: list[tuple] = []
 
     class _Recording:
+        def close(self) -> None:
+            pass
+
         def upload_certificate(self, cert_pem, key_pem, *, force):
             calls.append((cert_pem, key_pem, force))
 
@@ -409,6 +427,9 @@ def test_upload_certificate_tool_reports_not_implemented(monkeypatch) -> None:
     never an uncaught stack trace."""
 
     class _M4300Like:
+        def close(self) -> None:
+            pass
+
         def upload_certificate(self, cert_pem, key_pem, *, force):
             raise NotImplementedError("uses SCP file-copy to the switch")
 
@@ -526,3 +547,52 @@ def test_main_rejects_bad_transport_or_port(monkeypatch, argv, env) -> None:
 def test_build_server_applies_host_and_port() -> None:
     srv = mod.build_server(env={}, host="127.0.0.1", port=8766)
     assert (srv.settings.host, srv.settings.port) == ("127.0.0.1", 8766)
+
+
+def test_each_tool_call_closes_the_switch_it_built(monkeypatch) -> None:
+    """Every tool call resolves a fresh switch. Left unclosed, an HTTP-backed
+    one stays logged in on the device; a GS110EMX refuses further logins with
+    "Maximum number of sessions reached... Try After Some Time" once a few have
+    piled up (measured 2026-10-14 on 10.1.5.25, firmware 1.0.2.8) -- which is
+    how this long-lived server locked the web UI out for everyone."""
+    events: list[str] = []
+
+    class _Switch:
+        def __init__(self, tag: str) -> None:
+            self.tag = tag
+
+        def get_ports(self, *, backend=None):
+            events.append(f"read {self.tag}")
+            return []
+
+        def get_vlans(self, *, backend=None):
+            events.append(f"read {self.tag}")
+            raise UnsupportedCapabilityError("nope")
+
+        def get_pvids(self, *, backend=None):
+            events.append(f"read {self.tag}")
+            raise HttpError("the switch said no")
+
+        def close(self) -> None:
+            events.append(f"close {self.tag}")
+
+    built = iter("abc")
+    monkeypatch.setattr(
+        mod,
+        "resolve_switch",
+        lambda _ns, *, env=None, prompt=None: _Switch(next(built)),
+    )
+    srv = mod.build_server(env={})
+    args = {"host": "10.1.5.25", "model": "gs110emx"}
+    _call(srv, "get_ports", args)
+    assert _call(srv, "get_vlans", args)[0]["unsupported"] is True
+    assert _call(srv, "get_pvids", args)[0]["error"] == "the switch said no"
+    # Closed after a success, after an unsupported op, and after an error.
+    assert events == [
+        "read a",
+        "close a",
+        "read b",
+        "close b",
+        "read c",
+        "close c",
+    ]
